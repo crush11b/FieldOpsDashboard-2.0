@@ -1,0 +1,10 @@
+{
+  "name": "FieldOpsDashboard",
+  "description": "Rugged offline-first ham radio launcher and system status dashboard for field radio operators.",
+  "requestFramePermissions": [
+    "geolocation"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
