@@ -270,6 +270,11 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             onUpdateGPS={handleUpdateGPS}
+            comPort={config.gpsComPort}
+            baudRate={config.gpsBaudRate}
+            onSelectComPort={(port, baud) => {
+              setConfig((prev) => ({ ...prev, gpsComPort: port, gpsBaudRate: baud }));
+            }}
           />
 
           {/* Field Weather Snapshot & NOAA Alert Badge */}

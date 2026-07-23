@@ -268,7 +268,7 @@ async function startServer() {
       try {
         const pointRes = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, {
           headers: {
-            'User-Agent': 'FieldOpsDashboard/1.1.4 (contact@fieldops.radio)',
+            'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
             'Accept': 'application/geo+json'
           }
         });
@@ -287,7 +287,7 @@ async function startServer() {
       try {
         const noaaRes = await fetch(`https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`, {
           headers: {
-            'User-Agent': 'FieldOpsDashboard/1.1.4 (contact@fieldops.radio)',
+            'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
             'Accept': 'application/geo+json'
           }
         });
@@ -309,42 +309,77 @@ async function startServer() {
         console.warn("NOAA API live fetch failed or offline for point", lat, lon);
       }
 
-      // 3. Fetch live Open-Meteo current weather for lat,lon
+      // 3. Fetch live Open-Meteo current & hourly weather for lat,lon
+      let hourlyForecast: any[] = [];
       try {
-        const meteoRes = await fetch(`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current_weather=true&hourly=relative_humidity_2m,surface_pressure&temperature_unit=fahrenheit&wind_speed_unit=mph`);
+        const meteoRes = await fetch(
+          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m,surface_pressure&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=12`
+        );
         if (meteoRes.ok) {
           const mData: any = await meteoRes.json();
-          const cw = mData.current_weather || {};
-          if (cw.temperature !== undefined) {
-            const tempF = Math.round(cw.temperature);
+          const curr = mData.current || mData.current_weather || {};
+          
+          if (curr.temperature_2m !== undefined || curr.temperature !== undefined) {
+            const tempF = Math.round(curr.temperature_2m ?? curr.temperature ?? 75);
             const tempC = Math.round((tempF - 32) * (5 / 9));
-            const windMph = Math.round(cw.windspeed || 0);
-            const windDirNum = cw.winddirection || 0;
+            const windMph = Math.round(curr.wind_speed_10m ?? curr.windspeed ?? 5);
+            const windGustMph = Math.round(curr.wind_gusts_10m ?? (windMph + 6));
+            const windDirNum = curr.wind_direction_10m ?? curr.winddirection ?? 220;
             const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
             const windDir = dirs[Math.round(windDirNum / 45) % 8];
+
+            const humidity = Math.round(curr.relative_humidity_2m ?? 55);
+            const pressureHpa = Math.round(curr.pressure_msl ?? curr.surface_pressure ?? 1013);
+            const pressureInHg = Math.round((pressureHpa * 0.02953) * 100) / 100;
+            const weatherCode = curr.weather_code ?? curr.weathercode ?? 0;
+            const uvIndex = Math.round(curr.uv_index ?? 5);
+
+            // Process hourly forecast (next 6 hours)
+            if (mData.hourly && Array.isArray(mData.hourly.time)) {
+              const currentHourIdx = mData.hourly.time.findIndex((t: string) => new Date(t).getTime() >= Date.now() - 3600000);
+              const startIdx = currentHourIdx >= 0 ? currentHourIdx : 0;
+              const nextHours = mData.hourly.time.slice(startIdx, startIdx + 6);
+              
+              hourlyForecast = nextHours.map((t: string, idx: number) => {
+                const hourRealIdx = startIdx + idx;
+                const hTemp = Math.round(mData.hourly.temperature_2m?.[hourRealIdx] ?? tempF);
+                const hCode = mData.hourly.weather_code?.[hourRealIdx] ?? weatherCode;
+                const hPrecip = Math.round(mData.hourly.precipitation_probability?.[hourRealIdx] ?? 0);
+                const hWind = Math.round(mData.hourly.wind_speed_10m?.[hourRealIdx] ?? windMph);
+                const hTime = new Date(t).toLocaleTimeString([], { hour: 'numeric' });
+                return {
+                  time: hTime,
+                  tempF: hTemp,
+                  precipProb: hPrecip,
+                  windMph: hWind,
+                  weatherCode: hCode,
+                };
+              });
+            }
 
             liveWeather = {
               tempF,
               tempC,
-              humidity: 52,
-              pressureInHg: 30.08,
-              pressureHpa: 1018,
+              humidity,
+              pressureInHg,
+              pressureHpa,
               windMph,
               windDir,
-              windGustMph: windMph + 5,
-              condition: cw.weathercode > 50 ? 'Rain/Precipitation' : cw.weathercode > 0 ? 'Partly Cloudy' : 'Clear Sky',
-              icon: cw.weathercode > 50 ? 'rain' : 'partly-cloudy',
+              windGustMph,
+              condition: weatherCode > 50 ? 'Precipitation/Rain' : weatherCode > 0 ? 'Partly Cloudy' : 'Clear Sky',
+              icon: weatherCode > 50 ? 'rain' : 'sun',
               locationName,
-              dewPointF: Math.round(tempF - 12),
-              uvIndex: 6,
+              dewPointF: Math.round(tempF - ((100 - humidity) / 5) * 1.8),
+              uvIndex,
               visibilityMiles: 10,
               lastUpdated: new Date().toLocaleTimeString(),
               cached: false,
+              hourlyForecast,
             };
           }
         }
       } catch (e) {
-        console.warn("Open-Meteo live weather fetch failed");
+        console.warn("Open-Meteo live weather fetch failed", e);
       }
 
       // Fallback defaults if offline / unreachable
@@ -352,8 +387,8 @@ async function startServer() {
         tempF: 78,
         tempC: 25,
         humidity: 50,
-        pressureInHg: 30.08,
-        pressureHpa: 1018,
+        pressureInHg: 29.92,
+        pressureHpa: 1013,
         windMph: 6,
         windDir: "SW",
         windGustMph: 12,
@@ -365,6 +400,14 @@ async function startServer() {
         visibilityMiles: 10,
         lastUpdated: new Date().toLocaleTimeString(),
         cached: false,
+        hourlyForecast: [
+          { time: '12 PM', tempF: 78, precipProb: 0, windMph: 6, weatherCode: 0 },
+          { time: '1 PM', tempF: 80, precipProb: 5, windMph: 7, weatherCode: 0 },
+          { time: '2 PM', tempF: 81, precipProb: 10, windMph: 8, weatherCode: 1 },
+          { time: '3 PM', tempF: 80, precipProb: 15, windMph: 9, weatherCode: 1 },
+          { time: '4 PM', tempF: 78, precipProb: 10, windMph: 7, weatherCode: 0 },
+          { time: '5 PM', tempF: 76, precipProb: 5, windMph: 6, weatherCode: 0 },
+        ],
       };
 
       res.json({ weather, alerts: noaaAlerts });

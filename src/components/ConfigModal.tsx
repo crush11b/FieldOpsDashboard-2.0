@@ -27,6 +27,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   const [activeTab, setActiveTab] = useState<'general' | 'apps' | 'json_editor'>('general');
   const [callsign, setCallsign] = useState(config.callsign);
   const [columns, setColumns] = useState<2 | 3 | 4 | 6>(config.appGridColumns);
+  const [comPort, setComPort] = useState<string>(config.gpsComPort || 'COM4 (u-Blox GNSS Receiver)');
+  const [baudRate, setBaudRate] = useState<number>(config.gpsBaudRate || 9600);
   const [appsList, setAppsList] = useState<AppLauncherItem[]>(config.apps);
   const [jsonText, setJsonText] = useState(JSON.stringify(config.apps, null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
@@ -57,6 +59,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
       ...config,
       callsign,
       appGridColumns: columns,
+      gpsComPort: comPort,
+      gpsBaudRate: baudRate,
       apps: appsList,
     });
     onClose();
@@ -263,6 +267,63 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                     <option value={6}>6 Columns (Ultra High Density)</option>
                   </select>
                 </div>
+              </div>
+
+              {/* GNSS Satellite Serial COM Port & Baud Rate Configuration */}
+              <div className="p-3.5 rounded-xl border border-cyan-500/30 bg-slate-900/80 space-y-3 font-mono">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-black text-xs uppercase text-cyan-300 flex items-center gap-1.5">
+                    🛰️ SATELLITE GNSS SERIAL COM PORT CONFIG
+                  </h4>
+                  <span className="text-[10px] px-2 py-0.5 rounded border border-emerald-500/40 bg-emerald-500/10 text-emerald-400 font-bold">
+                    BOOT DIRECT LINK
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                      DEFAULT COM PORT / SERIAL DEVICE
+                    </label>
+                    <select
+                      id="select-config-com-port"
+                      value={comPort}
+                      onChange={(e) => setComPort(e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded font-bold text-xs text-amber-300 font-mono"
+                    >
+                      <option value="COM1">COM1 (Standard System Serial)</option>
+                      <option value="COM3">COM3 (USB Serial Adapter)</option>
+                      <option value="COM4 (u-Blox GNSS Receiver)">COM4 (u-Blox GNSS Receiver)</option>
+                      <option value="COM5 (u-Blox ZED-F9P RTK)">COM5 (u-Blox ZED-F9P High-Precision RTK)</option>
+                      <option value="COM7 (Garmin Marine NMEA)">COM7 (Garmin Marine NMEA 0183)</option>
+                      <option value="/dev/ttyUSB0">/dev/ttyUSB0 (Linux USB-Serial)</option>
+                      <option value="/dev/ttyACM0">/dev/ttyACM0 (Linux USB Modem/GNSS)</option>
+                      <option value="AUTO_DETECT">⚡ Auto-Detect Satellite Dongle</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
+                      NMEA BAUD RATE
+                    </label>
+                    <select
+                      id="select-config-baud-rate"
+                      value={baudRate}
+                      onChange={(e) => setBaudRate(Number(e.target.value))}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded font-bold text-xs text-cyan-300 font-mono"
+                    >
+                      <option value={4800}>4800 BAUD (Standard NMEA 0183)</option>
+                      <option value={9600}>9600 BAUD (Default u-Blox / Garmin)</option>
+                      <option value={19200}>19200 BAUD (High-Speed NMEA)</option>
+                      <option value={38400}>38400 BAUD (AIS / High Rate GNSS)</option>
+                      <option value={57600}>57600 BAUD (RTK Differential)</option>
+                      <option value={115200}>115200 BAUD (UBX Binary / Multi-GNSS)</option>
+                    </select>
+                  </div>
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Selects the hardware COM Port and NMEA Baud Rate used on startup. Replaces prompt popups for location permissions in field operations.
+                </p>
               </div>
 
               {/* Import / Export JSON buttons */}

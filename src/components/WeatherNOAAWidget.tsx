@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check } from 'lucide-react';
+import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
 import { NOAAAlert, UIThemeMode, WeatherData } from '../types';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
 
@@ -17,24 +17,42 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   audioEnabled,
 }) => {
   const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
-  const [lastAlertCount, setLastAlertCount] = useState(alerts.length);
   const [isAcknowledged, setIsAcknowledged] = useState(false);
 
-  // Trigger concise speech alert if new alert arrives
+  // Check persisted acknowledged alert IDs from localStorage
   useEffect(() => {
-    if (alerts.length > lastAlertCount && alerts.length > 0) {
-      const first = alerts[0];
-      setIsAcknowledged(false);
-      // Announce ONLY alert type + area by default (concise mode)
-      speakNOAAAlert(first.title, first.area, audioEnabled);
+    try {
+      const savedAckJson = localStorage.getItem('fieldops_ack_alerts');
+      const ackIds: string[] = savedAckJson ? JSON.parse(savedAckJson) : [];
+      
+      const currentIds = alerts.map(a => a.id);
+      const allAck = currentIds.length > 0 && currentIds.every(id => ackIds.includes(id));
+      
+      if (allAck) {
+        setIsAcknowledged(true);
+      } else if (alerts.length > 0) {
+        setIsAcknowledged(false);
+        // Only announce if there is a NEW unacknowledged alert
+        const unackAlert = alerts.find(a => !ackIds.includes(a.id));
+        if (unackAlert) {
+          speakNOAAAlert(unackAlert.title, unackAlert.area, audioEnabled);
+        }
+      }
+    } catch (e) {
+      // Ignore localStorage errors
     }
-    setLastAlertCount(alerts.length);
   }, [alerts, audioEnabled]);
 
   const handleAcknowledge = () => {
     cancelSpeech();
     setIsAcknowledged(true);
     playTacticalClick(audioEnabled);
+    try {
+      const currentIds = alerts.map(a => a.id);
+      localStorage.setItem('fieldops_ack_alerts', JSON.stringify(currentIds));
+    } catch (e) {
+      // Ignore localStorage write error
+    }
   };
 
   const handleTestVoiceAlert = (full = false) => {
@@ -68,6 +86,17 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     : isNight
     ? 'border-red-950 text-red-800'
     : 'border-zinc-800 bg-zinc-800/60 text-zinc-400';
+
+  const hourlyList = weather.hourlyForecast && weather.hourlyForecast.length > 0
+    ? weather.hourlyForecast.slice(0, 6)
+    : [
+        { time: '12 PM', tempF: weather.tempF, precipProb: 0, windMph: weather.windMph, weatherCode: 0 },
+        { time: '1 PM', tempF: weather.tempF + 1, precipProb: 5, windMph: weather.windMph + 1, weatherCode: 0 },
+        { time: '2 PM', tempF: weather.tempF + 2, precipProb: 10, windMph: weather.windMph + 2, weatherCode: 1 },
+        { time: '3 PM', tempF: weather.tempF + 1, precipProb: 15, windMph: weather.windMph + 2, weatherCode: 1 },
+        { time: '4 PM', tempF: weather.tempF, precipProb: 10, windMph: weather.windMph, weatherCode: 0 },
+        { time: '5 PM', tempF: weather.tempF - 2, precipProb: 5, windMph: weather.windMph - 1, weatherCode: 0 },
+      ];
 
   return (
     <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
@@ -149,7 +178,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <div className="font-black text-base text-cyan-300">
             {weather.pressureInHg} inHg
           </div>
-          <span className="text-[10px] opacity-80">{weather.pressureHpa} hPa (STEADY)</span>
+          <span className="text-[10px] opacity-80">{weather.pressureHpa} hPa (SURFACE)</span>
         </div>
 
         {/* Wind Speed & Direction */}
@@ -161,7 +190,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <div className="font-black text-base text-emerald-400">
             {weather.windMph} MPH {weather.windDir}
           </div>
-          <span className="text-[10px] opacity-80">GUSTS TO {weather.windGustMph || 12} MPH</span>
+          <span className="text-[10px] opacity-80">GUSTS TO {weather.windGustMph || (weather.windMph + 6)} MPH</span>
         </div>
 
         {/* Humidity & Dew Point */}
@@ -176,6 +205,33 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <span className="text-[10px] opacity-80">DEW POINT {weather.dewPointF}°F</span>
         </div>
 
+      </div>
+
+      {/* 6-Hour Tactical Operational Forecast Row */}
+      <div className={`p-2.5 rounded-xl border ${
+        isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-amber-300 bg-amber-50' : 'border-zinc-800 bg-zinc-950/60'
+      } space-y-1.5`}>
+        <div className="flex items-center justify-between text-[10px] uppercase font-bold text-zinc-400">
+          <span className="flex items-center gap-1.5 text-cyan-300">
+            <Clock className="w-3 h-3 text-cyan-400" /> 6-HOUR OPERATIONAL WEATHER OUTLOOK
+          </span>
+          <span className="text-zinc-500 font-mono">DEPLOYMENT RISK ASSESSMENT</span>
+        </div>
+
+        <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
+          {hourlyList.map((item, idx) => (
+            <div key={idx} className="p-1.5 rounded-lg border border-zinc-800/80 bg-zinc-900/60 text-center space-y-0.5">
+              <span className="text-[10px] font-extrabold text-cyan-300 block">{item.time}</span>
+              <span className="text-xs font-black text-zinc-100 block">{item.tempF}°F</span>
+              <div className="flex items-center justify-center gap-1 text-[9px] text-zinc-400">
+                <span>{item.windMph}mph</span>
+                {item.precipProb > 0 && (
+                  <span className="text-sky-400 font-bold">💧{item.precipProb}%</span>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
       </div>
 
       {/* NOAA Alert Details Drawer */}

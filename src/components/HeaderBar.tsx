@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   Radio, 
   BatteryCharging, 
@@ -15,7 +15,8 @@ import {
   Volume2,
   VolumeX,
   Sparkles,
-  Download
+  Download,
+  Clock
 } from 'lucide-react';
 import { DualBatteryStatus, GPSStatus, NetworkStatus, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
@@ -33,6 +34,7 @@ interface HeaderBarProps {
   onOpenRoadmap: (tab?: string) => void;
   onToggleTouchMenu: () => void;
   touchMenuOpen: boolean;
+  onToggleNetwork?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -48,7 +50,22 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onOpenRoadmap,
   onToggleTouchMenu,
   touchMenuOpen,
+  onToggleNetwork,
 }) => {
+  const [localTime, setLocalTime] = useState<string>('');
+  const [utcTime, setUtcTime] = useState<string>('');
+
+  useEffect(() => {
+    const updateClocks = () => {
+      const now = new Date();
+      setLocalTime(now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false }));
+      setUtcTime(now.toISOString().substring(11, 19) + ' UTC');
+    };
+    updateClocks();
+    const interval = setInterval(updateClocks, 1000);
+    return () => clearInterval(interval);
+  }, []);
+
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
 
@@ -69,7 +86,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     <header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
       <div className={`max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${headerBg} backdrop-blur-md`}>
         
-        {/* Left: Brand & Operator Callsign */}
+        {/* Left: Brand & Operator Callsign & Version v2.1 */}
         <div className="flex items-center gap-3">
           <button
             id="btn-touch-menu-toggle"
@@ -99,22 +116,33 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 <span className={`text-[10px] px-2 py-0.5 rounded border uppercase tracking-widest font-mono font-bold ${
                   isNight ? 'border-red-900 text-red-400 bg-black' : isSunlight ? 'border-slate-500 bg-amber-300 text-slate-900' : 'border-zinc-700 bg-zinc-800/80 text-amber-400'
                 }`}>
-                  v1.1.4
+                  v2.1
                 </span>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Center: Live GPS Maidenhead Badge & Battery Stats */}
-        <div className="hidden lg:flex items-center gap-4 font-mono">
+        {/* Center: Dual Clock (Local & UTC), Maidenhead Grid, Battery, Network */}
+        <div className="hidden lg:flex items-center gap-3 font-mono">
+          {/* Dual Clock Badge */}
+          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${badgeBorder}`}>
+            <Clock className="w-4 h-4 text-cyan-400 animate-pulse" />
+            <div className="flex flex-col">
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">TIME SYNC (LOCAL / UTC)</span>
+              <span className="text-xs font-black text-cyan-300 tracking-wider">
+                {localTime || '12:00:00'} <span className="text-zinc-500">|</span> {utcTime || '16:00:00 UTC'}
+              </span>
+            </div>
+          </div>
+
           {/* Maidenhead Grid Square Badge */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${badgeBorder}`}>
             <MapPin className="w-4 h-4 text-emerald-400" />
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">GRID SQUARE</span>
-              <span className="text-sm font-black tracking-widest text-emerald-400">
-                {gps.gridSquare || 'FN20xr'}
+              <span className="text-xs font-black tracking-widest text-emerald-400">
+                {gps.gridSquare || 'FM17hd'}
               </span>
             </div>
           </div>
@@ -130,24 +158,34 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </div>
           </div>
 
-          {/* Network link status */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${
-            network.online 
-              ? badgeBorder 
-              : isNight ? 'border-red-600 bg-red-950 text-red-500' : 'border-amber-600 bg-amber-950/40 text-amber-400'
-          }`}>
+          {/* Network link status (Interactive Toggle) */}
+          <button
+            id="btn-header-network-toggle"
+            onClick={() => {
+              playTacticalClick(audioEnabled);
+              if (onToggleNetwork) onToggleNetwork();
+            }}
+            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all active:scale-95 ${
+              network.online 
+                ? badgeBorder 
+                : isNight ? 'border-red-600 bg-red-950 text-red-500' : 'border-amber-600 bg-amber-950/40 text-amber-400'
+            }`}
+            title="Click to toggle Network Interface (Wi-Fi / Cellular / Mesh RF / Offline)"
+          >
             {network.online ? (
               <Wifi className="w-4 h-4 text-emerald-400" />
             ) : (
               <WifiOff className="w-4 h-4 text-amber-400" />
             )}
-            <div className="flex flex-col">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">NETWORK</span>
+            <div className="flex flex-col text-left">
+              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">
+                NET ({network.type.toUpperCase()})
+              </span>
               <span className="text-xs uppercase font-mono font-bold text-emerald-400">
                 {network.online ? `${network.type} (${network.dnsLatencyMs}ms)` : 'OFFLINE RF'}
               </span>
             </div>
-          </div>
+          </button>
         </div>
 
         {/* Right: Quick Action Controls & Theme Toggles */}

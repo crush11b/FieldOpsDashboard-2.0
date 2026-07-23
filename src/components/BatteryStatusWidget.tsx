@@ -1,15 +1,45 @@
-import React from 'react';
-import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
 import { DualBatteryStatus, UIThemeMode } from '../types';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
   theme: UIThemeMode;
+  onUpdateBattery?: (updated: Partial<DualBatteryStatus>) => void;
 }
 
-export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme }) => {
+export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme, onUpdateBattery }) => {
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
+
+  useEffect(() => {
+    // Hook into Web Battery API if supported by OS/browser
+    if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
+      (navigator as any).getBattery().then((batt: any) => {
+        const updateHardwareBatt = () => {
+          const pct = Math.round(batt.level * 100);
+          const charging = batt.charging;
+          const disTime = batt.dischargingTime !== Infinity ? Math.round(batt.dischargingTime / 60) : 240;
+
+          if (onUpdateBattery) {
+            onUpdateBattery({
+              powerSource: charging ? 'AC Power & Charger' : 'Internal Li-Ion Battery',
+              mainTablet: {
+                ...battery.mainTablet,
+                percent: pct,
+                charging,
+                timeRemainingMins: disTime,
+              },
+            });
+          }
+        };
+
+        updateHardwareBatt();
+        batt.addEventListener('levelchange', updateHardwareBatt);
+        batt.addEventListener('chargingchange', updateHardwareBatt);
+      }).catch(() => {});
+    }
+  }, []);
 
   const cardBg = isNight
     ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'

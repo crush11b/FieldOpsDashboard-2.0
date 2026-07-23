@@ -59,10 +59,20 @@ export interface GPSStatus {
   speedKmh: number;
   gridSquare: string;
   satCount: number;
-  fixType: '3D Fix' | '2D Fix' | 'Searching' | 'No Fix';
+  fixType: '3D Fix' | '2D Fix' | 'Searching' | 'No Fix' | '3D RTK Fix' | '3D GPS Fix' | string;
   lockTime: string;
   mode: 'auto' | 'manual' | 'nmea_sim';
   deviceName: string;
+  comPort?: string;
+  baudRate?: number;
+}
+
+export interface HourlyWeatherItem {
+  time: string;
+  tempF: number;
+  precipProb: number;
+  windMph: number;
+  weatherCode: number;
 }
 
 export interface WeatherData {
@@ -72,6 +82,7 @@ export interface WeatherData {
   pressureInHg: number;
   pressureHpa: number;
   windMph: number;
+  windGustMph?: number;
   windDir: string;
   condition: string;
   icon: string;
@@ -81,6 +92,7 @@ export interface WeatherData {
   visibilityMiles: number;
   lastUpdated: string;
   cached: boolean;
+  hourlyForecast?: HourlyWeatherItem[];
 }
 
 export interface NOAAAlert {
@@ -129,6 +141,8 @@ export interface DashboardConfig {
   callsign: string;
   potaParkRef: string;
   apps: AppLauncherItem[];
+  gpsComPort?: string;
+  gpsBaudRate?: number;
 }
 
 // ADIF Log entry for SmartLog+
