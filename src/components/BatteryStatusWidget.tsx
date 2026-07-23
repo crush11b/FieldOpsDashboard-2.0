@@ -171,23 +171,54 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
         </div>
       </div>
 
-      {/* Manual Calibration Bar */}
+      {/* Manual Calibration & Direct Input Bar */}
       {showManualCalib && (
-        <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-950/20 space-y-2 text-xs">
+        <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-950/30 space-y-3 text-xs">
           <div className="flex items-center justify-between">
-            <span className="font-extrabold text-amber-400 uppercase text-[10px]">
-              🛠️ MANUAL BATTERY LEVEL CALIBRATION / TEST OVERRIDE
+            <span className="font-extrabold text-amber-400 uppercase text-[11px] flex items-center gap-1.5">
+              🛠️ EXACT BATTERY LEVEL INPUT & TOUGHBOOK SYNC
             </span>
-            <span className="text-[10px] text-zinc-400">
-              For testing alerts or uncoupled dock scenarios
+            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+              DIRECT OVERRIDE
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
-            <div>
-              <label className="block text-[10px] font-bold text-zinc-300 mb-1">
-                BATT 1 (TABLET MAIN): {mainPct}%
-              </label>
+          <p className="text-[11px] text-zinc-300 leading-relaxed">
+            <strong className="text-amber-300">Note:</strong> Because this web app is hosted on a Cloud container server, the server defaults to simulated 88%/94% values unless synced. Enter your exact ToughBook battery percentages below to update the dashboard instantly:
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
+            <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="text-[11px] font-bold text-amber-300">
+                  BATT 1 (MAIN TABLET %):
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  value={mainPct}
+                  onChange={(e) => {
+                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    if (onUpdateBattery) {
+                      onUpdateBattery({
+                        mainTablet: {
+                          ...battery.mainTablet,
+                          percent: val,
+                          timeRemainingMins: Math.round(val * 3.5),
+                        },
+                      });
+                    }
+                    // Sync to backend telemetry
+                    fetch('/api/system/battery/telemetry', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ b1: val, b2: kbPct }),
+                    }).catch(() => {});
+                  }}
+                  className="w-16 px-2 py-1 bg-black border border-amber-500/50 rounded font-black text-xs text-amber-300 text-center"
+                />
+              </div>
               <input
                 type="range"
                 min="0"
@@ -204,34 +235,66 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                       },
                     });
                   }
+                  fetch('/api/system/battery/telemetry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ b1: val, b2: kbPct }),
+                  }).catch(() => {});
                 }}
                 className="w-full accent-amber-400 cursor-pointer"
               />
             </div>
 
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-[10px] font-bold text-zinc-300">
-                  BATT 2 (DOCK): {battery.keyboardDock.attached ? `${kbPct}%` : 'UNCOUPLED'}
-                </label>
-                <label className="flex items-center gap-1 text-[10px] text-cyan-300 cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={battery.keyboardDock.attached}
-                    onChange={(e) => {
-                      if (onUpdateBattery) {
-                        onUpdateBattery({
-                          keyboardDock: {
-                            ...battery.keyboardDock,
-                            attached: e.target.checked,
-                          },
-                        });
-                      }
-                    }}
-                    className="accent-cyan-400 rounded"
-                  />
-                  <span>ATTACHED</span>
-                </label>
+            <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-700 space-y-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <label className="text-[11px] font-bold text-cyan-300">
+                    BATT 2 (KEYBOARD DOCK %):
+                  </label>
+                  <label className="flex items-center gap-1 text-[10px] text-zinc-400 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={battery.keyboardDock.attached}
+                      onChange={(e) => {
+                        if (onUpdateBattery) {
+                          onUpdateBattery({
+                            keyboardDock: {
+                              ...battery.keyboardDock,
+                              attached: e.target.checked,
+                            },
+                          });
+                        }
+                      }}
+                      className="accent-cyan-400 rounded"
+                    />
+                    <span>ATTACHED</span>
+                  </label>
+                </div>
+                <input
+                  type="number"
+                  min="0"
+                  max="100"
+                  disabled={!battery.keyboardDock.attached}
+                  value={kbPct}
+                  onChange={(e) => {
+                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    if (onUpdateBattery) {
+                      onUpdateBattery({
+                        keyboardDock: {
+                          ...battery.keyboardDock,
+                          percent: val,
+                          timeRemainingMins: Math.round(val * 4.2),
+                        },
+                      });
+                    }
+                    fetch('/api/system/battery/telemetry', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ b1: mainPct, b2: val }),
+                    }).catch(() => {});
+                  }}
+                  className="w-16 px-2 py-1 bg-black border border-cyan-500/50 rounded font-black text-xs text-cyan-300 text-center disabled:opacity-30"
+                />
               </div>
               <input
                 type="range"
@@ -250,10 +313,34 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                       },
                     });
                   }
+                  fetch('/api/system/battery/telemetry', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ b1: mainPct, b2: val }),
+                  }).catch(() => {});
                 }}
                 className="w-full accent-cyan-400 cursor-pointer disabled:opacity-30"
               />
             </div>
+          </div>
+
+          <div className="p-2 bg-zinc-950 rounded border border-zinc-800 space-y-1">
+            <div className="flex items-center justify-between text-[10px] text-cyan-300 font-bold">
+              <span>⚡ LOCAL TOUGHBOOK AUTOMATIC DUAL-BATTERY WMI SYNC SCRIPT</span>
+              <button
+                onClick={() => {
+                  const cmd = `powershell -NoProfile -Command "$u='${window.location.origin}/api/system/battery/telemetry'; while(1){ $b=Get-CimInstance Win32_Battery; $p1=$b[0].EstimatedChargeRemaining; $p2=if($b[1]){$b[1].EstimatedChargeRemaining}else{94}; Invoke-RestMethod -Uri $u -Method POST -Body (@{b1=$p1;b2=$p2}|ConvertTo-Json) -ContentType 'application/json'; Start-Sleep 10 }"`;
+                  navigator.clipboard.writeText(cmd);
+                  alert('PowerShell Live Sync Command copied to clipboard! Open PowerShell on your ToughBook and paste to continuously stream real dual battery status.');
+                }}
+                className="px-2 py-0.5 bg-cyan-900/60 border border-cyan-500/50 rounded text-cyan-200 hover:bg-cyan-800 transition-colors"
+              >
+                📋 Copy PowerShell Sync Command
+              </button>
+            </div>
+            <p className="text-[10px] text-zinc-400 font-mono overflow-x-auto whitespace-nowrap p-1 bg-black rounded border border-zinc-800">
+              powershell -Command &quot;while(1) &#123; $b=Get-CimInstance Win32_Battery; ... Invoke-RestMethod ... &#125;&quot;
+            </p>
           </div>
         </div>
       )}
