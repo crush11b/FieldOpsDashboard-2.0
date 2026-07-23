@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, RefreshCw } from 'lucide-react';
+import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, RefreshCw, Sliders, Check } from 'lucide-react';
 import { DualBatteryStatus, UIThemeMode } from '../types';
 
 interface BatteryStatusWidgetProps {
@@ -12,33 +12,111 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
 
-  useEffect(() => {
-    // Hook into Web Battery API if supported by OS/browser
-    if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
-      (navigator as any).getBattery().then((batt: any) => {
-        const updateHardwareBatt = () => {
-          const pct = Math.round(batt.level * 100);
-          const charging = batt.charging;
-          const disTime = batt.dischargingTime !== Infinity ? Math.round(batt.dischargingTime / 60) : 240;
+  const [isPolling, setIsPolling] = useState(false);
+  const [pollSource, setPollSource] = useState<string>('Initializing...');
+  const [showManualCalib, setShowManualCalib] = useState(false);
+  const [lastPolledTime, setLastPolledTime] = useState<string>('');
 
+  const fetchHardwareBattery = async () => {
+    setIsPolling(true);
+    let updated = false;
+
+    // 1. Try backend API /api/system/battery (queries WMI Win32_Battery on Windows / Linux sysfs)
+    try {
+      const res = await fetch('/api/system/battery');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.source && !data.source.includes('fallback')) {
           if (onUpdateBattery) {
             onUpdateBattery({
-              powerSource: charging ? 'AC Power & Charger' : 'Internal Li-Ion Battery',
+              powerSource: data.powerSource || 'Internal Battery',
+              mainTablet: {
+                ...battery.mainTablet,
+                ...data.mainTablet,
+              },
+              keyboardDock: {
+                ...battery.keyboardDock,
+                ...data.keyboardDock,
+              },
+            });
+          }
+          setPollSource(`WMI / ${data.source === 'win32_wmi' ? 'Win32_Battery' : 'sysfs'}`);
+          setLastPolledTime(new Date().toLocaleTimeString());
+          updated = true;
+        }
+      }
+    } catch (e) {
+      // API call failed or offline
+    }
+
+    // 2. If backend didn't return direct WMI, query browser navigator.getBattery API
+    if (!updated && typeof navigator !== 'undefined' && (navigator as any).getBattery) {
+      try {
+        const batt = await (navigator as any).getBattery();
+        const pct = Math.round(batt.level * 100);
+        const charging = batt.charging;
+        const disTime = batt.dischargingTime !== Infinity ? Math.round(batt.dischargingTime / 60) : 240;
+
+        if (onUpdateBattery) {
+          onUpdateBattery({
+            powerSource: charging ? 'AC External / Charger' : 'Internal Li-Ion Battery',
+            mainTablet: {
+              ...battery.mainTablet,
+              percent: pct,
+              charging,
+              timeRemainingMins: disTime,
+            },
+          });
+        }
+        setPollSource(`Browser Navigator Battery API (${pct}%)`);
+        setLastPolledTime(new Date().toLocaleTimeString());
+        updated = true;
+      } catch (err) {
+        // navigator.getBattery failed
+      }
+    }
+
+    if (!updated) {
+      setPollSource('Virtual Field Simulation');
+      setLastPolledTime(new Date().toLocaleTimeString());
+    }
+
+    setIsPolling(false);
+  };
+
+  useEffect(() => {
+    fetchHardwareBattery();
+
+    // Hook into Browser Battery API level/charging change events
+    if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
+      (navigator as any).getBattery().then((batt: any) => {
+        const updateOnEvent = () => {
+          const pct = Math.round(batt.level * 100);
+          const charging = batt.charging;
+          if (onUpdateBattery) {
+            onUpdateBattery({
+              powerSource: charging ? 'AC External / Charger' : 'Internal Li-Ion Battery',
               mainTablet: {
                 ...battery.mainTablet,
                 percent: pct,
                 charging,
-                timeRemainingMins: disTime,
               },
             });
           }
+          setPollSource(`OS Battery Driver (${pct}%)`);
+          setLastPolledTime(new Date().toLocaleTimeString());
         };
-
-        updateHardwareBatt();
-        batt.addEventListener('levelchange', updateHardwareBatt);
-        batt.addEventListener('chargingchange', updateHardwareBatt);
+        batt.addEventListener('levelchange', updateOnEvent);
+        batt.addEventListener('chargingchange', updateOnEvent);
       }).catch(() => {});
     }
+
+    // Poll every 30 seconds
+    const interval = setInterval(() => {
+      fetchHardwareBattery();
+    }, 30000);
+
+    return () => clearInterval(interval);
   }, []);
 
   const cardBg = isNight
@@ -62,11 +140,123 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
             DUAL-BATTERY SYSTEM (CF-20 / FZ-G1)
           </h3>
         </div>
-        <div className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-300">
-          <Plug className="w-3.5 h-3.5 text-amber-400" />
-          <span>{battery.powerSource}</span>
+        
+        <div className="flex items-center gap-2">
+          <button
+            onClick={fetchHardwareBattery}
+            disabled={isPolling}
+            title="Poll OS & WMI Hardware Battery Data"
+            className="flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-cyan-300 transition-colors"
+          >
+            <RefreshCw className={`w-3 h-3 ${isPolling ? 'animate-spin text-amber-400' : ''}`} />
+            <span>{isPolling ? 'POLLING...' : 'POLL HARDWARE'}</span>
+          </button>
+
+          <button
+            onClick={() => setShowManualCalib(!showManualCalib)}
+            title="Manual Calibration & Percent Override"
+            className={`p-1 rounded-md border text-[10px] font-bold transition-colors ${
+              showManualCalib 
+                ? 'bg-amber-500/20 border-amber-500 text-amber-300' 
+                : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200'
+            }`}
+          >
+            <Sliders className="w-3.5 h-3.5" />
+          </button>
+
+          <div className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-300">
+            <Plug className="w-3.5 h-3.5 text-amber-400" />
+            <span>{battery.powerSource}</span>
+          </div>
         </div>
       </div>
+
+      {/* Manual Calibration Bar */}
+      {showManualCalib && (
+        <div className="p-3 rounded-xl border border-amber-500/30 bg-amber-950/20 space-y-2 text-xs">
+          <div className="flex items-center justify-between">
+            <span className="font-extrabold text-amber-400 uppercase text-[10px]">
+              🛠️ MANUAL BATTERY LEVEL CALIBRATION / TEST OVERRIDE
+            </span>
+            <span className="text-[10px] text-zinc-400">
+              For testing alerts or uncoupled dock scenarios
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <div>
+              <label className="block text-[10px] font-bold text-zinc-300 mb-1">
+                BATT 1 (TABLET MAIN): {mainPct}%
+              </label>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                value={mainPct}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (onUpdateBattery) {
+                    onUpdateBattery({
+                      mainTablet: {
+                        ...battery.mainTablet,
+                        percent: val,
+                        timeRemainingMins: Math.round(val * 3.5),
+                      },
+                    });
+                  }
+                }}
+                className="w-full accent-amber-400 cursor-pointer"
+              />
+            </div>
+
+            <div>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-[10px] font-bold text-zinc-300">
+                  BATT 2 (DOCK): {battery.keyboardDock.attached ? `${kbPct}%` : 'UNCOUPLED'}
+                </label>
+                <label className="flex items-center gap-1 text-[10px] text-cyan-300 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={battery.keyboardDock.attached}
+                    onChange={(e) => {
+                      if (onUpdateBattery) {
+                        onUpdateBattery({
+                          keyboardDock: {
+                            ...battery.keyboardDock,
+                            attached: e.target.checked,
+                          },
+                        });
+                      }
+                    }}
+                    className="accent-cyan-400 rounded"
+                  />
+                  <span>ATTACHED</span>
+                </label>
+              </div>
+              <input
+                type="range"
+                min="0"
+                max="100"
+                disabled={!battery.keyboardDock.attached}
+                value={kbPct}
+                onChange={(e) => {
+                  const val = Number(e.target.value);
+                  if (onUpdateBattery) {
+                    onUpdateBattery({
+                      keyboardDock: {
+                        ...battery.keyboardDock,
+                        percent: val,
+                        timeRemainingMins: Math.round(val * 4.2),
+                      },
+                    });
+                  }
+                }}
+                className="w-full accent-cyan-400 cursor-pointer disabled:opacity-30"
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Main Tablet Battery & Keyboard Dock Battery Grid */}
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -155,6 +345,18 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
           </div>
         </div>
 
+      </div>
+
+      {/* Hardware Polling Source Footer Status */}
+      <div className="pt-1.5 flex flex-wrap items-center justify-between text-[10px] text-zinc-400 border-t border-zinc-800/60 font-mono">
+        <div className="flex items-center gap-1.5">
+          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+          <span className="font-bold text-zinc-300">LINK:</span>
+          <span className="text-cyan-300">{pollSource}</span>
+        </div>
+        {lastPolledTime && (
+          <span className="text-zinc-400">LAST POLLED: {lastPolledTime}</span>
+        )}
       </div>
     </div>
   );

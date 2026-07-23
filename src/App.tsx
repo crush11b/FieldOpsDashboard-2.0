@@ -262,7 +262,11 @@ export default function App() {
         {/* System Status Bento Grid (Battery, GPS, Weather, VOACAP Propagation) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Dual Battery Status */}
-          <BatteryStatusWidget battery={battery} theme={config.theme} />
+          <BatteryStatusWidget
+            battery={battery}
+            theme={config.theme}
+            onUpdateBattery={(updated) => setBattery((prev) => ({ ...prev, ...updated }))}
+          />
 
           {/* GPS & Maidenhead Grid Badge */}
           <GPSGridWidget
