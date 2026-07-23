@@ -18,7 +18,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   theme,
   audioEnabled,
   onUpdateGPS,
-  comPort = 'COM4 (u-Blox GNSS Receiver)',
+  comPort = 'COM6 (GPS Receiver)',
   baudRate = 9600,
   onSelectComPort,
 }) => {
@@ -288,16 +288,29 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               playTacticalClick(audioEnabled);
               const newPort = e.target.value;
               if (onSelectComPort) onSelectComPort(newPort, baudRate);
-              onUpdateGPS({ comPort: newPort, deviceName: `u-Blox GNSS (${newPort})` });
+              onUpdateGPS({ comPort: newPort, deviceName: `GPS Receiver (${newPort})` });
             }}
             className="px-2 py-0.5 bg-slate-950 border border-cyan-500/40 rounded font-bold text-[11px] text-amber-300"
           >
+            <option value="COM6 (GPS Receiver)">COM6 (Active GNSS Receiver)</option>
+            <option value="COM6">COM6 (Standard Serial)</option>
             <option value="COM1">COM1 (Standard System Serial)</option>
+            <option value="COM2">COM2 (Serial Port 2)</option>
             <option value="COM3">COM3 (USB Serial Adapter)</option>
-            <option value="COM4 (u-Blox GNSS Receiver)">COM4 (u-Blox GNSS Receiver)</option>
-            <option value="COM5 (u-Blox ZED-F9P RTK)">COM5 (u-Blox ZED-F9P High-Precision RTK)</option>
-            <option value="COM7 (Garmin Marine NMEA)">COM7 (Garmin Marine NMEA 0183)</option>
+            <option value="COM4">COM4 (Serial Port 4)</option>
+            <option value="COM5">COM5 (Serial Port 5)</option>
+            <option value="COM7">COM7 (Serial Port 7)</option>
+            <option value="COM8">COM8 (Serial Port 8)</option>
+            <option value="COM9">COM9 (Serial Port 9)</option>
+            <option value="COM10">COM10 (Serial Port 10)</option>
+            <option value="COM11">COM11 (Serial Port 11)</option>
+            <option value="COM12">COM12 (Serial Port 12)</option>
+            <option value="COM13">COM13 (Serial Port 13)</option>
+            <option value="COM14">COM14 (Serial Port 14)</option>
+            <option value="COM15">COM15 (Serial Port 15)</option>
+            <option value="COM16">COM16 (Serial Port 16)</option>
             <option value="/dev/ttyUSB0">/dev/ttyUSB0 (Linux USB-Serial)</option>
+            <option value="/dev/ttyUSB1">/dev/ttyUSB1 (Linux USB-Serial 2)</option>
             <option value="/dev/ttyACM0">/dev/ttyACM0 (Linux USB Modem/GNSS)</option>
             <option value="AUTO_DETECT">⚡ Auto-Detect Satellite Dongle</option>
           </select>

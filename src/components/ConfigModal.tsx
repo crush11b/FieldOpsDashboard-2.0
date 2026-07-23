@@ -27,7 +27,8 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   const [activeTab, setActiveTab] = useState<'general' | 'apps' | 'json_editor'>('general');
   const [callsign, setCallsign] = useState(config.callsign);
   const [columns, setColumns] = useState<2 | 3 | 4 | 6>(config.appGridColumns);
-  const [comPort, setComPort] = useState<string>(config.gpsComPort || 'COM4 (u-Blox GNSS Receiver)');
+  const [comPort, setComPort] = useState<string>(config.gpsComPort || 'COM6 (GPS Receiver)');
+  const [isCustomPort, setIsCustomPort] = useState<boolean>(false);
   const [baudRate, setBaudRate] = useState<number>(config.gpsBaudRate || 9600);
   const [appsList, setAppsList] = useState<AppLauncherItem[]>(config.apps);
   const [jsonText, setJsonText] = useState(JSON.stringify(config.apps, null, 2));
@@ -285,21 +286,61 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                     <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
                       DEFAULT COM PORT / SERIAL DEVICE
                     </label>
-                    <select
-                      id="select-config-com-port"
-                      value={comPort}
-                      onChange={(e) => setComPort(e.target.value)}
-                      className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded font-bold text-xs text-amber-300 font-mono"
-                    >
-                      <option value="COM1">COM1 (Standard System Serial)</option>
-                      <option value="COM3">COM3 (USB Serial Adapter)</option>
-                      <option value="COM4 (u-Blox GNSS Receiver)">COM4 (u-Blox GNSS Receiver)</option>
-                      <option value="COM5 (u-Blox ZED-F9P RTK)">COM5 (u-Blox ZED-F9P High-Precision RTK)</option>
-                      <option value="COM7 (Garmin Marine NMEA)">COM7 (Garmin Marine NMEA 0183)</option>
-                      <option value="/dev/ttyUSB0">/dev/ttyUSB0 (Linux USB-Serial)</option>
-                      <option value="/dev/ttyACM0">/dev/ttyACM0 (Linux USB Modem/GNSS)</option>
-                      <option value="AUTO_DETECT">⚡ Auto-Detect Satellite Dongle</option>
-                    </select>
+                    {!isCustomPort ? (
+                      <select
+                        id="select-config-com-port"
+                        value={comPort}
+                        onChange={(e) => {
+                          if (e.target.value === 'CUSTOM_INPUT') {
+                            setIsCustomPort(true);
+                            setComPort('COM6');
+                          } else {
+                            setComPort(e.target.value);
+                          }
+                        }}
+                        className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded font-bold text-xs text-amber-300 font-mono"
+                      >
+                        <option value="COM6 (GPS Receiver)">COM6 (Active GNSS Receiver)</option>
+                        <option value="COM6">COM6 (Standard Serial)</option>
+                        <option value="COM1">COM1 (Standard System Serial)</option>
+                        <option value="COM2">COM2 (Serial Port 2)</option>
+                        <option value="COM3">COM3 (USB Serial Adapter)</option>
+                        <option value="COM4">COM4 (Serial Port 4)</option>
+                        <option value="COM5">COM5 (Serial Port 5)</option>
+                        <option value="COM7">COM7 (Serial Port 7)</option>
+                        <option value="COM8">COM8 (Serial Port 8)</option>
+                        <option value="COM9">COM9 (Serial Port 9)</option>
+                        <option value="COM10">COM10 (Serial Port 10)</option>
+                        <option value="COM11">COM11 (Serial Port 11)</option>
+                        <option value="COM12">COM12 (Serial Port 12)</option>
+                        <option value="COM13">COM13 (Serial Port 13)</option>
+                        <option value="COM14">COM14 (Serial Port 14)</option>
+                        <option value="COM15">COM15 (Serial Port 15)</option>
+                        <option value="COM16">COM16 (Serial Port 16)</option>
+                        <option value="/dev/ttyUSB0">/dev/ttyUSB0 (Linux USB-Serial)</option>
+                        <option value="/dev/ttyUSB1">/dev/ttyUSB1 (Linux USB-Serial 2)</option>
+                        <option value="/dev/ttyACM0">/dev/ttyACM0 (Linux USB Modem/GNSS)</option>
+                        <option value="AUTO_DETECT">⚡ Auto-Detect Satellite Dongle</option>
+                        <option value="CUSTOM_INPUT">✏️ Custom / Type Manual COM Port...</option>
+                      </select>
+                    ) : (
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          value={comPort}
+                          onChange={(e) => setComPort(e.target.value)}
+                          placeholder="e.g. COM6 or /dev/ttyUSB0"
+                          className="w-full px-2.5 py-1.5 bg-slate-950 border border-amber-500/50 rounded font-bold text-xs text-amber-300 font-mono focus:outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setIsCustomPort(false)}
+                          className="px-2 py-1 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded text-[10px] text-slate-300 font-bold"
+                        >
+                          List
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div>

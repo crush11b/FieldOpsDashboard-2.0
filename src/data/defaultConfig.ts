@@ -452,7 +452,7 @@ export const INITIAL_CONFIG: DashboardConfig = {
   favoriteCategoryOnly: false,
   callsign: 'W7FIELD',
   potaParkRef: 'K-0182',
-  gpsComPort: 'COM4 (u-Blox GNSS Receiver)',
+  gpsComPort: 'COM6 (GPS Receiver)',
   gpsBaudRate: 9600,
   apps: DEFAULT_APPS,
 };
