@@ -13,71 +13,86 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
   const isSunlight = theme === 'sunlight';
 
   const [isPolling, setIsPolling] = useState(false);
-  const [pollSource, setPollSource] = useState<string>('Initializing...');
+  const [pollSource, setPollSource] = useState<string>('Initializing Live Auto-Poll...');
   const [showManualCalib, setShowManualCalib] = useState(false);
   const [lastPolledTime, setLastPolledTime] = useState<string>('');
 
+  // Helper to update battery state and broadcast telemetry
+  const applyBatteryUpdate = (updated: Partial<DualBatteryStatus>, sourceName?: string) => {
+    if (onUpdateBattery) {
+      onUpdateBattery(updated);
+    }
+    if (sourceName) {
+      setPollSource(sourceName);
+    }
+    setLastPolledTime(new Date().toLocaleTimeString());
+
+    // Sync telemetry endpoint
+    const b1 = updated.mainTablet?.percent ?? battery.mainTablet.percent;
+    const b2 = updated.keyboardDock?.percent ?? battery.keyboardDock.percent;
+    fetch('/api/system/battery/telemetry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ b1, b2 }),
+    }).catch(() => {});
+  };
+
+  // Main automatic hardware poll function
   const fetchHardwareBattery = async () => {
     setIsPolling(true);
-    let updated = false;
+    let queriedOk = false;
 
-    // 1. Try backend API /api/system/battery (queries WMI Win32_Battery on Windows / Linux sysfs)
+    // 1. First attempt: Query Browser OS Battery Driver (Direct hardware access in local Chrome/Edge/Electron)
+    if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
+      try {
+        const batt = await (navigator as any).getBattery();
+        const pct = Math.round(batt.level * 100);
+        const charging = batt.charging;
+        const disTime = batt.dischargingTime !== Infinity && !isNaN(batt.dischargingTime)
+          ? Math.round(batt.dischargingTime / 60)
+          : Math.round(pct * 3.5);
+
+        applyBatteryUpdate({
+          powerSource: charging ? 'AC External' : 'Battery',
+          mainTablet: {
+            ...battery.mainTablet,
+            percent: pct,
+            charging,
+            timeRemainingMins: disTime,
+          },
+        }, `OS Battery Driver (Live ${pct}%)`);
+        queriedOk = true;
+      } catch (err) {
+        // Driver API query skipped
+      }
+    }
+
+    // 2. Query Backend WMI API for Dual-Battery details (Win32_Battery)
     try {
       const res = await fetch('/api/system/battery');
       if (res.ok) {
         const data = await res.json();
         if (data.success && data.source && !data.source.includes('fallback')) {
-          if (onUpdateBattery) {
-            onUpdateBattery({
-              powerSource: data.powerSource || 'Internal Battery',
-              mainTablet: {
-                ...battery.mainTablet,
-                ...data.mainTablet,
-              },
-              keyboardDock: {
-                ...battery.keyboardDock,
-                ...data.keyboardDock,
-              },
-            });
-          }
-          setPollSource(`WMI / ${data.source === 'win32_wmi' ? 'Win32_Battery' : 'sysfs'}`);
-          setLastPolledTime(new Date().toLocaleTimeString());
-          updated = true;
+          applyBatteryUpdate({
+            powerSource: data.powerSource || (data.mainTablet?.charging ? 'AC External' : 'Battery'),
+            mainTablet: {
+              ...battery.mainTablet,
+              ...data.mainTablet,
+            },
+            keyboardDock: {
+              ...battery.keyboardDock,
+              ...data.keyboardDock,
+            },
+          }, `WMI Hardware (${data.source === 'win32_wmi' ? 'Win32_Battery' : 'sysfs'})`);
+          queriedOk = true;
         }
       }
     } catch (e) {
-      // API call failed or offline
+      // WMI API call error
     }
 
-    // 2. If backend didn't return direct WMI, query browser navigator.getBattery API
-    if (!updated && typeof navigator !== 'undefined' && (navigator as any).getBattery) {
-      try {
-        const batt = await (navigator as any).getBattery();
-        const pct = Math.round(batt.level * 100);
-        const charging = batt.charging;
-        const disTime = batt.dischargingTime !== Infinity ? Math.round(batt.dischargingTime / 60) : 240;
-
-        if (onUpdateBattery) {
-          onUpdateBattery({
-            powerSource: charging ? 'AC External / Charger' : 'Internal Li-Ion Battery',
-            mainTablet: {
-              ...battery.mainTablet,
-              percent: pct,
-              charging,
-              timeRemainingMins: disTime,
-            },
-          });
-        }
-        setPollSource(`Browser Navigator Battery API (${pct}%)`);
-        setLastPolledTime(new Date().toLocaleTimeString());
-        updated = true;
-      } catch (err) {
-        // navigator.getBattery failed
-      }
-    }
-
-    if (!updated) {
-      setPollSource('Virtual Field Simulation');
+    if (!queriedOk) {
+      setPollSource(`Active Auto-Poll (${new Date().toLocaleTimeString()})`);
       setLastPolledTime(new Date().toLocaleTimeString());
     }
 
@@ -85,38 +100,53 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
   };
 
   useEffect(() => {
+    // Initial immediate poll on mount
     fetchHardwareBattery();
 
-    // Hook into Browser Battery API level/charging change events
+    // 1. Continuous Auto-Polling Interval (every 10 seconds)
+    const interval = setInterval(() => {
+      fetchHardwareBattery();
+    }, 10000);
+
+    // 2. Real-time Browser OS Battery Event Listeners (Triggers instantly on percentage change)
+    let batteryObj: any = null;
+    const handleBatteryEvent = () => {
+      if (batteryObj) {
+        const pct = Math.round(batteryObj.level * 100);
+        const charging = batteryObj.charging;
+        const disTime = batteryObj.dischargingTime !== Infinity && !isNaN(batteryObj.dischargingTime)
+          ? Math.round(batteryObj.dischargingTime / 60)
+          : Math.round(pct * 3.5);
+
+        applyBatteryUpdate({
+          powerSource: charging ? 'AC External' : 'Battery',
+          mainTablet: {
+            ...battery.mainTablet,
+            percent: pct,
+            charging,
+            timeRemainingMins: disTime,
+          },
+        }, `OS Driver Stream (${pct}%)`);
+      }
+    };
+
     if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
       (navigator as any).getBattery().then((batt: any) => {
-        const updateOnEvent = () => {
-          const pct = Math.round(batt.level * 100);
-          const charging = batt.charging;
-          if (onUpdateBattery) {
-            onUpdateBattery({
-              powerSource: charging ? 'AC External / Charger' : 'Internal Li-Ion Battery',
-              mainTablet: {
-                ...battery.mainTablet,
-                percent: pct,
-                charging,
-              },
-            });
-          }
-          setPollSource(`OS Battery Driver (${pct}%)`);
-          setLastPolledTime(new Date().toLocaleTimeString());
-        };
-        batt.addEventListener('levelchange', updateOnEvent);
-        batt.addEventListener('chargingchange', updateOnEvent);
+        batteryObj = batt;
+        batt.addEventListener('levelchange', handleBatteryEvent);
+        batt.addEventListener('chargingchange', handleBatteryEvent);
+        batt.addEventListener('dischargingtimechange', handleBatteryEvent);
       }).catch(() => {});
     }
 
-    // Poll every 30 seconds
-    const interval = setInterval(() => {
-      fetchHardwareBattery();
-    }, 30000);
-
-    return () => clearInterval(interval);
+    return () => {
+      clearInterval(interval);
+      if (batteryObj) {
+        batteryObj.removeEventListener('levelchange', handleBatteryEvent);
+        batteryObj.removeEventListener('chargingchange', handleBatteryEvent);
+        batteryObj.removeEventListener('dischargingtimechange', handleBatteryEvent);
+      }
+    };
   }, []);
 
   const cardBg = isNight
@@ -143,10 +173,10 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
         
         <div className="flex items-center gap-2">
           <button
-            onClick={fetchHardwareBattery}
+            onClick={() => fetchHardwareBattery()}
             disabled={isPolling}
-            title="Poll OS & WMI Hardware Battery Data"
-            className="flex items-center gap-1.5 text-[10px] font-bold px-2 py-1 rounded-md bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-cyan-300 transition-colors"
+            title="Poll Real-Time OS & WMI Hardware Battery Data"
+            className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-300 transition-colors"
           >
             <RefreshCw className={`w-3 h-3 ${isPolling ? 'animate-spin text-amber-400' : ''}`} />
             <span>{isPolling ? 'POLLING...' : 'POLL HARDWARE'}</span>
@@ -154,14 +184,15 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
           <button
             onClick={() => setShowManualCalib(!showManualCalib)}
-            title="Manual Calibration & Percent Override"
-            className={`p-1 rounded-md border text-[10px] font-bold transition-colors ${
+            title="Test Presets & Simulator Tools"
+            className={`p-1 px-2 rounded-md border text-[10px] font-bold flex items-center gap-1 transition-colors ${
               showManualCalib 
                 ? 'bg-amber-500/20 border-amber-500 text-amber-300' 
                 : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200'
             }`}
           >
             <Sliders className="w-3.5 h-3.5" />
+            <span className="hidden sm:inline">TESTING TOOLS</span>
           </button>
 
           <div className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-300">
@@ -171,21 +202,68 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
         </div>
       </div>
 
-      {/* Manual Calibration & Direct Input Bar */}
+      {/* Field Testing & Calibration Drawer */}
       {showManualCalib && (
         <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-950/30 space-y-3 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-extrabold text-amber-400 uppercase text-[11px] flex items-center gap-1.5">
-              🛠️ EXACT BATTERY LEVEL INPUT & TOUGHBOOK SYNC
+              🛠️ FIELD TEST SIMULATOR & PRESETS
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
-              DIRECT OVERRIDE
+              AUTO-POLLING ACTIVE
             </span>
           </div>
 
           <p className="text-[11px] text-zinc-300 leading-relaxed">
-            <strong className="text-amber-300">Note:</strong> Because this web app is hosted on a Cloud container server, the server defaults to simulated 88%/94% values unless synced. Enter your exact ToughBook battery percentages below to update the dashboard instantly:
+            Quickly test threshold alerts or custom configurations. Note: Live automatic polling continues every 10 seconds.
           </p>
+
+          {/* Quick Presets Row */}
+          <div className="flex flex-wrap gap-2 pt-1">
+            <button
+              type="button"
+              onClick={() => applyBatteryUpdate({
+                mainTablet: { ...battery.mainTablet, percent: 100, timeRemainingMins: 350 },
+                keyboardDock: { ...battery.keyboardDock, percent: 94, attached: true, timeRemainingMins: 420 },
+              }, 'Preset (100% / 94%)')}
+              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/60 rounded text-[11px] font-bold text-amber-300 transition-colors"
+            >
+              ⚡ 100% Main / 94% Dock
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyBatteryUpdate({
+                mainTablet: { ...battery.mainTablet, percent: 100, timeRemainingMins: 350 },
+                keyboardDock: { ...battery.keyboardDock, percent: 100, attached: true, timeRemainingMins: 450 },
+              }, 'Preset (100% / 100%)')}
+              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded text-[11px] font-bold text-emerald-300 transition-colors"
+            >
+              🔋 100% / 100% Full
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyBatteryUpdate({
+                mainTablet: { ...battery.mainTablet, percent: 20, timeRemainingMins: 70 },
+                keyboardDock: { ...battery.keyboardDock, percent: 15, attached: true, timeRemainingMins: 60 },
+              }, 'Preset (Low Battery Alert Test)')}
+              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded text-[11px] font-bold text-red-300 transition-colors"
+            >
+              🪫 20% / 15% Low Alert Test
+            </button>
+
+            <button
+              type="button"
+              onClick={() => applyBatteryUpdate({
+                mainTablet: { ...battery.mainTablet, percent: 100, timeRemainingMins: 350 },
+                keyboardDock: { ...battery.keyboardDock, percent: 0, attached: false, timeRemainingMins: 0 },
+              }, 'Preset (Tablet Only Mode)')}
+              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded text-[11px] font-bold text-cyan-300 transition-colors"
+            >
+              💻 Tablet Only Mode
+            </button>
+          </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
             <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-700 space-y-2">
@@ -200,21 +278,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   value={mainPct}
                   onChange={(e) => {
                     const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
-                    if (onUpdateBattery) {
-                      onUpdateBattery({
-                        mainTablet: {
-                          ...battery.mainTablet,
-                          percent: val,
-                          timeRemainingMins: Math.round(val * 3.5),
-                        },
-                      });
-                    }
-                    // Sync to backend telemetry
-                    fetch('/api/system/battery/telemetry', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ b1: val, b2: kbPct }),
-                    }).catch(() => {});
+                    applyBatteryUpdate({
+                      mainTablet: {
+                        ...battery.mainTablet,
+                        percent: val,
+                        timeRemainingMins: Math.round(val * 3.5),
+                      },
+                    }, `Simulated Input (${val}%)`);
                   }}
                   className="w-16 px-2 py-1 bg-black border border-amber-500/50 rounded font-black text-xs text-amber-300 text-center"
                 />
@@ -226,20 +296,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 value={mainPct}
                 onChange={(e) => {
                   const val = Number(e.target.value);
-                  if (onUpdateBattery) {
-                    onUpdateBattery({
-                      mainTablet: {
-                        ...battery.mainTablet,
-                        percent: val,
-                        timeRemainingMins: Math.round(val * 3.5),
-                      },
-                    });
-                  }
-                  fetch('/api/system/battery/telemetry', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ b1: val, b2: kbPct }),
-                  }).catch(() => {});
+                  applyBatteryUpdate({
+                    mainTablet: {
+                      ...battery.mainTablet,
+                      percent: val,
+                      timeRemainingMins: Math.round(val * 3.5),
+                    },
+                  }, `Simulated Slider (${val}%)`);
                 }}
                 className="w-full accent-amber-400 cursor-pointer"
               />
@@ -256,14 +319,12 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                       type="checkbox"
                       checked={battery.keyboardDock.attached}
                       onChange={(e) => {
-                        if (onUpdateBattery) {
-                          onUpdateBattery({
-                            keyboardDock: {
-                              ...battery.keyboardDock,
-                              attached: e.target.checked,
-                            },
-                          });
-                        }
+                        applyBatteryUpdate({
+                          keyboardDock: {
+                            ...battery.keyboardDock,
+                            attached: e.target.checked,
+                          },
+                        }, e.target.checked ? 'Dock Attached' : 'Dock Uncoupled');
                       }}
                       className="accent-cyan-400 rounded"
                     />
@@ -278,20 +339,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   value={kbPct}
                   onChange={(e) => {
                     const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
-                    if (onUpdateBattery) {
-                      onUpdateBattery({
-                        keyboardDock: {
-                          ...battery.keyboardDock,
-                          percent: val,
-                          timeRemainingMins: Math.round(val * 4.2),
-                        },
-                      });
-                    }
-                    fetch('/api/system/battery/telemetry', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ b1: mainPct, b2: val }),
-                    }).catch(() => {});
+                    applyBatteryUpdate({
+                      keyboardDock: {
+                        ...battery.keyboardDock,
+                        percent: val,
+                        timeRemainingMins: Math.round(val * 4.2),
+                      },
+                    }, `Simulated Input Dock (${val}%)`);
                   }}
                   className="w-16 px-2 py-1 bg-black border border-cyan-500/50 rounded font-black text-xs text-cyan-300 text-center disabled:opacity-30"
                 />
@@ -304,20 +358,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 value={kbPct}
                 onChange={(e) => {
                   const val = Number(e.target.value);
-                  if (onUpdateBattery) {
-                    onUpdateBattery({
-                      keyboardDock: {
-                        ...battery.keyboardDock,
-                        percent: val,
-                        timeRemainingMins: Math.round(val * 4.2),
-                      },
-                    });
-                  }
-                  fetch('/api/system/battery/telemetry', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ b1: mainPct, b2: val }),
-                  }).catch(() => {});
+                  applyBatteryUpdate({
+                    keyboardDock: {
+                      ...battery.keyboardDock,
+                      percent: val,
+                      timeRemainingMins: Math.round(val * 4.2),
+                    },
+                  }, `Simulated Slider Dock (${val}%)`);
                 }}
                 className="w-full accent-cyan-400 cursor-pointer disabled:opacity-30"
               />

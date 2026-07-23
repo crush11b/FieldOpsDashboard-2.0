@@ -61,12 +61,12 @@ export default function App() {
   // 2. Dual Battery Status
   const [battery, setBattery] = useState<DualBatteryStatus>({
     mainTablet: {
-      percent: 88,
+      percent: 100,
       charging: false,
       voltage: 11.8,
       health: 'Good',
       tempC: 28,
-      timeRemainingMins: 310,
+      timeRemainingMins: 350,
     },
     keyboardDock: {
       percent: 94,

@@ -773,15 +773,21 @@ Context provided: ${JSON.stringify(context || {})}`;
     }
   });
 
-  // Store telemetry posted by local PowerShell script or client device
+  // Store telemetry posted by local agent or script
   let localTelemetryBattery: {
     data: any;
     timestamp: number;
   } | null = null;
 
   app.post("/api/system/battery/telemetry", express.json(), (req, res) => {
-    const { b1, b2, mainTabletPercent, keyboardDockPercent, powerSource } = req.body || {};
-    const mainPct = mainTabletPercent ?? b1 ?? 88;
+    const { b1, b2, mainTabletPercent, keyboardDockPercent, powerSource, clear } = req.body || {};
+    
+    if (clear) {
+      localTelemetryBattery = null;
+      return res.json({ success: true, message: "Telemetry cleared" });
+    }
+
+    const mainPct = mainTabletPercent ?? b1 ?? 100;
     const kbPct = keyboardDockPercent ?? b2 ?? 94;
 
     localTelemetryBattery = {
@@ -789,7 +795,7 @@ Context provided: ${JSON.stringify(context || {})}`;
       data: {
         success: true,
         source: "local_telemetry_agent",
-        powerSource: powerSource || "ToughBook Local Telemetry",
+        powerSource: powerSource || "ToughBook Sync",
         mainTablet: {
           percent: Number(mainPct),
           charging: false,
@@ -816,8 +822,8 @@ Context provided: ${JSON.stringify(context || {})}`;
   // API 3.5: Dual-Battery System Hardware Polling for ToughBook / ToughPad
   app.get("/api/system/battery", async (req, res) => {
     try {
-      // Return fresh local telemetry if received within the last 10 minutes
-      if (localTelemetryBattery && (Date.now() - localTelemetryBattery.timestamp < 600000)) {
+      // Use telemetry only if pushed within the last 5 seconds
+      if (localTelemetryBattery && (Date.now() - localTelemetryBattery.timestamp < 5000)) {
         return res.json(localTelemetryBattery.data);
       }
 
@@ -825,47 +831,50 @@ Context provided: ${JSON.stringify(context || {})}`;
       const isWindows = process.platform === "win32";
 
       if (isWindows) {
-        // Query Windows WMI / CIM for multi-battery Panasonic ToughBook / ToughPad setups
-        const psCommand = `powershell -NoProfile -Command "Get-CimInstance -ClassName Win32_Battery | Select-Object DeviceID, EstimatedChargeRemaining, BatteryStatus, DesignVoltage, EstimatedRunTime | ConvertTo-Json"`;
+        // Exact PowerShell CSV query from Electron getBatteryLevels IPC handler
+        const psCommand = `powershell -NoProfile -Command "(Get-CimInstance Win32_Battery) | Select Name,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation"`;
         exec(psCommand, { timeout: 3500 }, (error, stdout) => {
           if (!error && stdout) {
             try {
-              let parsed = JSON.parse(stdout);
-              if (!Array.isArray(parsed)) {
-                parsed = [parsed];
-              }
-
-              const batt1 = parsed[0] || {};
-              const batt2 = parsed[1] || null;
-
-              const isCharging1 = batt1.BatteryStatus === 2 || batt1.BatteryStatus === 6 || batt1.BatteryStatus === 7;
-              const isCharging2 = batt2 ? (batt2.BatteryStatus === 2 || batt2.BatteryStatus === 6 || batt2.BatteryStatus === 7) : false;
-
-              return res.json({
-                success: true,
-                source: "win32_wmi",
-                powerSource: (isCharging1 || isCharging2) ? "AC External / Charging" : "Internal Dual-LiIon Battery",
-                mainTablet: {
-                  percent: batt1.EstimatedChargeRemaining ?? 88,
-                  charging: isCharging1,
-                  voltage: batt1.DesignVoltage ? Math.round((batt1.DesignVoltage / 1000) * 10) / 10 : 11.8,
-                  health: "Good",
-                  tempC: 28,
-                  timeRemainingMins: batt1.EstimatedRunTime && batt1.EstimatedRunTime < 30000 ? batt1.EstimatedRunTime : 310,
-                  deviceId: batt1.DeviceID || "Internal Battery 1",
-                },
-                keyboardDock: {
-                  percent: batt2 ? (batt2.EstimatedChargeRemaining ?? 94) : 94,
-                  charging: isCharging2,
-                  voltage: batt2 && batt2.DesignVoltage ? Math.round((batt2.DesignVoltage / 1000) * 10) / 10 : 12.1,
-                  health: "Good",
-                  tempC: 26,
-                  timeRemainingMins: batt2 && batt2.EstimatedRunTime && batt2.EstimatedRunTime < 30000 ? batt2.EstimatedRunTime : 420,
-                  attached: batt2 !== null,
-                  deviceId: batt2 ? (batt2.DeviceID || "Keyboard Dock Battery 2") : "Not Detected",
-                },
-                commandUsed: "Get-CimInstance -ClassName Win32_Battery",
+              const resList: { label: string; percent: number }[] = [];
+              const re = /^"([^\"]+)","?(\d+)"?$/;
+              stdout.split(/\r?\n/).forEach((l) => {
+                const m = l.trim().match(re);
+                if (m) {
+                  resList.push({ label: m[1], percent: parseInt(m[2], 10) });
+                }
               });
+
+              if (resList.length > 0) {
+                const tabletPct = resList[0]?.percent ?? 100;
+                const keyboardPct = resList[1]?.percent ?? 94;
+
+                return res.json({
+                  success: true,
+                  source: "win32_wmi",
+                  powerSource: "Battery",
+                  mainTablet: {
+                    percent: tabletPct,
+                    charging: false,
+                    voltage: 11.8,
+                    health: "Good",
+                    tempC: 28,
+                    timeRemainingMins: Math.round(tabletPct * 3.5),
+                    deviceId: resList[0]?.label || "Tablet Battery (BAT0)",
+                  },
+                  keyboardDock: {
+                    percent: keyboardPct,
+                    charging: false,
+                    voltage: 12.1,
+                    health: "Good",
+                    tempC: 26,
+                    timeRemainingMins: Math.round(keyboardPct * 4.2),
+                    attached: resList.length > 1,
+                    deviceId: resList[1]?.label || "Keyboard Dock Battery (BAT1)",
+                  },
+                  commandUsed: "Win32_Battery ConvertTo-Csv",
+                });
+              }
             } catch (e) {
               // fallback if parse fails
             }
@@ -876,7 +885,7 @@ Context provided: ${JSON.stringify(context || {})}`;
             success: true,
             source: "simulated_windows_fallback",
             powerSource: "Battery",
-            mainTablet: { percent: 88, charging: false, voltage: 11.8, health: "Good", tempC: 28, timeRemainingMins: 310 },
+            mainTablet: { percent: 100, charging: false, voltage: 11.8, health: "Good", tempC: 28, timeRemainingMins: 350 },
             keyboardDock: { percent: 94, charging: false, voltage: 12.1, health: "Good", tempC: 26, timeRemainingMins: 420, attached: true },
             note: "Run application on local ToughBook Windows host to enable direct WMI Win32_Battery polling."
           });
@@ -884,7 +893,7 @@ Context provided: ${JSON.stringify(context || {})}`;
       } else {
         // Linux / Unix sysfs check
         const fs = await import("fs");
-        let batt0Cap = 88;
+        let batt0Cap = 100;
         let batt1Cap = 94;
         let batt0Charging = false;
         let batt1Charging = false;
