@@ -204,14 +204,74 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
       {/* Field Testing & Calibration Drawer */}
       {showManualCalib && (
-        <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-950/30 space-y-3 text-xs">
+        <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-950/30 space-y-3.5 text-xs">
           <div className="flex items-center justify-between">
             <span className="font-extrabold text-amber-400 uppercase text-[11px] flex items-center gap-1.5">
-              🛠️ FIELD TEST SIMULATOR & PRESETS
+              🛠️ FIELD TEST SIMULATOR & POWERSHELL WMI SYNC
             </span>
             <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
               AUTO-POLLING ACTIVE
             </span>
+          </div>
+
+          {/* PowerShell CSV Parser Section */}
+          <div className="bg-black/60 p-3 rounded-lg border border-amber-500/30 space-y-2">
+            <div className="flex items-center justify-between text-amber-300 font-bold text-[11px]">
+              <span>📋 PASTE POWERSHELL / WMI CSV OUTPUT:</span>
+              <span className="text-[10px] text-zinc-400 font-normal">Matches Electron Get-CimInstance Win32_Battery</span>
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                placeholder='e.g. "Tablet","100"  or  "Keyboard","94"'
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    const raw = (e.currentTarget as HTMLInputElement).value;
+                    const re = /^"([^\"]+)","?(\d+)"?$/;
+                    let b1Val: number | null = null;
+                    let b2Val: number | null = null;
+                    raw.split(/\r?\n|;/).forEach(l => {
+                      const m = l.trim().match(re);
+                      if (m) {
+                        const val = parseInt(m[2], 10);
+                        if (b1Val === null) b1Val = val;
+                        else if (b2Val === null) b2Val = val;
+                      }
+                    });
+                    if (b1Val !== null) {
+                      applyBatteryUpdate({
+                        mainTablet: { ...battery.mainTablet, percent: b1Val, timeRemainingMins: Math.round(b1Val * 3.5) },
+                        keyboardDock: { ...battery.keyboardDock, percent: b2Val ?? battery.keyboardDock.percent, timeRemainingMins: Math.round((b2Val ?? battery.keyboardDock.percent) * 4.2) }
+                      }, `Parsed WMI CSV (${b1Val}% / ${b2Val ?? 'N/A'}%)`);
+                    }
+                  }
+                }}
+                onChange={(e) => {
+                  const raw = e.target.value;
+                  const re = /^"([^\"]+)","?(\d+)"?$/;
+                  let b1Val: number | null = null;
+                  let b2Val: number | null = null;
+                  raw.split(/\r?\n|;/).forEach(l => {
+                    const m = l.trim().match(re);
+                    if (m) {
+                      const val = parseInt(m[2], 10);
+                      if (b1Val === null) b1Val = val;
+                      else if (b2Val === null) b2Val = val;
+                    }
+                  });
+                  if (b1Val !== null) {
+                    applyBatteryUpdate({
+                      mainTablet: { ...battery.mainTablet, percent: b1Val, timeRemainingMins: Math.round(b1Val * 3.5) },
+                      keyboardDock: { ...battery.keyboardDock, percent: b2Val ?? battery.keyboardDock.percent, timeRemainingMins: Math.round((b2Val ?? battery.keyboardDock.percent) * 4.2) }
+                    }, `Parsed WMI CSV (${b1Val}% / ${b2Val ?? 'N/A'}%)`);
+                  }
+                }}
+                className="flex-1 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
+              />
+            </div>
+            <p className="text-[10px] text-zinc-400 leading-normal">
+              Paste the string from PowerShell: <code className="text-amber-300 font-mono">(Get-CimInstance Win32_Battery) | Select Name,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation</code>
+            </p>
           </div>
 
           <p className="text-[11px] text-zinc-300 leading-relaxed">
