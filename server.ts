@@ -10,7 +10,19 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  // CORS Middleware for external scripts, PowerShell, Electron, and local clients
+  app.use((req, res, next) => {
+    res.header("Access-Control-Allow-Origin", "*");
+    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   app.use(express.json());
+  app.use(express.urlencoded({ extended: true }));
 
   // Server-side Gemini AI setup
   const getAiClient = () => {
@@ -779,44 +791,76 @@ Context provided: ${JSON.stringify(context || {})}`;
     timestamp: number;
   } | null = null;
 
-  app.post("/api/system/battery/telemetry", express.json(), (req, res) => {
-    const { b1, b2, mainTabletPercent, keyboardDockPercent, powerSource, clear } = req.body || {};
-    
-    if (clear) {
-      localTelemetryBattery = null;
-      return res.json({ success: true, message: "Telemetry cleared" });
-    }
+  const telemetryEndpoints = [
+    "/api/system/battery/telemetry",
+    "/api/system/battery",
+    "/api/battery/telemetry",
+    "/api/battery",
+    "/api/update-dashboard",
+    "/api/updatedashboard",
+    "/api/telemetry",
+    "/api/dashboard/update"
+  ];
 
-    const mainPct = mainTabletPercent ?? b1 ?? 100;
-    const kbPct = keyboardDockPercent ?? b2 ?? 94;
-
-    localTelemetryBattery = {
-      timestamp: Date.now(),
-      data: {
-        success: true,
-        source: "local_telemetry_agent",
-        powerSource: powerSource || "ToughBook Sync",
-        mainTablet: {
-          percent: Number(mainPct),
-          charging: false,
-          voltage: 11.8,
-          health: "Good",
-          tempC: 28,
-          timeRemainingMins: Math.round(Number(mainPct) * 3.5),
-        },
-        keyboardDock: {
-          percent: Number(kbPct),
-          charging: false,
-          voltage: 12.1,
-          health: "Good",
-          tempC: 26,
-          timeRemainingMins: Math.round(Number(kbPct) * 4.2),
-          attached: true,
+  const handleTelemetryPost = (req: express.Request, res: express.Response) => {
+    try {
+      let body = req.body || {};
+      if (typeof body === 'string') {
+        try {
+          body = JSON.parse(body);
+        } catch {
+          const params = new URLSearchParams(body);
+          const obj: any = {};
+          params.forEach((v, k) => obj[k] = v);
+          body = obj;
         }
       }
-    };
 
-    return res.json({ success: true, message: "Telemetry updated", data: localTelemetryBattery.data });
+      const query = req.query || {};
+
+      if (body.clear || query.clear) {
+        localTelemetryBattery = null;
+        return res.json({ success: true, message: "Telemetry cleared" });
+      }
+
+      const mainPct = body.mainTabletPercent ?? body.b1 ?? body.tablet ?? body.percent1 ?? query.mainTabletPercent ?? query.b1 ?? query.tablet ?? 100;
+      const kbPct = body.keyboardDockPercent ?? body.b2 ?? body.keyboard ?? body.percent2 ?? query.keyboardDockPercent ?? query.b2 ?? query.keyboard ?? 94;
+      const pSource = body.powerSource || query.powerSource || "ToughBook Sync";
+
+      localTelemetryBattery = {
+        timestamp: Date.now(),
+        data: {
+          success: true,
+          source: "local_telemetry_agent",
+          powerSource: pSource,
+          mainTablet: {
+            percent: Number(mainPct),
+            charging: false,
+            voltage: 11.8,
+            health: "Good",
+            tempC: 28,
+            timeRemainingMins: Math.round(Number(mainPct) * 3.5),
+          },
+          keyboardDock: {
+            percent: Number(kbPct),
+            charging: false,
+            voltage: 12.1,
+            health: "Good",
+            tempC: 26,
+            timeRemainingMins: Math.round(Number(kbPct) * 4.2),
+            attached: true,
+          }
+        }
+      };
+
+      return res.json({ success: true, message: "Telemetry updated", data: localTelemetryBattery.data });
+    } catch (err: any) {
+      return res.status(200).json({ success: false, error: err.message || "Failed to parse telemetry" });
+    }
+  };
+
+  telemetryEndpoints.forEach((route) => {
+    app.post(route, handleTelemetryPost);
   });
 
   // API 3.5: Dual-Battery System Hardware Polling for ToughBook / ToughPad

@@ -431,22 +431,101 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
             </div>
           </div>
 
-          <div className="p-2 bg-zinc-950 rounded border border-zinc-800 space-y-1">
-            <div className="flex items-center justify-between text-[10px] text-cyan-300 font-bold">
+          <div className="p-3 bg-zinc-950 rounded-lg border border-cyan-500/40 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-cyan-300 font-bold">
               <span>⚡ LOCAL TOUGHBOOK AUTOMATIC DUAL-BATTERY WMI SYNC SCRIPT</span>
-              <button
-                onClick={() => {
-                  const cmd = `powershell -NoProfile -Command "$u='${window.location.origin}/api/system/battery/telemetry'; while(1){ $b=Get-CimInstance Win32_Battery; $p1=$b[0].EstimatedChargeRemaining; $p2=if($b[1]){$b[1].EstimatedChargeRemaining}else{94}; Invoke-RestMethod -Uri $u -Method POST -Body (@{b1=$p1;b2=$p2}|ConvertTo-Json) -ContentType 'application/json'; Start-Sleep 10 }"`;
-                  navigator.clipboard.writeText(cmd);
-                  alert('PowerShell Live Sync Command copied to clipboard! Open PowerShell on your ToughBook and paste to continuously stream real dual battery status.');
-                }}
-                className="px-2 py-0.5 bg-cyan-900/60 border border-cyan-500/50 rounded text-cyan-200 hover:bg-cyan-800 transition-colors"
-              >
-                📋 Copy PowerShell Sync Command
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                    const url = `${origin}/api/system/battery/telemetry`;
+                    const rawScript = `$u='${url}'
+Write-Host '=== ToughBook Dual Battery Live Sync Active ===' -ForegroundColor Cyan
+while ($true) {
+    try {
+        $b = @(Get-CimInstance -ClassName Win32_Battery)
+        $p1 = 100
+        $p2 = $null
+        if ($b.Count -gt 0 -and $b[0].EstimatedChargeRemaining -ne $null) { $p1 = [int]$b[0].EstimatedChargeRemaining }
+        if ($b.Count -gt 1 -and $b[1].EstimatedChargeRemaining -ne $null) { $p2 = [int]$b[1].EstimatedChargeRemaining }
+        $body = @{ b1 = $p1 }
+        if ($p2 -ne $null) { $body['b2'] = $p2 }
+        $json = $body | ConvertTo-Json -Compress
+        $res = Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Synced Tablet: $p1% | Dock: $(if($p2 -ne $null){"$p2%"}else{'N/A'})" -ForegroundColor Green
+    } catch {
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Sync Notice: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    Start-Sleep -Seconds 5
+}`;
+                    // Encode as UTF-16LE Base64 for PowerShell -EncodedCommand
+                    const bytes = new Uint8Array(rawScript.length * 2);
+                    for (let i = 0; i < rawScript.length; i++) {
+                      const code = rawScript.charCodeAt(i);
+                      bytes[i * 2] = code & 0xff;
+                      bytes[i * 2 + 1] = (code >> 8) & 0xff;
+                    }
+                    let binary = '';
+                    for (let i = 0; i < bytes.byteLength; i++) {
+                      binary += String.fromCharCode(bytes[i]);
+                    }
+                    const b64 = btoa(binary);
+                    const cmd = `powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ${b64}`;
+                    navigator.clipboard.writeText(cmd);
+                    alert('Bulletproof Encoded PowerShell Command copied! Open PowerShell on your ToughBook, paste, and press Enter. It is guaranteed to run without syntax or variable expansion errors.');
+                  }}
+                  className="px-2.5 py-1 bg-cyan-900/80 border border-cyan-400/60 rounded text-cyan-200 hover:bg-cyan-800 transition-colors font-sans flex items-center gap-1"
+                >
+                  📋 Copy Encoded PS Command
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                    const url = `${origin}/api/system/battery/telemetry`;
+                    const rawScript = `# ToughBook Dual Battery Sync Script for FieldOps
+$u = '${url}'
+Write-Host "=== ToughBook Dual Battery Live Sync Active ===" -ForegroundColor Cyan
+Write-Host "Endpoint: $u" -ForegroundColor Gray
+while ($true) {
+    try {
+        $b = @(Get-CimInstance -ClassName Win32_Battery)
+        $p1 = 100
+        $p2 = $null
+        if ($b.Count -gt 0 -and $b[0].EstimatedChargeRemaining -ne $null) { $p1 = [int]$b[0].EstimatedChargeRemaining }
+        if ($b.Count -gt 1 -and $b[1].EstimatedChargeRemaining -ne $null) { $p2 = [int]$b[1].EstimatedChargeRemaining }
+        $body = @{ b1 = $p1 }
+        if ($p2 -ne $null) { $body['b2'] = $p2 }
+        $json = $body | ConvertTo-Json -Compress
+        $res = Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Synced Tablet: $p1% | Dock: $(if($p2 -ne $null){"$p2%"}else{'N/A'})" -ForegroundColor Green
+    } catch {
+        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Sync Notice: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
+    Start-Sleep -Seconds 5
+}
+`;
+                    const blob = new Blob([rawScript], { type: 'text/plain' });
+                    const downloadUrl = URL.createObjectURL(blob);
+                    const a = document.createElement('a');
+                    a.href = downloadUrl;
+                    a.download = 'sync_toughbook_battery.ps1';
+                    a.click();
+                    URL.revokeObjectURL(downloadUrl);
+                  }}
+                  className="px-2.5 py-1 bg-amber-900/80 border border-amber-400/60 rounded text-amber-200 hover:bg-amber-800 transition-colors font-sans flex items-center gap-1"
+                >
+                  💾 Download sync_toughbook_battery.ps1
+                </button>
+              </div>
             </div>
-            <p className="text-[10px] text-zinc-400 font-mono overflow-x-auto whitespace-nowrap p-1 bg-black rounded border border-zinc-800">
-              powershell -Command &quot;while(1) &#123; $b=Get-CimInstance Win32_Battery; ... Invoke-RestMethod ... &#125;&quot;
+            <p className="text-[10px] text-zinc-300 font-mono overflow-x-auto whitespace-pre-wrap p-2 bg-black rounded border border-zinc-800 leading-relaxed select-all">
+              powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand [Base64]
+            </p>
+            <p className="text-[10px] text-zinc-400 leading-normal">
+              <strong>Why EncodedCommand?</strong> Passing script strings in double quotes can cause PowerShell to prematurely expand variables like <code className="text-amber-300">$b</code> or <code className="text-amber-300">$p1</code> on the parent shell. Clicking <strong>📋 Copy Encoded PS Command</strong> or <strong>💾 Download .ps1</strong> bypasses shell variable expansion completely.
             </p>
           </div>
         </div>
