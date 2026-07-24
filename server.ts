@@ -997,7 +997,7 @@ Context provided: ${JSON.stringify(context || {})}`;
             source: "simulated_windows_fallback",
             powerSource: "Battery",
             mainTablet: { percent: 100, charging: false, voltage: 11.8, health: "Good", tempC: 28, timeRemainingMins: 350 },
-            keyboardDock: { percent: 0, charging: false, voltage: 0, health: "Disconnected", tempC: 0, timeRemainingMins: 0, attached: false },
+            keyboardDock: { percent: 94, charging: false, voltage: 12.1, health: "Good", tempC: 26, timeRemainingMins: 420, attached: true },
             note: "Run application on local ToughBook Windows host to enable direct WMI Win32_Battery polling."
           });
         });
@@ -1005,7 +1005,7 @@ Context provided: ${JSON.stringify(context || {})}`;
         // Linux / Unix sysfs check
         const fs = await import("fs");
         let batt0Cap = 100;
-        let batt1Cap = 0;
+        let batt1Cap = 94;
         let batt0Charging = false;
         let batt1Charging = false;
         let hasBatt1 = false;
@@ -1031,6 +1031,8 @@ Context provided: ${JSON.stringify(context || {})}`;
           // ignore sysfs read errors
         }
 
+        const attached = foundSysfs ? hasBatt1 : true;
+
         return res.json({
           success: true,
           source: foundSysfs ? "linux_sysfs" : "simulated_linux_fallback",
@@ -1044,13 +1046,13 @@ Context provided: ${JSON.stringify(context || {})}`;
             timeRemainingMins: Math.round(batt0Cap * 3.5),
           },
           keyboardDock: {
-            percent: hasBatt1 ? batt1Cap : 0,
+            percent: attached ? batt1Cap : 0,
             charging: batt1Charging,
-            voltage: hasBatt1 ? 12.1 : 0,
-            health: hasBatt1 ? "Good" : "Disconnected",
-            tempC: hasBatt1 ? 26 : 0,
-            timeRemainingMins: hasBatt1 ? Math.round(batt1Cap * 4.2) : 0,
-            attached: hasBatt1,
+            voltage: attached ? 12.1 : 0,
+            health: attached ? "Good" : "Disconnected",
+            tempC: attached ? 26 : 0,
+            timeRemainingMins: attached ? Math.round(batt1Cap * 4.2) : 0,
+            attached: attached,
           },
           commandUsed: foundSysfs ? "cat /sys/class/power_supply/BAT*/capacity" : "Linux Container Fallback",
         });
