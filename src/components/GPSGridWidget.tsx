@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock } from 'lucide-react';
 import { GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import { playTacticalClick } from '../utils/audio';
 
@@ -27,6 +27,144 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const [inputLon, setInputLon] = useState(gps.lon.toString());
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
 
+  // Sync inputs whenever gps prop changes
+  useEffect(() => {
+    if (!isEditing) {
+      setInputLat(gps.lat.toString());
+      setInputLon(gps.lon.toString());
+      setInputGrid(gps.gridSquare);
+    }
+  }, [gps.lat, gps.lon, gps.gridSquare, isEditing]);
+
+  // Auto-sync function for browser hardware GPS / Geolocation
+  const requestBrowserGeolocation = (isStartup = false) => {
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
+          const grid = latLonToGridSquare(lat, lon);
+          
+          const accuracyMeters = pos.coords.accuracy || 10;
+          let calculatedSats = 14;
+          if (accuracyMeters < 5) calculatedSats = 18;
+          else if (accuracyMeters < 12) calculatedSats = 14;
+          else if (accuracyMeters < 25) calculatedSats = 10;
+          else calculatedSats = 7;
+
+          let altM = Math.round(pos.coords.altitude || 0);
+          if (!altM || altM === 0) {
+            try {
+              const elevRes = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`);
+              if (elevRes.ok) {
+                const elevData = await elevRes.json();
+                if (elevData.elevation && elevData.elevation[0] !== undefined) {
+                  altM = Math.round(elevData.elevation[0]);
+                }
+              }
+            } catch (e) {
+              altM = 145;
+            }
+          }
+
+          const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
+
+          onUpdateGPS({
+            lat,
+            lon,
+            altitudeM: altM,
+            speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
+            gridSquare: grid,
+            satCount: calculatedSats,
+            fixType: accuracyMeters < 10 ? '3D RTK Fix' : '3D GPS Fix',
+            mode: 'auto',
+            lockTime: utcLock,
+          });
+          setInputLat(lat.toString());
+          setInputLon(lon.toString());
+          setInputGrid(grid);
+          postGpsTelemetry(lat, lon, grid);
+        },
+        (err) => {
+          if (!isStartup) {
+            console.warn('Geolocation failed or denied', err);
+          }
+        },
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+      );
+    }
+  };
+
+  // Check backend for live telemetry periodically & auto-sync on startup
+  useEffect(() => {
+    const checkGpsTelemetry = async () => {
+      try {
+        const res = await fetch('/api/system/gps');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.success && data.lat !== undefined && data.lon !== undefined) {
+            onUpdateGPS({
+              lat: data.lat,
+              lon: data.lon,
+              gridSquare: data.gridSquare || latLonToGridSquare(data.lat, data.lon),
+              altitudeM: data.altitudeM || gps.altitudeM,
+              satCount: data.satCount || gps.satCount,
+              fixType: data.fixType || '3D GPS Fix',
+              mode: data.mode || 'locked',
+              lockTime: data.lockTime || new Date().toLocaleTimeString(),
+            });
+            return;
+          }
+        }
+      } catch (e) {
+        // Silent catch
+      }
+
+      // If backend telemetry isn't returning data, recheck browser hardware GPS
+      requestBrowserGeolocation(true);
+    };
+
+    // Immediate auto-sync on startup
+    checkGpsTelemetry();
+    requestBrowserGeolocation(true);
+
+    // Watch position for continuous real-time movement tracking
+    let watchId: number | null = null;
+    if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+      try {
+        watchId = navigator.geolocation.watchPosition(
+          (pos) => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            const grid = latLonToGridSquare(lat, lon);
+            onUpdateGPS({
+              lat,
+              lon,
+              gridSquare: grid,
+              speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
+              mode: 'auto',
+              lockTime: new Date().toLocaleTimeString() + ' (Live)',
+            });
+            postGpsTelemetry(lat, lon, grid);
+          },
+          () => {},
+          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+        );
+      } catch (e) {
+        // Fallback to interval
+      }
+    }
+
+    // Periodic recheck interval (every 10 seconds)
+    const interval = setInterval(checkGpsTelemetry, 10000);
+    return () => {
+      clearInterval(interval);
+      if (watchId !== null && typeof navigator !== 'undefined' && 'geolocation' in navigator) {
+        navigator.geolocation.clearWatch(watchId);
+      }
+    };
+  }, []);
+
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
 
@@ -41,6 +179,14 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     : isSunlight
     ? 'bg-emerald-200 border-emerald-500 text-slate-950'
     : 'bg-zinc-800/90 border-zinc-700/80 text-zinc-100';
+
+  const postGpsTelemetry = (lat: number, lon: number, grid: string) => {
+    fetch('/api/system/gps/telemetry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lat, lon, gridSquare: grid, mode: 'locked' }),
+    }).catch(() => {});
+  };
 
   const handleSaveCoordinates = () => {
     playTacticalClick(audioEnabled);
@@ -68,65 +214,29 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       lockTime: new Date().toLocaleTimeString(),
     });
 
+    postGpsTelemetry(lat, lon, calculatedGrid);
     setIsEditing(false);
+  };
+
+  const handleApplyPreset = (lat: number, lon: number, name: string) => {
+    playTacticalClick(audioEnabled);
+    const grid = latLonToGridSquare(lat, lon);
+    onUpdateGPS({
+      lat,
+      lon,
+      gridSquare: grid,
+      mode: 'manual',
+      lockTime: new Date().toLocaleTimeString(),
+    });
+    setInputLat(lat.toString());
+    setInputLon(lon.toString());
+    setInputGrid(grid);
+    postGpsTelemetry(lat, lon, grid);
   };
 
   const handleTriggerBrowserGeolocation = () => {
     playTacticalClick(audioEnabled);
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        async (pos) => {
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
-          const grid = latLonToGridSquare(lat, lon);
-          
-          // Sat count based on positioning accuracy
-          const accuracyMeters = pos.coords.accuracy || 10;
-          let calculatedSats = 14;
-          if (accuracyMeters < 5) calculatedSats = 18;
-          else if (accuracyMeters < 12) calculatedSats = 14;
-          else if (accuracyMeters < 25) calculatedSats = 10;
-          else calculatedSats = 7;
-
-          // True altitude/elevation lookup
-          let altM = Math.round(pos.coords.altitude || 0);
-          if (!altM || altM === 0) {
-            try {
-              const elevRes = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`);
-              if (elevRes.ok) {
-                const elevData = await elevRes.json();
-                if (elevData.elevation && elevData.elevation[0] !== undefined) {
-                  altM = Math.round(elevData.elevation[0]);
-                }
-              }
-            } catch (e) {
-              altM = 145; // Default ground elevation fallback
-            }
-          }
-
-          const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
-
-          onUpdateGPS({
-            lat,
-            lon,
-            altitudeM: altM,
-            speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
-            gridSquare: grid,
-            satCount: calculatedSats,
-            fixType: accuracyMeters < 10 ? '3D RTK Fix' : '3D GPS Fix',
-            mode: 'auto',
-            lockTime: utcLock,
-          });
-          setInputLat(lat.toString());
-          setInputLon(lon.toString());
-          setInputGrid(grid);
-        },
-        (err) => {
-          console.warn('Geolocation failed or denied', err);
-        },
-        { enableHighAccuracy: true, timeout: 10000 }
-      );
-    }
+    requestBrowserGeolocation(false);
   };
 
   return (
@@ -190,31 +300,45 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             <div className="p-2.5 rounded-lg border border-cyan-800 bg-cyan-950/30 text-xs space-y-2">
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="block text-[10px] uppercase opacity-75 mb-0.5">Latitude (°N/S)</label>
+                  <label className="block text-[10px] uppercase opacity-75 mb-0.5 font-bold text-cyan-300">Latitude (°N/S)</label>
                   <input
                     id="input-gps-lat"
                     type="number"
                     step="0.0001"
                     value={inputLat}
-                    onChange={(e) => setInputLat(e.target.value)}
-                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-xs font-mono"
+                    onChange={(e) => {
+                      setInputLat(e.target.value);
+                      const lat = parseFloat(e.target.value);
+                      const lon = parseFloat(inputLon);
+                      if (!isNaN(lat) && !isNaN(lon)) {
+                        setInputGrid(latLonToGridSquare(lat, lon));
+                      }
+                    }}
+                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-xs font-mono focus:border-cyan-400 focus:outline-none"
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] uppercase opacity-75 mb-0.5">Longitude (°E/W)</label>
+                  <label className="block text-[10px] uppercase opacity-75 mb-0.5 font-bold text-cyan-300">Longitude (°E/W)</label>
                   <input
                     id="input-gps-lon"
                     type="number"
                     step="0.0001"
                     value={inputLon}
-                    onChange={(e) => setInputLon(e.target.value)}
-                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-xs font-mono"
+                    onChange={(e) => {
+                      setInputLon(e.target.value);
+                      const lat = parseFloat(inputLat);
+                      const lon = parseFloat(e.target.value);
+                      if (!isNaN(lat) && !isNaN(lon)) {
+                        setInputGrid(latLonToGridSquare(lat, lon));
+                      }
+                    }}
+                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-xs font-mono focus:border-cyan-400 focus:outline-none"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase opacity-75 mb-0.5">Direct Grid Square (e.g. CN87ui)</label>
+                <label className="block text-[10px] uppercase opacity-75 mb-0.5 font-bold text-emerald-400">Direct 4/6-Digit Grid Square (e.g. FM17hd, CN87, DM79)</label>
                 <input
                   id="input-gps-grid-square"
                   type="text"
@@ -229,16 +353,65 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                       setInputLon(parsed.lon.toFixed(4));
                     }
                   }}
-                  className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-400 font-bold text-xs uppercase font-mono"
+                  className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-400 font-bold text-xs uppercase font-mono tracking-wider focus:border-emerald-400 focus:outline-none"
                 />
+              </div>
+
+              {/* Quick Presets for Field Ops */}
+              <div>
+                <span className="block text-[9px] uppercase opacity-60 mb-1 font-mono">Quick Region Presets:</span>
+                <div className="flex flex-wrap gap-1">
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(37.5407, -77.4360, 'Richmond, VA')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700"
+                  >
+                    Richmond (FM17hd)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(47.6062, -122.3321, 'Seattle, WA')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700"
+                  >
+                    Seattle (CN87)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(39.7392, -104.9903, 'Denver, CO')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700"
+                  >
+                    Denver (DM79)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(32.7767, -96.7970, 'Dallas, TX')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700"
+                  >
+                    Dallas (EM12)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(41.8781, -87.6298, 'Chicago, IL')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700"
+                  >
+                    Chicago (EN51)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleApplyPreset(34.0522, -118.2437, 'Los Angeles, CA')}
+                    className="px-1.5 py-0.5 rounded text-[9px] font-mono bg-zinc-800 hover:bg-zinc-700 text-amber-300 border border-zinc-700"
+                  >
+                    LA (DM04)
+                  </button>
+                </div>
               </div>
 
               <button
                 id="btn-save-gps-coordinates"
                 onClick={handleSaveCoordinates}
-                className="w-full py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1 active:scale-95"
+                className="w-full py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 shadow"
               >
-                <Check className="w-4 h-4" /> APPLY COORDINATES & RECALCULATE
+                <Lock className="w-3.5 h-3.5" /> SAVE & PERMANENTLY LOCK LOCATION
               </button>
             </div>
           ) : (

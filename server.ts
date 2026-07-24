@@ -791,6 +791,67 @@ Context provided: ${JSON.stringify(context || {})}`;
     timestamp: number;
   } | null = null;
 
+  let localTelemetryGps: {
+    data: any;
+    timestamp: number;
+  } | null = null;
+
+  // GPS Telemetry Sync Endpoints
+  app.post(["/api/system/gps/telemetry", "/api/system/gps", "/api/gps/telemetry", "/api/gps"], (req, res) => {
+    try {
+      let body = req.body || {};
+      if (typeof body === 'string') {
+        try { body = JSON.parse(body); } catch {
+          const params = new URLSearchParams(body);
+          const obj: any = {};
+          params.forEach((v, k) => obj[k] = v);
+          body = obj;
+        }
+      }
+      const query = req.query || {};
+
+      if (body.clear || query.clear) {
+        localTelemetryGps = null;
+        return res.json({ success: true, message: "GPS Telemetry cleared" });
+      }
+
+      const lat = parseFloat(body.lat ?? body.latitude ?? query.lat ?? query.latitude ?? 37.5407);
+      const lon = parseFloat(body.lon ?? body.lng ?? body.longitude ?? query.lon ?? query.lng ?? query.longitude ?? -77.4360);
+      const gridSquare = body.gridSquare ?? body.grid ?? query.gridSquare ?? query.grid ?? "";
+      const alt = parseFloat(body.altitudeM ?? body.alt ?? query.alt ?? 50);
+
+      localTelemetryGps = {
+        timestamp: Date.now(),
+        data: {
+          success: true,
+          source: body.source || "local_telemetry_agent",
+          lat,
+          lon,
+          gridSquare,
+          altitudeM: alt,
+          satCount: body.satCount || 12,
+          fixType: body.fixType || "3D GPS Fix",
+          lockTime: new Date().toISOString().substring(11, 19) + " UTC",
+          mode: body.mode || "locked",
+          deviceName: body.deviceName || "ToughBook GNSS Receiver",
+        }
+      };
+      return res.json({ success: true, gps: localTelemetryGps.data });
+    } catch (err: any) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  app.get(["/api/system/gps", "/api/gps"], (req, res) => {
+    if (localTelemetryGps) {
+      return res.json(localTelemetryGps.data);
+    }
+    return res.json({
+      success: false,
+      message: "No live GPS telemetry pushed yet."
+    });
+  });
+
   const telemetryEndpoints = [
     "/api/system/battery/telemetry",
     "/api/system/battery",
@@ -823,19 +884,14 @@ Context provided: ${JSON.stringify(context || {})}`;
         return res.json({ success: true, message: "Telemetry cleared" });
       }
 
-      const hasB2 = (body.keyboardDockPercent !== undefined && body.keyboardDockPercent !== null) ||
-                    (body.b2 !== undefined && body.b2 !== null) ||
-                    (body.keyboard !== undefined && body.keyboard !== null) ||
-                    (body.percent2 !== undefined && body.percent2 !== null) ||
-                    (query.keyboardDockPercent !== undefined && query.keyboardDockPercent !== null) ||
-                    (query.b2 !== undefined && query.b2 !== null);
+      const rawB2 = body.keyboardDockPercent ?? body.b2 ?? body.keyboard ?? body.percent2 ?? query.keyboardDockPercent ?? query.b2 ?? query.keyboard;
+      const hasB2 = rawB2 !== undefined && rawB2 !== null && rawB2 !== 'null' && rawB2 !== 'N/A' && rawB2 !== '';
 
       const mainPct = body.mainTabletPercent ?? body.b1 ?? body.tablet ?? body.percent1 ?? query.mainTabletPercent ?? query.b1 ?? query.tablet ?? 100;
-      const rawKbPct = hasB2 ? (body.keyboardDockPercent ?? body.b2 ?? body.keyboard ?? body.percent2 ?? query.keyboardDockPercent ?? query.b2 ?? query.keyboard) : null;
       const pSource = body.powerSource || query.powerSource || "ToughBook Sync";
 
-      const attached = hasB2 && rawKbPct !== null && rawKbPct !== undefined && rawKbPct !== 'N/A';
-      const kbPct = attached ? Number(rawKbPct) : 0;
+      const attached = hasB2;
+      const kbPct = attached ? Number(rawB2) : 0;
 
       localTelemetryBattery = {
         timestamp: Date.now(),
@@ -876,8 +932,8 @@ Context provided: ${JSON.stringify(context || {})}`;
   // API 3.5: Dual-Battery System Hardware Polling for ToughBook / ToughPad
   app.get("/api/system/battery", async (req, res) => {
     try {
-      // Use telemetry if pushed within the last 60 seconds
-      if (localTelemetryBattery && (Date.now() - localTelemetryBattery.timestamp < 60000)) {
+      // If telemetry has been posted, ALWAYS use it (do NOT expire to hardcoded 99/94)
+      if (localTelemetryBattery) {
         return res.json(localTelemetryBattery.data);
       }
 
@@ -901,7 +957,8 @@ Context provided: ${JSON.stringify(context || {})}`;
 
               if (resList.length > 0) {
                 const tabletPct = resList[0]?.percent ?? 100;
-                const keyboardPct = resList[1]?.percent ?? 94;
+                const hasKeyboard = resList.length > 1;
+                const keyboardPct = hasKeyboard ? (resList[1]?.percent ?? 0) : 0;
 
                 return res.json({
                   success: true,
@@ -919,12 +976,12 @@ Context provided: ${JSON.stringify(context || {})}`;
                   keyboardDock: {
                     percent: keyboardPct,
                     charging: false,
-                    voltage: 12.1,
-                    health: "Good",
-                    tempC: 26,
-                    timeRemainingMins: Math.round(keyboardPct * 4.2),
-                    attached: resList.length > 1,
-                    deviceId: resList[1]?.label || "Keyboard Dock Battery (BAT1)",
+                    voltage: hasKeyboard ? 12.1 : 0,
+                    health: hasKeyboard ? "Good" : "Disconnected",
+                    tempC: hasKeyboard ? 26 : 0,
+                    timeRemainingMins: hasKeyboard ? Math.round(keyboardPct * 4.2) : 0,
+                    attached: hasKeyboard,
+                    deviceId: hasKeyboard ? (resList[1]?.label || "Keyboard Dock Battery (BAT1)") : "None",
                   },
                   commandUsed: "Win32_Battery ConvertTo-Csv",
                 });
@@ -940,7 +997,7 @@ Context provided: ${JSON.stringify(context || {})}`;
             source: "simulated_windows_fallback",
             powerSource: "Battery",
             mainTablet: { percent: 100, charging: false, voltage: 11.8, health: "Good", tempC: 28, timeRemainingMins: 350 },
-            keyboardDock: { percent: 94, charging: false, voltage: 12.1, health: "Good", tempC: 26, timeRemainingMins: 420, attached: true },
+            keyboardDock: { percent: 0, charging: false, voltage: 0, health: "Disconnected", tempC: 0, timeRemainingMins: 0, attached: false },
             note: "Run application on local ToughBook Windows host to enable direct WMI Win32_Battery polling."
           });
         });
@@ -948,9 +1005,10 @@ Context provided: ${JSON.stringify(context || {})}`;
         // Linux / Unix sysfs check
         const fs = await import("fs");
         let batt0Cap = 100;
-        let batt1Cap = 94;
+        let batt1Cap = 0;
         let batt0Charging = false;
         let batt1Charging = false;
+        let hasBatt1 = false;
         let foundSysfs = false;
 
         try {
@@ -960,6 +1018,7 @@ Context provided: ${JSON.stringify(context || {})}`;
           }
           if (fs.existsSync("/sys/class/power_supply/BAT1/capacity")) {
             batt1Cap = parseInt(fs.readFileSync("/sys/class/power_supply/BAT1/capacity", "utf8").trim(), 10);
+            hasBatt1 = true;
             foundSysfs = true;
           }
           if (fs.existsSync("/sys/class/power_supply/BAT0/status")) {
@@ -975,7 +1034,7 @@ Context provided: ${JSON.stringify(context || {})}`;
         return res.json({
           success: true,
           source: foundSysfs ? "linux_sysfs" : "simulated_linux_fallback",
-          powerSource: (batt0Charging || batt1Charging) ? "AC External / Charging" : "Internal Dual-LiIon Battery",
+          powerSource: (batt0Charging || batt1Charging) ? "AC External / Charging" : "Internal Battery",
           mainTablet: {
             percent: batt0Cap,
             charging: batt0Charging,
@@ -985,13 +1044,13 @@ Context provided: ${JSON.stringify(context || {})}`;
             timeRemainingMins: Math.round(batt0Cap * 3.5),
           },
           keyboardDock: {
-            percent: batt1Cap,
+            percent: hasBatt1 ? batt1Cap : 0,
             charging: batt1Charging,
-            voltage: 12.1,
-            health: "Good",
-            tempC: 26,
-            timeRemainingMins: Math.round(batt1Cap * 4.2),
-            attached: true,
+            voltage: hasBatt1 ? 12.1 : 0,
+            health: hasBatt1 ? "Good" : "Disconnected",
+            tempC: hasBatt1 ? 26 : 0,
+            timeRemainingMins: hasBatt1 ? Math.round(batt1Cap * 4.2) : 0,
+            attached: hasBatt1,
           },
           commandUsed: foundSysfs ? "cat /sys/class/power_supply/BAT*/capacity" : "Linux Container Fallback",
         });

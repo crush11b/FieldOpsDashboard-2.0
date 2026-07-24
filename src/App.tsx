@@ -91,19 +91,43 @@ export default function App() {
     packetsDropped: 0,
   });
 
-  // 4. GPS & Maidenhead Grid Square (Default: Richmond, VA)
-  const [gps, setGps] = useState<GPSStatus>({
-    lat: 37.5407,
-    lon: -77.4360,
-    altitudeM: 51,
-    speedKmh: 0,
-    gridSquare: 'FM17hd',
-    satCount: 11,
-    fixType: '3D Fix',
-    lockTime: 'UTC ' + new Date().toISOString().substring(11, 19),
-    mode: 'auto',
-    deviceName: 'u-blox NEO-M8N USB GPS',
+  const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
+
+  // 4. GPS & Maidenhead Grid Square (Saved to LocalStorage)
+  const [gps, setGps] = useState<GPSStatus>(() => {
+    if (typeof window !== 'undefined') {
+      const saved = localStorage.getItem(GPS_STORAGE_KEY);
+      if (saved) {
+        try {
+          const parsed = JSON.parse(saved);
+          if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
+            return parsed;
+          }
+        } catch (e) {
+          console.warn('Failed to parse saved GPS status');
+        }
+      }
+    }
+    return {
+      lat: 37.5407,
+      lon: -77.4360,
+      altitudeM: 51,
+      speedKmh: 0,
+      gridSquare: 'FM17hd',
+      satCount: 11,
+      fixType: '3D Fix',
+      lockTime: 'UTC ' + new Date().toISOString().substring(11, 19),
+      mode: 'auto',
+      deviceName: 'u-blox NEO-M8N USB GPS',
+    };
   });
+
+  // Persist GPS changes
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
+    }
+  }, [gps]);
 
   // 5. Weather & NOAA Alerts
   const [weather, setWeather] = useState<WeatherData>({
