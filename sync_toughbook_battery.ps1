@@ -1,11 +1,13 @@
 # ToughBook Dual Battery Live Telemetry Sync Utility for FieldOps Dashboard
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 
-$u = 'https://ais-dev-mtof6szn6a4fcorkvc4en4-469962103239.us-east1.run.app/api/system/battery/telemetry'
+$endpoints = @(
+    'http://localhost:3000/api/system/battery/telemetry',
+    'https://ais-dev-mtof6szn6a4fcorkvc4en4-469962103239.us-east1.run.app/api/system/battery/telemetry'
+)
 
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host " ToughBook Dual Battery Telemetry Sync Active " -ForegroundColor Cyan
-Write-Host " Endpoint: $u " -ForegroundColor Gray
 Write-Host "=======================================================" -ForegroundColor Cyan
 
 while ($true) {
@@ -30,7 +32,12 @@ while ($true) {
         }
         
         $json = $payload | ConvertTo-Json -Compress
-        $res = Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5
+        
+        foreach ($u in $endpoints) {
+            try {
+                Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing -TimeoutSec 3 | Out-Null
+            } catch {}
+        }
         
         $timeStr = Get-Date -Format 'HH:mm:ss'
         $b2Str = if ($p2 -ne $null) { "$p2%" } else { 'N/A' }

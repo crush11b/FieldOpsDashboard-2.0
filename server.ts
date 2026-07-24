@@ -823,9 +823,19 @@ Context provided: ${JSON.stringify(context || {})}`;
         return res.json({ success: true, message: "Telemetry cleared" });
       }
 
+      const hasB2 = (body.keyboardDockPercent !== undefined && body.keyboardDockPercent !== null) ||
+                    (body.b2 !== undefined && body.b2 !== null) ||
+                    (body.keyboard !== undefined && body.keyboard !== null) ||
+                    (body.percent2 !== undefined && body.percent2 !== null) ||
+                    (query.keyboardDockPercent !== undefined && query.keyboardDockPercent !== null) ||
+                    (query.b2 !== undefined && query.b2 !== null);
+
       const mainPct = body.mainTabletPercent ?? body.b1 ?? body.tablet ?? body.percent1 ?? query.mainTabletPercent ?? query.b1 ?? query.tablet ?? 100;
-      const kbPct = body.keyboardDockPercent ?? body.b2 ?? body.keyboard ?? body.percent2 ?? query.keyboardDockPercent ?? query.b2 ?? query.keyboard ?? 94;
+      const rawKbPct = hasB2 ? (body.keyboardDockPercent ?? body.b2 ?? body.keyboard ?? body.percent2 ?? query.keyboardDockPercent ?? query.b2 ?? query.keyboard) : null;
       const pSource = body.powerSource || query.powerSource || "ToughBook Sync";
+
+      const attached = hasB2 && rawKbPct !== null && rawKbPct !== undefined && rawKbPct !== 'N/A';
+      const kbPct = attached ? Number(rawKbPct) : 0;
 
       localTelemetryBattery = {
         timestamp: Date.now(),
@@ -842,13 +852,13 @@ Context provided: ${JSON.stringify(context || {})}`;
             timeRemainingMins: Math.round(Number(mainPct) * 3.5),
           },
           keyboardDock: {
-            percent: Number(kbPct),
+            percent: kbPct,
             charging: false,
-            voltage: 12.1,
-            health: "Good",
-            tempC: 26,
-            timeRemainingMins: Math.round(Number(kbPct) * 4.2),
-            attached: true,
+            voltage: attached ? 12.1 : 0,
+            health: attached ? "Good" : "Disconnected",
+            tempC: attached ? 26 : 0,
+            timeRemainingMins: attached ? Math.round(kbPct * 4.2) : 0,
+            attached: attached,
           }
         }
       };
@@ -866,8 +876,8 @@ Context provided: ${JSON.stringify(context || {})}`;
   // API 3.5: Dual-Battery System Hardware Polling for ToughBook / ToughPad
   app.get("/api/system/battery", async (req, res) => {
     try {
-      // Use telemetry only if pushed within the last 5 seconds
-      if (localTelemetryBattery && (Date.now() - localTelemetryBattery.timestamp < 5000)) {
+      // Use telemetry if pushed within the last 60 seconds
+      if (localTelemetryBattery && (Date.now() - localTelemetryBattery.timestamp < 60000)) {
         return res.json(localTelemetryBattery.data);
       }
 

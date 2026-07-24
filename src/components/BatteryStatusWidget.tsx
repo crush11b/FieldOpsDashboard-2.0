@@ -18,7 +18,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
   const [lastPolledTime, setLastPolledTime] = useState<string>('');
 
   // Helper to update battery state and broadcast telemetry
-  const applyBatteryUpdate = (updated: Partial<DualBatteryStatus>, sourceName?: string) => {
+  const applyBatteryUpdate = (updated: Partial<DualBatteryStatus>, sourceName?: string, syncTelemetry = false) => {
     if (onUpdateBattery) {
       onUpdateBattery(updated);
     }
@@ -27,22 +27,66 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     }
     setLastPolledTime(new Date().toLocaleTimeString());
 
-    // Sync telemetry endpoint
-    const b1 = updated.mainTablet?.percent ?? battery.mainTablet.percent;
-    const b2 = updated.keyboardDock?.percent ?? battery.keyboardDock.percent;
-    fetch('/api/system/battery/telemetry', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ b1, b2 }),
-    }).catch(() => {});
+    // Only sync telemetry endpoint on explicit user manual calibration
+    if (syncTelemetry) {
+      const b1 = updated.mainTablet?.percent ?? battery.mainTablet.percent;
+      const b2 = updated.keyboardDock?.percent ?? battery.keyboardDock.percent;
+      fetch('/api/system/battery/telemetry', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ b1, b2 }),
+      }).catch(() => {});
+    }
   };
 
   // Main automatic hardware poll function
   const fetchHardwareBattery = async () => {
     setIsPolling(true);
-    let queriedOk = false;
 
-    // 1. First attempt: Query Browser OS Battery Driver (Direct hardware access in local Chrome/Edge/Electron)
+    // 1. Primary Priority: Query Backend Telemetry / WMI API for Dual-Battery details
+    try {
+      const res = await fetch('/api/system/battery');
+      if (res.ok) {
+        const data = await res.json();
+        if (data.success && data.mainTablet?.percent !== undefined) {
+          const isLiveTelemetry = data.source === 'local_telemetry_agent' || data.source === 'win32_wmi' || data.source === 'sysfs' || data.source === 'linux_sysfs';
+          
+          if (onUpdateBattery) {
+            const isAttached = data.keyboardDock?.attached ?? false;
+            onUpdateBattery({
+              powerSource: data.powerSource || (data.mainTablet?.charging ? 'AC External' : 'Battery'),
+              mainTablet: {
+                ...battery.mainTablet,
+                ...data.mainTablet,
+              },
+              keyboardDock: {
+                ...battery.keyboardDock,
+                ...data.keyboardDock,
+                attached: isAttached,
+                percent: isAttached ? (data.keyboardDock?.percent ?? 0) : 0,
+              },
+            });
+          }
+
+          setPollSource(
+            isLiveTelemetry
+              ? `Live Sync (${data.source === 'local_telemetry_agent' ? 'ToughBook Agent' : data.source})`
+              : `Active Poll (${data.source || 'Server'})`
+          );
+          setLastPolledTime(new Date().toLocaleTimeString());
+          setIsPolling(false);
+          
+          // IF WE GOT REAL TELEMETRY OR WMI, STOP HERE! Do not let browser getBattery override it!
+          if (isLiveTelemetry) {
+            return;
+          }
+        }
+      }
+    } catch (e) {
+      // Backend query error
+    }
+
+    // 2. Secondary Fallback: Query Browser OS Battery Driver if backend telemetry is not active
     if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
       try {
         const batt = await (navigator as any).getBattery();
@@ -52,48 +96,22 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
           ? Math.round(batt.dischargingTime / 60)
           : Math.round(pct * 3.5);
 
-        applyBatteryUpdate({
-          powerSource: charging ? 'AC External' : 'Battery',
-          mainTablet: {
-            ...battery.mainTablet,
-            percent: pct,
-            charging,
-            timeRemainingMins: disTime,
-          },
-        }, `OS Battery Driver (Live ${pct}%)`);
-        queriedOk = true;
+        if (onUpdateBattery) {
+          onUpdateBattery({
+            powerSource: charging ? 'AC External' : 'Battery',
+            mainTablet: {
+              ...battery.mainTablet,
+              percent: pct,
+              charging,
+              timeRemainingMins: disTime,
+            },
+          });
+        }
+        setPollSource(`OS Battery Driver (Live ${pct}%)`);
+        setLastPolledTime(new Date().toLocaleTimeString());
       } catch (err) {
         // Driver API query skipped
       }
-    }
-
-    // 2. Query Backend WMI API for Dual-Battery details (Win32_Battery)
-    try {
-      const res = await fetch('/api/system/battery');
-      if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.source && !data.source.includes('fallback')) {
-          applyBatteryUpdate({
-            powerSource: data.powerSource || (data.mainTablet?.charging ? 'AC External' : 'Battery'),
-            mainTablet: {
-              ...battery.mainTablet,
-              ...data.mainTablet,
-            },
-            keyboardDock: {
-              ...battery.keyboardDock,
-              ...data.keyboardDock,
-            },
-          }, `WMI Hardware (${data.source === 'win32_wmi' ? 'Win32_Battery' : 'sysfs'})`);
-          queriedOk = true;
-        }
-      }
-    } catch (e) {
-      // WMI API call error
-    }
-
-    if (!queriedOk) {
-      setPollSource(`Active Auto-Poll (${new Date().toLocaleTimeString()})`);
-      setLastPolledTime(new Date().toLocaleTimeString());
     }
 
     setIsPolling(false);
@@ -103,50 +121,12 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     // Initial immediate poll on mount
     fetchHardwareBattery();
 
-    // 1. Continuous Auto-Polling Interval (every 10 seconds)
+    // Continuous Auto-Polling Interval (every 5 seconds)
     const interval = setInterval(() => {
       fetchHardwareBattery();
-    }, 10000);
+    }, 5000);
 
-    // 2. Real-time Browser OS Battery Event Listeners (Triggers instantly on percentage change)
-    let batteryObj: any = null;
-    const handleBatteryEvent = () => {
-      if (batteryObj) {
-        const pct = Math.round(batteryObj.level * 100);
-        const charging = batteryObj.charging;
-        const disTime = batteryObj.dischargingTime !== Infinity && !isNaN(batteryObj.dischargingTime)
-          ? Math.round(batteryObj.dischargingTime / 60)
-          : Math.round(pct * 3.5);
-
-        applyBatteryUpdate({
-          powerSource: charging ? 'AC External' : 'Battery',
-          mainTablet: {
-            ...battery.mainTablet,
-            percent: pct,
-            charging,
-            timeRemainingMins: disTime,
-          },
-        }, `OS Driver Stream (${pct}%)`);
-      }
-    };
-
-    if (typeof navigator !== 'undefined' && (navigator as any).getBattery) {
-      (navigator as any).getBattery().then((batt: any) => {
-        batteryObj = batt;
-        batt.addEventListener('levelchange', handleBatteryEvent);
-        batt.addEventListener('chargingchange', handleBatteryEvent);
-        batt.addEventListener('dischargingtimechange', handleBatteryEvent);
-      }).catch(() => {});
-    }
-
-    return () => {
-      clearInterval(interval);
-      if (batteryObj) {
-        batteryObj.removeEventListener('levelchange', handleBatteryEvent);
-        batteryObj.removeEventListener('chargingchange', handleBatteryEvent);
-        batteryObj.removeEventListener('dischargingtimechange', handleBatteryEvent);
-      }
-    };
+    return () => clearInterval(interval);
   }, []);
 
   const cardBg = isNight
