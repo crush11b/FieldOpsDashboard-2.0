@@ -440,44 +440,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   onClick={() => {
                     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
                     const url = `${origin}/api/system/battery/telemetry`;
-                    const rawScript = `$u='${url}'
-Write-Host '=== ToughBook Dual Battery Live Sync Active ===' -ForegroundColor Cyan
-while ($true) {
-    try {
-        $b = @(Get-CimInstance -ClassName Win32_Battery)
-        $p1 = 100
-        $p2 = $null
-        if ($b.Count -gt 0 -and $b[0].EstimatedChargeRemaining -ne $null) { $p1 = [int]$b[0].EstimatedChargeRemaining }
-        if ($b.Count -gt 1 -and $b[1].EstimatedChargeRemaining -ne $null) { $p2 = [int]$b[1].EstimatedChargeRemaining }
-        $body = @{ b1 = $p1 }
-        if ($p2 -ne $null) { $body['b2'] = $p2 }
-        $json = $body | ConvertTo-Json -Compress
-        $res = Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing
-        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Synced Tablet: $p1% | Dock: $(if($p2 -ne $null){"$p2%"}else{'N/A'})" -ForegroundColor Green
-    } catch {
-        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Sync Notice: $($_.Exception.Message)" -ForegroundColor Yellow
-    }
-    Start-Sleep -Seconds 5
-}`;
-                    // Encode as UTF-16LE Base64 for PowerShell -EncodedCommand
-                    const bytes = new Uint8Array(rawScript.length * 2);
-                    for (let i = 0; i < rawScript.length; i++) {
-                      const code = rawScript.charCodeAt(i);
-                      bytes[i * 2] = code & 0xff;
-                      bytes[i * 2 + 1] = (code >> 8) & 0xff;
-                    }
-                    let binary = '';
-                    for (let i = 0; i < bytes.byteLength; i++) {
-                      binary += String.fromCharCode(bytes[i]);
-                    }
-                    const b64 = btoa(binary);
-                    const cmd = `powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ${b64}`;
+                    const cmd = `powershell -NoExit -ExecutionPolicy Bypass -Command "$u='${url}'; while($true){ try { $b=@(Get-CimInstance Win32_Battery); $p1=if($b.Count -gt 0 -and $b[0].EstimatedChargeRemaining){[int]$b[0].EstimatedChargeRemaining}else{100}; $p2=if($b.Count -gt 1 -and $b[1].EstimatedChargeRemaining){[int]$b[1].EstimatedChargeRemaining}else{$null}; $payload=@{b1=$p1}; if($p2 -ne $null){$payload['b2']=$p2}; Invoke-RestMethod -Uri $u -Method POST -Body ($payload|ConvertTo-Json) -ContentType 'application/json' -UseBasicParsing; Write-Host ('['+(Get-Date -Format 'HH:mm:ss')+'] Synced Main:'+$p1+'% Dock:'+(if($p2){$p2}else{'N/A'})+'%') -ForegroundColor Green } catch { Write-Host ('['+(Get-Date -Format 'HH:mm:ss')+'] Notice: '+$_.Exception.Message) -ForegroundColor Yellow }; Start-Sleep 5 }"`;
                     navigator.clipboard.writeText(cmd);
-                    alert('Bulletproof Encoded PowerShell Command copied! Open PowerShell on your ToughBook, paste, and press Enter. It is guaranteed to run without syntax or variable expansion errors.');
+                    alert('PowerShell Battery Sync Command copied! Paste into PowerShell on your ToughBook and press Enter.');
                   }}
                   className="px-2.5 py-1 bg-cyan-900/80 border border-cyan-400/60 rounded text-cyan-200 hover:bg-cyan-800 transition-colors font-sans flex items-center gap-1"
                 >
-                  📋 Copy Encoded PS Command
+                  📋 Copy Battery Sync Command
                 </button>
 
                 <button
@@ -485,24 +454,45 @@ while ($true) {
                   onClick={() => {
                     const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
                     const url = `${origin}/api/system/battery/telemetry`;
-                    const rawScript = `# ToughBook Dual Battery Sync Script for FieldOps
+                    const rawScript = `# ToughBook Dual Battery Live Telemetry Sync Utility
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
+
 $u = '${url}'
-Write-Host "=== ToughBook Dual Battery Live Sync Active ===" -ForegroundColor Cyan
-Write-Host "Endpoint: $u" -ForegroundColor Gray
+Write-Host "=======================================================" -ForegroundColor Cyan
+Write-Host " ToughBook Dual Battery Telemetry Sync Active " -ForegroundColor Cyan
+Write-Host " Endpoint: $u " -ForegroundColor Gray
+Write-Host "=======================================================" -ForegroundColor Cyan
+
 while ($true) {
     try {
-        $b = @(Get-CimInstance -ClassName Win32_Battery)
+        $b = @(Get-CimInstance -ClassName Win32_Battery -ErrorAction SilentlyContinue)
         $p1 = 100
         $p2 = $null
-        if ($b.Count -gt 0 -and $b[0].EstimatedChargeRemaining -ne $null) { $p1 = [int]$b[0].EstimatedChargeRemaining }
-        if ($b.Count -gt 1 -and $b[1].EstimatedChargeRemaining -ne $null) { $p2 = [int]$b[1].EstimatedChargeRemaining }
-        $body = @{ b1 = $p1 }
-        if ($p2 -ne $null) { $body['b2'] = $p2 }
-        $json = $body | ConvertTo-Json -Compress
-        $res = Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing
-        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Synced Tablet: $p1% | Dock: $(if($p2 -ne $null){"$p2%"}else{'N/A'})" -ForegroundColor Green
+        if ($b.Count -gt 0 -and $b[0].EstimatedChargeRemaining -ne $null) {
+            $p1 = [int]$b[0].EstimatedChargeRemaining
+        }
+        if ($b.Count -gt 1 -and $b[1].EstimatedChargeRemaining -ne $null) {
+            $p2 = [int]$b[1].EstimatedChargeRemaining
+        }
+        
+        $payload = @{
+            b1 = $p1
+            mainTabletPercent = $p1
+        }
+        if ($p2 -ne $null) {
+            $payload['b2'] = $p2
+            $payload['keyboardDockPercent'] = $p2
+        }
+        
+        $json = $payload | ConvertTo-Json -Compress
+        $res = Invoke-RestMethod -Uri $u -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5
+        
+        $timeStr = Get-Date -Format 'HH:mm:ss'
+        $b2Str = if ($p2 -ne $null) { "$p2%" } else { 'N/A' }
+        Write-Host "[$timeStr] Synced Main Tablet: $p1% | Keyboard Dock: $b2Str" -ForegroundColor Green
     } catch {
-        Write-Host "[$(Get-Date -Format 'HH:mm:ss')] Sync Notice: $($_.Exception.Message)" -ForegroundColor Yellow
+        $timeStr = Get-Date -Format 'HH:mm:ss'
+        Write-Host "[$timeStr] Sync Notice: $($_.Exception.Message)" -ForegroundColor Yellow
     }
     Start-Sleep -Seconds 5
 }
@@ -521,43 +511,38 @@ while ($true) {
                 </button>
               </div>
             </div>
+
             <p className="text-[10px] text-zinc-300 font-mono overflow-x-auto whitespace-pre-wrap p-2 bg-black rounded border border-zinc-800 leading-relaxed select-all">
-              powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand [Base64]
-            </p>
-            <p className="text-[10px] text-zinc-400 leading-normal">
-              <strong>Why EncodedCommand?</strong> Passing script strings in double quotes can cause PowerShell to prematurely expand variables like <code className="text-amber-300">$b</code> or <code className="text-amber-300">$p1</code> on the parent shell. Clicking <strong>📋 Copy Encoded PS Command</strong> or <strong>💾 Download .ps1</strong> bypasses shell variable expansion completely.
+              powershell -ExecutionPolicy Bypass -File .\sync_toughbook_battery.ps1
             </p>
 
-            {/* Dashboard Updater Utility */}
-            <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between">
-              <span className="text-[10px] text-emerald-400 font-bold">🚀 DASHBOARD AUTO-UPDATER COMMAND:</span>
-              <button
-                type="button"
-                onClick={() => {
-                  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
-                  const updateUrl = `${origin}/api/download-project-zip`;
-                  const updaterScript = `$ProgressPreference='SilentlyContinue'; $dest='C:\\FieldOpsDashboard'; Write-Host '=== Updating FieldOps Dashboard to Latest Version ===' -ForegroundColor Cyan; Get-Process -Name node,tsx,npm,vite -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; $zip=Join-Path $env:TEMP 'FieldOps_Update.zip'; $ext=Join-Path $env:TEMP 'FieldOps_Ext'; if (Test-Path $ext) { Remove-Item $ext -Recurse -Force -ErrorAction SilentlyContinue }; if (Test-Path $zip) { Remove-Item $zip -Force -ErrorAction SilentlyContinue }; Write-Host 'Downloading update package...' -ForegroundColor Yellow; try { (New-Object System.Net.WebClient).DownloadFile('${updateUrl}', $zip) } catch { Invoke-WebRequest -Uri '${updateUrl}' -OutFile $zip -UseBasicParsing }; if ((Test-Path $zip) -and ((Get-Item $zip).Length -gt 5000)) { Write-Host 'Extracting files...' -ForegroundColor Yellow; Expand-Archive -Path $zip -DestinationPath $ext -Force; Get-ChildItem -Path "$ext\\*" -Exclude "node_modules" | Copy-Item -Destination $dest -Recurse -Force; Remove-Item $zip,$ext -Recurse -Force -ErrorAction SilentlyContinue; Write-Host '[✓] FieldOps Dashboard updated successfully!' -ForegroundColor Green; Set-Location $dest; npm run dev } else { Write-Host '[X] Download failed or invalid zip archive.' -ForegroundColor Red }`;
+            {/* Dashboard Updater Section */}
+            <div className="pt-2 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-2">
+              <span className="text-[10px] text-emerald-400 font-bold">🚀 DASHBOARD AUTO-UPDATER:</span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    navigator.clipboard.writeText('powershell -NoProfile -ExecutionPolicy Bypass -File .\\UpdateDashboard.ps1');
+                    alert('Command copied! In PowerShell inside C:\\FieldOpsDashboard, run: powershell -NoProfile -ExecutionPolicy Bypass -File .\\UpdateDashboard.ps1');
+                  }}
+                  className="px-2.5 py-1 bg-emerald-900/80 border border-emerald-400/60 rounded text-emerald-200 hover:bg-emerald-800 transition-colors font-sans text-[10px]"
+                >
+                  📋 Copy Updater Command
+                </button>
 
-                  const bytes = new Uint8Array(updaterScript.length * 2);
-                  for (let i = 0; i < updaterScript.length; i++) {
-                    const code = updaterScript.charCodeAt(i);
-                    bytes[i * 2] = code & 0xff;
-                    bytes[i * 2 + 1] = (code >> 8) & 0xff;
-                  }
-                  let binary = '';
-                  for (let i = 0; i < bytes.byteLength; i++) {
-                    binary += String.fromCharCode(bytes[i]);
-                  }
-                  const b64 = btoa(binary);
-                  const cmd = `powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ${b64}`;
-                  navigator.clipboard.writeText(cmd);
-                  alert('1-Click Dashboard Auto-Updater Command copied to clipboard! Open PowerShell in C:\\FieldOpsDashboard, paste, and press Enter.');
-                }}
-                className="px-2.5 py-1 bg-emerald-900/80 border border-emerald-400/60 rounded text-emerald-200 hover:bg-emerald-800 transition-colors font-sans text-[10px]"
-              >
-                📋 Copy 1-Click Update Command
-              </button>
+                <a
+                  href="/api/download-project-zip"
+                  download="FieldOpsDashboard_v2.0.zip"
+                  className="px-2.5 py-1 bg-blue-900/80 border border-blue-400/60 rounded text-blue-200 hover:bg-blue-800 transition-colors font-sans text-[10px] flex items-center gap-1"
+                >
+                  📦 Download Complete Project Zip
+                </a>
+              </div>
             </div>
+            <p className="text-[10px] text-zinc-400 leading-normal">
+              <strong>Updating on ToughBook:</strong> Double-click <code className="text-emerald-300">UpdateDashboard.bat</code> or run <code className="text-emerald-300">.\UpdateDashboard.ps1</code> in PowerShell. It safely stops active Node processes, downloads the latest code from this server, overwrites files in <code className="text-zinc-300">C:\FieldOpsDashboard</code>, and relaunches automatically.
+            </p>
           </div>
         </div>
       )}
