@@ -36,6 +36,32 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     }
   }, [gps.lat, gps.lon, gps.gridSquare, isEditing]);
 
+  const postGpsTelemetry = (
+    lat: number,
+    lon: number,
+    grid: string,
+    mode = 'auto',
+    satCount = 8,
+    fixType = '3D GPS Fix',
+    lockTime?: string
+  ) => {
+    const currentLockTime = lockTime || (new Date().toISOString().substring(11, 19) + ' UTC');
+    fetch('/api/system/gps/telemetry', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        lat,
+        lon,
+        gridSquare: grid,
+        mode,
+        satCount,
+        fixType,
+        lockTime: currentLockTime,
+        source: 'browser_gnss_geolocation',
+      }),
+    }).catch(() => {});
+  };
+
   // Auto-sync function for browser hardware GPS / Geolocation
   const requestBrowserGeolocation = (isStartup = false) => {
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
@@ -45,12 +71,12 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
           const lon = pos.coords.longitude;
           const grid = latLonToGridSquare(lat, lon);
           
-          const accuracyMeters = pos.coords.accuracy || 10;
-          let calculatedSats = 14;
-          if (accuracyMeters < 5) calculatedSats = 18;
-          else if (accuracyMeters < 12) calculatedSats = 14;
-          else if (accuracyMeters < 25) calculatedSats = 10;
-          else calculatedSats = 7;
+          const accuracyMeters = pos.coords.accuracy || 12;
+          let calculatedSats = 8;
+          if (accuracyMeters <= 5) calculatedSats = 14;
+          else if (accuracyMeters <= 12) calculatedSats = 9;
+          else if (accuracyMeters <= 25) calculatedSats = 6;
+          else calculatedSats = 4;
 
           let altM = Math.round(pos.coords.altitude || 0);
           if (!altM || altM === 0) {
@@ -68,6 +94,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
           }
 
           const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
+          const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
 
           onUpdateGPS({
             lat,
@@ -76,21 +103,22 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
             gridSquare: grid,
             satCount: calculatedSats,
-            fixType: accuracyMeters < 10 ? '3D RTK Fix' : '3D GPS Fix',
+            fixType: fixTypeStr,
             mode: 'auto',
             lockTime: utcLock,
           });
           setInputLat(lat.toString());
           setInputLon(lon.toString());
           setInputGrid(grid);
-          postGpsTelemetry(lat, lon, grid);
+          postGpsTelemetry(lat, lon, grid, 'auto', calculatedSats, fixTypeStr, utcLock);
         },
         (err) => {
           if (!isStartup) {
             console.warn('Geolocation failed or denied', err);
+            alert('Browser geolocation failed or permission was denied. Use the EDIT button to set coordinates or grid square manually.');
           }
         },
-        { enableHighAccuracy: true, timeout: 10000, maximumAge: 5000 }
+        { enableHighAccuracy: true, timeout: 10000, maximumAge: 2000 }
       );
     }
   };
@@ -103,16 +131,19 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         if (res.ok) {
           const data = await res.json();
           if (data.success && data.lat !== undefined && data.lon !== undefined) {
-            onUpdateGPS({
-              lat: data.lat,
-              lon: data.lon,
-              gridSquare: data.gridSquare || latLonToGridSquare(data.lat, data.lon),
-              altitudeM: data.altitudeM || gps.altitudeM,
-              satCount: data.satCount || gps.satCount,
-              fixType: data.fixType || '3D GPS Fix',
-              mode: data.mode || 'locked',
-              lockTime: data.lockTime || new Date().toLocaleTimeString(),
-            });
+            // Only update if not explicitly editing in manual mode
+            if (!isEditing) {
+              onUpdateGPS({
+                lat: data.lat,
+                lon: data.lon,
+                gridSquare: data.gridSquare || latLonToGridSquare(data.lat, data.lon),
+                altitudeM: data.altitudeM || gps.altitudeM,
+                satCount: data.satCount || 8,
+                fixType: data.fixType || '3D GPS Fix',
+                mode: data.mode || 'auto',
+                lockTime: data.lockTime || (new Date().toISOString().substring(11, 19) + ' UTC'),
+              });
+            }
             return;
           }
         }
@@ -120,7 +151,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         // Silent catch
       }
 
-      // If backend telemetry isn't returning data, recheck browser hardware GPS
+      // Fallback: recheck browser hardware GPS
       requestBrowserGeolocation(true);
     };
 
@@ -137,18 +168,30 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             const lat = pos.coords.latitude;
             const lon = pos.coords.longitude;
             const grid = latLonToGridSquare(lat, lon);
+            const accuracyMeters = pos.coords.accuracy || 12;
+            let calculatedSats = 8;
+            if (accuracyMeters <= 5) calculatedSats = 14;
+            else if (accuracyMeters <= 12) calculatedSats = 9;
+            else if (accuracyMeters <= 25) calculatedSats = 6;
+            else calculatedSats = 4;
+
+            const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
+            const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
+
             onUpdateGPS({
               lat,
               lon,
               gridSquare: grid,
               speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
+              satCount: calculatedSats,
+              fixType: fixTypeStr,
               mode: 'auto',
-              lockTime: new Date().toLocaleTimeString() + ' (Live)',
+              lockTime: utcLock,
             });
-            postGpsTelemetry(lat, lon, grid);
+            postGpsTelemetry(lat, lon, grid, 'auto', calculatedSats, fixTypeStr, utcLock);
           },
           () => {},
-          { enableHighAccuracy: true, maximumAge: 5000, timeout: 15000 }
+          { enableHighAccuracy: true, maximumAge: 3000, timeout: 15000 }
         );
       } catch (e) {
         // Fallback to interval
@@ -180,14 +223,6 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     ? 'bg-emerald-200 border-emerald-500 text-slate-950'
     : 'bg-zinc-800/90 border-zinc-700/80 text-zinc-100';
 
-  const postGpsTelemetry = (lat: number, lon: number, grid: string) => {
-    fetch('/api/system/gps/telemetry', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ lat, lon, gridSquare: grid, mode: 'locked' }),
-    }).catch(() => {});
-  };
-
   const handleSaveCoordinates = () => {
     playTacticalClick(audioEnabled);
     let lat = parseFloat(inputLat);
@@ -205,37 +240,40 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     }
 
     const calculatedGrid = latLonToGridSquare(lat, lon);
+    const lockTime = new Date().toLocaleTimeString() + ' (Manual Lock)';
 
     onUpdateGPS({
       lat,
       lon,
       gridSquare: calculatedGrid,
       mode: 'manual',
-      lockTime: new Date().toLocaleTimeString(),
+      lockTime,
     });
 
-    postGpsTelemetry(lat, lon, calculatedGrid);
+    postGpsTelemetry(lat, lon, calculatedGrid, 'manual', 12, 'Manual Pin', lockTime);
     setIsEditing(false);
   };
 
   const handleApplyPreset = (lat: number, lon: number, name: string) => {
     playTacticalClick(audioEnabled);
     const grid = latLonToGridSquare(lat, lon);
+    const lockTime = new Date().toLocaleTimeString() + ' (Preset)';
     onUpdateGPS({
       lat,
       lon,
       gridSquare: grid,
       mode: 'manual',
-      lockTime: new Date().toLocaleTimeString(),
+      lockTime,
     });
     setInputLat(lat.toString());
     setInputLon(lon.toString());
     setInputGrid(grid);
-    postGpsTelemetry(lat, lon, grid);
+    postGpsTelemetry(lat, lon, grid, 'manual', 12, 'Preset', lockTime);
   };
 
   const handleTriggerBrowserGeolocation = () => {
     playTacticalClick(audioEnabled);
+    setIsEditing(false);
     requestBrowserGeolocation(false);
   };
 

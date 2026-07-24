@@ -829,10 +829,10 @@ Context provided: ${JSON.stringify(context || {})}`;
           lon,
           gridSquare,
           altitudeM: alt,
-          satCount: body.satCount || 12,
+          satCount: body.satCount !== undefined ? parseInt(body.satCount) : 8,
           fixType: body.fixType || "3D GPS Fix",
-          lockTime: new Date().toISOString().substring(11, 19) + " UTC",
-          mode: body.mode || "locked",
+          lockTime: body.lockTime || (new Date().toISOString().substring(11, 19) + " UTC"),
+          mode: body.mode || "auto",
           deviceName: body.deviceName || "ToughBook GNSS Receiver",
         }
       };
@@ -996,8 +996,8 @@ Context provided: ${JSON.stringify(context || {})}`;
             success: true,
             source: "simulated_windows_fallback",
             powerSource: "Battery",
-            mainTablet: { percent: 100, charging: false, voltage: 11.8, health: "Good", tempC: 28, timeRemainingMins: 350 },
-            keyboardDock: { percent: 94, charging: false, voltage: 12.1, health: "Good", tempC: 26, timeRemainingMins: 420, attached: true },
+            mainTablet: { percent: 100, charging: false, voltage: 11.8, health: "Good", tempC: 28, timeRemainingMins: 240 },
+            keyboardDock: { percent: 94, charging: false, voltage: 12.1, health: "Good", tempC: 26, timeRemainingMins: 197, attached: true },
             note: "Run application on local ToughBook Windows host to enable direct WMI Win32_Battery polling."
           });
         });
@@ -1043,7 +1043,7 @@ Context provided: ${JSON.stringify(context || {})}`;
             voltage: 11.8,
             health: "Good",
             tempC: 28,
-            timeRemainingMins: Math.round(batt0Cap * 3.5),
+            timeRemainingMins: Math.round(batt0Cap * 2.4),
           },
           keyboardDock: {
             percent: attached ? batt1Cap : 0,
@@ -1051,7 +1051,7 @@ Context provided: ${JSON.stringify(context || {})}`;
             voltage: attached ? 12.1 : 0,
             health: attached ? "Good" : "Disconnected",
             tempC: attached ? 26 : 0,
-            timeRemainingMins: attached ? Math.round(batt1Cap * 4.2) : 0,
+            timeRemainingMins: attached ? Math.round(batt1Cap * 2.1) : 0,
             attached: attached,
           },
           commandUsed: foundSysfs ? "cat /sys/class/power_supply/BAT*/capacity" : "Linux Container Fallback",

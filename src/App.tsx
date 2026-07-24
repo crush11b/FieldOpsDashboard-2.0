@@ -101,7 +101,10 @@ export default function App() {
         try {
           const parsed = JSON.parse(saved);
           if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
-            return parsed;
+            return {
+              ...parsed,
+              mode: parsed.mode === 'manual' ? 'manual' : 'auto',
+            };
           }
         } catch (e) {
           console.warn('Failed to parse saved GPS status');
@@ -114,9 +117,9 @@ export default function App() {
       altitudeM: 51,
       speedKmh: 0,
       gridSquare: 'FM17hd',
-      satCount: 11,
-      fixType: '3D Fix',
-      lockTime: 'UTC ' + new Date().toISOString().substring(11, 19),
+      satCount: 8,
+      fixType: '3D GPS Fix',
+      lockTime: new Date().toISOString().substring(11, 19) + ' UTC',
       mode: 'auto',
       deviceName: 'u-blox NEO-M8N USB GPS',
     };

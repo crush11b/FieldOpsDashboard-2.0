@@ -5,7 +5,10 @@ param(
     [double]$Latitude = 37.5407,
     [double]$Longitude = -77.4360,
     [string]$GridSquare = "",
-    [string]$ComPort = "COM6"
+    [string]$ComPort = "COM6",
+    [int]$SatCount = 8,
+    [string]$FixType = "3D GPS Fix",
+    [string]$Mode = "auto"
 )
 
 $endpoints = @(
@@ -16,13 +19,17 @@ $endpoints = @(
 Write-Host "=======================================================" -ForegroundColor Cyan
 Write-Host " ToughBook GPS & Grid Location Telemetry Sync Active  " -ForegroundColor Cyan
 Write-Host " Target Coordinates: $Latitude, $Longitude             " -ForegroundColor Yellow
+Write-Host " Mode: $Mode | Satellites: $SatCount | Fix: $FixType    " -ForegroundColor Green
 Write-Host "=======================================================" -ForegroundColor Cyan
 
 $payload = @{
     lat = $Latitude
     lon = $Longitude
     gridSquare = $GridSquare
-    mode = "locked"
+    mode = $Mode
+    satCount = $SatCount
+    fixType = $FixType
+    lockTime = (Get-Date).ToUniversalTime().ToString("HH:mm:ss") + " UTC"
     deviceName = "ToughBook GNSS ($ComPort)"
     source = "powershell_sync"
 }
