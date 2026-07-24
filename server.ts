@@ -991,8 +991,8 @@ Context provided: ${JSON.stringify(context || {})}`;
     }
   });
 
-  // API 4: Download complete project ZIP for offline local deployment
-  app.get("/api/download-project-zip", async (req, res) => {
+  // API 4: Download complete project ZIP for offline local deployment & live auto-updater
+  app.get(["/api/download-project-zip", "/api/download-app-zip", "/api/update-app", "/api/download-update"], async (req, res) => {
     try {
       const zip = new JSZip();
       const rootDir = process.cwd();

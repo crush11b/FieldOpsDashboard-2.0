@@ -527,6 +527,37 @@ while ($true) {
             <p className="text-[10px] text-zinc-400 leading-normal">
               <strong>Why EncodedCommand?</strong> Passing script strings in double quotes can cause PowerShell to prematurely expand variables like <code className="text-amber-300">$b</code> or <code className="text-amber-300">$p1</code> on the parent shell. Clicking <strong>📋 Copy Encoded PS Command</strong> or <strong>💾 Download .ps1</strong> bypasses shell variable expansion completely.
             </p>
+
+            {/* Dashboard Updater Utility */}
+            <div className="pt-2 border-t border-zinc-800/80 flex items-center justify-between">
+              <span className="text-[10px] text-emerald-400 font-bold">🚀 DASHBOARD AUTO-UPDATER COMMAND:</span>
+              <button
+                type="button"
+                onClick={() => {
+                  const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
+                  const updateUrl = `${origin}/api/download-project-zip`;
+                  const updaterScript = `$ProgressPreference='SilentlyContinue'; $dest='C:\\FieldOpsDashboard'; Write-Host '=== Updating FieldOps Dashboard to Latest Version ===' -ForegroundColor Cyan; Get-Process -Name node,tsx,npm,vite -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue; Start-Sleep -Seconds 2; $zip=Join-Path $env:TEMP 'FieldOps_Update.zip'; $ext=Join-Path $env:TEMP 'FieldOps_Ext'; if (Test-Path $ext) { Remove-Item $ext -Recurse -Force -ErrorAction SilentlyContinue }; if (Test-Path $zip) { Remove-Item $zip -Force -ErrorAction SilentlyContinue }; Write-Host 'Downloading update package...' -ForegroundColor Yellow; try { (New-Object System.Net.WebClient).DownloadFile('${updateUrl}', $zip) } catch { Invoke-WebRequest -Uri '${updateUrl}' -OutFile $zip -UseBasicParsing }; if ((Test-Path $zip) -and ((Get-Item $zip).Length -gt 5000)) { Write-Host 'Extracting files...' -ForegroundColor Yellow; Expand-Archive -Path $zip -DestinationPath $ext -Force; Get-ChildItem -Path "$ext\\*" -Exclude "node_modules" | Copy-Item -Destination $dest -Recurse -Force; Remove-Item $zip,$ext -Recurse -Force -ErrorAction SilentlyContinue; Write-Host '[✓] FieldOps Dashboard updated successfully!' -ForegroundColor Green; Set-Location $dest; npm run dev } else { Write-Host '[X] Download failed or invalid zip archive.' -ForegroundColor Red }`;
+
+                  const bytes = new Uint8Array(updaterScript.length * 2);
+                  for (let i = 0; i < updaterScript.length; i++) {
+                    const code = updaterScript.charCodeAt(i);
+                    bytes[i * 2] = code & 0xff;
+                    bytes[i * 2 + 1] = (code >> 8) & 0xff;
+                  }
+                  let binary = '';
+                  for (let i = 0; i < bytes.byteLength; i++) {
+                    binary += String.fromCharCode(bytes[i]);
+                  }
+                  const b64 = btoa(binary);
+                  const cmd = `powershell -NoExit -ExecutionPolicy Bypass -EncodedCommand ${b64}`;
+                  navigator.clipboard.writeText(cmd);
+                  alert('1-Click Dashboard Auto-Updater Command copied to clipboard! Open PowerShell in C:\\FieldOpsDashboard, paste, and press Enter.');
+                }}
+                className="px-2.5 py-1 bg-emerald-900/80 border border-emerald-400/60 rounded text-emerald-200 hover:bg-emerald-800 transition-colors font-sans text-[10px]"
+              >
+                📋 Copy 1-Click Update Command
+              </button>
+            </div>
           </div>
         </div>
       )}
