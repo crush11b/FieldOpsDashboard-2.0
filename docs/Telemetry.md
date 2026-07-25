@@ -1,6 +1,13 @@
 # Telemetry Architecture
 
+The telemetry architecture is the foundational data transport layer for FieldOps Dashboard 2.0. Every future subsystem should adopt this pattern unless there is a documented reason to do otherwise.
+
 This document describes the telemetry foundation introduced by E1-001 and its first integration in E1-002. It is the reference for contributors migrating additional dashboard data sources.
+
+Implemented in:
+
+- E1-001 Telemetry Foundation
+- E1-002 Battery Telemetry
 
 ## Purpose
 
@@ -85,6 +92,8 @@ Telemetry endpoints are introduced alongside legacy system endpoints:
 ```
 
 For later migrations, keep the existing endpoint stable, add `/api/telemetry/<domain>` as an envelope adapter, migrate one frontend consumer at a time, and preserve producer inputs during the transition. Remove or redirect a legacy endpoint only in an explicitly planned breaking-change ticket.
+
+Backward compatibility is preferred over immediate API replacement. Legacy endpoints remain until all known consumers have migrated.
 
 Avoid duplicating domain models solely for transport migration. Wrap the established payload type first, then improve that payload independently when justified.
 
@@ -227,3 +236,13 @@ const failure: TelemetryEnvelope<DualBatteryStatus> = {
 ```
 
 Consumers must narrow on `status` and check whether retained or pending states include `data`. They must not assume every successful HTTP response contains a live reading.
+
+## Planned migrations
+
+- GPS
+- Weather
+- APRS
+- Radio
+- Solar
+- System Health
+- Network
