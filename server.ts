@@ -6,6 +6,9 @@ import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
+import type { DualBatteryStatus } from './src/types';
+import type { TelemetryEnvelope, TelemetryStatus } from './src/telemetry';
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -1059,6 +1062,66 @@ Context provided: ${JSON.stringify(context || {})}`;
       }
     } catch (err: any) {
       res.status(500).json({ error: "Battery query failed: " + err.message });
+    }
+  });
+
+  // Canonical battery telemetry endpoint. The legacy battery API remains unchanged.
+  app.get('/api/telemetry/battery', async (req, res) => {
+    try {
+      const legacyResponse = await fetch(`http://127.0.0.1:${PORT}/api/system/battery`);
+      if (!legacyResponse.ok) {
+        throw new Error(`Legacy battery query failed with status ${legacyResponse.status}`);
+      }
+
+      const batteryData: any = await legacyResponse.json();
+      const now = new Date().toISOString();
+      const sourceType = batteryData.source || 'system_battery';
+      const telemetryAgeMs = localTelemetryBattery ? Date.now() - localTelemetryBattery.timestamp : 0;
+      const status: Extract<TelemetryStatus, 'ok' | 'degraded' | 'stale'> =
+        sourceType === 'local_telemetry_agent' && telemetryAgeMs > 15000
+          ? 'stale'
+          : sourceType.startsWith('simulated_')
+            ? 'degraded'
+            : 'ok';
+
+      const envelope: TelemetryEnvelope<DualBatteryStatus> = {
+        status,
+        source: {
+          id: sourceType,
+          type: sourceType,
+          name: 'Dual Battery System',
+        },
+        timestamps: {
+          observedAt: localTelemetryBattery
+            ? new Date(localTelemetryBattery.timestamp).toISOString()
+            : now,
+          receivedAt: now,
+        },
+        data: batteryData as DualBatteryStatus,
+      };
+
+      return res.json(envelope);
+    } catch (err: any) {
+      const now = new Date().toISOString();
+      const envelope: TelemetryEnvelope<DualBatteryStatus> = {
+        status: 'error',
+        source: {
+          id: 'system_battery',
+          type: 'system_battery',
+          name: 'Dual Battery System',
+        },
+        timestamps: {
+          observedAt: now,
+          receivedAt: now,
+        },
+        error: {
+          code: 'BATTERY_QUERY_FAILED',
+          message: err.message || 'Battery query failed',
+          retryable: true,
+        },
+      };
+
+      return res.status(500).json(envelope);
     }
   });
 

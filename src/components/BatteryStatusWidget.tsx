@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, RefreshCw, Sliders, Check } from 'lucide-react';
 import { DualBatteryStatus, UIThemeMode } from '../types';
+import type { TelemetryEnvelope } from '../telemetry';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
@@ -45,11 +46,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
     // 1. Primary Priority: Query Backend Telemetry / WMI API for Dual-Battery details
     try {
-      const res = await fetch('/api/system/battery');
+      const res = await fetch('/api/telemetry/battery');
       if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.mainTablet?.percent !== undefined) {
-          const isLiveTelemetry = data.source === 'local_telemetry_agent' || data.source === 'win32_wmi' || data.source === 'sysfs' || data.source === 'linux_sysfs';
+        const envelope = await res.json() as TelemetryEnvelope<DualBatteryStatus>;
+        const data = envelope.data;
+        const source = envelope.source.type;
+        if (data?.mainTablet?.percent !== undefined) {
+          const isLiveTelemetry = envelope.status === 'ok' && (source === 'local_telemetry_agent' || source === 'win32_wmi' || source === 'sysfs' || source === 'linux_sysfs');
           
           if (onUpdateBattery) {
             const isAttached = data.keyboardDock?.attached ?? battery.keyboardDock.attached ?? true;
@@ -71,8 +74,8 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
           setPollSource(
             isLiveTelemetry
-              ? `Live Sync (${data.source === 'local_telemetry_agent' ? 'ToughBook Agent' : data.source})`
-              : `Active Poll (${data.source || 'Server'})`
+              ? `Live Sync (${source === 'local_telemetry_agent' ? 'ToughBook Agent' : source})`
+              : `Active Poll (${source || 'Server'})`
           );
           setLastPolledTime(new Date().toLocaleTimeString());
           setIsPolling(false);
