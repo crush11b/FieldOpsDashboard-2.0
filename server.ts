@@ -6,7 +6,7 @@ import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
-import type { DualBatteryStatus } from './src/types';
+import type { DualBatteryStatus, GPSStatus } from './src/types';
 import type { TelemetryEnvelope, TelemetryStatus } from './src/telemetry';
 
 async function startServer() {
@@ -797,7 +797,32 @@ Context provided: ${JSON.stringify(context || {})}`;
   let localTelemetryGps: {
     data: any;
     timestamp: number;
+    producerSource: {
+      id: string;
+      type: string;
+      raw: string;
+    };
   } | null = null;
+
+  const normalizeGpsProducerSource = (source: unknown) => {
+    const raw = typeof source === 'string' && source.trim()
+      ? source.trim()
+      : 'unknown_legacy_producer';
+
+    if (raw === 'browser_gnss_geolocation' || raw === 'browser_geolocation') {
+      return { id: 'gps:browser', type: 'browser_geolocation', raw };
+    }
+    if (raw === 'powershell_sync' || raw === 'local_telemetry_agent' || raw === 'toughbook_agent') {
+      return { id: 'gps:toughbook-agent', type: 'local_telemetry_agent', raw };
+    }
+    if (raw === 'manual_location') {
+      return { id: 'gps:manual', type: 'manual_location', raw };
+    }
+    if (raw === 'preset_location') {
+      return { id: 'gps:preset', type: 'preset_location', raw };
+    }
+    return { id: 'gps:legacy', type: 'unknown_legacy_producer', raw };
+  };
 
   // GPS Telemetry Sync Endpoints
   app.post(["/api/system/gps/telemetry", "/api/system/gps", "/api/gps/telemetry", "/api/gps"], (req, res) => {
@@ -825,6 +850,7 @@ Context provided: ${JSON.stringify(context || {})}`;
 
       localTelemetryGps = {
         timestamp: Date.now(),
+        producerSource: normalizeGpsProducerSource(body.source ?? query.source),
         data: {
           success: true,
           source: body.source || "local_telemetry_agent",
@@ -853,6 +879,106 @@ Context provided: ${JSON.stringify(context || {})}`;
       success: false,
       message: "No live GPS telemetry pushed yet."
     });
+  });
+
+  app.get('/api/telemetry/gps', (req, res) => {
+    const now = new Date();
+    const receivedAt = now.toISOString();
+
+    if (!localTelemetryGps) {
+      const envelope: TelemetryEnvelope<GPSStatus> = {
+        status: 'unavailable',
+        source: {
+          id: 'gps:server',
+          type: 'system_gps',
+          name: 'GPS Telemetry',
+        },
+        timestamps: {
+          observedAt: receivedAt,
+          receivedAt,
+        },
+      };
+      return res.json(envelope);
+    }
+
+    try {
+      const { data, timestamp, producerSource } = localTelemetryGps;
+      const hasValidLatitude = Number.isFinite(data.lat) && data.lat >= -90 && data.lat <= 90;
+      const hasValidLongitude = Number.isFinite(data.lon) && data.lon >= -180 && data.lon <= 180;
+      if (!hasValidLatitude || !hasValidLongitude) {
+        throw new Error('Stored GPS telemetry contains invalid coordinates');
+      }
+
+      const ageMs = now.getTime() - timestamp;
+      const isBrowser = producerSource.type === 'browser_geolocation';
+      const isLocalAgent = producerSource.type === 'local_telemetry_agent';
+      const freshnessMs = isBrowser ? 120000 : isLocalAgent ? 30000 : null;
+      const status: Extract<TelemetryStatus, 'ok' | 'degraded' | 'stale'> =
+        freshnessMs !== null
+          ? ageMs > freshnessMs ? 'stale' : 'ok'
+          : 'degraded';
+      const observedAt = new Date(timestamp).toISOString();
+
+      const gps: GPSStatus = {
+        lat: data.lat,
+        lon: data.lon,
+        altitudeM: data.altitudeM,
+        speedKmh: Number.isFinite(data.speedKmh) ? data.speedKmh : 0,
+        gridSquare: data.gridSquare,
+        satCount: data.satCount,
+        fixType: data.fixType,
+        lockTime: data.lockTime,
+        mode: data.mode,
+        deviceName: data.deviceName,
+        ...(data.comPort !== undefined ? { comPort: data.comPort } : {}),
+        ...(data.baudRate !== undefined ? { baudRate: data.baudRate } : {}),
+      };
+
+      const envelope: TelemetryEnvelope<GPSStatus> = {
+        status,
+        source: {
+          id: producerSource.id,
+          type: producerSource.type,
+          name: gps.deviceName || 'GPS Telemetry',
+          metadata: {
+            producerSource: producerSource.raw,
+          },
+        },
+        timestamps: {
+          observedAt,
+          receivedAt,
+          ...(freshnessMs !== null
+            ? { expiresAt: new Date(timestamp + freshnessMs).toISOString() }
+            : {}),
+        },
+        data: gps,
+      };
+
+      return res.json(envelope);
+    } catch (err: any) {
+      const envelope: TelemetryEnvelope<GPSStatus> = {
+        status: 'error',
+        source: {
+          id: localTelemetryGps.producerSource.id,
+          type: localTelemetryGps.producerSource.type,
+          name: 'GPS Telemetry',
+          metadata: {
+            producerSource: localTelemetryGps.producerSource.raw,
+          },
+        },
+        timestamps: {
+          observedAt: new Date(localTelemetryGps.timestamp).toISOString(),
+          receivedAt,
+        },
+        error: {
+          code: 'GPS_ADAPTER_FAILED',
+          message: err.message || 'GPS telemetry adapter failed',
+          retryable: true,
+        },
+      };
+
+      return res.status(500).json(envelope);
+    }
   });
 
   const telemetryEndpoints = [

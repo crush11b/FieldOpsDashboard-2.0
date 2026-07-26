@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock } from 'lucide-react';
 import { GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
+import type { TelemetryEnvelope } from '../telemetry';
 import { playTacticalClick } from '../utils/audio';
 
 interface GPSGridWidgetProps {
@@ -43,7 +44,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     mode = 'auto',
     satCount = 8,
     fixType = '3D GPS Fix',
-    lockTime?: string
+    lockTime?: string,
+    source = 'browser_gnss_geolocation'
   ) => {
     const currentLockTime = lockTime || (new Date().toISOString().substring(11, 19) + ' UTC');
     fetch('/api/system/gps/telemetry', {
@@ -57,7 +59,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         satCount,
         fixType,
         lockTime: currentLockTime,
-        source: 'browser_gnss_geolocation',
+        source,
       }),
     }).catch(() => {});
   };
@@ -127,10 +129,22 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   useEffect(() => {
     const checkGpsTelemetry = async () => {
       try {
-        const res = await fetch('/api/system/gps');
+        const res = await fetch('/api/telemetry/gps');
         if (res.ok) {
-          const data = await res.json();
-          if (data.success && data.lat !== undefined && data.lon !== undefined) {
+          const envelope = await res.json() as TelemetryEnvelope<GPSStatus>;
+          let data: GPSStatus | undefined;
+          switch (envelope.status) {
+            case 'ok':
+            case 'degraded':
+            case 'stale':
+            case 'cached':
+            case 'connecting':
+            case 'unavailable':
+            case 'error':
+              data = envelope.data;
+              break;
+          }
+          if (data?.lat !== undefined && data.lon !== undefined) {
             // Only update if not explicitly editing in manual mode
             if (!isEditing) {
               onUpdateGPS({
@@ -250,7 +264,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       lockTime,
     });
 
-    postGpsTelemetry(lat, lon, calculatedGrid, 'manual', 12, 'Manual Pin', lockTime);
+    postGpsTelemetry(lat, lon, calculatedGrid, 'manual', 12, 'Manual Pin', lockTime, 'manual_location');
     setIsEditing(false);
   };
 
@@ -268,7 +282,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     setInputLat(lat.toString());
     setInputLon(lon.toString());
     setInputGrid(grid);
-    postGpsTelemetry(lat, lon, grid, 'manual', 12, 'Preset', lockTime);
+    postGpsTelemetry(lat, lon, grid, 'manual', 12, 'Preset', lockTime, 'preset_location');
   };
 
   const handleTriggerBrowserGeolocation = () => {
