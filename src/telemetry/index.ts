@@ -7,3 +7,8 @@ export type {
   TelemetryTimestamps,
 } from './TelemetryEnvelope';
 export { getTelemetryFreshness } from './TelemetryFreshness';
+export {
+  getTelemetrySourceLabel,
+  TELEMETRY_UNAVAILABLE_LABEL,
+  TELEMETRY_UNAVAILABLE_VALUE,
+} from './TelemetryDisplay';

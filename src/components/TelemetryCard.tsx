@@ -1,6 +1,12 @@
 import React, { useId, type ReactNode } from 'react';
 import { Activity, Clock, Database } from 'lucide-react';
-import { getTelemetryFreshness, type TelemetryEnvelope } from '../telemetry';
+import {
+  getTelemetryFreshness,
+  getTelemetrySourceLabel,
+  TELEMETRY_UNAVAILABLE_LABEL,
+  TELEMETRY_UNAVAILABLE_VALUE,
+  type TelemetryEnvelope,
+} from '../telemetry';
 import type { UIThemeMode } from '../types';
 import { StatusBadge } from './StatusBadge';
 
@@ -13,10 +19,6 @@ export interface TelemetryCardProps<TPayload> {
   renderContent?: (data: TPayload) => ReactNode;
 }
 
-const formatSourceName = (envelope: TelemetryEnvelope<unknown>): string => {
-  return envelope.source.name || envelope.source.type;
-};
-
 export function TelemetryCard<TPayload>({
   envelope,
   title,
@@ -26,7 +28,7 @@ export function TelemetryCard<TPayload>({
   renderContent,
 }: TelemetryCardProps<TPayload>) {
   const titleId = useId();
-  const sourceName = formatSourceName(envelope);
+  const sourceName = getTelemetrySourceLabel(envelope.source);
   const freshness = getTelemetryFreshness(envelope.timestamps);
   const data = envelope.data;
   const hasData = data !== undefined;
@@ -45,7 +47,7 @@ export function TelemetryCard<TPayload>({
 
   let content: ReactNode;
   if (suppressData) {
-    content = <span aria-label="Unavailable">—</span>;
+    content = <span aria-label={TELEMETRY_UNAVAILABLE_LABEL}>{TELEMETRY_UNAVAILABLE_VALUE}</span>;
   } else if (hasData) {
     content = renderContent
       ? renderContent(data)
@@ -53,7 +55,7 @@ export function TelemetryCard<TPayload>({
         ? children(data)
         : children;
   } else {
-    content = <span aria-label="Telemetry data unavailable">—</span>;
+    content = <span aria-label={TELEMETRY_UNAVAILABLE_LABEL}>{TELEMETRY_UNAVAILABLE_VALUE}</span>;
   }
 
   return (
@@ -72,7 +74,9 @@ export function TelemetryCard<TPayload>({
       </header>
 
       <div className={`min-h-16 [text-wrap:pretty] ${contentStyle}`}>
-        {content ?? <span aria-label="Unavailable">—</span>}
+        {content ?? (
+          <span aria-label={TELEMETRY_UNAVAILABLE_LABEL}>{TELEMETRY_UNAVAILABLE_VALUE}</span>
+        )}
       </div>
 
       {envelope.status === 'error' && (
