@@ -16,6 +16,7 @@ import {
   DashboardConfig, 
   DualBatteryStatus, 
   GPSStatus, 
+  GPSProvenance,
   NetworkStatus, 
   NOAAAlert, 
   SolarData, 
@@ -27,6 +28,64 @@ import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/d
 import { playTacticalClick } from './utils/audio';
 
 const STORAGE_KEY = 'fieldops_dashboard_config_v115';
+const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
+
+interface InitialGpsState {
+  gps: GPSStatus;
+  provenance: GPSProvenance;
+}
+
+const loadInitialGpsState = (): InitialGpsState => {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(GPS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
+          return {
+            gps: {
+              ...parsed,
+              mode: parsed.mode === 'manual' ? 'manual' : 'auto',
+            },
+            provenance: {
+              status: 'cached',
+              source: {
+                id: 'gps:local-storage',
+                type: 'cached_local_storage',
+                name: 'Cached GPS Position',
+              },
+            },
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore saved GPS status');
+    }
+  }
+
+  return {
+    gps: {
+      lat: 37.5407,
+      lon: -77.4360,
+      altitudeM: 51,
+      speedKmh: 0,
+      gridSquare: 'FM17hd',
+      satCount: 8,
+      fixType: '3D GPS Fix',
+      lockTime: new Date().toISOString().substring(11, 19) + ' UTC',
+      mode: 'auto',
+      deviceName: 'u-blox NEO-M8N USB GPS',
+    },
+    provenance: {
+      status: 'degraded',
+      source: {
+        id: 'gps:richmond-reference',
+        type: 'simulated_default',
+        name: 'Richmond Reference Location',
+      },
+    },
+  };
+};
 
 export default function App() {
   // 1. Dashboard Persistent Config
@@ -91,46 +150,23 @@ export default function App() {
     packetsDropped: 0,
   });
 
-  const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
-
   // 4. GPS & Maidenhead Grid Square (Saved to LocalStorage)
-  const [gps, setGps] = useState<GPSStatus>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(GPS_STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
-            return {
-              ...parsed,
-              mode: parsed.mode === 'manual' ? 'manual' : 'auto',
-            };
-          }
-        } catch (e) {
-          console.warn('Failed to parse saved GPS status');
-        }
-      }
-    }
-    return {
-      lat: 37.5407,
-      lon: -77.4360,
-      altitudeM: 51,
-      speedKmh: 0,
-      gridSquare: 'FM17hd',
-      satCount: 8,
-      fixType: '3D GPS Fix',
-      lockTime: new Date().toISOString().substring(11, 19) + ' UTC',
-      mode: 'auto',
-      deviceName: 'u-blox NEO-M8N USB GPS',
-    };
-  });
+  const [initialGpsState] = useState(loadInitialGpsState);
+  const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
+  const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
 
   // Persist GPS changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
+      try {
+        if (gpsProvenance.source.type !== 'simulated_default') {
+          localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
+        }
+      } catch (e) {
+        console.warn('Failed to persist GPS status');
+      }
     }
-  }, [gps]);
+  }, [gps, gpsProvenance]);
 
   // 5. Weather & NOAA Alerts
   const [weather, setWeather] = useState<WeatherData>({
@@ -236,7 +272,10 @@ export default function App() {
   };
 
   // Handle GPS Updates
-  const handleUpdateGPS = (updated: Partial<GPSStatus>) => {
+  const handleUpdateGPS = (updated: Partial<GPSStatus>, provenance?: GPSProvenance) => {
+    if (provenance) {
+      setGpsProvenance(provenance);
+    }
     setGps((prev) => {
       const lat = updated.lat ?? prev.lat;
       const lon = updated.lon ?? prev.lon;
@@ -298,6 +337,7 @@ export default function App() {
           {/* GPS & Maidenhead Grid Badge */}
           <GPSGridWidget
             gps={gps}
+            provenance={gpsProvenance}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             onUpdateGPS={handleUpdateGPS}

@@ -1,14 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock } from 'lucide-react';
-import { GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
+import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import type { TelemetryEnvelope } from '../telemetry';
 import { playTacticalClick } from '../utils/audio';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
+  provenance: GPSProvenance;
   theme: UIThemeMode;
   audioEnabled: boolean;
-  onUpdateGPS: (updated: Partial<GPSStatus>) => void;
+  onUpdateGPS: (updated: Partial<GPSStatus>, provenance?: GPSProvenance) => void;
   comPort?: string;
   baudRate?: number;
   onSelectComPort?: (port: string, baud: number) => void;
@@ -16,6 +17,7 @@ interface GPSGridWidgetProps {
 
 export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   gps,
+  provenance,
   theme,
   audioEnabled,
   onUpdateGPS,
@@ -27,6 +29,32 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const [inputLat, setInputLat] = useState(gps.lat.toString());
   const [inputLon, setInputLon] = useState(gps.lon.toString());
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
+
+  const browserProvenance = (): GPSProvenance => {
+    const observedAt = new Date();
+    return {
+      status: 'ok',
+      source: {
+        id: 'gps:browser',
+        type: 'browser_geolocation',
+        name: 'Browser Geolocation',
+      },
+      timestamps: {
+        observedAt: observedAt.toISOString(),
+        receivedAt: observedAt.toISOString(),
+        expiresAt: new Date(observedAt.getTime() + 120_000).toISOString(),
+      },
+    };
+  };
+
+  const manualProvenance = (preset = false): GPSProvenance => ({
+    status: 'degraded',
+    source: {
+      id: preset ? 'gps:preset' : 'gps:manual',
+      type: preset ? 'preset_location' : 'manual_location',
+      name: preset ? 'Preset Location' : 'Manual Location',
+    },
+  });
 
   // Sync inputs whenever gps prop changes
   useEffect(() => {
@@ -65,10 +93,11 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   };
 
   // Auto-sync function for browser hardware GPS / Geolocation
-  const requestBrowserGeolocation = (isStartup = false) => {
+  const requestBrowserGeolocation = (isStartup = false, isCancelled = () => false) => {
     if (typeof navigator !== 'undefined' && 'geolocation' in navigator) {
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
+          if (isCancelled()) return;
           const lat = pos.coords.latitude;
           const lon = pos.coords.longitude;
           const grid = latLonToGridSquare(lat, lon);
@@ -95,6 +124,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             }
           }
 
+          if (isCancelled()) return;
+
           const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
           const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
 
@@ -108,7 +139,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             fixType: fixTypeStr,
             mode: 'auto',
             lockTime: utcLock,
-          });
+          }, browserProvenance());
           setInputLat(lat.toString());
           setInputLon(lon.toString());
           setInputGrid(grid);
@@ -127,11 +158,15 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
   // Check backend for live telemetry periodically & auto-sync on startup
   useEffect(() => {
-    const checkGpsTelemetry = async () => {
+    let cancelled = false;
+
+    const checkGpsTelemetry = async (): Promise<boolean> => {
       try {
         const res = await fetch('/api/telemetry/gps');
+        if (cancelled) return false;
         if (res.ok) {
           const envelope = await res.json() as TelemetryEnvelope<GPSStatus>;
+          if (cancelled) return false;
           let data: GPSStatus | undefined;
           switch (envelope.status) {
             case 'ok':
@@ -156,22 +191,29 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                 fixType: data.fixType || '3D GPS Fix',
                 mode: data.mode || 'auto',
                 lockTime: data.lockTime || (new Date().toISOString().substring(11, 19) + ' UTC'),
+              }, {
+                status: envelope.status,
+                source: envelope.source,
+                timestamps: envelope.timestamps,
               });
             }
-            return;
+            return true;
           }
         }
       } catch (e) {
         // Silent catch
       }
-
-      // Fallback: recheck browser hardware GPS
-      requestBrowserGeolocation(true);
+      return false;
     };
 
     // Immediate auto-sync on startup
-    checkGpsTelemetry();
-    requestBrowserGeolocation(true);
+    const initializeGps = async () => {
+      const hasBackendTelemetry = await checkGpsTelemetry();
+      if (!cancelled && !hasBackendTelemetry) {
+        requestBrowserGeolocation(true, () => cancelled);
+      }
+    };
+    initializeGps();
 
     // Watch position for continuous real-time movement tracking
     let watchId: number | null = null;
@@ -179,6 +221,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       try {
         watchId = navigator.geolocation.watchPosition(
           (pos) => {
+            if (cancelled) return;
             const lat = pos.coords.latitude;
             const lon = pos.coords.longitude;
             const grid = latLonToGridSquare(lat, lon);
@@ -201,7 +244,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               fixType: fixTypeStr,
               mode: 'auto',
               lockTime: utcLock,
-            });
+            }, browserProvenance());
             postGpsTelemetry(lat, lon, grid, 'auto', calculatedSats, fixTypeStr, utcLock);
           },
           () => {},
@@ -213,8 +256,14 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     }
 
     // Periodic recheck interval (every 10 seconds)
-    const interval = setInterval(checkGpsTelemetry, 10000);
+    const interval = setInterval(async () => {
+      const hasBackendTelemetry = await checkGpsTelemetry();
+      if (!cancelled && !hasBackendTelemetry) {
+        requestBrowserGeolocation(true, () => cancelled);
+      }
+    }, 10000);
     return () => {
+      cancelled = true;
       clearInterval(interval);
       if (watchId !== null && typeof navigator !== 'undefined' && 'geolocation' in navigator) {
         navigator.geolocation.clearWatch(watchId);
@@ -236,6 +285,28 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     : isSunlight
     ? 'bg-emerald-200 border-emerald-500 text-slate-950'
     : 'bg-zinc-800/90 border-zinc-700/80 text-zinc-100';
+
+  const gpsStatusText = (() => {
+    switch (provenance.status) {
+      case 'ok':
+        return '🛰️ SATELLITE AUTO-FIX';
+      case 'cached':
+        return '💾 CACHED LAST POSITION';
+      case 'stale':
+        return '⏱️ STALE LAST POSITION';
+      case 'degraded':
+        if (provenance.source.type === 'manual_location') return '✏️ MANUAL OVERRIDE';
+        if (provenance.source.type === 'preset_location') return '📍 LOCATION PRESET';
+        if (provenance.source.type === 'simulated_default') return '📍 REFERENCE LOCATION — NO FIX';
+        return '⚠️ DEGRADED LOCATION';
+      case 'connecting':
+        return '⏳ ACQUIRING GPS';
+      case 'unavailable':
+        return '⚠️ GPS UNAVAILABLE';
+      case 'error':
+        return '⚠️ GPS ERROR';
+    }
+  })();
 
   const handleSaveCoordinates = () => {
     playTacticalClick(audioEnabled);
@@ -262,7 +333,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       gridSquare: calculatedGrid,
       mode: 'manual',
       lockTime,
-    });
+    }, manualProvenance());
 
     postGpsTelemetry(lat, lon, calculatedGrid, 'manual', 12, 'Manual Pin', lockTime, 'manual_location');
     setIsEditing(false);
@@ -278,7 +349,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       gridSquare: grid,
       mode: 'manual',
       lockTime,
-    });
+    }, manualProvenance(true));
     setInputLat(lat.toString());
     setInputLon(lon.toString());
     setInputGrid(grid);
@@ -342,7 +413,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             {gps.gridSquare}
           </span>
           <span className="text-[10px] mt-1 opacity-75">
-            {gps.mode === 'auto' ? '🛰️ SATELLITE AUTO-FIX' : '✏️ MANUAL OVERRIDE'}
+            {gpsStatusText}
           </span>
         </div>
 

@@ -1,3 +1,5 @@
+import type { TelemetrySource, TelemetryStatus, TelemetryTimestamps } from './telemetry';
+
 export type AppCategory = 
   | 'digital'
   | 'aprs'
@@ -65,6 +67,12 @@ export interface GPSStatus {
   deviceName: string;
   comPort?: string;
   baudRate?: number;
+}
+
+export interface GPSProvenance {
+  status: TelemetryStatus;
+  source: TelemetrySource;
+  timestamps?: TelemetryTimestamps;
 }
 
 export interface HourlyWeatherItem {
