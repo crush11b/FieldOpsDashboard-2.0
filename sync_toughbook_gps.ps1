@@ -90,12 +90,12 @@ function ConvertTo-MaidenheadGrid {
     $SubsquareLatitude = [math]::Floor(($AdjustedLatitude % 1) * 24)
 
     return ('{0}{1}{2}{3}{4}{5}' -f
-        [char](65 + $FieldLongitude),
-        [char](65 + $FieldLatitude),
+        [char]([int](65 + $FieldLongitude)),
+        [char]([int](65 + $FieldLatitude)),
         $SquareLongitude,
         $SquareLatitude,
-        [char](97 + $SubsquareLongitude),
-        [char](97 + $SubsquareLatitude))
+        [char]([int](97 + $SubsquareLongitude)),
+        [char]([int](97 + $SubsquareLatitude)))
 }
 
 function Get-GgaFixType {
@@ -396,7 +396,7 @@ try {
             continue
         }
         catch {
-            Write-Warning "Serial read failed on $ComPort`: $($_.Exception.Message). Reopening the port."
+            Write-Warning "GNSS processing error at script line $($_.InvocationInfo.ScriptLineNumber): $($_.Exception.Message). Reopening $ComPort."
 
             if ($null -ne $SerialPort) {
                 try { $SerialPort.Close() } catch {}
