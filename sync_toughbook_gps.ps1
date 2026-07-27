@@ -9,203 +9,410 @@ param(
     )
 )
 
-# FieldOps Toughbook GNSS producer. Reads real RMC/GGA NMEA sentences and
-# never substitutes default coordinates when COM6 is unavailable or lacks a fix.
+# FieldOps Toughbook GNSS telemetry producer.
+# Reads real NMEA RMC/GGA sentences from the Sierra Wireless GNSS serial port.
+# It never substitutes default coordinates or reports a simulated live fix.
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
-$culture = [Globalization.CultureInfo]::InvariantCulture
+$InvariantCulture = [Globalization.CultureInfo]::InvariantCulture
 
-function Test-NmeaChecksum([string]$Sentence) {
-    if ($Sentence -notmatch '^\$(?<Body>[^*]+)\*(?<Checksum>[0-9A-Fa-f]{2})$') { return $false }
-    [int]$value = 0
-    foreach ($ch in $Matches.Body.ToCharArray()) { $value = $value -bxor [int][char]$ch }
-    return $value -eq [Convert]::ToInt32($Matches.Checksum, 16)
+function Test-NmeaChecksum {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Sentence
+    )
+
+    if ($Sentence -notmatch '^\$(?<Body>[^*]+)\*(?<Checksum>[0-9A-Fa-f]{2})$') {
+        return $false
+    }
+
+    [int]$Calculated = 0
+    foreach ($Character in $Matches.Body.ToCharArray()) {
+        $Calculated = $Calculated -bxor [int][char]$Character
+    }
+
+    return $Calculated -eq [Convert]::ToInt32($Matches.Checksum, 16)
 }
 
-function ConvertFrom-NmeaCoordinate([string]$Value, [string]$Hemisphere) {
-    [double]$raw = 0
-    if (-not [double]::TryParse($Value, [Globalization.NumberStyles]::Float, $culture, [ref]$raw)) {
+function ConvertFrom-NmeaCoordinate {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Value,
+
+        [Parameter(Mandatory = $true)]
+        [string]$Hemisphere
+    )
+
+    [double]$Raw = 0
+    $Parsed = [double]::TryParse(
+        $Value,
+        [Globalization.NumberStyles]::Float,
+        $InvariantCulture,
+        [ref]$Raw
+    )
+
+    if (-not $Parsed) {
         throw "Invalid NMEA coordinate '$Value'."
     }
-    $degrees = [math]::Floor($raw / 100)
-    $decimal = $degrees + (($raw - ($degrees * 100)) / 60)
-    if ($Hemisphere -in @('S', 'W')) { return -$decimal }
-    if ($Hemisphere -notin @('N', 'E')) { throw "Invalid hemisphere '$Hemisphere'." }
-    return $decimal
+
+    $Degrees = [math]::Floor($Raw / 100)
+    $Minutes = $Raw - ($Degrees * 100)
+    $Decimal = $Degrees + ($Minutes / 60)
+
+    switch ($Hemisphere.ToUpperInvariant()) {
+        'N' { return $Decimal }
+        'E' { return $Decimal }
+        'S' { return -$Decimal }
+        'W' { return -$Decimal }
+        default { throw "Invalid NMEA hemisphere '$Hemisphere'." }
+    }
 }
 
-function ConvertTo-MaidenheadGrid([double]$Latitude, [double]$Longitude) {
-    $lon = $Longitude + 180.0
-    $lat = $Latitude + 90.0
+function ConvertTo-MaidenheadGrid {
+    param(
+        [Parameter(Mandatory = $true)]
+        [double]$Latitude,
+
+        [Parameter(Mandatory = $true)]
+        [double]$Longitude
+    )
+
+    $AdjustedLongitude = $Longitude + 180.0
+    $AdjustedLatitude = $Latitude + 90.0
+
+    $FieldLongitude = [math]::Floor($AdjustedLongitude / 20)
+    $FieldLatitude = [math]::Floor($AdjustedLatitude / 10)
+    $SquareLongitude = [math]::Floor(($AdjustedLongitude % 20) / 2)
+    $SquareLatitude = [math]::Floor($AdjustedLatitude % 10)
+    $SubsquareLongitude = [math]::Floor(($AdjustedLongitude % 2) * 12)
+    $SubsquareLatitude = [math]::Floor(($AdjustedLatitude % 1) * 24)
+
     return ('{0}{1}{2}{3}{4}{5}' -f
-        [char](65 + [math]::Floor($lon / 20)),
-        [char](65 + [math]::Floor($lat / 10)),
-        [math]::Floor(($lon % 20) / 2),
-        [math]::Floor($lat % 10),
-        [char](97 + [math]::Floor(($lon % 2) * 12)),
-        [char](97 + [math]::Floor(($lat % 1) * 24)))
+        [char](65 + $FieldLongitude),
+        [char](65 + $FieldLatitude),
+        $SquareLongitude,
+        $SquareLatitude,
+        [char](97 + $SubsquareLongitude),
+        [char](97 + $SubsquareLatitude))
 }
 
-function Get-GgaFixType([int]$Quality) {
+function Get-GgaFixType {
+    param(
+        [Parameter(Mandatory = $true)]
+        [int]$Quality
+    )
+
     switch ($Quality) {
-        1 { '3D GPS Fix' }
-        2 { '3D DGPS Fix' }
-        4 { 'RTK Fixed' }
-        5 { 'RTK Float' }
-        6 { 'Estimated Fix' }
-        default { "GNSS Fix (Quality $Quality)" }
+        0 { return 'No Fix' }
+        1 { return '3D GPS Fix' }
+        2 { return '3D DGPS Fix' }
+        4 { return 'RTK Fixed' }
+        5 { return 'RTK Float' }
+        6 { return 'Estimated Fix' }
+        default { return "GNSS Fix (Quality $Quality)" }
     }
 }
 
-function ConvertFrom-NmeaSentence([string]$Sentence) {
-    $line = $Sentence.Trim()
-    if (-not (Test-NmeaChecksum $line)) { return $null }
+function ConvertFrom-NmeaSentence {
+    param(
+        [Parameter(Mandatory = $true)]
+        [string]$Sentence
+    )
 
-    $body = $line.Substring(1, $line.IndexOf('*') - 1)
-    $f = $body.Split(',')
-    $type = $f[0].Substring([math]::Max(0, $f[0].Length - 3))
-
-    if ($type -eq 'RMC') {
-        if ($f.Count -lt 10 -or $f[2] -ne 'A' -or [string]::IsNullOrWhiteSpace($f[3]) -or [string]::IsNullOrWhiteSpace($f[5])) {
-            return [pscustomobject]@{ Type = 'RMC'; HasFix = $false; ReceivedAt = [DateTime]::UtcNow }
-        }
-        [double]$knots = 0
-        [void][double]::TryParse($f[7], [Globalization.NumberStyles]::Float, $culture, [ref]$knots)
-        return [pscustomobject]@{
-            Type = 'RMC'; HasFix = $true; ReceivedAt = [DateTime]::UtcNow
-            Latitude = ConvertFrom-NmeaCoordinate $f[3] $f[4]
-            Longitude = ConvertFrom-NmeaCoordinate $f[5] $f[6]
-            SpeedKmh = [math]::Round($knots * 1.852, 1)
-        }
+    $Line = $Sentence.Trim()
+    if (-not (Test-NmeaChecksum -Sentence $Line)) {
+        return $null
     }
 
-    if ($type -eq 'GGA') {
-        [int]$quality = 0; [int]$sats = 0; [double]$altitude = 0
-        if ($f.Count -gt 6) { [void][int]::TryParse($f[6], [ref]$quality) }
-        if ($quality -le 0 -or $f.Count -lt 10 -or [string]::IsNullOrWhiteSpace($f[2]) -or [string]::IsNullOrWhiteSpace($f[4])) {
-            return [pscustomobject]@{ Type = 'GGA'; HasFix = $false; ReceivedAt = [DateTime]::UtcNow }
-        }
-        [void][int]::TryParse($f[7], [ref]$sats)
-        [void][double]::TryParse($f[9], [Globalization.NumberStyles]::Float, $culture, [ref]$altitude)
-        return [pscustomobject]@{
-            Type = 'GGA'; HasFix = $true; ReceivedAt = [DateTime]::UtcNow
-            Latitude = ConvertFrom-NmeaCoordinate $f[2] $f[3]
-            Longitude = ConvertFrom-NmeaCoordinate $f[4] $f[5]
-            SatCount = $sats; AltitudeM = [math]::Round($altitude, 1)
-            FixType = Get-GgaFixType $quality
-        }
+    $AsteriskIndex = $Line.IndexOf('*')
+    if ($AsteriskIndex -le 1) {
+        return $null
     }
 
-    return $null
+    $Body = $Line.Substring(1, $AsteriskIndex - 1)
+    $Fields = $Body.Split(',')
+    if ($Fields.Count -eq 0 -or $Fields[0].Length -lt 3) {
+        return $null
+    }
+
+    $SentenceType = $Fields[0].Substring($Fields[0].Length - 3)
+    $ReceivedAt = [DateTime]::UtcNow
+
+    switch ($SentenceType) {
+        'RMC' {
+            if ($Fields.Count -lt 10) {
+                return $null
+            }
+
+            $HasFix = $Fields[2] -eq 'A'
+            if (-not $HasFix) {
+                return [pscustomobject]@{
+                    Type = 'RMC'
+                    HasFix = $false
+                    ReceivedAt = $ReceivedAt
+                }
+            }
+
+            if ([string]::IsNullOrWhiteSpace($Fields[3]) -or
+                [string]::IsNullOrWhiteSpace($Fields[4]) -or
+                [string]::IsNullOrWhiteSpace($Fields[5]) -or
+                [string]::IsNullOrWhiteSpace($Fields[6])) {
+                return $null
+            }
+
+            [double]$SpeedKnots = 0
+            if (-not [string]::IsNullOrWhiteSpace($Fields[7])) {
+                [void][double]::TryParse(
+                    $Fields[7],
+                    [Globalization.NumberStyles]::Float,
+                    $InvariantCulture,
+                    [ref]$SpeedKnots
+                )
+            }
+
+            return [pscustomobject]@{
+                Type = 'RMC'
+                HasFix = $true
+                ReceivedAt = $ReceivedAt
+                Latitude = ConvertFrom-NmeaCoordinate -Value $Fields[3] -Hemisphere $Fields[4]
+                Longitude = ConvertFrom-NmeaCoordinate -Value $Fields[5] -Hemisphere $Fields[6]
+                SpeedKmh = [math]::Round($SpeedKnots * 1.852, 1)
+            }
+        }
+
+        'GGA' {
+            if ($Fields.Count -lt 10) {
+                return $null
+            }
+
+            [int]$FixQuality = 0
+            [int]$SatelliteCount = 0
+            [double]$AltitudeM = 0
+
+            [void][int]::TryParse($Fields[6], [ref]$FixQuality)
+            [void][int]::TryParse($Fields[7], [ref]$SatelliteCount)
+
+            if (-not [string]::IsNullOrWhiteSpace($Fields[9])) {
+                [void][double]::TryParse(
+                    $Fields[9],
+                    [Globalization.NumberStyles]::Float,
+                    $InvariantCulture,
+                    [ref]$AltitudeM
+                )
+            }
+
+            if ($FixQuality -le 0) {
+                return [pscustomobject]@{
+                    Type = 'GGA'
+                    HasFix = $false
+                    ReceivedAt = $ReceivedAt
+                    SatCount = $SatelliteCount
+                    FixType = 'No Fix'
+                }
+            }
+
+            if ([string]::IsNullOrWhiteSpace($Fields[2]) -or
+                [string]::IsNullOrWhiteSpace($Fields[3]) -or
+                [string]::IsNullOrWhiteSpace($Fields[4]) -or
+                [string]::IsNullOrWhiteSpace($Fields[5])) {
+                return $null
+            }
+
+            return [pscustomobject]@{
+                Type = 'GGA'
+                HasFix = $true
+                ReceivedAt = $ReceivedAt
+                Latitude = ConvertFrom-NmeaCoordinate -Value $Fields[2] -Hemisphere $Fields[3]
+                Longitude = ConvertFrom-NmeaCoordinate -Value $Fields[4] -Hemisphere $Fields[5]
+                SatCount = $SatelliteCount
+                AltitudeM = [math]::Round($AltitudeM, 1)
+                FixType = Get-GgaFixType -Quality $FixQuality
+            }
+        }
+
+        default {
+            return $null
+        }
+    }
 }
 
-function Send-Json([hashtable]$Payload) {
-    $json = $Payload | ConvertTo-Json -Compress
-    $success = $false
-    foreach ($endpoint in $Endpoints) {
+function Send-GpsTelemetry {
+    param(
+        [Parameter(Mandatory = $true)]
+        [hashtable]$Payload
+    )
+
+    $Json = $Payload | ConvertTo-Json -Compress
+    $AnySucceeded = $false
+
+    foreach ($Endpoint in $Endpoints) {
         try {
-            $null = Invoke-RestMethod -Uri $endpoint -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5
-            Write-Host "[$([DateTime]::Now.ToString('HH:mm:ss'))] Posted live fix to $endpoint" -ForegroundColor Green
-            $success = $true
-        } catch {
-            Write-Warning "POST failed for $endpoint`: $($_.Exception.Message)"
+            $null = Invoke-RestMethod `
+                -Uri $Endpoint `
+                -Method Post `
+                -Body $Json `
+                -ContentType 'application/json' `
+                -UseBasicParsing `
+                -TimeoutSec 5
+
+            Write-Host "[$([DateTime]::Now.ToString('HH:mm:ss'))] Posted live GNSS fix to $Endpoint" -ForegroundColor Green
+            $AnySucceeded = $true
+        }
+        catch {
+            Write-Warning "GPS telemetry POST failed for $Endpoint`: $($_.Exception.Message)"
         }
     }
-    return $success
-}
 
-function Clear-GpsTelemetry {
-    $json = @{ clear = $true; source = 'toughbook_agent' } | ConvertTo-Json -Compress
-    foreach ($endpoint in $Endpoints) {
-        try { $null = Invoke-RestMethod -Uri $endpoint -Method POST -Body $json -ContentType 'application/json' -UseBasicParsing -TimeoutSec 5 }
-        catch { Write-Verbose "Clear failed for $endpoint`: $($_.Exception.Message)" }
-    }
+    return $AnySucceeded
 }
 
 Write-Host '=======================================================' -ForegroundColor Cyan
 Write-Host ' FieldOps Toughbook Live GNSS Telemetry Producer       ' -ForegroundColor Cyan
-Write-Host " $ComPort @ $BaudRate baud | publish every ${PublishIntervalSec}s" -ForegroundColor Yellow
+Write-Host " Port: $ComPort @ $BaudRate baud" -ForegroundColor Yellow
+Write-Host " Publish interval: ${PublishIntervalSec}s" -ForegroundColor Yellow
+Write-Host " Stale threshold: ${StaleAfterSec}s" -ForegroundColor Yellow
 Write-Host ' Real NMEA only; no hardcoded or simulated coordinates.' -ForegroundColor Green
 Write-Host '=======================================================' -ForegroundColor Cyan
 
-$port = $null
-$latestRmc = $null
-$latestGga = $null
-$lastPost = [DateTime]::MinValue
-$hasPublishedFix = $false
-$clearedForOutage = $false
+$SerialPort = $null
+$LatestRmc = $null
+$LatestGga = $null
+$LastPublishedAt = [DateTime]::MinValue
 
 try {
     while ($true) {
-        if ($null -eq $port -or -not $port.IsOpen) {
+        if ($null -eq $SerialPort -or -not $SerialPort.IsOpen) {
             try {
-                $port = [IO.Ports.SerialPort]::new($ComPort, $BaudRate, [IO.Ports.Parity]::None, 8, [IO.Ports.StopBits]::One)
-                $port.ReadTimeout = 2000
-                $port.NewLine = "`r`n"
-                $port.Open()
-                Write-Host "Opened $ComPort; waiting for valid RMC/GGA data." -ForegroundColor Green
-                $clearedForOutage = $false
-            } catch {
-                if (-not $clearedForOutage) { Clear-GpsTelemetry; $clearedForOutage = $true }
-                Write-Warning "Cannot open $ComPort. Another app may own it (for example BktTimeSync or GPS Viewer). Retrying in 5 seconds. $($_.Exception.Message)"
-                if ($null -ne $port) { $port.Dispose(); $port = $null }
-                Start-Sleep 5
+                $SerialPort = New-Object System.IO.Ports.SerialPort(
+                    $ComPort,
+                    $BaudRate,
+                    [System.IO.Ports.Parity]::None,
+                    8,
+                    [System.IO.Ports.StopBits]::One
+                )
+                $SerialPort.ReadTimeout = 2000
+                $SerialPort.NewLine = "`r`n"
+                $SerialPort.Open()
+
+                Write-Host "Opened $ComPort. Waiting for valid RMC/GGA sentences..." -ForegroundColor Green
+            }
+            catch {
+                Write-Warning "Cannot open $ComPort. It may be occupied by BktTimeSync, Panasonic GPS Viewer, or another application. Retrying in 5 seconds. $($_.Exception.Message)"
+
+                if ($null -ne $SerialPort) {
+                    try { $SerialPort.Dispose() } catch {}
+                    $SerialPort = $null
+                }
+
+                Start-Sleep -Seconds 5
                 continue
             }
         }
 
         try {
-            $parsed = ConvertFrom-NmeaSentence $port.ReadLine()
-            if ($null -eq $parsed) { continue }
-            if ($parsed.Type -eq 'RMC') { $latestRmc = $parsed } else { $latestGga = $parsed }
+            $Sentence = $SerialPort.ReadLine()
+            $Parsed = ConvertFrom-NmeaSentence -Sentence $Sentence
 
-            $now = [DateTime]::UtcNow
-            $freshRmc = $null -ne $latestRmc -and (($now - $latestRmc.ReceivedAt).TotalSeconds -le $StaleAfterSec)
-            $freshGga = $null -ne $latestGga -and (($now - $latestGga.ReceivedAt).TotalSeconds -le $StaleAfterSec)
-            $validRmc = $freshRmc -and $latestRmc.HasFix
-            $validGga = $freshGga -and $latestGga.HasFix
-
-            if (-not ($validRmc -or $validGga)) {
-                # Do not refresh old coordinates. A prior fix naturally becomes stale;
-                # a receiver that never produced a fix remains unavailable.
-                if (-not $hasPublishedFix -and -not $clearedForOutage) { Clear-GpsTelemetry; $clearedForOutage = $true }
+            if ($null -eq $Parsed) {
                 continue
             }
-            if (($now - $lastPost).TotalSeconds -lt $PublishIntervalSec) { continue }
 
-            $position = if ($validGga) { $latestGga } else { $latestRmc }
-            $lat = [double]$position.Latitude
-            $lon = [double]$position.Longitude
-            $payload = @{
-                lat = $lat; lon = $lon
-                gridSquare = ConvertTo-MaidenheadGrid $lat $lon
-                altitudeM = if ($validGga) { [double]$latestGga.AltitudeM } else { 0 }
-                speedKmh = if ($validRmc) { [double]$latestRmc.SpeedKmh } else { 0 }
-                satCount = if ($validGga) { [int]$latestGga.SatCount } else { 0 }
-                fixType = if ($validGga) { [string]$latestGga.FixType } else { 'GNSS Fix (RMC)' }
-                lockTime = $now.ToString('HH:mm:ss') + ' UTC'
+            if ($Parsed.Type -eq 'RMC') {
+                $LatestRmc = $Parsed
+            }
+            elseif ($Parsed.Type -eq 'GGA') {
+                $LatestGga = $Parsed
+            }
+
+            $Now = [DateTime]::UtcNow
+            $FreshRmc = $null -ne $LatestRmc -and (($Now - $LatestRmc.ReceivedAt).TotalSeconds -le $StaleAfterSec)
+            $FreshGga = $null -ne $LatestGga -and (($Now - $LatestGga.ReceivedAt).TotalSeconds -le $StaleAfterSec)
+            $ValidRmc = $FreshRmc -and $LatestRmc.HasFix
+            $ValidGga = $FreshGga -and $LatestGga.HasFix
+
+            if (-not ($ValidRmc -or $ValidGga)) {
+                # Do not refresh old coordinates. Existing telemetry will age into
+                # the server's stale state; with no prior producer it remains unavailable.
+                continue
+            }
+
+            if (($Now - $LastPublishedAt).TotalSeconds -lt $PublishIntervalSec) {
+                continue
+            }
+
+            if ($ValidGga) {
+                $Position = $LatestGga
+            }
+            else {
+                $Position = $LatestRmc
+            }
+
+            $Latitude = [double]$Position.Latitude
+            $Longitude = [double]$Position.Longitude
+
+            if ($ValidGga) {
+                $AltitudeM = [double]$LatestGga.AltitudeM
+                $SatelliteCount = [int]$LatestGga.SatCount
+                $FixType = [string]$LatestGga.FixType
+            }
+            else {
+                $AltitudeM = 0
+                $SatelliteCount = 0
+                $FixType = 'GNSS Fix (RMC)'
+            }
+
+            if ($ValidRmc) {
+                $SpeedKmh = [double]$LatestRmc.SpeedKmh
+            }
+            else {
+                $SpeedKmh = 0
+            }
+
+            $Payload = @{
+                lat = $Latitude
+                lon = $Longitude
+                gridSquare = ConvertTo-MaidenheadGrid -Latitude $Latitude -Longitude $Longitude
+                altitudeM = $AltitudeM
+                speedKmh = $SpeedKmh
+                satCount = $SatelliteCount
+                fixType = $FixType
+                lockTime = $Now.ToString('HH:mm:ss') + ' UTC'
                 mode = 'auto'
                 deviceName = "Sierra Wireless GNSS ($ComPort)"
-                comPort = $ComPort; baudRate = $BaudRate
+                comPort = $ComPort
+                baudRate = $BaudRate
                 source = 'toughbook_agent'
             }
 
-            if (Send-Json $payload) {
-                $lastPost = $now
-                $hasPublishedFix = $true
-                $clearedForOutage = $false
+            if (Send-GpsTelemetry -Payload $Payload) {
+                $LastPublishedAt = $Now
             }
-        } catch [TimeoutException] {
-            # Silence is not a fix. Do not post; existing telemetry will age stale.
-        } catch {
-            Write-Warning "Serial read failed on $ComPort`: $($_.Exception.Message). Reopening port."
-            if ($null -ne $port) { try { $port.Close() } catch {}; $port.Dispose(); $port = $null }
-            Start-Sleep 2
+        }
+        catch [System.TimeoutException] {
+            # No complete NMEA sentence arrived. Do not post anything; the server
+            # will mark the last real fix stale after its freshness window expires.
+            continue
+        }
+        catch {
+            Write-Warning "Serial read failed on $ComPort`: $($_.Exception.Message). Reopening the port."
+
+            if ($null -ne $SerialPort) {
+                try { $SerialPort.Close() } catch {}
+                try { $SerialPort.Dispose() } catch {}
+                $SerialPort = $null
+            }
+
+            Start-Sleep -Seconds 2
         }
     }
-} finally {
-    if ($null -ne $port) { try { $port.Close() } catch {}; $port.Dispose() }
+}
+finally {
+    if ($null -ne $SerialPort) {
+        try { $SerialPort.Close() } catch {}
+        try { $SerialPort.Dispose() } catch {}
+    }
+
     Write-Host 'GNSS telemetry producer stopped.' -ForegroundColor Yellow
 }
