@@ -1,7 +1,8 @@
 import React, { useId, type ReactNode } from 'react';
-import { Activity, AlertTriangle, Clock, Database, LoaderCircle } from 'lucide-react';
-import type { TelemetryEnvelope, TelemetryStatus } from '../telemetry';
+import { Activity, Clock, Database } from 'lucide-react';
+import type { TelemetryEnvelope } from '../telemetry';
 import type { UIThemeMode } from '../types';
+import { StatusBadge } from './StatusBadge';
 
 export interface TelemetryCardProps<TPayload> {
   envelope: TelemetryEnvelope<TPayload>;
@@ -33,24 +34,6 @@ const formatObservedAt = (observedAt: string): { relative: string; absolute: str
   return { relative, absolute: observed.toLocaleString() };
 };
 
-const STATUS_LABELS: Record<TelemetryStatus, string> = {
-  connecting: 'Connecting',
-  ok: 'Live',
-  degraded: 'Degraded',
-  cached: 'Cached',
-  stale: 'Stale',
-  unavailable: 'Unavailable',
-  error: 'Error',
-};
-
-const getStatusIcon = (status: TelemetryStatus) => {
-  if (status === 'connecting') return LoaderCircle;
-  if (status === 'cached') return Database;
-  if (status === 'stale') return Clock;
-  if (status === 'degraded' || status === 'unavailable' || status === 'error') return AlertTriangle;
-  return Activity;
-};
-
 export function TelemetryCard<TPayload>({
   envelope,
   title,
@@ -60,8 +43,6 @@ export function TelemetryCard<TPayload>({
   renderContent,
 }: TelemetryCardProps<TPayload>) {
   const titleId = useId();
-  const statusLabel = STATUS_LABELS[envelope.status];
-  const StatusIcon = getStatusIcon(envelope.status);
   const sourceName = formatSourceName(envelope);
   const observedAt = formatObservedAt(envelope.timestamps.observedAt);
   const data = envelope.data;
@@ -89,7 +70,7 @@ export function TelemetryCard<TPayload>({
         ? children(data)
         : children;
   } else {
-    content = <span aria-label={statusLabel}>—</span>;
+    content = <span aria-label="Telemetry data unavailable">—</span>;
   }
 
   return (
@@ -104,14 +85,7 @@ export function TelemetryCard<TPayload>({
             {title}
           </h3>
         </div>
-        <div
-          role="status"
-          aria-label={`Telemetry status: ${statusLabel}`}
-          className="min-h-8 px-2.5 py-1 rounded-lg border border-current/25 bg-black/10 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider"
-        >
-          <StatusIcon aria-hidden="true" className={`w-3.5 h-3.5 ${envelope.status === 'connecting' ? 'animate-spin' : ''}`} />
-          <span>{statusLabel}</span>
-        </div>
+        <StatusBadge status={envelope.status} />
       </header>
 
       <div className={`min-h-16 [text-wrap:pretty] ${contentStyle}`}>
