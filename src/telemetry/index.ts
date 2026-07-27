@@ -6,3 +6,4 @@ export type {
   TelemetrySource,
   TelemetryTimestamps,
 } from './TelemetryEnvelope';
+export { getTelemetryFreshness } from './TelemetryFreshness';

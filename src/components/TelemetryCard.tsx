@@ -1,6 +1,6 @@
 import React, { useId, type ReactNode } from 'react';
 import { Activity, Clock, Database } from 'lucide-react';
-import type { TelemetryEnvelope } from '../telemetry';
+import { getTelemetryFreshness, type TelemetryEnvelope } from '../telemetry';
 import type { UIThemeMode } from '../types';
 import { StatusBadge } from './StatusBadge';
 
@@ -17,23 +17,6 @@ const formatSourceName = (envelope: TelemetryEnvelope<unknown>): string => {
   return envelope.source.name || envelope.source.type;
 };
 
-const formatObservedAt = (observedAt: string): { relative: string; absolute: string } => {
-  const observed = new Date(observedAt);
-  if (Number.isNaN(observed.getTime())) {
-    return { relative: 'Time unavailable', absolute: observedAt };
-  }
-
-  const elapsedSeconds = Math.max(0, Math.floor((Date.now() - observed.getTime()) / 1000));
-  let relative: string;
-  if (elapsedSeconds < 5) relative = 'Just now';
-  else if (elapsedSeconds < 60) relative = `${elapsedSeconds}s ago`;
-  else if (elapsedSeconds < 3600) relative = `${Math.floor(elapsedSeconds / 60)}m ago`;
-  else if (elapsedSeconds < 86400) relative = `${Math.floor(elapsedSeconds / 3600)}h ago`;
-  else relative = `${Math.floor(elapsedSeconds / 86400)}d ago`;
-
-  return { relative, absolute: observed.toLocaleString() };
-};
-
 export function TelemetryCard<TPayload>({
   envelope,
   title,
@@ -44,7 +27,7 @@ export function TelemetryCard<TPayload>({
 }: TelemetryCardProps<TPayload>) {
   const titleId = useId();
   const sourceName = formatSourceName(envelope);
-  const observedAt = formatObservedAt(envelope.timestamps.observedAt);
+  const freshness = getTelemetryFreshness(envelope.timestamps);
   const data = envelope.data;
   const hasData = data !== undefined;
   const suppressData = envelope.status === 'unavailable';
@@ -107,12 +90,12 @@ export function TelemetryCard<TPayload>({
         </span>
         <time
           dateTime={envelope.timestamps.observedAt}
-          title={`Observed ${observedAt.absolute}`}
+          title={`Observed ${freshness.observedAtLabel}`}
           className="inline-flex items-center gap-1.5"
         >
           <Clock aria-hidden="true" className="w-3.5 h-3.5" />
           <span className="sr-only">Observed:</span>
-          {observedAt.relative}
+          {freshness.relativeAge}
         </time>
       </footer>
     </article>
