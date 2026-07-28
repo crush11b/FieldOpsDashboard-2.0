@@ -8,7 +8,6 @@ import { AppLauncherGrid } from './components/AppLauncherGrid';
 import { ConfigModal } from './components/ConfigModal';
 import { RoadmapToolsModal } from './components/RoadmapToolsModal';
 import { TouchMenuDrawer } from './components/TouchMenuDrawer';
-import { AutoAppInstallerModal } from './components/AutoAppInstallerModal';
 
 import { 
   AppLauncherItem, 
@@ -18,7 +17,6 @@ import {
   ExternalDataStatus,
   GPSStatus, 
   GPSProvenance,
-  NetworkStatus, 
   NOAAAlert, 
   SolarData, 
   UIThemeMode, 
@@ -144,18 +142,7 @@ export default function App() {
     powerSource: 'Battery',
   });
 
-  // 3. Network Link Status
-  const [network, setNetwork] = useState<NetworkStatus>({
-    online: true,
-    type: 'cellular',
-    interfaceName: 'Panasonic LTE Modem (Sierra Wireless)',
-    dnsLatencyMs: 34,
-    ipAddress: '10.240.82.119',
-    signalDbm: -72,
-    packetsDropped: 0,
-  });
-
-  // 4. GPS & Maidenhead Grid Square (Saved to LocalStorage)
+  // 3. GPS & Maidenhead Grid Square (Saved to LocalStorage)
   const [initialGpsState] = useState(loadInitialGpsState);
   const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
   const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
@@ -202,7 +189,6 @@ export default function App() {
   const [roadmapActiveTab, setRoadmapActiveTab] = useState('smart_deploy');
   const [touchMenuOpen, setTouchMenuOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<AppLauncherItem | null>(null);
-  const [autoInstallerModalOpen, setAutoInstallerModalOpen] = useState(false);
 
   // Fetch live weather and solar data from backend Express server APIs
   useEffect(() => {
@@ -297,11 +283,6 @@ export default function App() {
     };
   }, [gps.lat, gps.lon, gpsProvenance.status, gpsProvenance.source.type]);
 
-  // Handle App Launching
-  const handleLaunchApp = (app: AppLauncherItem) => {
-    console.log(`Launched ${app.name} (${app.executablePath})`);
-  };
-
   // Toggle Favorite App
   const handleToggleFavorite = (appId: string) => {
     setConfig((prev) => ({
@@ -354,7 +335,6 @@ export default function App() {
         onThemeChange={handleThemeChange}
         gps={{ ...gps, gridSquare: operatingGridSquare }}
         battery={battery}
-        network={network}
         audioEnabled={config.audioFeedback}
         onToggleAudio={() => setConfig((prev) => ({ ...prev, audioFeedback: !prev.audioFeedback }))}
         onOpenConfig={() => setConfigModalOpen(true)}
@@ -426,7 +406,6 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             gridColumns={config.appGridColumns}
-            onLaunchApp={handleLaunchApp}
             onToggleFavorite={handleToggleFavorite}
             onEditApp={(app) => {
               setEditingApp(app);
@@ -436,7 +415,6 @@ export default function App() {
               setEditingApp(null);
               setConfigModalOpen(true);
             }}
-            onOpenAutoInstaller={() => setAutoInstallerModalOpen(true)}
           />
         </section>
 
@@ -511,17 +489,6 @@ export default function App() {
         }}
         callsign={config.callsign}
         gridSquare={operatingGridSquare}
-      />
-
-      <AutoAppInstallerModal
-        isOpen={autoInstallerModalOpen}
-        onClose={() => setAutoInstallerModalOpen(false)}
-        theme={config.theme}
-        audioEnabled={config.audioFeedback}
-        apps={config.apps}
-        onUpdateAppPaths={(updatedApps) => {
-          setConfig((prev) => ({ ...prev, apps: updatedApps }));
-        }}
       />
 
     </div>

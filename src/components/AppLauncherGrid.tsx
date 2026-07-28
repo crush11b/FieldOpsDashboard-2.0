@@ -18,7 +18,7 @@ import {
   Star, 
   CheckCircle2, 
   XCircle, 
-  Play, 
+  Play,
   Plus, 
   FolderCheck,
   Edit2,
@@ -31,18 +31,16 @@ import {
   Zap
 } from 'lucide-react';
 import { AppCategory, AppLauncherItem, UIThemeMode } from '../types';
-import { playLaunchAlert, playTacticalClick } from '../utils/audio';
+import { playTacticalClick } from '../utils/audio';
 
 interface AppLauncherGridProps {
   apps: AppLauncherItem[];
   theme: UIThemeMode;
   audioEnabled: boolean;
   gridColumns: 2 | 3 | 4 | 6;
-  onLaunchApp: (app: AppLauncherItem) => void;
   onToggleFavorite: (appId: string) => void;
   onEditApp: (app: AppLauncherItem) => void;
   onAddNewApp: () => void;
-  onOpenAutoInstaller?: () => void;
 }
 
 // Icon mapper for Ham Radio apps
@@ -100,15 +98,12 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
   theme,
   audioEnabled,
   gridColumns,
-  onLaunchApp,
   onToggleFavorite,
   onEditApp,
   onAddNewApp,
-  onOpenAutoInstaller,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
-  const [launchingApp, setLaunchingApp] = useState<AppLauncherItem | null>(null);
   const [accordionMode, setAccordionMode] = useState<boolean>(true);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
@@ -154,15 +149,6 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
     return matchesCategory && matchesSearch;
   });
-
-  const handleLaunch = (app: AppLauncherItem) => {
-    playLaunchAlert(audioEnabled);
-    setLaunchingApp(app);
-    onLaunchApp(app);
-    setTimeout(() => {
-      setLaunchingApp(null);
-    }, 1800);
-  };
 
   const renderAppCard = (app: AppLauncherItem) => {
     return (
@@ -222,7 +208,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             {app.description}
           </p>
 
-          {/* Executable Path Check Badge */}
+          {/* Configured executable path; local verification requires the future launcher agent. */}
           <div className={`p-2 rounded-xl border text-[10px] truncate flex items-center justify-between ${
             app.installed
               ? isNight ? 'border-red-950 bg-red-950/30 text-red-400' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
@@ -230,9 +216,13 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
           }`}>
             <span className="truncate pr-1 font-mono">{app.uri || app.executablePath}</span>
             {app.installed ? (
-              <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" title="Executable Verified" />
+              <span className="flex items-center gap-1 text-emerald-400" title="Configured only; runtime verification is unavailable">
+                CONFIGURED <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
+              </span>
             ) : (
-              <XCircle className="w-3.5 h-3.5 text-red-400 shrink-0" title="Executable Path Not Found" />
+              <span className="flex items-center gap-1 text-zinc-400" title="No executable path is configured">
+                NOT CONFIGURED <XCircle className="w-3.5 h-3.5 shrink-0" />
+              </span>
             )}
           </div>
         </div>
@@ -241,17 +231,13 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
         <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">
           <button
             id={`btn-launch-${app.id}`}
-            onClick={() => handleLaunch(app)}
-            className={`flex-1 py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 transition-all active:scale-95 touch-manipulation border ${
-              isNight
-                ? 'bg-red-800 hover:bg-red-700 text-white border-red-600'
-                : isSunlight
-                ? 'bg-amber-400 hover:bg-amber-500 text-slate-950 border-amber-600 font-extrabold'
-                : 'bg-amber-500 hover:bg-amber-400 text-black border-amber-400 font-extrabold shadow-md'
-            }`}
+            disabled
+            aria-describedby={`launch-unavailable-${app.id}`}
+            title="App launching requires the local launcher agent and is not yet implemented"
+            className="flex-1 py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-70"
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>LAUNCH APP</span>
+            <span>LAUNCH UNAVAILABLE</span>
           </button>
 
           <button
@@ -268,6 +254,9 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             <Edit2 className="w-3.5 h-3.5" />
           </button>
         </div>
+        <p id={`launch-unavailable-${app.id}`} className="text-[9px] text-zinc-500">
+          Requires the local launcher agent. No process will be started from the browser.
+        </p>
       </div>
     );
   };
@@ -301,11 +290,11 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               <h3 className="font-black text-sm text-zinc-100 tracking-wider uppercase flex items-center gap-2">
                 <span>FIELD APPLICATIONS CATALOG</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
-                  {apps.length} EXECUTABLES
+                  {apps.length} CONFIGURED ENTRIES
                 </span>
               </h3>
               <p className="text-[11px] text-zinc-400 font-mono">
-                Launch, organize, and monitor field HAM radio tools & digital mode suites
+                Organize configured tools. Local application launching is not yet available.
               </p>
             </div>
           </div>
@@ -327,19 +316,13 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
             <button
               id="btn-auto-installer-suite"
-              onClick={() => {
-                playTacticalClick(audioEnabled);
-                if (onOpenAutoInstaller) onOpenAutoInstaller();
-              }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 active:scale-95 border shrink-0 transition-all shadow-md ${
-                isNight 
-                  ? 'border-red-700 bg-red-900 text-white hover:bg-red-800' 
-                  : 'border-amber-400 bg-amber-500 text-black hover:bg-amber-400 font-extrabold'
-              }`}
-              title="Auto-detect local executables, generate Winget/APT 1-click installer scripts, and sync paths"
+              disabled
+              aria-describedby="auto-installer-unavailable"
+              className="px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-70"
+              title="Automatic installation and path verification are not yet implemented"
             >
               <Zap className="w-3.5 h-3.5" />
-              <span>⚡ AUTO-INSTALL & PATH SYNC</span>
+              <span>AUTO-INSTALL UNAVAILABLE</span>
             </button>
 
             <button
@@ -357,6 +340,9 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             </button>
           </div>
         </div>
+        <p id="auto-installer-unavailable" className="text-[10px] text-zinc-500">
+          Installation and executable verification require a future privileged local service.
+        </p>
 
         {/* Category Filter Pills */}
         <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -482,40 +468,6 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
         </div>
       )}
 
-      {/* Launch Feedback Overlay Modal */}
-      {launchingApp && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4 font-mono">
-          <div className="max-w-md w-full p-6 rounded-2xl border border-cyan-500 bg-slate-950 text-slate-100 space-y-4 text-center shadow-2xl animate-in fade-in zoom-in-95">
-            <div className="w-12 h-12 rounded-full border border-cyan-400 bg-cyan-950 text-cyan-300 flex items-center justify-center mx-auto animate-bounce">
-              <Play className="w-6 h-6 fill-current" />
-            </div>
-
-            <div>
-              <h3 className="text-lg font-black text-cyan-300 uppercase">LAUNCHING {launchingApp.name}...</h3>
-              <p className="text-xs text-slate-400 mt-1 font-mono">{launchingApp.executablePath}</p>
-            </div>
-
-            <div className="p-3 rounded-lg border border-slate-800 bg-slate-900 text-left text-xs font-mono space-y-1">
-              <div className="flex justify-between text-slate-400">
-                <span>SYSTEM STATUS:</span>
-                <span className="text-emerald-400 font-bold">PROCESS DISPATCHED</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>ARGS:</span>
-                <span className="text-cyan-300">{launchingApp.args || 'None'}</span>
-              </div>
-              <div className="flex justify-between text-slate-400">
-                <span>HOTKEY:</span>
-                <span className="text-amber-300">{launchingApp.hotkey || 'N/A'}</span>
-              </div>
-            </div>
-
-            <p className="text-[11px] text-emerald-400 animate-pulse font-bold">
-              ⚡ Executable invoked on Panasonic Toughbook OS.
-            </p>
-          </div>
-        </div>
-      )}
     </div>
   );
 };

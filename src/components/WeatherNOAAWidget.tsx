@@ -259,16 +259,18 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleAcknowledge}
-                className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95"
-                title="Silence active text-to-speech reading"
+                disabled={effectiveAlertsStatus !== 'live' || alertItems.length === 0}
+                className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={alertItems.length > 0 ? 'Silence active text-to-speech reading' : 'No active alert is available to acknowledge'}
               >
                 <VolumeX className="w-3 h-3 text-amber-400" />
                 <span>SILENCE / ACK</span>
               </button>
               <button
                 onClick={() => handleTestVoiceAlert(false)}
-                className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95"
-                title="Broadcast concise alert title & area only"
+                disabled={effectiveAlertsStatus !== 'live' || alertItems.length === 0}
+                className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                title={alertItems.length > 0 ? 'Speak concise alert title and area' : 'No active alert is available to speak'}
               >
                 <Volume2 className="w-3 h-3 text-amber-400" />
                 <span>SPEAK TYPE ONLY</span>

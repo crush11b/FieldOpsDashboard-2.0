@@ -35,6 +35,9 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     provenance.source.type === 'manual_location' || provenance.source.type === 'preset_location',
   );
   const displayLocation = resolveGpsCoordinates(gps, provenance);
+  const browserGeolocationAvailable = typeof navigator !== 'undefined' && 'geolocation' in navigator;
+  const canSaveManualLocation = parseCoordinates(inputLat, inputLon) !== null
+    || gridSquareToLatLon(inputGrid) !== null;
 
   useEffect(() => {
     manualLocationActive.current = provenance.source.type === 'manual_location'
@@ -405,11 +408,13 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         <div className="flex items-center gap-2">
           <button
             id="btn-trigger-gps-refresh"
+            disabled={!browserGeolocationAvailable}
+            aria-label={browserGeolocationAvailable ? 'Request browser GPS fix' : 'Browser geolocation unavailable'}
             onClick={handleTriggerBrowserGeolocation}
-            className={`p-1 rounded border text-[10px] font-bold flex items-center gap-1 active:scale-95 ${
+            className={`p-1 rounded border text-[10px] font-bold flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${
               isNight ? 'border-red-900 bg-red-950 text-red-400' : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
             }`}
-            title="Auto-detect GPS coordinates via Browser / USB GPS"
+            title={browserGeolocationAvailable ? 'Request coordinates from browser geolocation' : 'Browser geolocation is unavailable; enter coordinates manually'}
           >
             <RefreshCw className="w-3 h-3" /> GPS FIX
           </button>
@@ -558,8 +563,10 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
               <button
                 id="btn-save-gps-coordinates"
+                disabled={!canSaveManualLocation}
                 onClick={handleSaveCoordinates}
-                className="w-full py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 shadow"
+                title={canSaveManualLocation ? 'Save manual operating location' : 'Enter valid coordinates or a Maidenhead grid square'}
+                className="w-full py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs flex items-center justify-center gap-1.5 active:scale-95 shadow disabled:opacity-40 disabled:cursor-not-allowed"
               >
                 <Lock className="w-3.5 h-3.5" /> SAVE & PERMANENTLY LOCK LOCATION
               </button>

@@ -620,19 +620,11 @@ while ($true) {
                 <span>DOCK DISCONNECTED</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    applyBatteryUpdate({
-                      keyboardDock: {
-                        ...battery.keyboardDock,
-                        attached: true,
-                        percent: battery.keyboardDock.percent || 94,
-                        timeRemainingMins: Math.round((battery.keyboardDock.percent || 94) * 4.2),
-                      },
-                    }, 'Coupled Keyboard Dock');
-                  }}
-                  className="px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-700/80 text-cyan-300 font-bold text-[9px] transition-colors"
+                  disabled
+                  aria-label="Dock coupling unavailable; hardware detection is required"
+                  className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-500 font-bold text-[9px] cursor-not-allowed opacity-70"
                 >
-                  + COUPLE DOCK
+                  HARDWARE DETECTION REQUIRED
                 </button>
               </div>
             )}
