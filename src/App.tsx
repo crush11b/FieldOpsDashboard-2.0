@@ -175,7 +175,7 @@ export default function App() {
   const [noaaAlerts, setNoaaAlerts] = useState<NOAAAlert[] | null>(null);
   const [alertsStatus, setAlertsStatus] = useState<ExternalDataStatus>('loading');
 
-  // 6. VOACAP Propagation & Solar Flux Data
+  // 6. Regional HF Band Guidance & Solar Flux Data
   const [solar, setSolar] = useState<SolarData>({
     solarFlux: 162,
     sunspotNumber: 138,
@@ -354,7 +354,7 @@ export default function App() {
       {/* 2. Main Bento Grid Dashboard Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 space-y-4">
         
-        {/* System Status Bento Grid (Battery, GPS, Weather, VOACAP Propagation) */}
+        {/* System Status Bento Grid (Battery, GPS, Weather, Regional HF Band Guidance) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Dual Battery Status */}
           <BatteryStatusWidget
@@ -387,7 +387,7 @@ export default function App() {
             audioEnabled={config.audioFeedback}
           />
 
-          {/* Real-time VOACAP HF Propagation Forecast */}
+          {/* Regional HF Band Guidance */}
           <VOACAPPropagationWidget
             solar={solar}
             bands={bands}

@@ -23,6 +23,7 @@ import {
   getWeatherApiResponse,
   parseWeatherCoordinates,
 } from './server/weather';
+import { getIonosondeApiResponse } from './server/propagation';
 
 async function startServer() {
   const app = express();
@@ -118,190 +119,15 @@ async function startServer() {
     }
   });
 
-  // API 1B: Real-time Ionosonde & MUF Data from KC2G (prop.kc2g.com)
-  app.get("/api/ionosonde", async (req, res) => {
-    const userLat = parseFloat(req.query.lat as string) || 37.5407;
-    const userLon = parseFloat(req.query.lon as string) || -77.4360;
-
-    try {
-      let stations: any[] = [];
-      let sourceName = "KC2G Ionosonde Network";
-      let lastUpdated = new Date().toISOString();
-
-      // Try fetching KC2G station list / render JSON
-      try {
-        const kc2gRes = await fetch("https://prop.kc2g.com/stations/", {
-          headers: {
-            'User-Agent': 'FieldOpsDashboard/1.1.5 (contact@fieldops.radio)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json'
-          }
-        });
-
-        if (kc2gRes.ok) {
-          const text = await kc2gRes.text();
-          
-          // Regex match station rows or JSON structures from KC2G HTML/JSON
-          // Example station line: station ID, name, lat, lon, foF2, mufd
-          const stationRegex = /data-station="([^"]+)"[^>]*data-name="([^"]+)"[^>]*data-lat="([^"]+)"[^>]*data-lon="([^"]+)"[^>]*data-fof2="([^"]+)"[^>]*data-mufd="([^"]+)"/g;
-          let match;
-          while ((match = stationRegex.exec(text)) !== null) {
-            const lat = parseFloat(match[3]);
-            const lon = parseFloat(match[4]);
-            const fof2 = parseFloat(match[5]);
-            const mufd = parseFloat(match[6]);
-
-            if (!isNaN(lat) && !isNaN(lon) && !isNaN(mufd)) {
-              stations.push({
-                code: match[1],
-                name: match[2],
-                lat,
-                lon,
-                foF2: isNaN(fof2) ? null : fof2,
-                muf3000: mufd,
-              });
-            }
-          }
-
-          // If regex table matching didn't yield items, try general table/text extraction or fallback to NOAA GIRO/KC2G ionosonde list
-          if (stations.length === 0) {
-            // Check for JSON embedded in script tags on KC2G page
-            const jsonMatch = text.match(/const\s+stations\s*=\s*(\[\{.*?\}\]);/s) || text.match(/var\s+stations\s*=\s*(\[\{.*?\}\]);/s);
-            if (jsonMatch && jsonMatch[1]) {
-              try {
-                const parsed = JSON.parse(jsonMatch[1]);
-                if (Array.isArray(parsed)) {
-                  stations = parsed.map((s: any) => ({
-                    code: s.code || s.id || 'STN',
-                    name: s.name || s.title || 'Ionosonde Station',
-                    lat: parseFloat(s.lat || s.latitude),
-                    lon: parseFloat(s.lon || s.longitude),
-                    foF2: parseFloat(s.fof2 || s.foF2),
-                    muf3000: parseFloat(s.mufd || s.muf3000 || s.muf),
-                  })).filter((s: any) => !isNaN(s.muf3000));
-                }
-              } catch (e) {
-                // Ignore parse error
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("KC2G live fetch attempt failed, using NOAA/GIRO fallback model:", e);
-      }
-
-      // Calculate distance (Haversine formula in km) from user location to each ionosonde station
-      function calcDistKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-        const R = 6371; // Earth radius in km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      }
-
-      // Default active ionosonde stations (Wallops Island VA, Boulder CO, Eglin FL, Austin TX, Millstone Hill MA, Point Arguello CA)
-      if (stations.length === 0) {
-        sourceName = "KC2G Ionosonde Station Grid (Cached / Real-time Model)";
-        const now = new Date();
-        const hour = now.getHours() + now.getMinutes() / 60;
-        // Solar position factor
-        const daylightFactor = Math.max(0, Math.min(1, (Math.cos(((hour - 13 + 24) % 24) * (2 * Math.PI / 24)) + 1) / 2));
-
-        stations = [
-          {
-            code: "WP937",
-            name: "Wallops Island, VA (USA)",
-            lat: 37.95,
-            lon: -75.47,
-            foF2: Math.round((3.9 + 3.2 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((14.2 + 8.6 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "MH429",
-            name: "Millstone Hill, MA (USA)",
-            lat: 42.6,
-            lon: -71.5,
-            foF2: Math.round((3.6 + 3.0 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((13.5 + 8.1 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "EG931",
-            name: "Eglin AFB, FL (USA)",
-            lat: 30.5,
-            lon: -86.5,
-            foF2: Math.round((4.2 + 3.8 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((15.8 + 9.2 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "BC840",
-            name: "Boulder, CO (USA)",
-            lat: 40.0,
-            lon: -105.3,
-            foF2: Math.round((3.8 + 3.4 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((14.8 + 8.8 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "AU930",
-            name: "Austin, TX (USA)",
-            lat: 30.3,
-            lon: -97.7,
-            foF2: Math.round((4.4 + 4.0 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((16.2 + 9.8 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "PA836",
-            name: "Point Arguello, CA (USA)",
-            lat: 34.6,
-            lon: -120.6,
-            foF2: Math.round((4.0 + 3.5 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((15.1 + 8.9 * daylightFactor) * 10) / 10,
-          }
-        ];
-      }
-
-      // Annotate distance & sort by proximity to user
-      const stationsWithDist = stations.map(s => {
-        const distKm = Math.round(calcDistKm(userLat, userLon, s.lat, s.lon));
-        const distMiles = Math.round(distKm * 0.621371);
-        return {
-          ...s,
-          distKm,
-          distMiles,
-        };
-      }).sort((a, b) => a.distKm - b.distKm);
-
-      // Closest station to user
-      const nearestStation = stationsWithDist[0];
-
-      // Inverse distance weighted regional MUF(3000) from top 3 closest stations
-      const top3 = stationsWithDist.slice(0, 3);
-      let weightSum = 0;
-      let mufWeightedSum = 0;
-      let fof2WeightedSum = 0;
-
-      top3.forEach(s => {
-        const w = 1 / Math.max(10, s.distKm);
-        weightSum += w;
-        mufWeightedSum += s.muf3000 * w;
-        if (s.foF2) fof2WeightedSum += s.foF2 * w;
-      });
-
-      const regionalMuf3000 = Math.round((mufWeightedSum / weightSum) * 10) / 10;
-      const regionalFoF2 = fof2WeightedSum > 0 ? Math.round((fof2WeightedSum / weightSum) * 10) / 10 : Math.round(regionalMuf3000 / 3.1 * 10) / 10;
-
-      res.json({
-        regionalMuf3000,
-        regionalFoF2,
-        nearestStation,
-        stations: stationsWithDist,
-        sourceName,
-        lastUpdated,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: "Failed to fetch ionosonde data" });
+  // API 1B: Current ionosonde measurements and derived regional values.
+  app.get('/api/ionosonde', async (req, res) => {
+    const coordinates = parseWeatherCoordinates(req.query.lat, req.query.lon);
+    if (!coordinates) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
     }
+
+    res.json(await getIonosondeApiResponse(coordinates.latitude, coordinates.longitude));
   });
 
   // API 2: Weather Snapshot & Live NOAA Location-Based Alerts
