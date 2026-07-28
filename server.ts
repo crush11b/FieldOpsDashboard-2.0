@@ -8,10 +8,22 @@ import { GoogleGenAI } from "@google/genai";
 
 import type { DualBatteryStatus, GPSStatus } from './src/types';
 import type { TelemetryEnvelope, TelemetryStatus } from './src/telemetry';
+import {
+  createTelemetryReceiverRouter,
+  InMemoryLatestTelemetryStore,
+  rejectAllTelemetryCredentials,
+} from './server/telemetryReceiver';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  // The v1 receiver is present but production delivery remains dormant. The
+  // reject-all resolver is replaced only by explicit future credential work.
+  app.use(createTelemetryReceiverRouter({
+    credentialResolver: rejectAllTelemetryCredentials,
+    store: new InMemoryLatestTelemetryStore(),
+  }));
 
   // CORS Middleware for external scripts, PowerShell, Electron, and local clients
   app.use((req, res, next) => {
