@@ -142,6 +142,7 @@ $installCreated = $false
 $dataCreated = $false
 $eventSourceCreated = $false
 $serviceCreated = $false
+$serviceCreateAttempted = $false
 $credentialTempPath = $null
 
 try {
@@ -194,10 +195,23 @@ try {
 
     $installedExecutable = Join-Path $installPath $executableName
     $binaryPath = '"{0}"' -f $installedExecutable
-    Invoke-ServiceControl -Arguments @('create', $serviceName, "binPath= $binaryPath", 'start= auto', 'obj= NT AUTHORITY\LocalService', 'DisplayName= FieldOps Local Agent')
+    $serviceCreateAttempted = $true
+    Invoke-ServiceControl -Arguments @(
+        'create',
+        $serviceName,
+        'binPath=', $binaryPath,
+        'start=', 'auto',
+        'obj=', 'NT AUTHORITY\LocalService',
+        'DisplayName=', 'FieldOps Local Agent'
+    )
     $serviceCreated = $true
     Invoke-ServiceControl -Arguments @('description', $serviceName, 'Trusted local service boundary for FieldOps Dashboard.')
-    Invoke-ServiceControl -Arguments @('failure', $serviceName, 'reset= 86400', 'actions= restart/5000/restart/15000/restart/30000')
+    Invoke-ServiceControl -Arguments @(
+        'failure',
+        $serviceName,
+        'reset=', '86400',
+        'actions=', 'restart/5000/restart/15000/restart/30000'
+    )
 
     Start-Service -Name $serviceName
     $service = Get-Service -Name $serviceName
@@ -206,24 +220,67 @@ try {
     Write-Host "FieldOps Local Agent installed and running from '$installPath'."
 } catch {
     $failure = $_
-    if ($serviceCreated) {
-        Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
-        & sc.exe delete $serviceName | Out-Null
-        if ($LASTEXITCODE -ne 0) {
-            Write-Warning "Rollback could not delete service '$serviceName' (exit code $LASTEXITCODE)."
+    $rollbackFailures = @()
+    if ($serviceCreateAttempted) {
+        $rollbackService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        if ($rollbackService) {
+            if ($serviceCreated) {
+                Stop-Service -Name $serviceName -Force -ErrorAction SilentlyContinue
+            }
+            try {
+                Invoke-ServiceControl -Arguments @('delete', $serviceName)
+            } catch {
+                $rollbackFailures += "Could not delete service '$serviceName': $($_.Exception.Message)"
+            }
         }
     }
     if ($eventSourceCreated) {
-        Remove-EventLog -Source $serviceName -ErrorAction SilentlyContinue
+        try {
+            Remove-EventLog -Source $serviceName -ErrorAction Stop
+        } catch {
+            $rollbackFailures += "Could not remove Event Log source '$serviceName': $($_.Exception.Message)"
+        }
     }
     if ($credentialTempPath -and (Test-Path -LiteralPath $credentialTempPath)) {
-        Remove-Item -LiteralPath $credentialTempPath -Force -ErrorAction SilentlyContinue
+        try {
+            Remove-Item -LiteralPath $credentialTempPath -Force -ErrorAction Stop
+        } catch {
+            $rollbackFailures += "Could not remove temporary credential: $($_.Exception.Message)"
+        }
     }
     if ($dataCreated -and (Test-Path -LiteralPath $dataPath)) {
-        Remove-Item -LiteralPath $dataPath -Recurse -Force -ErrorAction SilentlyContinue
+        try {
+            Remove-Item -LiteralPath $dataPath -Recurse -Force -ErrorAction Stop
+        } catch {
+            $rollbackFailures += "Could not remove data directory '$dataPath': $($_.Exception.Message)"
+        }
     }
     if ($installCreated -and (Test-Path -LiteralPath $installPath)) {
-        Remove-Item -LiteralPath $installPath -Recurse -Force -ErrorAction SilentlyContinue
+        try {
+            Remove-Item -LiteralPath $installPath -Recurse -Force -ErrorAction Stop
+        } catch {
+            $rollbackFailures += "Could not remove install directory '$installPath': $($_.Exception.Message)"
+        }
+    }
+
+    for ($attempt = 0; $attempt -lt 20 -and
+        (Get-Service -Name $serviceName -ErrorAction SilentlyContinue); $attempt++) {
+        Start-Sleep -Milliseconds 250
+    }
+    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+        $rollbackFailures += "Service '$serviceName' still exists after rollback."
+    }
+    if ($eventSourceCreated -and [Diagnostics.EventLog]::SourceExists($serviceName)) {
+        $rollbackFailures += "Event Log source '$serviceName' still exists after rollback."
+    }
+    foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath)) {
+        if ($remainingPath -and (Test-Path -LiteralPath $remainingPath)) {
+            $rollbackFailures += "Path '$remainingPath' still exists after rollback."
+        }
+    }
+
+    if ($rollbackFailures.Count -gt 0) {
+        throw "Installation failed: $($failure.Exception.Message) Rollback incomplete: $($rollbackFailures -join ' ')"
     }
     throw $failure
 }
