@@ -1,123 +1,204 @@
-# FieldOps Dashboard - Safe Auto-Updater Script
+# FieldOps Dashboard - validated transactional updater
 [CmdletBinding()]
-param()
-
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
-$ProgressPreference = 'SilentlyContinue'
-
-Write-Host "=======================================================" -ForegroundColor Cyan
-Write-Host " FieldOps Dashboard - Safe Auto-Update Utility " -ForegroundColor Cyan
-Write-Host "=======================================================" -ForegroundColor Cyan
-
-$scriptDir = if ($PSScriptRoot) { $PSScriptRoot } else { Get-Location | Select-Object -ExpandProperty Path }
-
-# Step 1: Force stop any active Node / tsx / npm / vite processes holding file locks
-Write-Host "[1/5] Stopping active Node/TSX server processes to release file locks..." -ForegroundColor Yellow
-Get-Process -Name "node","tsx","npm","vite" -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
-Start-Sleep -Seconds 2
-
-# Step 2: Clear read-only flags and flatten legacy subfolders
-Write-Host "[2/5] Preparing target directory ($scriptDir)..." -ForegroundColor Yellow
-
-# Clean up legacy GitHub subfolder if it was accidentally created
-$legacyNestedDir = Join-Path $scriptDir "FieldOpsDashboard-2.0-main"
-if (Test-Path $legacyNestedDir) {
-    Write-Host " -> Cleaning legacy nested folder: $legacyNestedDir" -ForegroundColor Gray
-    try {
-        Get-ChildItem -Path "$legacyNestedDir\*" -Exclude "node_modules" -ErrorAction SilentlyContinue | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "$scriptDir" -Recurse -Force -ErrorAction SilentlyContinue
-        }
-        Remove-Item -Path $legacyNestedDir -Recurse -Force -ErrorAction SilentlyContinue
-    } catch {}
-}
-
-Get-ChildItem -Path "$scriptDir" -Recurse -ErrorAction SilentlyContinue | ForEach-Object {
-    try {
-        if ($_.Attributes -band [System.IO.FileAttributes]::ReadOnly) {
-            $_.Attributes = $_.Attributes -bxor [System.IO.FileAttributes]::ReadOnly
-        }
-    } catch {}
-}
-
-# Step 3: Download latest zip archive
-$zipPath = Join-Path $env:TEMP "FieldOpsDashboard_Update.zip"
-$extractPath = Join-Path $env:TEMP "FieldOpsDashboard_Extract"
-
-if (Test-Path $extractPath) { Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue }
-if (Test-Path $zipPath) { Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue }
-
-$downloadUrls = @(
-    "https://ais-dev-mtof6szn6a4fcorkvc4en4-469962103239.us-east1.run.app/api/download-project-zip",
-    "https://github.com/stickman563/FieldOpsDashboard-2.0/archive/refs/heads/main.zip",
-    "https://github.com/stickman563/FieldOpsDashboard-2.0/archive/refs/heads/master.zip"
+param(
+    [string]$InstallPath = $PSScriptRoot,
+    [string[]]$PackageUrls = @(
+        'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/E1-telemetry-foundation.zip'
+    ),
+    [switch]$SkipLaunch,
+    [switch]$SkipProcessStop,
+    [switch]$SimulateCopyFailure
 )
 
-Write-Host "[3/5] Downloading latest application code..." -ForegroundColor Yellow
-$downloadSuccess = $false
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$ProgressPreference = 'SilentlyContinue'
 
-foreach ($url in $downloadUrls) {
-    try {
-        Write-Host " -> Attempting download from: $url" -ForegroundColor Gray
-        if (Get-Command "curl.exe" -ErrorAction SilentlyContinue) {
-            & curl.exe -s -L -f -o "$zipPath" "$url"
-        } else {
-            (New-Object System.Net.WebClient).DownloadFile($url, $zipPath)
-        }
-        
-        if ((Test-Path $zipPath) -and ((Get-Item $zipPath).Length -gt 5000)) {
-            Write-Host "[✓] Downloaded update archive successfully ($([math]::Round((Get-Item $zipPath).Length / 1KB, 1)) KB)" -ForegroundColor Green
-            $downloadSuccess = $true
-            break
-        }
-    } catch {
-        Write-Host " [!] Source unavailable or network error." -ForegroundColor DarkGray
+$requiredPackageFiles = @(
+    'package.json',
+    'agent\publish\win-x64\FieldOps.Agent.exe'
+)
+$requiredDeploymentFiles = @(
+    'package.json',
+    'server.ts',
+    'agent\publish\win-x64\FieldOps.Agent.exe'
+)
+
+function Get-PackageRoot {
+    param([Parameter(Mandatory = $true)][string]$ExtractPath)
+
+    if (Test-Path -LiteralPath (Join-Path $ExtractPath 'package.json') -PathType Leaf) {
+        return $ExtractPath
+    }
+
+    $children = @(Get-ChildItem -LiteralPath $ExtractPath -Directory)
+    if ($children.Count -eq 1 -and
+        (Test-Path -LiteralPath (Join-Path $children[0].FullName 'package.json') -PathType Leaf)) {
+        return $children[0].FullName
+    }
+
+    return $ExtractPath
+}
+
+function Assert-RequiredFiles {
+    param(
+        [Parameter(Mandatory = $true)][string]$Root,
+        [Parameter(Mandatory = $true)][string[]]$RequiredFiles,
+        [Parameter(Mandatory = $true)][string]$Description
+    )
+
+    $missing = @($RequiredFiles | Where-Object {
+        -not (Test-Path -LiteralPath (Join-Path $Root $_) -PathType Leaf)
+    })
+    if ($missing.Count -gt 0) {
+        throw "$Description is missing required file(s): $($missing -join ', ')."
     }
 }
 
-if (-not $downloadSuccess) {
-    Write-Host "[X] ERROR: Unable to download update package. Check network connection." -ForegroundColor Red
-    Read-Host "Press Enter to exit..."
-    exit 1
+function Copy-PackageTree {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    New-Item -ItemType Directory -Path $Destination | Out-Null
+    & robocopy.exe $Source $Destination /E /XD node_modules /R:2 /W:1 /NFL /NDL /NJH /NJS /NP
+    $robocopyExitCode = $LASTEXITCODE
+    if ($robocopyExitCode -gt 7) {
+        throw "robocopy failed with exit code $robocopyExitCode while copying '$Source' to '$Destination'."
+    }
 }
 
-# Step 4: Extract & Overwrite
-Write-Host "[4/5] Extracting and updating local files..." -ForegroundColor Yellow
+function Write-UpdateError {
+    param([Parameter(Mandatory = $true)]$ErrorRecord)
+
+    Write-Host "[X] Update failed: $($ErrorRecord.Exception.Message)" -ForegroundColor Red
+    if ($ErrorRecord.InvocationInfo -and $ErrorRecord.InvocationInfo.PositionMessage) {
+        Write-Host $ErrorRecord.InvocationInfo.PositionMessage -ForegroundColor DarkRed
+    }
+    if ($ErrorRecord.ScriptStackTrace) {
+        Write-Host "Stack: $($ErrorRecord.ScriptStackTrace)" -ForegroundColor DarkRed
+    }
+    Write-Host $ErrorRecord.Exception.ToString() -ForegroundColor DarkRed
+}
+
+Write-Host '=======================================================' -ForegroundColor Cyan
+Write-Host ' FieldOps Dashboard - Validated Auto-Update Utility ' -ForegroundColor Cyan
+Write-Host '=======================================================' -ForegroundColor Cyan
+
+$resolvedInstallPath = [IO.Path]::GetFullPath($InstallPath)
+$installParent = Split-Path -Parent $resolvedInstallPath
+$installName = Split-Path -Leaf $resolvedInstallPath
+$transactionId = [Guid]::NewGuid().ToString('N')
+$downloadRoot = Join-Path $env:TEMP "FieldOpsDashboard_Download_$transactionId"
+$stagePath = Join-Path $installParent ".$installName-stage-$transactionId"
+$backupPath = Join-Path $installParent ".$installName-backup-$transactionId"
+$failedPath = Join-Path $installParent ".$installName-failed-$transactionId"
+$packageRoot = $null
+$deploymentStarted = $false
+
 try {
-    Expand-Archive -Path $zipPath -DestinationPath $extractPath -Force
-    
-    $subDirs = Get-ChildItem -Path $extractPath -Directory
-    $sourceDir = $extractPath
-    if ($subDirs.Count -eq 1 -and (Test-Path (Join-Path $subDirs[0].FullName "package.json"))) {
-        $sourceDir = $subDirs[0].FullName
+    New-Item -ItemType Directory -Path $downloadRoot | Out-Null
+
+    Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
+    for ($index = 0; $index -lt $PackageUrls.Count; $index++) {
+        $url = $PackageUrls[$index]
+        $archivePath = Join-Path $downloadRoot "candidate-$index.zip"
+        $extractPath = Join-Path $downloadRoot "candidate-$index"
+
+        try {
+            Write-Host " -> Trying $url" -ForegroundColor Gray
+            if (Test-Path -LiteralPath $url -PathType Leaf) {
+                Copy-Item -LiteralPath $url -Destination $archivePath
+            } else {
+                Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing
+            }
+
+            Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
+            $candidateRoot = Get-PackageRoot -ExtractPath $extractPath
+            Assert-RequiredFiles -Root $candidateRoot -RequiredFiles $requiredPackageFiles -Description 'Downloaded package'
+            $packageRoot = $candidateRoot
+            Write-Host "[OK] Validated update package from $url" -ForegroundColor Green
+            break
+        } catch {
+            Write-Host " [!] Rejected candidate: $($_.Exception.Message)" -ForegroundColor DarkYellow
+            if (Test-Path -LiteralPath $extractPath) {
+                Remove-Item -LiteralPath $extractPath -Recurse -Force
+            }
+        }
     }
 
-    if (Test-Path (Join-Path $sourceDir "package.json")) {
-        $agentPublishPath = Join-Path $sourceDir "agent\publish\win-x64"
-        $agentExecutablePath = Join-Path $agentPublishPath "FieldOps.Agent.exe"
-        if (-not (Test-Path -LiteralPath $agentExecutablePath -PathType Leaf)) {
-            throw "Downloaded update package is missing the published FieldOps Agent at '$agentExecutablePath'."
-        }
+    if (-not $packageRoot) {
+        throw 'No download candidate contained a valid FieldOps Dashboard deployment package.'
+    }
 
-        Get-ChildItem -Path "$sourceDir\*" -Exclude "node_modules" | ForEach-Object {
-            Copy-Item -Path $_.FullName -Destination "$scriptDir" -Recurse -Force
-        }
-        $deployedAgentExecutable = Join-Path $scriptDir "agent\publish\win-x64\FieldOps.Agent.exe"
-        if (-not (Test-Path -LiteralPath $deployedAgentExecutable -PathType Leaf)) {
-            throw "FieldOps Agent deployment copy failed; '$deployedAgentExecutable' was not created."
-        }
-        Write-Host "[✓] All files successfully updated and overwritten in $scriptDir!" -ForegroundColor Green
+    Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
+    Copy-PackageTree -Source $packageRoot -Destination $stagePath
+    Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
+
+    Write-Host '[3/5] Stopping dashboard processes...' -ForegroundColor Yellow
+    if (-not $SkipProcessStop) {
+        Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction Stop
+    }
+
+    Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
+    Set-Location -LiteralPath $installParent
+    Move-Item -LiteralPath $resolvedInstallPath -Destination $backupPath
+    $deploymentStarted = $true
+
+    if ($SimulateCopyFailure) {
+        throw 'Simulated deployment failure.'
+    }
+
+    Move-Item -LiteralPath $stagePath -Destination $resolvedInstallPath
+
+    $oldNodeModules = Join-Path $backupPath 'node_modules'
+    if (Test-Path -LiteralPath $oldNodeModules -PathType Container) {
+        Move-Item -LiteralPath $oldNodeModules -Destination (Join-Path $resolvedInstallPath 'node_modules')
+    }
+
+    Assert-RequiredFiles -Root $resolvedInstallPath -RequiredFiles $requiredDeploymentFiles -Description 'Deployed installation'
+    Write-Host '[OK] Deployment verified.' -ForegroundColor Green
+
+    $deploymentStarted = $false
+    Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
+
+    if (-not $SkipLaunch) {
+        Write-Host '[5/5] Starting Dashboard Server...' -ForegroundColor Green
+        Set-Location -LiteralPath $resolvedInstallPath
+        npm run dev
     } else {
-        Write-Host "[X] ERROR: Downloaded archive missing package.json." -ForegroundColor Red
+        Write-Host '[5/5] Dashboard launch skipped.' -ForegroundColor Gray
     }
 } catch {
-    Write-Host "[X] Update copy failed: $($_.Exception.Message)" -ForegroundColor Red
+    $updateError = $_
+
+    if ($deploymentStarted -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
+        try {
+            $newNodeModules = Join-Path $resolvedInstallPath 'node_modules'
+            if ((Test-Path -LiteralPath $newNodeModules -PathType Container) -and
+                -not (Test-Path -LiteralPath (Join-Path $backupPath 'node_modules'))) {
+                Move-Item -LiteralPath $newNodeModules -Destination (Join-Path $backupPath 'node_modules')
+            }
+            if (Test-Path -LiteralPath $resolvedInstallPath) {
+                Move-Item -LiteralPath $resolvedInstallPath -Destination $failedPath
+            }
+            Move-Item -LiteralPath $backupPath -Destination $resolvedInstallPath
+            Write-Host '[OK] Previous installation restored.' -ForegroundColor Yellow
+        } catch {
+            Write-Host "[X] Rollback failed: $($_.Exception.ToString())" -ForegroundColor Red
+        }
+    }
+
+    Write-UpdateError -ErrorRecord $updateError
+    exit 1
+} finally {
+    Set-Location -LiteralPath $installParent
+    foreach ($path in @($downloadRoot, $stagePath, $failedPath)) {
+        if (Test-Path -LiteralPath $path) {
+            Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
 }
-
-# Cleanup temp files
-Remove-Item -Path $zipPath -Force -ErrorAction SilentlyContinue
-Remove-Item -Path $extractPath -Recurse -Force -ErrorAction SilentlyContinue
-
-# Step 5: Launch Server
-Write-Host "[5/5] Starting Dashboard Server..." -ForegroundColor Green
-Set-Location -Path "$scriptDir"
-npm run dev
