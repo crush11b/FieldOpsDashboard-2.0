@@ -37,6 +37,13 @@ public sealed class TelemetryCredentialProvisioningScriptTests
     }
 
     [Fact]
+    public void RotationAtomicallyReplacesBothCredentialFiles()
+    {
+        Assert.Contains("[IO.File]::Replace($agentTemp, $AgentCredentialPath, $agentBackup, $true)", Script);
+        Assert.Contains("[IO.File]::Replace($receiverTemp, $ReceiverCredentialPath, $receiverBackup, $true)", Script);
+    }
+
+    [Fact]
     public void AppliesExplicitReceiverAndAgentAcls()
     {
         Assert.Contains("SetAccessRuleProtection($true, $false)", Script);

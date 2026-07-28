@@ -203,11 +203,17 @@ try {
     Set-ProtectedAcl -Path $agentTemp -ReadSids @($localServiceSid) -IsDirectory $false
     Assert-CredentialPair -ReceiverPath $receiverTemp -AgentPath $agentTemp -ExpectedAgentId $AgentId
 
-    if ($agentExists) { Move-Item -LiteralPath $AgentCredentialPath -Destination $agentBackup }
-    Move-Item -LiteralPath $agentTemp -Destination $AgentCredentialPath
+    if ($agentExists) {
+        [IO.File]::Replace($agentTemp, $AgentCredentialPath, $agentBackup, $true)
+    } else {
+        Move-Item -LiteralPath $agentTemp -Destination $AgentCredentialPath
+    }
     $agentSwapped = $true
-    if ($receiverExists) { Move-Item -LiteralPath $ReceiverCredentialPath -Destination $receiverBackup }
-    Move-Item -LiteralPath $receiverTemp -Destination $ReceiverCredentialPath
+    if ($receiverExists) {
+        [IO.File]::Replace($receiverTemp, $ReceiverCredentialPath, $receiverBackup, $true)
+    } else {
+        Move-Item -LiteralPath $receiverTemp -Destination $ReceiverCredentialPath
+    }
     $receiverSwapped = $true
     Assert-ProtectedAcl -Path $ReceiverCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value)
     Assert-ProtectedAcl -Path $AgentCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-19')
