@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$PublishPath = (Join-Path $PSScriptRoot '..\src\FieldOps.Agent\bin\Release\net8.0-windows\win-x64\publish')
+    [string]$PublishPath = (Join-Path $PSScriptRoot '..\publish\win-x64')
 )
 
 Set-StrictMode -Version Latest

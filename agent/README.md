@@ -2,17 +2,24 @@
 
 The FieldOps Local Agent is the isolated Windows service selected by ADR-001 and ADR-002. E2-001 provides only the service lifecycle and an authenticated, read-only health endpoint.
 
-## Build and publish
+## Developer build and test
 
 ```powershell
 dotnet build .\agent\FieldOps.Agent.sln
 dotnet test .\agent\FieldOps.Agent.sln
-dotnet publish .\agent\src\FieldOps.Agent\FieldOps.Agent.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true
 ```
 
-## Install
+Create the self-contained Windows deployment bundle from the repository root:
 
-Run PowerShell as Administrator after publishing:
+```powershell
+dotnet publish .\agent\src\FieldOps.Agent\FieldOps.Agent.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true -o .\agent\publish\win-x64
+```
+
+The packaged `agent\publish\win-x64` directory includes the .NET runtime and is copied to the ToughBook by the dashboard updater. The ToughBook does not require the .NET SDK or runtime.
+
+## ToughBook install from the deployed package
+
+After running `UpdateDashboard.ps1`, open PowerShell as Administrator in the deployed dashboard directory and run:
 
 ```powershell
 .\agent\scripts\Install-FieldOpsAgent.ps1

@@ -92,8 +92,18 @@ try {
     }
 
     if (Test-Path (Join-Path $sourceDir "package.json")) {
+        $agentPublishPath = Join-Path $sourceDir "agent\publish\win-x64"
+        $agentExecutablePath = Join-Path $agentPublishPath "FieldOps.Agent.exe"
+        if (-not (Test-Path -LiteralPath $agentExecutablePath -PathType Leaf)) {
+            throw "Downloaded update package is missing the published FieldOps Agent at '$agentExecutablePath'."
+        }
+
         Get-ChildItem -Path "$sourceDir\*" -Exclude "node_modules" | ForEach-Object {
             Copy-Item -Path $_.FullName -Destination "$scriptDir" -Recurse -Force
+        }
+        $deployedAgentExecutable = Join-Path $scriptDir "agent\publish\win-x64\FieldOps.Agent.exe"
+        if (-not (Test-Path -LiteralPath $deployedAgentExecutable -PathType Leaf)) {
+            throw "FieldOps Agent deployment copy failed; '$deployedAgentExecutable' was not created."
         }
         Write-Host "[✓] All files successfully updated and overwritten in $scriptDir!" -ForegroundColor Green
     } else {
