@@ -27,6 +27,7 @@ import {
 } from './types';
 import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
+import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
 
 const STORAGE_KEY = 'fieldops_dashboard_config_v115';
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
@@ -42,10 +43,13 @@ const loadInitialGpsState = (): InitialGpsState => {
       const saved = localStorage.getItem(GPS_STORAGE_KEY);
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
+        const coordinates = parsed ? parseCoordinates(parsed.lat, parsed.lon) : null;
+        if (parsed && coordinates) {
           return {
             gps: {
               ...parsed,
+              lat: coordinates.lat,
+              lon: coordinates.lon,
               mode: parsed.mode === 'manual' ? 'manual' : 'auto',
             },
             provenance: {
@@ -66,23 +70,23 @@ const loadInitialGpsState = (): InitialGpsState => {
 
   return {
     gps: {
-      lat: 37.5407,
-      lon: -77.4360,
-      altitudeM: 51,
+      lat: Number.NaN,
+      lon: Number.NaN,
+      altitudeM: 0,
       speedKmh: 0,
-      gridSquare: 'FM17hd',
-      satCount: 8,
-      fixType: '3D GPS Fix',
-      lockTime: new Date().toISOString().substring(11, 19) + ' UTC',
+      gridSquare: '',
+      satCount: 0,
+      fixType: 'Searching',
+      lockTime: '',
       mode: 'auto',
-      deviceName: 'u-blox NEO-M8N USB GPS',
+      deviceName: 'GPS Receiver',
     },
     provenance: {
-      status: 'degraded',
+      status: 'connecting',
       source: {
-        id: 'gps:richmond-reference',
-        type: 'simulated_default',
-        name: 'Richmond Reference Location',
+        id: 'gps:startup',
+        type: 'gps_acquisition',
+        name: 'Waiting for GPS Location',
       },
     },
   };
@@ -155,12 +159,14 @@ export default function App() {
   const [initialGpsState] = useState(loadInitialGpsState);
   const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
   const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
+  const operatingLocation = resolveGpsCoordinates(gps, gpsProvenance);
+  const operatingGridSquare = isCurrentOperatingLocation(operatingLocation) ? gps.gridSquare : '';
 
   // Persist GPS changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        if (gpsProvenance.source.type !== 'simulated_default') {
+        if (operatingLocation) {
           localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
         }
       } catch (e) {
@@ -226,7 +232,16 @@ export default function App() {
     };
 
     const fetchSolarAndWeather = async () => {
-      const coordinates = `lat=${gps.lat}&lon=${gps.lon}`;
+      if (!isCurrentOperatingLocation(operatingLocation)) {
+        setWeather(null);
+        setWeatherStatus('unavailable');
+        setNoaaAlerts(null);
+        setAlertsStatus('unavailable');
+        await refreshSolar();
+        return;
+      }
+
+      const coordinates = `lat=${operatingLocation.lat}&lon=${operatingLocation.lon}`;
       const refreshWeather = async () => {
         if (cancelled) return;
         setWeather(null);
@@ -280,7 +295,7 @@ export default function App() {
       weatherController.abort();
       alertsController.abort();
     };
-  }, [gps.lat, gps.lon]);
+  }, [gps.lat, gps.lon, gpsProvenance.status, gpsProvenance.source.type]);
 
   // Handle App Launching
   const handleLaunchApp = (app: AppLauncherItem) => {
@@ -337,7 +352,7 @@ export default function App() {
         callsign={config.callsign}
         theme={config.theme}
         onThemeChange={handleThemeChange}
-        gps={gps}
+        gps={{ ...gps, gridSquare: operatingGridSquare }}
         battery={battery}
         network={network}
         audioEnabled={config.audioFeedback}
@@ -393,7 +408,7 @@ export default function App() {
             bands={bands}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
-            location={config.location}
+            location={isCurrentOperatingLocation(operatingLocation) ? operatingLocation : undefined}
             onRefreshSolar={async () => {
               const res = await fetch('/api/solar-data');
               if (res.ok) {
@@ -452,7 +467,7 @@ export default function App() {
 
           <div className="text-right">
             <span>
-              CALLSIGN: <strong className="text-amber-400">{config.callsign}</strong> • GRID: <strong className="text-emerald-400">{gps.gridSquare}</strong>
+              CALLSIGN: <strong className="text-amber-400">{config.callsign}</strong> • GRID: <strong className="text-emerald-400">{operatingGridSquare || 'Unavailable'}</strong>
             </span>
           </div>
         </div>
@@ -479,7 +494,7 @@ export default function App() {
         isOpen={roadmapModalOpen}
         onClose={() => setRoadmapModalOpen(false)}
         callsign={config.callsign}
-        gridSquare={gps.gridSquare}
+        gridSquare={operatingGridSquare}
         initialTab={roadmapActiveTab}
       />
 
@@ -495,7 +510,7 @@ export default function App() {
           setRoadmapModalOpen(true);
         }}
         callsign={config.callsign}
-        gridSquare={gps.gridSquare}
+        gridSquare={operatingGridSquare}
       />
 
       <AutoAppInstallerModal

@@ -142,7 +142,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">GRID SQUARE</span>
               <span className="text-xs font-black tracking-widest text-emerald-400">
-                {gps.gridSquare || 'FM17hd'}
+                {gps.gridSquare || '—'}
               </span>
             </div>
           </div>

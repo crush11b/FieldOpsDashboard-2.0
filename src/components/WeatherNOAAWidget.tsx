@@ -254,7 +254,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
         <div className="mt-3 p-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-200 space-y-3 text-xs font-mono">
           <div className="flex flex-wrap items-center justify-between gap-2 font-bold border-b border-amber-500/30 pb-2">
             <span className="flex items-center gap-1.5 text-amber-300 uppercase font-black">
-              <AlertOctagon className="w-4 h-4 text-amber-400" /> NOAA WEATHER MONITORING ({weather?.locationName ?? 'CURRENT GPS POSITION'})
+              <AlertOctagon className="w-4 h-4 text-amber-400" /> NOAA WEATHER MONITORING ({weather?.locationName ?? (effectiveAlertsStatus === 'unavailable' ? 'LOCATION UNAVAILABLE' : 'SELECTED OPERATING LOCATION')})
             </span>
             <div className="flex items-center gap-1.5">
               <button
@@ -283,13 +283,13 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             </div>
           ) : effectiveAlertsStatus === 'loading' ? (
             <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
-              Checking NOAA alerts for the current GPS position…
+              Checking NOAA alerts for the selected operating location…
             </div>
           ) : alertItems.length === 0 ? (
             <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between">
               <div>
                 <span className="font-black text-emerald-400 block">✅ ALL CLEAR — NO ACTIVE NOAA WEATHER ADVISORIES</span>
-                <span className="text-[10px] text-emerald-300/80">Location: {weather?.locationName ?? 'Current GPS position'} • Direct NWS point API scan clear.</span>
+                <span className="text-[10px] text-emerald-300/80">Location: {weather?.locationName ?? 'Selected operating location'} • Direct NWS point API scan clear.</span>
               </div>
             </div>
           ) : (

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Activity, Database, RefreshCw, Clock, Moon, Sun, Radio, MapPin, Sparkles, ChevronDown } from 'lucide-react';
 import { BandPropagation, GPSStatus, SolarData, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
+import { parseCoordinates } from '../location/coordinates';
 
 interface IonosondeStation {
   code: string;
@@ -46,34 +47,42 @@ export const VOACAPPropagationWidget: React.FC<VOACAPPropagationWidgetProps> = (
   const [ionosondeData, setIonosondeData] = useState<IonosondeData | null>(null);
   const [isLoadingIonosonde, setIsLoadingIonosonde] = useState(false);
   const [showStationsList, setShowStationsList] = useState(false);
+  const ionosondeRequestSequence = useRef(0);
 
   // Fetch current KC2G ionosonde station data.
-  const fetchIonosonde = async () => {
+  const fetchIonosonde = async (signal?: AbortSignal) => {
+    const requestSequence = ++ionosondeRequestSequence.current;
     setIsLoadingIonosonde(true);
     try {
-      const lat = location?.lat;
-      const lon = location?.lon;
-      if (!Number.isFinite(lat) || !Number.isFinite(lon)) {
+      const coordinates = parseCoordinates(location?.lat, location?.lon);
+      if (!coordinates) {
         setIonosondeData(null);
         return;
       }
-      const res = await fetch(`/api/ionosonde?lat=${lat}&lon=${lon}`);
+      const { lat, lon } = coordinates;
+      const res = await fetch(`/api/ionosonde?lat=${lat}&lon=${lon}`, { signal });
+      if (signal?.aborted || requestSequence !== ionosondeRequestSequence.current) return;
       if (res.ok) {
         const data: IonosondeData = await res.json();
+        if (signal?.aborted || requestSequence !== ionosondeRequestSequence.current) return;
         setIonosondeData(data.status === 'live' || data.status === 'unavailable' ? data : null);
       } else {
         setIonosondeData(null);
       }
     } catch (e) {
-      setIonosondeData(null);
-      console.warn('KC2G ionosonde data unavailable');
+      if (!signal?.aborted && requestSequence === ionosondeRequestSequence.current) {
+        setIonosondeData(null);
+        console.warn('KC2G ionosonde data unavailable');
+      }
     } finally {
-      setIsLoadingIonosonde(false);
+      if (requestSequence === ionosondeRequestSequence.current) setIsLoadingIonosonde(false);
     }
   };
 
   useEffect(() => {
-    fetchIonosonde();
+    const controller = new AbortController();
+    fetchIonosonde(controller.signal);
+    return () => controller.abort();
   }, [location?.lat, location?.lon]);
 
   // Live clock tick every 10 seconds

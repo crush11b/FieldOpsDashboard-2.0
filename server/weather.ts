@@ -1,4 +1,5 @@
 import type { NOAAAlert, WeatherData } from '../src/types';
+import { parseCoordinates } from '../src/location/coordinates';
 
 export type ExternalDataStatus = 'live' | 'unavailable';
 
@@ -67,12 +68,8 @@ export async function getActiveAlertsApiResponse(
 }
 
 export function parseWeatherCoordinates(latitude: unknown, longitude: unknown): WeatherCoordinates | null {
-  const parsedLatitude = typeof latitude === 'string' && latitude.trim() !== '' ? Number(latitude) : NaN;
-  const parsedLongitude = typeof longitude === 'string' && longitude.trim() !== '' ? Number(longitude) : NaN;
-  return Number.isFinite(parsedLatitude) && parsedLatitude >= -90 && parsedLatitude <= 90
-    && Number.isFinite(parsedLongitude) && parsedLongitude >= -180 && parsedLongitude <= 180
-    ? { latitude: parsedLatitude, longitude: parsedLongitude }
-    : null;
+  const coordinates = parseCoordinates(latitude, longitude);
+  return coordinates ? { latitude: coordinates.lat, longitude: coordinates.lon } : null;
 }
 
 async function fetchLocationName(

@@ -24,6 +24,7 @@ import {
   parseWeatherCoordinates,
 } from './server/weather';
 import { getIonosondeApiResponse } from './server/propagation';
+import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coordinates';
 
 async function startServer() {
   const app = express();
@@ -549,6 +550,12 @@ Context provided: ${JSON.stringify(context || {})}`;
     if (raw === 'preset_location') {
       return { id: 'gps:preset', type: 'preset_location', raw };
     }
+    if (raw === 'configured_station_location') {
+      return { id: 'gps:configured-station', type: 'configured_station_location', raw };
+    }
+    if (raw === 'ip_geolocation') {
+      return { id: 'gps:ip-location', type: 'ip_geolocation', raw };
+    }
     return { id: 'gps:legacy', type: 'unknown_legacy_producer', raw };
   };
 
@@ -571,8 +578,11 @@ Context provided: ${JSON.stringify(context || {})}`;
         return res.json({ success: true, message: "GPS Telemetry cleared" });
       }
 
-      const lat = parseFloat(body.lat ?? body.latitude ?? query.lat ?? query.latitude ?? 37.5407);
-      const lon = parseFloat(body.lon ?? body.lng ?? body.longitude ?? query.lon ?? query.lng ?? query.longitude ?? -77.4360);
+      const coordinates = parseGpsRequestCoordinates(body, query);
+      if (!coordinates) {
+        return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      }
+      const { lat, lon } = coordinates;
       const gridSquare = body.gridSquare ?? body.grid ?? query.gridSquare ?? query.grid ?? "";
       const alt = parseFloat(body.altitudeM ?? body.alt ?? query.alt ?? 50);
 
@@ -631,9 +641,8 @@ Context provided: ${JSON.stringify(context || {})}`;
 
     try {
       const { data, timestamp, producerSource } = localTelemetryGps;
-      const hasValidLatitude = Number.isFinite(data.lat) && data.lat >= -90 && data.lat <= 90;
-      const hasValidLongitude = Number.isFinite(data.lon) && data.lon >= -180 && data.lon <= 180;
-      if (!hasValidLatitude || !hasValidLongitude) {
+      const coordinates = parseCoordinates(data.lat, data.lon);
+      if (!coordinates) {
         throw new Error('Stored GPS telemetry contains invalid coordinates');
       }
 
@@ -648,8 +657,8 @@ Context provided: ${JSON.stringify(context || {})}`;
       const observedAt = new Date(timestamp).toISOString();
 
       const gps: GPSStatus = {
-        lat: data.lat,
-        lon: data.lon,
+        lat: coordinates.lat,
+        lon: coordinates.lon,
         altitudeM: data.altitudeM,
         speedKmh: Number.isFinite(data.speedKmh) ? data.speedKmh : 0,
         gridSquare: data.gridSquare,

@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock } from 'lucide-react';
 import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import type { TelemetryEnvelope } from '../telemetry';
 import { playTacticalClick } from '../utils/audio';
+import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
@@ -26,9 +27,19 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   onSelectComPort,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
-  const [inputLat, setInputLat] = useState(gps.lat.toString());
-  const [inputLon, setInputLon] = useState(gps.lon.toString());
+  const [inputLat, setInputLat] = useState(Number.isFinite(gps.lat) ? gps.lat.toString() : '');
+  const [inputLon, setInputLon] = useState(Number.isFinite(gps.lon) ? gps.lon.toString() : '');
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
+  const gpsUpdateSequence = useRef(0);
+  const manualLocationActive = useRef(
+    provenance.source.type === 'manual_location' || provenance.source.type === 'preset_location',
+  );
+  const displayLocation = resolveGpsCoordinates(gps, provenance);
+
+  useEffect(() => {
+    manualLocationActive.current = provenance.source.type === 'manual_location'
+      || provenance.source.type === 'preset_location';
+  }, [provenance.source.type]);
 
   const browserProvenance = (): GPSProvenance => {
     const observedAt = new Date();
@@ -59,8 +70,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   // Sync inputs whenever gps prop changes
   useEffect(() => {
     if (!isEditing) {
-      setInputLat(gps.lat.toString());
-      setInputLon(gps.lon.toString());
+      setInputLat(Number.isFinite(gps.lat) ? gps.lat.toString() : '');
+      setInputLon(Number.isFinite(gps.lon) ? gps.lon.toString() : '');
       setInputGrid(gps.gridSquare);
     }
   }, [gps.lat, gps.lon, gps.gridSquare, isEditing]);
@@ -98,8 +109,9 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       navigator.geolocation.getCurrentPosition(
         async (pos) => {
           if (isCancelled()) return;
-          const lat = pos.coords.latitude;
-          const lon = pos.coords.longitude;
+          const coordinates = parseCoordinates(pos.coords.latitude, pos.coords.longitude);
+          if (!coordinates) return;
+          const { lat, lon } = coordinates;
           const grid = latLonToGridSquare(lat, lon);
           
           const accuracyMeters = pos.coords.accuracy || 12;
@@ -129,6 +141,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
           const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
           const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
 
+          manualLocationActive.current = false;
+          gpsUpdateSequence.current += 1;
           onUpdateGPS({
             lat,
             lon,
@@ -161,12 +175,14 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     let cancelled = false;
 
     const checkGpsTelemetry = async (): Promise<boolean> => {
+      const updateSequenceAtRequest = gpsUpdateSequence.current;
       try {
         const res = await fetch('/api/telemetry/gps');
         if (cancelled) return false;
         if (res.ok) {
           const envelope = await res.json() as TelemetryEnvelope<GPSStatus>;
           if (cancelled) return false;
+          if (updateSequenceAtRequest !== gpsUpdateSequence.current) return true;
           let data: GPSStatus | undefined;
           switch (envelope.status) {
             case 'ok':
@@ -179,13 +195,16 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               data = envelope.data;
               break;
           }
-          if (data?.lat !== undefined && data.lon !== undefined) {
+          const coordinates = data ? parseCoordinates(data.lat, data.lon) : null;
+          if (data && coordinates) {
+            if (manualLocationActive.current) return true;
             // Only update if not explicitly editing in manual mode
             if (!isEditing) {
+              gpsUpdateSequence.current += 1;
               onUpdateGPS({
-                lat: data.lat,
-                lon: data.lon,
-                gridSquare: data.gridSquare || latLonToGridSquare(data.lat, data.lon),
+                lat: coordinates.lat,
+                lon: coordinates.lon,
+                gridSquare: data.gridSquare || latLonToGridSquare(coordinates.lat, coordinates.lon),
                 altitudeM: data.altitudeM || gps.altitudeM,
                 satCount: data.satCount || 8,
                 fixType: data.fixType || '3D GPS Fix',
@@ -221,9 +240,10 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       try {
         watchId = navigator.geolocation.watchPosition(
           (pos) => {
-            if (cancelled) return;
-            const lat = pos.coords.latitude;
-            const lon = pos.coords.longitude;
+            if (cancelled || manualLocationActive.current) return;
+            const coordinates = parseCoordinates(pos.coords.latitude, pos.coords.longitude);
+            if (!coordinates) return;
+            const { lat, lon } = coordinates;
             const grid = latLonToGridSquare(lat, lon);
             const accuracyMeters = pos.coords.accuracy || 12;
             let calculatedSats = 8;
@@ -235,6 +255,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
             const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
 
+            gpsUpdateSequence.current += 1;
             onUpdateGPS({
               lat,
               lon,
@@ -287,6 +308,9 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     : 'bg-zinc-800/90 border-zinc-700/80 text-zinc-100';
 
   const gpsStatusText = (() => {
+    if (!displayLocation && provenance.status !== 'connecting' && provenance.status !== 'error') {
+      return '⚠️ GPS UNAVAILABLE';
+    }
     switch (provenance.status) {
       case 'ok':
         return '🛰️ SATELLITE AUTO-FIX';
@@ -310,23 +334,25 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
   const handleSaveCoordinates = () => {
     playTacticalClick(audioEnabled);
-    let lat = parseFloat(inputLat);
-    let lon = parseFloat(inputLon);
+    let coordinates = parseCoordinates(inputLat, inputLon);
 
-    if (isNaN(lat) || isNaN(lon)) {
+    if (!coordinates) {
       // Try parsing Grid Square if given
       const parsed = gridSquareToLatLon(inputGrid);
       if (parsed) {
-        lat = parsed.lat;
-        lon = parsed.lon;
+        coordinates = parseCoordinates(parsed.lat, parsed.lon);
       } else {
         return;
       }
     }
+    if (!coordinates) return;
+    const { lat, lon } = coordinates;
 
     const calculatedGrid = latLonToGridSquare(lat, lon);
     const lockTime = new Date().toLocaleTimeString() + ' (Manual Lock)';
 
+    manualLocationActive.current = true;
+    gpsUpdateSequence.current += 1;
     onUpdateGPS({
       lat,
       lon,
@@ -343,6 +369,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     playTacticalClick(audioEnabled);
     const grid = latLonToGridSquare(lat, lon);
     const lockTime = new Date().toLocaleTimeString() + ' (Preset)';
+    manualLocationActive.current = true;
+    gpsUpdateSequence.current += 1;
     onUpdateGPS({
       lat,
       lon,
@@ -358,6 +386,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
   const handleTriggerBrowserGeolocation = () => {
     playTacticalClick(audioEnabled);
+    manualLocationActive.current = false;
     setIsEditing(false);
     requestBrowserGeolocation(false);
   };
@@ -410,7 +439,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             6-DIGIT MAIDENHEAD
           </span>
           <span className="text-2xl font-black tracking-widest font-mono text-emerald-400 drop-shadow">
-            {gps.gridSquare}
+            {displayLocation ? gps.gridSquare || latLonToGridSquare(displayLocation.lat, displayLocation.lon) : '—'}
           </span>
           <span className="text-[10px] mt-1 opacity-75">
             {gpsStatusText}
@@ -431,10 +460,9 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                     value={inputLat}
                     onChange={(e) => {
                       setInputLat(e.target.value);
-                      const lat = parseFloat(e.target.value);
-                      const lon = parseFloat(inputLon);
-                      if (!isNaN(lat) && !isNaN(lon)) {
-                        setInputGrid(latLonToGridSquare(lat, lon));
+                      const coordinates = parseCoordinates(e.target.value, inputLon);
+                      if (coordinates) {
+                        setInputGrid(latLonToGridSquare(coordinates.lat, coordinates.lon));
                       }
                     }}
                     className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-xs font-mono focus:border-cyan-400 focus:outline-none"
@@ -449,10 +477,9 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                     value={inputLon}
                     onChange={(e) => {
                       setInputLon(e.target.value);
-                      const lat = parseFloat(inputLat);
-                      const lon = parseFloat(e.target.value);
-                      if (!isNaN(lat) && !isNaN(lon)) {
-                        setInputGrid(latLonToGridSquare(lat, lon));
+                      const coordinates = parseCoordinates(inputLat, e.target.value);
+                      if (coordinates) {
+                        setInputGrid(latLonToGridSquare(coordinates.lat, coordinates.lon));
                       }
                     }}
                     className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-300 text-xs font-mono focus:border-cyan-400 focus:outline-none"
@@ -542,25 +569,25 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               <div className={`p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
                 <span className="text-[10px] uppercase opacity-70 block">COORDINATES</span>
                 <span className="font-bold text-cyan-400">
-                  {gps.lat.toFixed(4)}°, {gps.lon.toFixed(4)}°
+                  {displayLocation ? `${displayLocation.lat.toFixed(4)}°, ${displayLocation.lon.toFixed(4)}°` : 'Unavailable'}
                 </span>
               </div>
 
               <div className={`p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
                 <span className="text-[10px] uppercase opacity-70 block">SATELLITES & FIX</span>
                 <span className="font-bold text-emerald-400 flex items-center gap-1">
-                  <Satellite className="w-3 h-3" /> {gps.satCount} SATS ({gps.fixType})
+                  <Satellite className="w-3 h-3" /> {displayLocation ? `${gps.satCount} SATS (${gps.fixType})` : 'Waiting for location'}
                 </span>
               </div>
 
               <div className={`p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
                 <span className="text-[10px] uppercase opacity-70 block">ALTITUDE</span>
-                <span className="font-bold">{gps.altitudeM} meters ({Math.round(gps.altitudeM * 3.28084)} ft)</span>
+                <span className="font-bold">{displayLocation ? `${gps.altitudeM} meters (${Math.round(gps.altitudeM * 3.28084)} ft)` : 'Unavailable'}</span>
               </div>
 
               <div className={`p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
                 <span className="text-[10px] uppercase opacity-70 block">UTC TIME SYNC</span>
-                <span className="font-bold text-amber-300">{gps.lockTime || 'SYNCED'}</span>
+                <span className="font-bold text-amber-300">{displayLocation ? gps.lockTime || 'Unknown' : 'Unavailable'}</span>
               </div>
             </div>
           )}

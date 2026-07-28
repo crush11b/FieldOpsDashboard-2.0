@@ -62,7 +62,7 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
 
   const handleSosBeacon = () => {
     playEmergencyBeep(audioEnabled);
-    alert(`📢 EMERGENCY SOS BEACON TRIGGERED\n\nCallsign: ${callsign || 'W7FIELD'}\nLocation: ${gridSquare || 'FN20xr'}\n\nBroadcast alert sent across field network mesh.`);
+    alert(`📢 EMERGENCY SOS BEACON TRIGGERED\n\nCallsign: ${callsign || 'W7FIELD'}\nLocation: ${gridSquare || 'Unavailable'}\n\nBroadcast alert sent across field network mesh.`);
   };
 
   return (
@@ -87,7 +87,7 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
                 TOUCH MENU SYSTEM
               </h2>
               <span className="text-[10px] text-current/70 block">
-                {callsign || 'W7FIELD'} • GRID {gridSquare || 'FN20xr'}
+                {callsign || 'W7FIELD'} • GRID {gridSquare || 'Unavailable'}
               </span>
             </div>
 
