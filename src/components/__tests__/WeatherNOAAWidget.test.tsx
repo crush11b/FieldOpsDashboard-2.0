@@ -37,4 +37,20 @@ describe('WeatherNOAAWidget truth states', () => {
     expect(markup).toContain('NOAA UNAVAILABLE');
     expect(markup).not.toContain('ALL CLEAR');
   });
+
+  it('fails closed when a live NOAA status has no alert payload', () => {
+    const markup = renderToStaticMarkup(
+      <WeatherNOAAWidget
+        weather={null}
+        weatherStatus="unavailable"
+        alerts={null}
+        alertsStatus="live"
+        theme="dark_tactical"
+        audioEnabled={false}
+      />,
+    );
+
+    expect(markup).toContain('NOAA UNAVAILABLE');
+    expect(markup).not.toContain('NOAA ALERTS (0)');
+  });
 });

@@ -9,6 +9,11 @@ export interface WeatherApiResponse {
   readonly alertsStatus: ExternalDataStatus;
 }
 
+export interface WeatherCoordinates {
+  readonly latitude: number;
+  readonly longitude: number;
+}
+
 const NWS_HEADERS = {
   'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
   Accept: 'application/geo+json',
@@ -22,7 +27,7 @@ export async function getWeatherApiResponse(
 ): Promise<WeatherApiResponse> {
   const [current, activeAlerts] = await Promise.all([
     getCurrentWeatherApiResponse(latitude, longitude, fetcher, now),
-    getActiveAlertsApiResponse(latitude, longitude, fetcher),
+    getActiveAlertsApiResponse(latitude, longitude, fetcher, now),
   ]);
 
   return {
@@ -52,12 +57,22 @@ export async function getActiveAlertsApiResponse(
   latitude: number,
   longitude: number,
   fetcher: typeof fetch = fetch,
+  now: Date = new Date(),
 ): Promise<Pick<WeatherApiResponse, 'alerts' | 'alertsStatus'>> {
-  const alerts = await fetchActiveAlerts(latitude, longitude, fetcher);
+  const alerts = await fetchActiveAlerts(latitude, longitude, fetcher, now);
   return {
     alerts,
     alertsStatus: alerts ? 'live' : 'unavailable',
   };
+}
+
+export function parseWeatherCoordinates(latitude: unknown, longitude: unknown): WeatherCoordinates | null {
+  const parsedLatitude = typeof latitude === 'string' && latitude.trim() !== '' ? Number(latitude) : NaN;
+  const parsedLongitude = typeof longitude === 'string' && longitude.trim() !== '' ? Number(longitude) : NaN;
+  return Number.isFinite(parsedLatitude) && parsedLatitude >= -90 && parsedLatitude <= 90
+    && Number.isFinite(parsedLongitude) && parsedLongitude >= -180 && parsedLongitude <= 180
+    ? { latitude: parsedLatitude, longitude: parsedLongitude }
+    : null;
 }
 
 async function fetchLocationName(
@@ -84,6 +99,7 @@ async function fetchActiveAlerts(
   latitude: number,
   longitude: number,
   fetcher: typeof fetch,
+  now: Date,
 ): Promise<NOAAAlert[] | null> {
   try {
     const response = await fetcher(
@@ -93,18 +109,31 @@ async function fetchActiveAlerts(
     if (!response.ok) return null;
     const body = await response.json() as Record<string, any>;
     if (!Array.isArray(body.features)) return null;
-    return body.features.map((feature: Record<string, any>, index: number) => {
-      const properties = feature.properties ?? {};
-      return {
-        id: String(feature.id ?? properties.id ?? `NWS-${index}`),
+    const alerts: NOAAAlert[] = [];
+    const seenIds = new Set<string>();
+    for (const feature of body.features) {
+      if (!isRecord(feature) || !isRecord(feature.properties)) return null;
+      const properties = feature.properties;
+      const id = stringValue(feature.id ?? properties.id);
+      const title = stringValue(properties.event ?? properties.headline);
+      const description = stringValue(properties.description ?? properties.headline);
+      const area = stringValue(properties.areaDesc);
+      if (!id || !title || !description || !area) return null;
+      if (seenIds.has(id)) continue;
+      const expiresAt = parseTimestamp(properties.expires);
+      if (expiresAt !== null && expiresAt <= now.getTime()) continue;
+      seenIds.add(id);
+      alerts.push({
+        id,
         severity: normalizeSeverity(properties.severity),
-        title: String(properties.event ?? properties.headline ?? 'Weather Advisory'),
-        description: String(properties.description ?? properties.headline ?? 'Active weather alert.'),
-        area: String(properties.areaDesc ?? 'Reported area'),
+        title,
+        description,
+        area,
         expires: formatAlertTime(properties.expires, 'Until further notice'),
         issued: formatAlertTime(properties.onset ?? properties.sent, 'Recently'),
-      };
-    });
+      });
+    }
+    return alerts;
   } catch {
     return null;
   }
@@ -131,6 +160,10 @@ async function fetchCurrentWeather(
     const weatherCode = finiteNumber(current?.weather_code ?? current?.weathercode);
     const uvIndex = finiteNumber(current?.uv_index);
     if ([tempF, humidity, pressureHpa, windMph, windDegrees, weatherCode, uvIndex].some((value) => value === null)) {
+      return null;
+    }
+    if (humidity! < 0 || humidity! > 100 || pressureHpa! <= 0 || windMph! < 0
+      || weatherCode! < 0 || uvIndex! < 0) {
       return null;
     }
 
@@ -163,6 +196,7 @@ function parseHourlyForecast(hourly: Record<string, any> | undefined, now: Date)
   if (!hourly || !Array.isArray(hourly.time)) return [];
   const start = Math.max(0, hourly.time.findIndex((time: string) => Date.parse(time) >= now.getTime() - 3_600_000));
   return hourly.time.slice(start, start + 6).flatMap((time: string, offset: number) => {
+    if (typeof time !== 'string' || !Number.isFinite(Date.parse(time))) return [];
     const index = start + offset;
     const tempF = finiteNumber(hourly.temperature_2m?.[index]);
     const precipProb = finiteNumber(hourly.precipitation_probability?.[index]);
@@ -185,7 +219,8 @@ function finiteNumber(value: unknown): number | null {
 
 function directionLabel(degrees: number): string {
   const directions = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-  return directions[Math.round(degrees / 45) % directions.length];
+  const normalized = ((degrees % 360) + 360) % 360;
+  return directions[Math.round(normalized / 45) % directions.length];
 }
 
 function conditionLabel(code: number): string {
@@ -199,4 +234,18 @@ function normalizeSeverity(value: unknown): NOAAAlert['severity'] {
 function formatAlertTime(value: unknown, fallback: string): string {
   if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) return fallback;
   return new Date(value).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+function parseTimestamp(value: unknown): number | null {
+  if (typeof value !== 'string') return null;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function stringValue(value: unknown): string | null {
+  return typeof value === 'string' && value.trim() !== '' ? value : null;
+}
+
+function isRecord(value: unknown): value is Record<string, any> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

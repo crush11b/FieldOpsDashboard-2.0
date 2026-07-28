@@ -201,7 +201,10 @@ export default function App() {
   // Fetch live weather and solar data from backend Express server APIs
   useEffect(() => {
     let cancelled = false;
-    const fetchSolarAndWeather = async () => {
+    const weatherController = new AbortController();
+    const alertsController = new AbortController();
+
+    const refreshSolar = async () => {
       try {
         const solarRes = await fetch('/api/solar-data');
         if (solarRes.ok) {
@@ -220,13 +223,18 @@ export default function App() {
       } catch (err) {
         console.warn('Backend solar endpoint fallback');
       }
+    };
 
+    const fetchSolarAndWeather = async () => {
       const coordinates = `lat=${gps.lat}&lon=${gps.lon}`;
       const refreshWeather = async () => {
         if (cancelled) return;
+        setWeather(null);
         setWeatherStatus('loading');
         try {
-          const response = await fetch(`/api/weather/current?${coordinates}`);
+          const response = await fetch(`/api/weather/current?${coordinates}`, {
+            signal: weatherController.signal,
+          });
           const data = response.ok ? await response.json() : null;
           if (!cancelled) {
             setWeather(data?.weather ?? null);
@@ -243,9 +251,12 @@ export default function App() {
 
       const refreshAlerts = async () => {
         if (cancelled) return;
+        setNoaaAlerts(null);
         setAlertsStatus('loading');
         try {
-          const response = await fetch(`/api/weather/alerts?${coordinates}`);
+          const response = await fetch(`/api/weather/alerts?${coordinates}`, {
+            signal: alertsController.signal,
+          });
           const data = response.ok ? await response.json() : null;
           if (!cancelled) {
             setNoaaAlerts(Array.isArray(data?.alerts) ? data.alerts : null);
@@ -260,12 +271,14 @@ export default function App() {
         }
       };
 
-      await Promise.allSettled([refreshWeather(), refreshAlerts()]);
+      await Promise.allSettled([refreshSolar(), refreshWeather(), refreshAlerts()]);
     };
 
     fetchSolarAndWeather();
     return () => {
       cancelled = true;
+      weatherController.abort();
+      alertsController.abort();
     };
   }, [gps.lat, gps.lon]);
 

@@ -21,6 +21,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   audioEnabled,
 }) => {
   const alertItems = alerts ?? [];
+  const effectiveAlertsStatus = alertsStatus === 'live' && alerts === null ? 'unavailable' : alertsStatus;
   const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
   const [isAcknowledged, setIsAcknowledged] = useState(false);
 
@@ -142,9 +143,9 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             className={`px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${alertBadgeBg}`}
           >
             <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-            <span>{alertsStatus === 'loading'
+            <span>{effectiveAlertsStatus === 'loading'
               ? 'CHECKING NOAA'
-              : alertsStatus === 'unavailable'
+              : effectiveAlertsStatus === 'unavailable'
                 ? 'NOAA UNAVAILABLE'
                 : `NOAA ALERTS (${alertItems.length})`}</span>
             {showAlertsDrawer ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
@@ -275,12 +276,12 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             </div>
           </div>
 
-          {alertsStatus === 'unavailable' ? (
+          {effectiveAlertsStatus === 'unavailable' ? (
             <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
               <span className="font-black block">NOAA ALERT STATUS UNAVAILABLE</span>
               <span className="text-[10px] text-zinc-400">The dashboard could not confirm whether active alerts exist.</span>
             </div>
-          ) : alertsStatus === 'loading' ? (
+          ) : effectiveAlertsStatus === 'loading' ? (
             <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
               Checking NOAA alerts for the current GPS position…
             </div>
