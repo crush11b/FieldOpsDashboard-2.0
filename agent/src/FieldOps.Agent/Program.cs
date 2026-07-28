@@ -2,6 +2,7 @@ using System.Net;
 using FieldOps.Agent;
 using FieldOps.Agent.Health;
 using FieldOps.Agent.Security;
+using FieldOps.Agent.Telemetry.Transport;
 using Microsoft.Extensions.Logging.EventLog;
 
 const string serviceName = "FieldOpsAgent";
@@ -26,6 +27,7 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ServiceIdentity>();
 builder.Services.AddSingleton<AgentCredentialProvider>();
+builder.Services.AddTelemetryTransportFoundation();
 builder.Services.AddHostedService<AgentLifecycleService>();
 
 var app = builder.Build();
