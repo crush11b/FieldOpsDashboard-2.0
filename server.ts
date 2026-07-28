@@ -13,15 +13,32 @@ import {
   InMemoryLatestTelemetryStore,
   rejectAllTelemetryCredentials,
 } from './server/telemetryReceiver';
+import {
+  FileTelemetryCredentialRepository,
+  getDefaultTelemetryCredentialPath,
+} from './server/telemetryCredentials';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
 
+  const telemetryCredentialPath = getDefaultTelemetryCredentialPath();
+  const telemetryCredentialRepository = telemetryCredentialPath
+    ? new FileTelemetryCredentialRepository(telemetryCredentialPath)
+    : null;
+  const telemetryCredentialResolver = telemetryCredentialRepository ?? rejectAllTelemetryCredentials;
+  if (!telemetryCredentialRepository || !(await telemetryCredentialRepository.isProvisioned())) {
+    console.warn(
+      telemetryCredentialPath
+        ? `Telemetry authentication is unprovisioned; expected repository: ${telemetryCredentialPath}`
+        : 'Telemetry authentication is unprovisioned; no credential repository path is available.',
+    );
+  }
+
   // The v1 receiver is present but production delivery remains dormant. The
-  // reject-all resolver is replaced only by explicit future credential work.
+  // sender is not registered even when authentication has been provisioned.
   app.use(createTelemetryReceiverRouter({
-    credentialResolver: rejectAllTelemetryCredentials,
+    credentialResolver: telemetryCredentialResolver,
     store: new InMemoryLatestTelemetryStore(),
   }));
 

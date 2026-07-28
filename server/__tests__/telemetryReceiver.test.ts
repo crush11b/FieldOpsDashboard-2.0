@@ -1,5 +1,8 @@
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 
 import express from 'express';
 import { describe, expect, it, vi } from 'vitest';
@@ -11,6 +14,11 @@ import {
   type AuthenticatedAgentIdentity,
   type TelemetryCredentialResolver,
 } from '../telemetryReceiver';
+import {
+  digestTelemetryBearerToken,
+  FileTelemetryCredentialRepository,
+  generateTelemetryBearerCredential,
+} from '../telemetryCredentials';
 
 const TEST_TIMEOUT_MS = 5_000;
 const FIXED_NOW = new Date('2026-07-28T16:00:00.000Z');
@@ -18,6 +26,24 @@ const WRITE_TOKEN = 'test-only-write-credential';
 const READ_TOKEN = 'test-only-read-credential';
 
 describe('Express telemetry receiver', () => {
+  it.each([
+    ['missing', undefined],
+    ['blank bearer', 'Bearer '],
+    ['unsupported scheme', 'Basic dGVzdDp0ZXN0'],
+    ['extra bearer value', `Bearer ${WRITE_TOKEN} extra`],
+    ['comma-joined duplicate', `Bearer ${WRITE_TOKEN}, Bearer ${WRITE_TOKEN}`],
+  ])('returns 401 for a %s Authorization header', async (_name, authorization) => {
+    const harness = createHarness();
+
+    const response = await harness.request('POST', '/api/v1/telemetry', {
+      body: canonicalEnvelope(),
+      headers: authorization === undefined ? undefined : { Authorization: authorization },
+    });
+
+    expect(response.status).toBe(401);
+    expect(harness.store.getSnapshot().entries).toHaveLength(0);
+  });
+
   it('stores a canonical envelope and returns an empty 204 response', async () => {
     const harness = createHarness();
 
@@ -320,6 +346,36 @@ describe('Express telemetry receiver', () => {
 
     expect(response.status).toBe(403);
     expect(harness.store.getSnapshot().entries).toHaveLength(0);
+  });
+
+  it('authenticates through the production file repository and ignores payload agent identity', async () => {
+    const directory = await mkdtemp(path.join(tmpdir(), 'fieldops-receiver-auth-'));
+    try {
+      const token = generateTelemetryBearerCredential();
+      const credentialPath = path.join(directory, 'telemetry-credentials.json');
+      await writeFile(credentialPath, JSON.stringify({
+        schemaVersion: 1,
+        records: [{
+          agentId: 'receiver-owned-agent',
+          tokenDigest: digestTelemetryBearerToken(token),
+          scopes: ['telemetry:write'],
+          enabled: true,
+          createdAt: FIXED_NOW.toISOString(),
+        }],
+      }));
+      const harness = createHarness(undefined, new FileTelemetryCredentialRepository(credentialPath));
+
+      const response = await harness.request('POST', '/api/v1/telemetry', {
+        token,
+        body: canonicalEnvelope({ agentId: 'payload-forgery' }),
+      });
+
+      expect(response.status).toBe(204);
+      expect(harness.store.getSnapshot().entries[0].agent.agentId).toBe('receiver-owned-agent');
+      expect(response.text).not.toContain(token);
+    } finally {
+      await rm(directory, { recursive: true, force: true });
+    }
   });
 
   it('sanitizes resolver failures and does not invoke the store', async () => {

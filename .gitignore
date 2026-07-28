@@ -6,5 +6,7 @@ coverage/
 **/obj/
 .DS_Store
 *.log
+telemetry-credentials.json
+telemetry-write-token.dat
 .env*
 !.env.example
