@@ -1,11 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
-import { NOAAAlert, UIThemeMode, WeatherData } from '../types';
+import { ExternalDataStatus, NOAAAlert, UIThemeMode, WeatherData } from '../types';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
 
 interface WeatherNOAAWidgetProps {
-  weather: WeatherData;
-  alerts: NOAAAlert[];
+  weather: WeatherData | null;
+  alerts: NOAAAlert[] | null;
+  weatherStatus: ExternalDataStatus;
+  alertsStatus: ExternalDataStatus;
   theme: UIThemeMode;
   audioEnabled: boolean;
 }
@@ -13,9 +15,12 @@ interface WeatherNOAAWidgetProps {
 export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   weather,
   alerts,
+  weatherStatus,
+  alertsStatus,
   theme,
   audioEnabled,
 }) => {
+  const alertItems = alerts ?? [];
   const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
   const [isAcknowledged, setIsAcknowledged] = useState(false);
 
@@ -25,15 +30,15 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
       const savedAckJson = localStorage.getItem('fieldops_ack_alerts');
       const ackIds: string[] = savedAckJson ? JSON.parse(savedAckJson) : [];
       
-      const currentIds = alerts.map(a => a.id);
+      const currentIds = alertItems.map(a => a.id);
       const allAck = currentIds.length > 0 && currentIds.every(id => ackIds.includes(id));
       
       if (allAck) {
         setIsAcknowledged(true);
-      } else if (alerts.length > 0) {
+      } else if (alertItems.length > 0) {
         setIsAcknowledged(false);
         // Only announce if there is a NEW unacknowledged alert
-        const unackAlert = alerts.find(a => !ackIds.includes(a.id));
+        const unackAlert = alertItems.find(a => !ackIds.includes(a.id));
         if (unackAlert) {
           speakNOAAAlert(unackAlert.title, unackAlert.area, audioEnabled);
         }
@@ -48,7 +53,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     setIsAcknowledged(true);
     playTacticalClick(audioEnabled);
     try {
-      const currentIds = alerts.map(a => a.id);
+      const currentIds = alertItems.map(a => a.id);
       localStorage.setItem('fieldops_ack_alerts', JSON.stringify(currentIds));
     } catch (e) {
       // Ignore localStorage write error
@@ -58,15 +63,13 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   const handleTestVoiceAlert = (full = false) => {
     playTacticalClick(audioEnabled);
     setIsAcknowledged(false);
-    if (alerts.length > 0) {
-      const first = alerts[0];
+    if (alertItems.length > 0) {
+      const first = alertItems[0];
       if (full) {
         speakNOAAAlertFull(first.title, first.description, true);
       } else {
         speakNOAAAlert(first.title, first.area, true);
       }
-    } else {
-      speakNOAAAlert('Test Weather Advisory', 'Richmond, VA', true);
     }
   };
 
@@ -79,7 +82,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     ? 'bg-white border-amber-400 text-slate-900 shadow-sm rounded-2xl p-4 sm:p-5'
     : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg rounded-2xl p-4 sm:p-5';
 
-  const alertBadgeBg = alerts.length > 0
+  const alertBadgeBg = alertItems.length > 0
     ? isNight
       ? 'border-red-600 bg-red-950 text-red-400'
       : 'border-amber-500/40 bg-amber-500/10 text-amber-400 font-bold'
@@ -87,16 +90,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     ? 'border-red-950 text-red-800'
     : 'border-zinc-800 bg-zinc-800/60 text-zinc-400';
 
-  const hourlyList = weather.hourlyForecast && weather.hourlyForecast.length > 0
-    ? weather.hourlyForecast.slice(0, 6)
-    : [
-        { time: '12 PM', tempF: weather.tempF, precipProb: 0, windMph: weather.windMph, weatherCode: 0 },
-        { time: '1 PM', tempF: weather.tempF + 1, precipProb: 5, windMph: weather.windMph + 1, weatherCode: 0 },
-        { time: '2 PM', tempF: weather.tempF + 2, precipProb: 10, windMph: weather.windMph + 2, weatherCode: 1 },
-        { time: '3 PM', tempF: weather.tempF + 1, precipProb: 15, windMph: weather.windMph + 2, weatherCode: 1 },
-        { time: '4 PM', tempF: weather.tempF, precipProb: 10, windMph: weather.windMph, weatherCode: 0 },
-        { time: '5 PM', tempF: weather.tempF - 2, precipProb: 5, windMph: weather.windMph - 1, weatherCode: 0 },
-      ];
+  const hourlyList = weather?.hourlyForecast?.slice(0, 6) ?? [];
 
   return (
     <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
@@ -111,7 +105,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
 
         {/* NOAA Alert Controls */}
         <div className="flex items-center gap-2">
-          {alerts.length > 0 && (
+          {alertItems.length > 0 && (
             <button
               id="btn-acknowledge-noaa-alert"
               onClick={handleAcknowledge}
@@ -140,7 +134,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             id="btn-toggle-noaa-alerts"
             onClick={() => {
               playTacticalClick(audioEnabled);
-              if (!showAlertsDrawer && alerts.length > 0) {
+              if (!showAlertsDrawer && alertItems.length > 0) {
                 playEmergencyBeep(audioEnabled);
               }
               setShowAlertsDrawer(!showAlertsDrawer);
@@ -148,12 +142,18 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             className={`px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${alertBadgeBg}`}
           >
             <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
-            <span>NOAA ALERTS ({alerts.length})</span>
+            <span>{alertsStatus === 'loading'
+              ? 'CHECKING NOAA'
+              : alertsStatus === 'unavailable'
+                ? 'NOAA UNAVAILABLE'
+                : `NOAA ALERTS (${alertItems.length})`}</span>
             {showAlertsDrawer ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
           </button>
         </div>
       </div>
 
+      {weather ? (
+      <>
       {/* Main Weather Overview */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
         
@@ -190,7 +190,9 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <div className="font-black text-base text-emerald-400">
             {weather.windMph} MPH {weather.windDir}
           </div>
-          <span className="text-[10px] opacity-80">GUSTS TO {weather.windGustMph || (weather.windMph + 6)} MPH</span>
+          <span className="text-[10px] opacity-80">
+            {weather.windGustMph === undefined ? 'GUST DATA UNAVAILABLE' : `GUSTS TO ${weather.windGustMph} MPH`}
+          </span>
         </div>
 
         {/* Humidity & Dew Point */}
@@ -233,13 +235,25 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           ))}
         </div>
       </div>
+      </>
+      ) : (
+        <div className="min-h-36 rounded-xl border border-zinc-800 bg-zinc-950/60 flex items-center justify-center text-center p-5">
+          <div>
+            <span className="block text-base font-black">—</span>
+            <span className="block text-xs font-bold uppercase text-zinc-400">
+              {weatherStatus === 'loading' ? 'Loading field weather' : 'Weather unavailable'}
+            </span>
+            <span className="block text-[10px] text-zinc-500 mt-1">No fallback conditions are being displayed.</span>
+          </div>
+        </div>
+      )}
 
       {/* NOAA Alert Details Drawer */}
       {showAlertsDrawer && (
         <div className="mt-3 p-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-200 space-y-3 text-xs font-mono">
           <div className="flex flex-wrap items-center justify-between gap-2 font-bold border-b border-amber-500/30 pb-2">
             <span className="flex items-center gap-1.5 text-amber-300 uppercase font-black">
-              <AlertOctagon className="w-4 h-4 text-amber-400" /> NOAA WEATHER MONITORING ({weather.locationName})
+              <AlertOctagon className="w-4 h-4 text-amber-400" /> NOAA WEATHER MONITORING ({weather?.locationName ?? 'CURRENT GPS POSITION'})
             </span>
             <div className="flex items-center gap-1.5">
               <button
@@ -261,15 +275,24 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             </div>
           </div>
 
-          {alerts.length === 0 ? (
+          {alertsStatus === 'unavailable' ? (
+            <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
+              <span className="font-black block">NOAA ALERT STATUS UNAVAILABLE</span>
+              <span className="text-[10px] text-zinc-400">The dashboard could not confirm whether active alerts exist.</span>
+            </div>
+          ) : alertsStatus === 'loading' ? (
+            <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
+              Checking NOAA alerts for the current GPS position…
+            </div>
+          ) : alertItems.length === 0 ? (
             <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between">
               <div>
                 <span className="font-black text-emerald-400 block">✅ ALL CLEAR — NO ACTIVE NOAA WEATHER ADVISORIES</span>
-                <span className="text-[10px] text-emerald-300/80">Location: {weather.locationName} • Direct NWS point API scan clear.</span>
+                <span className="text-[10px] text-emerald-300/80">Location: {weather?.locationName ?? 'Current GPS position'} • Direct NWS point API scan clear.</span>
               </div>
             </div>
           ) : (
-            alerts.map((alt) => (
+            alertItems.map((alt) => (
               <div key={alt.id} className="space-y-1.5 p-2.5 rounded-lg bg-zinc-950/60 border border-amber-500/30">
                 <div className="flex items-center justify-between flex-wrap gap-2">
                   <h4 className="font-black text-amber-300 text-xs flex items-center gap-1.5">

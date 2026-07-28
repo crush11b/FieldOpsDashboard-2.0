@@ -17,6 +17,11 @@ import {
   FileTelemetryCredentialRepository,
   getDefaultTelemetryCredentialPath,
 } from './server/telemetryCredentials';
+import {
+  getActiveAlertsApiResponse,
+  getCurrentWeatherApiResponse,
+  getWeatherApiResponse,
+} from './server/weather';
 
 async function startServer() {
   const app = express();
@@ -299,7 +304,42 @@ async function startServer() {
   });
 
   // API 2: Weather Snapshot & Live NOAA Location-Based Alerts
-  app.get("/api/weather", async (req, res) => {
+  app.get('/api/weather', async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lon = Number(req.query.lon);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90
+      || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
+    }
+
+    res.json(await getWeatherApiResponse(lat, lon));
+  });
+
+  app.get('/api/weather/current', async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lon = Number(req.query.lon);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90
+      || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
+    }
+    res.json(await getCurrentWeatherApiResponse(lat, lon));
+  });
+
+  app.get('/api/weather/alerts', async (req, res) => {
+    const lat = Number(req.query.lat);
+    const lon = Number(req.query.lon);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90
+      || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
+    }
+    res.json(await getActiveAlertsApiResponse(lat, lon));
+  });
+
+  // Temporary compatibility route for the pre-2.2 weather response.
+  app.get("/api/weather/legacy", async (req, res) => {
     const lat = parseFloat(req.query.lat as string) || 37.5407; // Default: Richmond, VA
     const lon = parseFloat(req.query.lon as string) || -77.4360;
 

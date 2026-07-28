@@ -97,7 +97,7 @@ export interface WeatherData {
   locationName: string;
   dewPointF: number;
   uvIndex: number;
-  visibilityMiles: number;
+  visibilityMiles?: number;
   lastUpdated: string;
   cached: boolean;
   hourlyForecast?: HourlyWeatherItem[];
@@ -216,3 +216,5 @@ export function gridSquareToLatLon(grid: string): { lat: number; lon: number } |
 
   return { lat, lon };
 }
+
+export type ExternalDataStatus = 'loading' | 'live' | 'unavailable';

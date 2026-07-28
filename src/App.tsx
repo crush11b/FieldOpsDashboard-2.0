@@ -15,6 +15,7 @@ import {
   BandPropagation, 
   DashboardConfig, 
   DualBatteryStatus, 
+  ExternalDataStatus,
   GPSStatus, 
   GPSProvenance,
   NetworkStatus, 
@@ -169,25 +170,10 @@ export default function App() {
   }, [gps, gpsProvenance]);
 
   // 5. Weather & NOAA Alerts
-  const [weather, setWeather] = useState<WeatherData>({
-    tempF: 78,
-    tempC: 25,
-    humidity: 52,
-    pressureInHg: 30.08,
-    pressureHpa: 1018,
-    windMph: 6,
-    windDir: 'SW',
-    condition: 'Clear Sky',
-    icon: 'sun',
-    locationName: 'Richmond, VA (FM17hd)',
-    dewPointF: 58,
-    uvIndex: 6,
-    visibilityMiles: 10,
-    lastUpdated: new Date().toLocaleTimeString(),
-    cached: false,
-  });
-
-  const [noaaAlerts, setNoaaAlerts] = useState<NOAAAlert[]>([]);
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherStatus, setWeatherStatus] = useState<ExternalDataStatus>('loading');
+  const [noaaAlerts, setNoaaAlerts] = useState<NOAAAlert[] | null>(null);
+  const [alertsStatus, setAlertsStatus] = useState<ExternalDataStatus>('loading');
 
   // 6. VOACAP Propagation & Solar Flux Data
   const [solar, setSolar] = useState<SolarData>({
@@ -214,6 +200,7 @@ export default function App() {
 
   // Fetch live weather and solar data from backend Express server APIs
   useEffect(() => {
+    let cancelled = false;
     const fetchSolarAndWeather = async () => {
       try {
         const solarRes = await fetch('/api/solar-data');
@@ -234,23 +221,52 @@ export default function App() {
         console.warn('Backend solar endpoint fallback');
       }
 
-      try {
-        const weatherRes = await fetch(`/api/weather?lat=${gps.lat}&lon=${gps.lon}`);
-        if (weatherRes.ok) {
-          const wData = await weatherRes.json();
-          if (wData.weather) {
-            setWeather((prev) => ({ ...prev, ...wData.weather }));
+      const coordinates = `lat=${gps.lat}&lon=${gps.lon}`;
+      const refreshWeather = async () => {
+        if (cancelled) return;
+        setWeatherStatus('loading');
+        try {
+          const response = await fetch(`/api/weather/current?${coordinates}`);
+          const data = response.ok ? await response.json() : null;
+          if (!cancelled) {
+            setWeather(data?.weather ?? null);
+            setWeatherStatus(data?.weatherStatus === 'live' ? 'live' : 'unavailable');
           }
-          if (wData.alerts && Array.isArray(wData.alerts)) {
-            setNoaaAlerts(wData.alerts);
+        } catch {
+          if (!cancelled) {
+            setWeather(null);
+            setWeatherStatus('unavailable');
+            console.warn('Field weather unavailable');
           }
         }
-      } catch (err) {
-        console.warn('Backend weather endpoint fallback');
-      }
+      };
+
+      const refreshAlerts = async () => {
+        if (cancelled) return;
+        setAlertsStatus('loading');
+        try {
+          const response = await fetch(`/api/weather/alerts?${coordinates}`);
+          const data = response.ok ? await response.json() : null;
+          if (!cancelled) {
+            setNoaaAlerts(Array.isArray(data?.alerts) ? data.alerts : null);
+            setAlertsStatus(data?.alertsStatus === 'live' ? 'live' : 'unavailable');
+          }
+        } catch {
+          if (!cancelled) {
+            setNoaaAlerts(null);
+            setAlertsStatus('unavailable');
+            console.warn('NOAA alert status unavailable');
+          }
+        }
+      };
+
+      await Promise.allSettled([refreshWeather(), refreshAlerts()]);
     };
 
     fetchSolarAndWeather();
+    return () => {
+      cancelled = true;
+    };
   }, [gps.lat, gps.lon]);
 
   // Handle App Launching
@@ -352,6 +368,8 @@ export default function App() {
           <WeatherNOAAWidget
             weather={weather}
             alerts={noaaAlerts}
+            weatherStatus={weatherStatus}
+            alertsStatus={alertsStatus}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
           />
