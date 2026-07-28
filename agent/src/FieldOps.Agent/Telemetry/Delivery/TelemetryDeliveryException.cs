@@ -6,6 +6,7 @@ internal enum TelemetryDeliveryFailureKind
 {
     Timeout,
     Network,
+    AuthenticationConfiguration,
     InvalidRequest,
     Authentication,
     EndpointNotFound,

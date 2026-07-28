@@ -9,17 +9,20 @@ internal sealed class HttpTelemetryDestination : ITelemetryDestination
     private readonly Uri endpoint;
     private readonly TelemetryEnvelopeSerializer serializer;
     private readonly ITelemetryRequestAuthenticator authenticator;
+    private readonly TimeProvider timeProvider;
 
     public HttpTelemetryDestination(
         HttpClient httpClient,
         Uri endpoint,
         TelemetryEnvelopeSerializer serializer,
-        ITelemetryRequestAuthenticator authenticator)
+        ITelemetryRequestAuthenticator authenticator,
+        TimeProvider timeProvider)
     {
         ArgumentNullException.ThrowIfNull(httpClient);
         ArgumentNullException.ThrowIfNull(endpoint);
         ArgumentNullException.ThrowIfNull(serializer);
         ArgumentNullException.ThrowIfNull(authenticator);
+        ArgumentNullException.ThrowIfNull(timeProvider);
 
         if (!endpoint.IsAbsoluteUri
             || (endpoint.Scheme != Uri.UriSchemeHttp && endpoint.Scheme != Uri.UriSchemeHttps))
@@ -31,6 +34,7 @@ internal sealed class HttpTelemetryDestination : ITelemetryDestination
         this.endpoint = endpoint;
         this.serializer = serializer;
         this.authenticator = authenticator;
+        this.timeProvider = timeProvider;
     }
 
     public async ValueTask SendAsync(
@@ -45,7 +49,26 @@ internal sealed class HttpTelemetryDestination : ITelemetryDestination
         };
         request.Content.Headers.ContentType = new MediaTypeHeaderValue("application/json");
 
-        await authenticator.AuthenticateAsync(request, cancellationToken);
+        try
+        {
+            await authenticator.AuthenticateAsync(request, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (OperationCanceledException)
+        {
+            throw new TelemetryDeliveryException(
+                TelemetryDeliveryFailureKind.AuthenticationConfiguration,
+                "Telemetry request authentication was cancelled before completion.");
+        }
+        catch (Exception exception) when (exception is not OutOfMemoryException and not StackOverflowException and not AccessViolationException)
+        {
+            throw new TelemetryDeliveryException(
+                TelemetryDeliveryFailureKind.AuthenticationConfiguration,
+                "Telemetry request authentication could not be applied.");
+        }
 
         HttpResponseMessage response;
         try
@@ -83,7 +106,7 @@ internal sealed class HttpTelemetryDestination : ITelemetryDestination
         }
     }
 
-    private static TelemetryDeliveryException CreateResponseException(HttpResponseMessage response)
+    private TelemetryDeliveryException CreateResponseException(HttpResponseMessage response)
     {
         var statusCode = response.StatusCode;
         var failureKind = statusCode switch
@@ -102,7 +125,31 @@ internal sealed class HttpTelemetryDestination : ITelemetryDestination
             $"Telemetry delivery was rejected with HTTP status {(int)statusCode}.",
             statusCode,
             failureKind == TelemetryDeliveryFailureKind.RateLimited
-                ? response.Headers.RetryAfter?.Delta
+                ? GetRetryAfter(response)
                 : null);
+    }
+
+    private TimeSpan? GetRetryAfter(HttpResponseMessage response)
+    {
+        try
+        {
+            var retryAfter = response.Headers.RetryAfter;
+            if (retryAfter?.Delta is { } delta)
+            {
+                return delta;
+            }
+
+            if (retryAfter?.Date is { } date)
+            {
+                var remaining = date - timeProvider.GetUtcNow();
+                return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+            }
+        }
+        catch (FormatException)
+        {
+            // Malformed optional guidance does not change failure classification.
+        }
+
+        return null;
     }
 }

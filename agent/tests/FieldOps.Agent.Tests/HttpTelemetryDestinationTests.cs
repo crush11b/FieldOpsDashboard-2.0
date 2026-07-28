@@ -101,6 +101,121 @@ public sealed class HttpTelemetryDestinationTests
     }
 
     [Fact]
+    public async Task ReadsDeltaRetryAfter()
+    {
+        var exception = await SendRateLimitedAsync(
+            response => response.Headers.RetryAfter = new RetryConditionHeaderValue(TimeSpan.FromSeconds(17)));
+
+        Assert.Equal(TimeSpan.FromSeconds(17), exception.RetryAfter);
+    }
+
+    [Fact]
+    public async Task CalculatesDateRetryAfterFromInjectedUtcTime()
+    {
+        var now = new DateTimeOffset(2026, 7, 28, 16, 0, 0, TimeSpan.Zero);
+        var exception = await SendRateLimitedAsync(
+            response => response.Headers.RetryAfter = new RetryConditionHeaderValue(now.AddSeconds(45)),
+            new FixedTimeProvider(now));
+
+        Assert.Equal(TimeSpan.FromSeconds(45), exception.RetryAfter);
+    }
+
+    [Fact]
+    public async Task ClampsPastDateRetryAfterToZero()
+    {
+        var now = new DateTimeOffset(2026, 7, 28, 16, 0, 0, TimeSpan.Zero);
+        var exception = await SendRateLimitedAsync(
+            response => response.Headers.RetryAfter = new RetryConditionHeaderValue(now.AddMinutes(-1)),
+            new FixedTimeProvider(now));
+
+        Assert.Equal(TimeSpan.Zero, exception.RetryAfter);
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task MissingOrMalformedRetryAfterIsIgnored(bool malformed)
+    {
+        var exception = await SendRateLimitedAsync(response =>
+        {
+            if (malformed)
+            {
+                response.Headers.TryAddWithoutValidation("Retry-After", "not-a-valid-retry-after");
+            }
+        });
+
+        Assert.Null(exception.RetryAfter);
+    }
+
+    [Fact]
+    public async Task PropagatesCallerCancellationFromAuthenticatorWithoutSending()
+    {
+        var handlerCalls = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            Interlocked.Increment(ref handlerCalls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+        }));
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        var expected = new OperationCanceledException("caller cancelled", cancellation.Token);
+        var authenticator = new DelegateAuthenticator((_, _) => ValueTask.FromException(expected));
+        var destination = CreateDestination(client, authenticator);
+
+        var actual = await Assert.ThrowsAnyAsync<OperationCanceledException>(async () =>
+            await destination.SendAsync(Envelope(), cancellation.Token).AsTask().WaitAsync(TestTimeout));
+
+        Assert.Same(expected, actual);
+        Assert.Equal(0, Volatile.Read(ref handlerCalls));
+    }
+
+    [Fact]
+    public async Task TranslatesIndependentAuthenticatorCancellationWithoutSending()
+    {
+        var handlerCalls = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            Interlocked.Increment(ref handlerCalls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+        }));
+        var authenticator = new DelegateAuthenticator(
+            (_, _) => ValueTask.FromException(new OperationCanceledException("secret-token")));
+        var destination = CreateDestination(client, authenticator);
+
+        var exception = await Assert.ThrowsAsync<TelemetryDeliveryException>(async () =>
+            await destination.SendAsync(Envelope()).AsTask().WaitAsync(TestTimeout));
+
+        Assert.Equal(TelemetryDeliveryFailureKind.AuthenticationConfiguration, exception.FailureKind);
+        Assert.DoesNotContain("secret-token", exception.ToString(), StringComparison.Ordinal);
+        Assert.Null(exception.InnerException);
+        Assert.Equal(0, Volatile.Read(ref handlerCalls));
+    }
+
+    [Fact]
+    public async Task SanitizesAuthenticatorFailureWithoutSending()
+    {
+        const string secret = "C:\\secrets\\telemetry-token.dat bearer-secret";
+        var handlerCalls = 0;
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            Interlocked.Increment(ref handlerCalls);
+            return Task.FromResult(new HttpResponseMessage(HttpStatusCode.Accepted));
+        }));
+        var authenticator = new DelegateAuthenticator(
+            (_, _) => ValueTask.FromException(new InvalidOperationException(secret)));
+        var destination = CreateDestination(client, authenticator);
+
+        var exception = await Assert.ThrowsAsync<TelemetryDeliveryException>(async () =>
+            await destination.SendAsync(EnvelopeWithSecret(secret)).AsTask().WaitAsync(TestTimeout));
+
+        Assert.Equal(TelemetryDeliveryFailureKind.AuthenticationConfiguration, exception.FailureKind);
+        Assert.DoesNotContain(secret, exception.Message, StringComparison.Ordinal);
+        Assert.DoesNotContain(secret, exception.ToString(), StringComparison.Ordinal);
+        Assert.Null(exception.InnerException);
+        Assert.Equal(0, Volatile.Read(ref handlerCalls));
+    }
+
+    [Fact]
     public async Task PropagatesCallerCancellation()
     {
         using var client = new HttpClient(new DelegateHandler(async (_, cancellationToken) =>
@@ -203,12 +318,30 @@ public sealed class HttpTelemetryDestinationTests
     private static HttpTelemetryDestination CreateDestination(
         HttpClient client,
         ITelemetryRequestAuthenticator? authenticator = null,
-        Uri? endpoint = null) =>
+        Uri? endpoint = null,
+        TimeProvider? timeProvider = null) =>
         new(
             client,
             endpoint ?? Endpoint,
             new TelemetryEnvelopeSerializer(),
-            authenticator ?? new FakeAuthenticator("test-token"));
+            authenticator ?? new FakeAuthenticator("test-token"),
+            timeProvider ?? TimeProvider.System);
+
+    private static async Task<TelemetryDeliveryException> SendRateLimitedAsync(
+        Action<HttpResponseMessage> configureResponse,
+        TimeProvider? timeProvider = null)
+    {
+        using var client = new HttpClient(new DelegateHandler((_, _) =>
+        {
+            var response = new HttpResponseMessage(HttpStatusCode.TooManyRequests);
+            configureResponse(response);
+            return Task.FromResult(response);
+        }));
+        var destination = CreateDestination(client, timeProvider: timeProvider);
+
+        return await Assert.ThrowsAsync<TelemetryDeliveryException>(async () =>
+            await destination.SendAsync(Envelope()).AsTask().WaitAsync(TestTimeout));
+    }
 
     private static TelemetryEnvelope Envelope()
     {
@@ -241,6 +374,21 @@ public sealed class HttpTelemetryDestinationTests
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
             return ValueTask.CompletedTask;
         }
+    }
+
+    private sealed class DelegateAuthenticator(
+        Func<HttpRequestMessage, CancellationToken, ValueTask> authenticateAsync)
+        : ITelemetryRequestAuthenticator
+    {
+        public ValueTask AuthenticateAsync(
+            HttpRequestMessage request,
+            CancellationToken cancellationToken = default) =>
+            authenticateAsync(request, cancellationToken);
+    }
+
+    private sealed class FixedTimeProvider(DateTimeOffset utcNow) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => utcNow;
     }
 
     private sealed class DelegateHandler(
