@@ -16,6 +16,11 @@ describe('telemetry display utilities', () => {
       .toBe('local_telemetry_agent');
   });
 
+  it('falls back to source type when source name is blank', () => {
+    expect(getTelemetrySourceLabel({ name: '   ', type: 'local_telemetry_agent' }))
+      .toBe('local_telemetry_agent');
+  });
+
   it('provides the canonical unavailable presentation', () => {
     expect(TELEMETRY_UNAVAILABLE_VALUE).toBe('—');
     expect(TELEMETRY_UNAVAILABLE_LABEL).toBe('Unavailable');

@@ -25,6 +25,7 @@ import {
 } from './server/weather';
 import { getIonosondeApiResponse } from './server/propagation';
 import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coordinates';
+import { toFiniteNumber } from './src/utils/numbers';
 
 async function startServer() {
   const app = express();
@@ -89,10 +90,14 @@ async function startServer() {
           const swpcData: any = await swpcRes.json();
           if (Array.isArray(swpcData) && swpcData.length > 0) {
             const latest = swpcData[swpcData.length - 1];
-            liveSolar = {
-              solarFlux: Math.round(latest['f10.7'] || 162),
-              sunspotNumber: Math.round(latest['ssn'] || 138),
-            };
+            const solarFlux = toFiniteNumber(latest['f10.7']);
+            const sunspotNumber = toFiniteNumber(latest['ssn']);
+            if (solarFlux !== null && sunspotNumber !== null) {
+              liveSolar = {
+                solarFlux: Math.round(solarFlux),
+                sunspotNumber: Math.round(sunspotNumber),
+              };
+            }
           }
         }
       } catch (e) {
@@ -103,8 +108,8 @@ async function startServer() {
       const hour = now.getHours();
 
       const solarData = {
-        solarFlux: liveSolar?.solarFlux || (158 + Math.floor(Math.sin(hour / 4) * 12)),
-        sunspotNumber: liveSolar?.sunspotNumber || (132 + Math.floor(Math.cos(hour / 3) * 18)),
+        solarFlux: liveSolar?.solarFlux ?? (158 + Math.floor(Math.sin(hour / 4) * 12)),
+        sunspotNumber: liveSolar?.sunspotNumber ?? (132 + Math.floor(Math.cos(hour / 3) * 18)),
         aIndex: 8,
         kIndex: 2,
         kDescription: "Quiet (0-2)",

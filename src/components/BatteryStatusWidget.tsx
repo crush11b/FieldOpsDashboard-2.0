@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, RefreshCw, Sliders, Check } from 'lucide-react';
 import { DualBatteryStatus, UIThemeMode } from '../types';
 import type { TelemetryEnvelope } from '../telemetry';
+import { toFiniteNumber } from '../utils/numbers';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
@@ -324,7 +325,9 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   max="100"
                   value={mainPct}
                   onChange={(e) => {
-                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    const parsed = toFiniteNumber(e.target.value);
+                    if (parsed === null) return;
+                    const val = Math.min(100, Math.max(0, parsed));
                     applyBatteryUpdate({
                       mainTablet: {
                         ...battery.mainTablet,
@@ -385,7 +388,9 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   disabled={!battery.keyboardDock.attached}
                   value={kbPct}
                   onChange={(e) => {
-                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    const parsed = toFiniteNumber(e.target.value);
+                    if (parsed === null) return;
+                    const val = Math.min(100, Math.max(0, parsed));
                     applyBatteryUpdate({
                       keyboardDock: {
                         ...battery.keyboardDock,

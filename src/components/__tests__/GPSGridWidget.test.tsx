@@ -22,6 +22,8 @@ describe('GPS source guardrail presentation', () => {
     expect(markup).toContain('CACHED LAST POSITION');
     expect(markup).toContain('0.0000°');
     expect(markup).toContain('JJ00aa');
+    expect(markup).toContain('0 SATS (No Fix)');
+    expect(markup).toContain('0 meters (0 ft)');
   });
 
   it('identifies manually supplied coordinates without presenting a satellite auto-fix', () => {

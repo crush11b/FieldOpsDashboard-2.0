@@ -26,6 +26,7 @@ import {
 import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
+import { toFiniteNumber } from './utils/numbers';
 
 const STORAGE_KEY = 'fieldops_dashboard_config_v115';
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
@@ -203,10 +204,10 @@ export default function App() {
           const sData = await solarRes.json();
           setSolar((prev) => ({
             ...prev,
-            solarFlux: sData.solarFlux || prev.solarFlux,
-            sunspotNumber: sData.sunspotNumber || prev.sunspotNumber,
-            aIndex: sData.aIndex || prev.aIndex,
-            kIndex: sData.kIndex || prev.kIndex,
+            solarFlux: toFiniteNumber(sData.solarFlux) ?? prev.solarFlux,
+            sunspotNumber: toFiniteNumber(sData.sunspotNumber) ?? prev.sunspotNumber,
+            aIndex: toFiniteNumber(sData.aIndex) ?? prev.aIndex,
+            kIndex: toFiniteNumber(sData.kIndex) ?? prev.kIndex,
             kDescription: sData.kDescription || prev.kDescription,
             xray: sData.xray || prev.xray,
             lastUpdated: new Date().toLocaleTimeString(),

@@ -10,5 +10,5 @@ export const TELEMETRY_UNAVAILABLE_LABEL = 'Unavailable';
 export function getTelemetrySourceLabel(
   source: Pick<TelemetrySource, 'name' | 'type'>,
 ): string {
-  return source.name || source.type;
+  return source.name?.trim() || source.type;
 }

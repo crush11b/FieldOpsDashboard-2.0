@@ -21,7 +21,7 @@ describe('coordinate guardrails', () => {
   });
 
   it.each([
-    [undefined, 0], [0, undefined], ['', 0], [0, ' '],
+    [undefined, 0], [0, undefined], ['', 0], [0, ' '], [null, 0],
     [NaN, 0], [0, Infinity], ['37abc', -77], [91, 0], [-91, 0], [0, 181], [0, -181],
   ])('rejects invalid coordinates %s, %s', (lat, lon) => {
     expect(parseCoordinates(lat, lon)).toBeNull();

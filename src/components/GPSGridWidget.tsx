@@ -4,6 +4,7 @@ import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareTo
 import type { TelemetryEnvelope } from '../telemetry';
 import { playTacticalClick } from '../utils/audio';
 import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
+import { toFiniteNumber } from '../utils/numbers';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
@@ -117,40 +118,45 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
           const { lat, lon } = coordinates;
           const grid = latLonToGridSquare(lat, lon);
           
-          const accuracyMeters = pos.coords.accuracy || 12;
+          const reportedAccuracy = toFiniteNumber(pos.coords.accuracy);
+          const accuracyMeters = reportedAccuracy !== null && reportedAccuracy >= 0 ? reportedAccuracy : 12;
           let calculatedSats = 8;
           if (accuracyMeters <= 5) calculatedSats = 14;
           else if (accuracyMeters <= 12) calculatedSats = 9;
           else if (accuracyMeters <= 25) calculatedSats = 6;
           else calculatedSats = 4;
 
-          let altM = Math.round(pos.coords.altitude || 0);
-          if (!altM || altM === 0) {
+          const reportedAltitude = toFiniteNumber(pos.coords.altitude);
+          let altM = reportedAltitude === null ? null : Math.round(reportedAltitude);
+          if (altM === null) {
             try {
               const elevRes = await fetch(`https://api.open-meteo.com/v1/elevation?latitude=${lat}&longitude=${lon}`);
               if (elevRes.ok) {
                 const elevData = await elevRes.json();
-                if (elevData.elevation && elevData.elevation[0] !== undefined) {
-                  altM = Math.round(elevData.elevation[0]);
+                const elevation = Array.isArray(elevData.elevation)
+                  ? toFiniteNumber(elevData.elevation[0])
+                  : null;
+                if (elevation !== null) {
+                  altM = Math.round(elevation);
                 }
               }
-            } catch (e) {
-              altM = 145;
-            }
+            } catch (e) {}
           }
 
           if (isCancelled()) return;
 
           const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
           const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
+          const speed = toFiniteNumber(pos.coords.speed);
+          const reportedSpeed = speed !== null && speed >= 0 ? speed : null;
 
           manualLocationActive.current = false;
           gpsUpdateSequence.current += 1;
           onUpdateGPS({
             lat,
             lon,
-            altitudeM: altM,
-            speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
+            ...(altM === null ? {} : { altitudeM: altM }),
+            ...(reportedSpeed === null ? {} : { speedKmh: Math.round(reportedSpeed * 3.6) }),
             gridSquare: grid,
             satCount: calculatedSats,
             fixType: fixTypeStr,
@@ -203,13 +209,14 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             if (manualLocationActive.current) return true;
             // Only update if not explicitly editing in manual mode
             if (!isEditing) {
+              const parsedSatCount = toFiniteNumber(data.satCount);
               gpsUpdateSequence.current += 1;
               onUpdateGPS({
                 lat: coordinates.lat,
                 lon: coordinates.lon,
                 gridSquare: data.gridSquare || latLonToGridSquare(coordinates.lat, coordinates.lon),
-                altitudeM: data.altitudeM || gps.altitudeM,
-                satCount: data.satCount || 8,
+                altitudeM: toFiniteNumber(data.altitudeM) ?? gps.altitudeM,
+                satCount: parsedSatCount !== null && parsedSatCount >= 0 ? parsedSatCount : gps.satCount,
                 fixType: data.fixType || '3D GPS Fix',
                 mode: data.mode || 'auto',
                 lockTime: data.lockTime || (new Date().toISOString().substring(11, 19) + ' UTC'),
@@ -248,7 +255,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             if (!coordinates) return;
             const { lat, lon } = coordinates;
             const grid = latLonToGridSquare(lat, lon);
-            const accuracyMeters = pos.coords.accuracy || 12;
+            const reportedAccuracy = toFiniteNumber(pos.coords.accuracy);
+            const accuracyMeters = reportedAccuracy !== null && reportedAccuracy >= 0 ? reportedAccuracy : 12;
             let calculatedSats = 8;
             if (accuracyMeters <= 5) calculatedSats = 14;
             else if (accuracyMeters <= 12) calculatedSats = 9;
@@ -257,13 +265,15 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
             const utcLock = new Date().toISOString().substring(11, 19) + ' UTC';
             const fixTypeStr = accuracyMeters < 10 ? '3D RTK/DGPS' : '3D GPS Fix';
+            const speed = toFiniteNumber(pos.coords.speed);
+            const reportedSpeed = speed !== null && speed >= 0 ? speed : null;
 
             gpsUpdateSequence.current += 1;
             onUpdateGPS({
               lat,
               lon,
               gridSquare: grid,
-              speedKmh: Math.round((pos.coords.speed || 0) * 3.6),
+              ...(reportedSpeed === null ? {} : { speedKmh: Math.round(reportedSpeed * 3.6) }),
               satCount: calculatedSats,
               fixType: fixTypeStr,
               mode: 'auto',

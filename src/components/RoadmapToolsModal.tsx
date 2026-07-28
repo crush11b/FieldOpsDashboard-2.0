@@ -254,7 +254,12 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
                       type="number"
                       step="0.001"
                       value={freqMHz}
-                      onChange={(e) => setFreqMHz(parseFloat(e.target.value) || 14.074)}
+                      onChange={(e) => {
+                        const value = e.target.value.trim();
+                        if (value === '') return;
+                        const parsed = Number(value);
+                        if (Number.isFinite(parsed) && parsed > 0) setFreqMHz(parsed);
+                      }}
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold font-mono"
                     />
                   </div>
