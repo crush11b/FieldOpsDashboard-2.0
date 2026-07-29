@@ -6,6 +6,12 @@ Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FieldOps.Agent", "src\Field
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FieldOps.Agent.Tests", "tests\FieldOps.Agent.Tests\FieldOps.Agent.Tests.csproj", "{5C644D4B-4CF4-4358-97CB-0EE0DE27C136}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FieldOps.ServiceControlPrototype", "src\FieldOps.ServiceControlPrototype\FieldOps.ServiceControlPrototype.csproj", "{A4A0F4AC-90AB-4BD3-834D-7B50F27D4B03}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FieldOps.TrayPrototype", "src\FieldOps.TrayPrototype\FieldOps.TrayPrototype.csproj", "{68CF32E4-86F4-4FF7-A8D0-EF7300E8A120}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FieldOps.TrayPrototype.Tests", "tests\FieldOps.TrayPrototype.Tests\FieldOps.TrayPrototype.Tests.csproj", "{75CDA15D-CC86-47D8-8865-CDB51EA70A95}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -20,5 +26,17 @@ Global
 		{5C644D4B-4CF4-4358-97CB-0EE0DE27C136}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{5C644D4B-4CF4-4358-97CB-0EE0DE27C136}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{5C644D4B-4CF4-4358-97CB-0EE0DE27C136}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A4A0F4AC-90AB-4BD3-834D-7B50F27D4B03}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A4A0F4AC-90AB-4BD3-834D-7B50F27D4B03}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A4A0F4AC-90AB-4BD3-834D-7B50F27D4B03}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A4A0F4AC-90AB-4BD3-834D-7B50F27D4B03}.Release|Any CPU.Build.0 = Release|Any CPU
+		{68CF32E4-86F4-4FF7-A8D0-EF7300E8A120}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{68CF32E4-86F4-4FF7-A8D0-EF7300E8A120}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{68CF32E4-86F4-4FF7-A8D0-EF7300E8A120}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{68CF32E4-86F4-4FF7-A8D0-EF7300E8A120}.Release|Any CPU.Build.0 = Release|Any CPU
+		{75CDA15D-CC86-47D8-8865-CDB51EA70A95}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{75CDA15D-CC86-47D8-8865-CDB51EA70A95}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{75CDA15D-CC86-47D8-8865-CDB51EA70A95}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{75CDA15D-CC86-47D8-8865-CDB51EA70A95}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 EndGlobal

@@ -49,3 +49,72 @@ Remove the service and its credential:
 ```
 
 The service listens only on `http://127.0.0.1:43120`. It does not enable CORS and exposes no telemetry, storage, tray, browser-gateway, or privileged-action endpoints.
+
+## Tray Companion architecture spike
+
+> **Prototype only:** neither project is installed, packaged, registered for startup, referenced by deployment scripts, or approved as a production component.
+
+Task 2.3-03 is represented by two disposable projects:
+
+- `src/FieldOps.TrayPrototype` is a .NET 8 Windows Forms `NotifyIcon` host. It reads real SCM state and the existing authenticated read-only health endpoint.
+- `src/FieldOps.ServiceControlPrototype` is a fixed-purpose helper launched with UAC. It can stop and start only the compiled-in `FieldOpsAgent` service and returns typed exit codes after bounded transitions and an authenticated health check.
+
+The Tray prototype also contains an isolated Named Pipe authorization probe with an explicit Windows ACL. The probe does not restart the agent and is not registered in production.
+
+The installed health-token ACL currently permits SYSTEM, local Administrators, and LocalService. A standard-user tray therefore reports health as unavailable until the selected constrained Named Pipe health gateway is implemented in a future reviewed increment; this spike deliberately does not broaden that ACL or register a pipe in the agent.
+
+### Running the disposable prototypes
+
+Build first, then run the tray directly from its build output in a normal interactive session:
+
+```powershell
+dotnet build .\agent\FieldOps.Agent.sln -c Release --no-restore
+& .\agent\src\FieldOps.TrayPrototype\bin\Release\net8.0-windows\win-x64\FieldOps.TrayPrototype.exe
+```
+
+The tray resolves `FieldOps.ServiceControlPrototype.exe` only beside its own executable. It does not use the working directory, `PATH`, environment configuration, or tray-provided paths. Restart displays UAC because the helper relies on the elevated Windows token and SCM authorization, not an application credential.
+
+The helper is fixed-purpose, accepts no arguments, and uses the ACL-protected `Global\FieldOpsAgent.RestartPrototype` mutex so restart attempts from separate Windows sessions cannot overlap. Direct invocation is useful only for bounded validation:
+
+```powershell
+& .\agent\src\FieldOps.ServiceControlPrototype\bin\Release\net8.0-windows\win-x64\FieldOps.ServiceControlPrototype.exe
+$LASTEXITCODE
+```
+
+Exit codes:
+
+| Code | Result |
+| ---: | --- |
+| 0 | Stop/start transitions completed and authenticated health reported healthy. |
+| 10 | SCM access denied. |
+| 11 | `FieldOpsAgent` is not installed. |
+| 12 | Stop transition timed out. |
+| 13 | Start request rejected. |
+| 14 | Start transition timed out. |
+| 15 | Running, but authenticated health unavailable. |
+| 16 | Running, but authenticated health unhealthy. |
+| 17 | Another restart is in progress. |
+| 18 | Unexpected bounded prototype failure. |
+| 19 | Helper invoked with unsupported arguments. |
+| 20 | Stop request rejected. |
+
+The helper contains the service name, health URL, and protected health-token location. It accepts none of them from the tray or caller. Its health token is used only for the final read-only health proof and never authorizes restart.
+
+Build and test the spike with the rest of the solution:
+
+```powershell
+dotnet restore .\agent\FieldOps.Agent.sln --locked-mode
+dotnet build .\agent\FieldOps.Agent.sln -c Release --no-restore
+dotnet test .\agent\FieldOps.Agent.sln -c Release --no-build
+```
+
+Run the Windows pipe integration category explicitly:
+
+```powershell
+dotnet test .\agent\tests\FieldOps.TrayPrototype.Tests\FieldOps.TrayPrototype.Tests.csproj `
+  -c Release --no-build --filter 'Category=WindowsIntegration'
+```
+
+Current-user allow/deny behavior, framing, size, timeout, concurrency, unsupported command, malformed correlation, and pipe-squatting behavior run on Windows without elevation. Tests using genuinely distinct administrator, alternate-user, LocalService, anonymous, or network tokens require the documented field procedure in `docs/validation/Tray-Companion-Windows-Identity-Validation.md`.
+
+ADR-003 documents the architecture decision and field-validation requirements. The spike does not change installers, packaging, startup registration, credential provisioning, product metadata, or dormant telemetry delivery.
