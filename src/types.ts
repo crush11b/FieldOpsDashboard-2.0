@@ -1,3 +1,6 @@
+import type { TelemetrySource, TelemetryStatus, TelemetryTimestamps } from './telemetry';
+import { parseCoordinates } from './location/coordinates';
+
 export type AppCategory = 
   | 'digital'
   | 'aprs'
@@ -67,6 +70,12 @@ export interface GPSStatus {
   baudRate?: number;
 }
 
+export interface GPSProvenance {
+  status: TelemetryStatus;
+  source: TelemetrySource;
+  timestamps?: TelemetryTimestamps;
+}
+
 export interface HourlyWeatherItem {
   time: string;
   tempF: number;
@@ -89,7 +98,7 @@ export interface WeatherData {
   locationName: string;
   dewPointF: number;
   uvIndex: number;
-  visibilityMiles: number;
+  visibilityMiles?: number;
   lastUpdated: string;
   cached: boolean;
   hourlyForecast?: HourlyWeatherItem[];
@@ -163,7 +172,13 @@ export interface LogEntry {
 
 // Maidenhead Grid Square Utility Functions
 export function latLonToGridSquare(lat: number, lon: number): string {
-  if (isNaN(lat) || isNaN(lon)) return 'RR99xx';
+  const coordinates = parseCoordinates(lat, lon);
+  if (!coordinates) return '';
+
+  // Maidenhead's upper bounds are exclusive even though geographic coordinates
+  // permit +90/+180. Represent those boundary points in the final valid cell.
+  lat = Math.min(coordinates.lat, 90 - 1e-10);
+  lon = Math.min(coordinates.lon, 180 - 1e-10);
 
   let adjustedLon = lon + 180;
   let adjustedLat = lat + 90;
@@ -208,3 +223,5 @@ export function gridSquareToLatLon(grid: string): { lat: number; lon: number } |
 
   return { lat, lon };
 }
+
+export type ExternalDataStatus = 'loading' | 'live' | 'unavailable';

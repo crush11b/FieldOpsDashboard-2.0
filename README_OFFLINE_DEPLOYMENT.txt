@@ -1,5 +1,5 @@
 ========================================================================
-  FIELDOPS DASHBOARD v2.0 - LOCAL / OFFLINE TOUGHBOOK DEPLOYMENT GUIDE
+  FIELDOPS DASHBOARD 2.2.0 - LOCAL / OFFLINE TOUGHBOOK DEPLOYMENT GUIDE
 ========================================================================
 
 HOW TO RUN THE DASHBOARD LOCALLY ON WINDOWS:

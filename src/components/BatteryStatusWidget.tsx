@@ -1,6 +1,9 @@
 import React, { useEffect, useState } from 'react';
 import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, RefreshCw, Sliders, Check } from 'lucide-react';
 import { DualBatteryStatus, UIThemeMode } from '../types';
+import type { TelemetryEnvelope } from '../telemetry';
+import { toFiniteNumber } from '../utils/numbers';
+import { getVersionedDownloadFilename } from '../productMetadata';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
@@ -45,11 +48,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
     // 1. Primary Priority: Query Backend Telemetry / WMI API for Dual-Battery details
     try {
-      const res = await fetch('/api/system/battery');
+      const res = await fetch('/api/telemetry/battery');
       if (res.ok) {
-        const data = await res.json();
-        if (data.success && data.mainTablet?.percent !== undefined) {
-          const isLiveTelemetry = data.source === 'local_telemetry_agent' || data.source === 'win32_wmi' || data.source === 'sysfs' || data.source === 'linux_sysfs';
+        const envelope = await res.json() as TelemetryEnvelope<DualBatteryStatus>;
+        const data = envelope.data;
+        const source = envelope.source.type;
+        if (data?.mainTablet?.percent !== undefined) {
+          const isLiveTelemetry = envelope.status === 'ok' && (source === 'local_telemetry_agent' || source === 'win32_wmi' || source === 'sysfs' || source === 'linux_sysfs');
           
           if (onUpdateBattery) {
             const isAttached = data.keyboardDock?.attached ?? battery.keyboardDock.attached ?? true;
@@ -71,8 +76,8 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
           setPollSource(
             isLiveTelemetry
-              ? `Live Sync (${data.source === 'local_telemetry_agent' ? 'ToughBook Agent' : data.source})`
-              : `Active Poll (${data.source || 'Server'})`
+              ? `Live Sync (${source === 'local_telemetry_agent' ? 'ToughBook Agent' : source})`
+              : `Active Poll (${source || 'Server'})`
           );
           setLastPolledTime(new Date().toLocaleTimeString());
           setIsPolling(false);
@@ -321,7 +326,9 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   max="100"
                   value={mainPct}
                   onChange={(e) => {
-                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    const parsed = toFiniteNumber(e.target.value);
+                    if (parsed === null) return;
+                    const val = Math.min(100, Math.max(0, parsed));
                     applyBatteryUpdate({
                       mainTablet: {
                         ...battery.mainTablet,
@@ -382,7 +389,9 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   disabled={!battery.keyboardDock.attached}
                   value={kbPct}
                   onChange={(e) => {
-                    const val = Math.min(100, Math.max(0, Number(e.target.value) || 0));
+                    const parsed = toFiniteNumber(e.target.value);
+                    if (parsed === null) return;
+                    const val = Math.min(100, Math.max(0, parsed));
                     applyBatteryUpdate({
                       keyboardDock: {
                         ...battery.keyboardDock,
@@ -517,7 +526,7 @@ while ($true) {
 
                 <a
                   href="/api/download-project-zip"
-                  download="FieldOpsDashboard_v2.0.zip"
+                  download={getVersionedDownloadFilename()}
                   className="px-2.5 py-1 bg-blue-900/80 border border-blue-400/60 rounded text-blue-200 hover:bg-blue-800 transition-colors font-sans text-[10px] flex items-center gap-1"
                 >
                   📦 Download Complete Project Zip
@@ -617,19 +626,11 @@ while ($true) {
                 <span>DOCK DISCONNECTED</span>
                 <button
                   type="button"
-                  onClick={() => {
-                    applyBatteryUpdate({
-                      keyboardDock: {
-                        ...battery.keyboardDock,
-                        attached: true,
-                        percent: battery.keyboardDock.percent || 94,
-                        timeRemainingMins: Math.round((battery.keyboardDock.percent || 94) * 4.2),
-                      },
-                    }, 'Coupled Keyboard Dock');
-                  }}
-                  className="px-2 py-0.5 rounded bg-cyan-950 hover:bg-cyan-900 border border-cyan-700/80 text-cyan-300 font-bold text-[9px] transition-colors"
+                  disabled
+                  aria-label="Dock coupling unavailable; hardware detection is required"
+                  className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-500 font-bold text-[9px] cursor-not-allowed opacity-70"
                 >
-                  + COUPLE DOCK
+                  HARDWARE DETECTION REQUIRED
                 </button>
               </div>
             )}

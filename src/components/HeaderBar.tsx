@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { 
   Radio, 
   BatteryCharging, 
-  Wifi, 
   WifiOff, 
   Navigation, 
   Sun, 
@@ -18,8 +17,9 @@ import {
   Download,
   Clock
 } from 'lucide-react';
-import { DualBatteryStatus, GPSStatus, NetworkStatus, UIThemeMode } from '../types';
+import { DualBatteryStatus, GPSStatus, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
+import { getVersionedDownloadFilename, PRODUCT_METADATA } from '../productMetadata';
 
 interface HeaderBarProps {
   callsign: string;
@@ -27,14 +27,12 @@ interface HeaderBarProps {
   onThemeChange: (theme: UIThemeMode) => void;
   gps: GPSStatus;
   battery: DualBatteryStatus;
-  network: NetworkStatus;
   audioEnabled: boolean;
   onToggleAudio: () => void;
   onOpenConfig: () => void;
   onOpenRoadmap: (tab?: string) => void;
   onToggleTouchMenu: () => void;
   touchMenuOpen: boolean;
-  onToggleNetwork?: () => void;
 }
 
 export const HeaderBar: React.FC<HeaderBarProps> = ({
@@ -43,14 +41,12 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onThemeChange,
   gps,
   battery,
-  network,
   audioEnabled,
   onToggleAudio,
   onOpenConfig,
   onOpenRoadmap,
   onToggleTouchMenu,
   touchMenuOpen,
-  onToggleNetwork,
 }) => {
   const [localTime, setLocalTime] = useState<string>('');
   const [utcTime, setUtcTime] = useState<string>('');
@@ -86,7 +82,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     <header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
       <div className={`max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${headerBg} backdrop-blur-md`}>
         
-        {/* Left: Brand & Operator Callsign & Version v2.1 */}
+        {/* Left: Brand, operator callsign, and release version. */}
         <div className="flex items-center gap-3">
           <button
             id="btn-touch-menu-toggle"
@@ -116,7 +112,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 <span className={`text-[10px] px-2 py-0.5 rounded border uppercase tracking-widest font-mono font-bold ${
                   isNight ? 'border-red-900 text-red-400 bg-black' : isSunlight ? 'border-slate-500 bg-amber-300 text-slate-900' : 'border-zinc-700 bg-zinc-800/80 text-amber-400'
                 }`}>
-                  v2.1
+                  {PRODUCT_METADATA.displayVersion}
                 </span>
               </div>
             </div>
@@ -142,7 +138,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">GRID SQUARE</span>
               <span className="text-xs font-black tracking-widest text-emerald-400">
-                {gps.gridSquare || 'FM17hd'}
+                {gps.gridSquare || '—'}
               </span>
             </div>
           </div>
@@ -158,34 +154,27 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </div>
           </div>
 
-          {/* Network link status (Interactive Toggle) */}
+          {/* Network control remains unavailable until a privileged local adapter exists. */}
           <button
             id="btn-header-network-toggle"
-            onClick={() => {
-              playTacticalClick(audioEnabled);
-              if (onToggleNetwork) onToggleNetwork();
-            }}
-            className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border transition-all active:scale-95 ${
-              network.online 
-                ? badgeBorder 
-                : isNight ? 'border-red-600 bg-red-950 text-red-500' : 'border-amber-600 bg-amber-950/40 text-amber-400'
-            }`}
-            title="Click to toggle Network Interface (Wi-Fi / Cellular / Mesh RF / Offline)"
+            disabled
+            aria-describedby="network-control-unavailable"
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-70"
+            title="Network status and switching require a local network adapter"
           >
-            {network.online ? (
-              <Wifi className="w-4 h-4 text-emerald-400" />
-            ) : (
-              <WifiOff className="w-4 h-4 text-amber-400" />
-            )}
+            <WifiOff className="w-4 h-4 text-zinc-500" />
             <div className="flex flex-col text-left">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">
-                NET ({network.type.toUpperCase()})
+                NETWORK
               </span>
-              <span className="text-xs uppercase font-mono font-bold text-emerald-400">
-                {network.online ? `${network.type} (${network.dnsLatencyMs}ms)` : 'OFFLINE RF'}
+              <span className="text-xs uppercase font-mono font-bold text-zinc-400">
+                STATUS UNAVAILABLE
               </span>
             </div>
           </button>
+          <span id="network-control-unavailable" className="sr-only">
+            Network status and interface switching are not available without a local network adapter.
+          </span>
         </div>
 
         {/* Right: Quick Action Controls & Theme Toggles */}
@@ -300,7 +289,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'FieldOpsDashboard_v2.0.zip';
+                a.download = getVersionedDownloadFilename();
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);

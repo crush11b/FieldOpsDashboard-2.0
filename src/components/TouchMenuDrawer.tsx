@@ -18,7 +18,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { UIThemeMode } from '../types';
-import { playEmergencyBeep, playTacticalClick } from '../utils/audio';
+import { playTacticalClick } from '../utils/audio';
 
 interface TouchMenuDrawerProps {
   isOpen: boolean;
@@ -60,11 +60,6 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
     ? 'bg-amber-200/80 border-slate-400 text-slate-950 font-bold hover:bg-amber-300'
     : 'bg-zinc-900 border-zinc-800 text-zinc-200 hover:bg-zinc-800 hover:border-amber-500/60';
 
-  const handleSosBeacon = () => {
-    playEmergencyBeep(audioEnabled);
-    alert(`📢 EMERGENCY SOS BEACON TRIGGERED\n\nCallsign: ${callsign || 'W7FIELD'}\nLocation: ${gridSquare || 'FN20xr'}\n\nBroadcast alert sent across field network mesh.`);
-  };
-
   return (
     <div className="fixed inset-0 z-50 flex font-mono animate-in fade-in duration-200">
       {/* Backdrop */}
@@ -87,7 +82,7 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
                 TOUCH MENU SYSTEM
               </h2>
               <span className="text-[10px] text-current/70 block">
-                {callsign || 'W7FIELD'} • GRID {gridSquare || 'FN20xr'}
+                {callsign || 'W7FIELD'} • GRID {gridSquare || 'Unavailable'}
               </span>
             </div>
 
@@ -123,17 +118,14 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
 
             <button
               id="drawer-btn-smart-freq"
-              onClick={() => {
-                playTacticalClick(audioEnabled);
-                onOpenRoadmap('smart_frequency');
-                onClose();
-              }}
-              className={`w-full p-3 rounded-xl border text-left flex items-center gap-3 transition-all active:scale-95 touch-manipulation ${btnBg}`}
+              disabled
+              aria-describedby="smart-frequency-unavailable"
+              className="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-500 text-left flex items-center gap-3 cursor-not-allowed opacity-70"
             >
-              <Radio className="w-5 h-5 text-cyan-400" />
+              <Radio className="w-5 h-5" />
               <div>
-                <span className="font-black block uppercase">SmartFrequency Advisor</span>
-                <span className="text-[10px] opacity-75">Band Plans & POTA Call Freqs</span>
+                <span className="font-black block uppercase">SmartFrequency Unavailable</span>
+                <span id="smart-frequency-unavailable" className="text-[10px] opacity-75">Verified band-plan data is not yet implemented.</span>
               </div>
             </button>
 
@@ -181,7 +173,7 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
               <Settings className="w-5 h-5 text-amber-300" />
               <div>
                 <span className="font-black block uppercase">JSON Launcher Config</span>
-                <span className="text-[10px] opacity-75">Add Apps & Drag/Drop Layout</span>
+                <span className="text-[10px] opacity-75">Add and edit configured app entries</span>
               </div>
             </button>
           </div>
@@ -236,12 +228,16 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
         <div className="pt-4 border-t border-current/20">
           <button
             id="btn-emergency-sos"
-            onClick={handleSosBeacon}
-            className="w-full py-3 px-4 rounded-xl border border-red-600 bg-red-950 hover:bg-red-900 text-red-100 font-black text-xs flex items-center justify-center gap-2 active:scale-95 shadow-lg animate-pulse"
+            disabled
+            aria-describedby="sos-unavailable-reason"
+            className="w-full py-3 px-4 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-500 font-black text-xs flex items-center justify-center gap-2 cursor-not-allowed opacity-70"
           >
-            <AlertOctagon className="w-5 h-5 text-red-400" />
-            <span>TRIGGER FIELD SOS BEACON</span>
+            <AlertOctagon className="w-5 h-5" />
+            <span>SOS TRANSMISSION UNAVAILABLE</span>
           </button>
+          <p id="sos-unavailable-reason" className="mt-1.5 text-[10px] text-zinc-500 text-center">
+            No emergency transmitter or mesh gateway is configured. Use established emergency channels.
+          </p>
         </div>
 
       </div>

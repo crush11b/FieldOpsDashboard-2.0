@@ -6,9 +6,51 @@ import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
 
+import type { DualBatteryStatus, GPSStatus } from './src/types';
+import type { TelemetryEnvelope, TelemetryStatus } from './src/telemetry';
+import {
+  createTelemetryReceiverRouter,
+  InMemoryLatestTelemetryStore,
+  rejectAllTelemetryCredentials,
+} from './server/telemetryReceiver';
+import {
+  FileTelemetryCredentialRepository,
+  getDefaultTelemetryCredentialPath,
+} from './server/telemetryCredentials';
+import {
+  getActiveAlertsApiResponse,
+  getCurrentWeatherApiResponse,
+  getWeatherApiResponse,
+  parseWeatherCoordinates,
+} from './server/weather';
+import { getIonosondeApiResponse } from './server/propagation';
+import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coordinates';
+import { toFiniteNumber } from './src/utils/numbers';
+import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
+
+  const telemetryCredentialPath = getDefaultTelemetryCredentialPath();
+  const telemetryCredentialRepository = telemetryCredentialPath
+    ? new FileTelemetryCredentialRepository(telemetryCredentialPath)
+    : null;
+  const telemetryCredentialResolver = telemetryCredentialRepository ?? rejectAllTelemetryCredentials;
+  if (!telemetryCredentialRepository || !(await telemetryCredentialRepository.isProvisioned())) {
+    console.warn(
+      telemetryCredentialPath
+        ? `Telemetry authentication is unprovisioned; expected repository: ${telemetryCredentialPath}`
+        : 'Telemetry authentication is unprovisioned; no credential repository path is available.',
+    );
+  }
+
+  // The v1 receiver is present but production delivery remains dormant. The
+  // sender is not registered even when authentication has been provisioned.
+  app.use(createTelemetryReceiverRouter({
+    credentialResolver: telemetryCredentialResolver,
+    store: new InMemoryLatestTelemetryStore(),
+  }));
 
   // CORS Middleware for external scripts, PowerShell, Electron, and local clients
   app.use((req, res, next) => {
@@ -32,7 +74,7 @@ async function startServer() {
       apiKey,
       httpOptions: {
         headers: {
-          'User-Agent': 'aistudio-build',
+          'User-Agent': getProductUserAgent('Gemini API'),
         }
       }
     });
@@ -44,15 +86,21 @@ async function startServer() {
       // In field ops, if online we fetch from NOAA SWPC
       let liveSolar: any = null;
       try {
-        const swpcRes = await fetch("https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json");
+        const swpcRes = await fetch("https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json", {
+          headers: { 'User-Agent': getProductUserAgent('NOAA SWPC') },
+        });
         if (swpcRes.ok) {
           const swpcData: any = await swpcRes.json();
           if (Array.isArray(swpcData) && swpcData.length > 0) {
             const latest = swpcData[swpcData.length - 1];
-            liveSolar = {
-              solarFlux: Math.round(latest['f10.7'] || 162),
-              sunspotNumber: Math.round(latest['ssn'] || 138),
-            };
+            const solarFlux = toFiniteNumber(latest['f10.7']);
+            const sunspotNumber = toFiniteNumber(latest['ssn']);
+            if (solarFlux !== null && sunspotNumber !== null) {
+              liveSolar = {
+                solarFlux: Math.round(solarFlux),
+                sunspotNumber: Math.round(sunspotNumber),
+              };
+            }
           }
         }
       } catch (e) {
@@ -63,8 +111,8 @@ async function startServer() {
       const hour = now.getHours();
 
       const solarData = {
-        solarFlux: liveSolar?.solarFlux || (158 + Math.floor(Math.sin(hour / 4) * 12)),
-        sunspotNumber: liveSolar?.sunspotNumber || (132 + Math.floor(Math.cos(hour / 3) * 18)),
+        solarFlux: liveSolar?.solarFlux ?? (158 + Math.floor(Math.sin(hour / 4) * 12)),
+        sunspotNumber: liveSolar?.sunspotNumber ?? (132 + Math.floor(Math.cos(hour / 3) * 18)),
         aIndex: 8,
         kIndex: 2,
         kDescription: "Quiet (0-2)",
@@ -80,352 +128,44 @@ async function startServer() {
     }
   });
 
-  // API 1B: Real-time Ionosonde & MUF Data from KC2G (prop.kc2g.com)
-  app.get("/api/ionosonde", async (req, res) => {
-    const userLat = parseFloat(req.query.lat as string) || 37.5407;
-    const userLon = parseFloat(req.query.lon as string) || -77.4360;
-
-    try {
-      let stations: any[] = [];
-      let sourceName = "KC2G Ionosonde Network";
-      let lastUpdated = new Date().toISOString();
-
-      // Try fetching KC2G station list / render JSON
-      try {
-        const kc2gRes = await fetch("https://prop.kc2g.com/stations/", {
-          headers: {
-            'User-Agent': 'FieldOpsDashboard/1.1.5 (contact@fieldops.radio)',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json'
-          }
-        });
-
-        if (kc2gRes.ok) {
-          const text = await kc2gRes.text();
-          
-          // Regex match station rows or JSON structures from KC2G HTML/JSON
-          // Example station line: station ID, name, lat, lon, foF2, mufd
-          const stationRegex = /data-station="([^"]+)"[^>]*data-name="([^"]+)"[^>]*data-lat="([^"]+)"[^>]*data-lon="([^"]+)"[^>]*data-fof2="([^"]+)"[^>]*data-mufd="([^"]+)"/g;
-          let match;
-          while ((match = stationRegex.exec(text)) !== null) {
-            const lat = parseFloat(match[3]);
-            const lon = parseFloat(match[4]);
-            const fof2 = parseFloat(match[5]);
-            const mufd = parseFloat(match[6]);
-
-            if (!isNaN(lat) && !isNaN(lon) && !isNaN(mufd)) {
-              stations.push({
-                code: match[1],
-                name: match[2],
-                lat,
-                lon,
-                foF2: isNaN(fof2) ? null : fof2,
-                muf3000: mufd,
-              });
-            }
-          }
-
-          // If regex table matching didn't yield items, try general table/text extraction or fallback to NOAA GIRO/KC2G ionosonde list
-          if (stations.length === 0) {
-            // Check for JSON embedded in script tags on KC2G page
-            const jsonMatch = text.match(/const\s+stations\s*=\s*(\[\{.*?\}\]);/s) || text.match(/var\s+stations\s*=\s*(\[\{.*?\}\]);/s);
-            if (jsonMatch && jsonMatch[1]) {
-              try {
-                const parsed = JSON.parse(jsonMatch[1]);
-                if (Array.isArray(parsed)) {
-                  stations = parsed.map((s: any) => ({
-                    code: s.code || s.id || 'STN',
-                    name: s.name || s.title || 'Ionosonde Station',
-                    lat: parseFloat(s.lat || s.latitude),
-                    lon: parseFloat(s.lon || s.longitude),
-                    foF2: parseFloat(s.fof2 || s.foF2),
-                    muf3000: parseFloat(s.mufd || s.muf3000 || s.muf),
-                  })).filter((s: any) => !isNaN(s.muf3000));
-                }
-              } catch (e) {
-                // Ignore parse error
-              }
-            }
-          }
-        }
-      } catch (e) {
-        console.warn("KC2G live fetch attempt failed, using NOAA/GIRO fallback model:", e);
-      }
-
-      // Calculate distance (Haversine formula in km) from user location to each ionosonde station
-      function calcDistKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-        const R = 6371; // Earth radius in km
-        const dLat = (lat2 - lat1) * Math.PI / 180;
-        const dLon = (lon2 - lon1) * Math.PI / 180;
-        const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-                  Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
-                  Math.sin(dLon / 2) * Math.sin(dLon / 2);
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        return R * c;
-      }
-
-      // Default active ionosonde stations (Wallops Island VA, Boulder CO, Eglin FL, Austin TX, Millstone Hill MA, Point Arguello CA)
-      if (stations.length === 0) {
-        sourceName = "KC2G Ionosonde Station Grid (Cached / Real-time Model)";
-        const now = new Date();
-        const hour = now.getHours() + now.getMinutes() / 60;
-        // Solar position factor
-        const daylightFactor = Math.max(0, Math.min(1, (Math.cos(((hour - 13 + 24) % 24) * (2 * Math.PI / 24)) + 1) / 2));
-
-        stations = [
-          {
-            code: "WP937",
-            name: "Wallops Island, VA (USA)",
-            lat: 37.95,
-            lon: -75.47,
-            foF2: Math.round((3.9 + 3.2 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((14.2 + 8.6 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "MH429",
-            name: "Millstone Hill, MA (USA)",
-            lat: 42.6,
-            lon: -71.5,
-            foF2: Math.round((3.6 + 3.0 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((13.5 + 8.1 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "EG931",
-            name: "Eglin AFB, FL (USA)",
-            lat: 30.5,
-            lon: -86.5,
-            foF2: Math.round((4.2 + 3.8 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((15.8 + 9.2 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "BC840",
-            name: "Boulder, CO (USA)",
-            lat: 40.0,
-            lon: -105.3,
-            foF2: Math.round((3.8 + 3.4 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((14.8 + 8.8 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "AU930",
-            name: "Austin, TX (USA)",
-            lat: 30.3,
-            lon: -97.7,
-            foF2: Math.round((4.4 + 4.0 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((16.2 + 9.8 * daylightFactor) * 10) / 10,
-          },
-          {
-            code: "PA836",
-            name: "Point Arguello, CA (USA)",
-            lat: 34.6,
-            lon: -120.6,
-            foF2: Math.round((4.0 + 3.5 * daylightFactor) * 10) / 10,
-            muf3000: Math.round((15.1 + 8.9 * daylightFactor) * 10) / 10,
-          }
-        ];
-      }
-
-      // Annotate distance & sort by proximity to user
-      const stationsWithDist = stations.map(s => {
-        const distKm = Math.round(calcDistKm(userLat, userLon, s.lat, s.lon));
-        const distMiles = Math.round(distKm * 0.621371);
-        return {
-          ...s,
-          distKm,
-          distMiles,
-        };
-      }).sort((a, b) => a.distKm - b.distKm);
-
-      // Closest station to user
-      const nearestStation = stationsWithDist[0];
-
-      // Inverse distance weighted regional MUF(3000) from top 3 closest stations
-      const top3 = stationsWithDist.slice(0, 3);
-      let weightSum = 0;
-      let mufWeightedSum = 0;
-      let fof2WeightedSum = 0;
-
-      top3.forEach(s => {
-        const w = 1 / Math.max(10, s.distKm);
-        weightSum += w;
-        mufWeightedSum += s.muf3000 * w;
-        if (s.foF2) fof2WeightedSum += s.foF2 * w;
-      });
-
-      const regionalMuf3000 = Math.round((mufWeightedSum / weightSum) * 10) / 10;
-      const regionalFoF2 = fof2WeightedSum > 0 ? Math.round((fof2WeightedSum / weightSum) * 10) / 10 : Math.round(regionalMuf3000 / 3.1 * 10) / 10;
-
-      res.json({
-        regionalMuf3000,
-        regionalFoF2,
-        nearestStation,
-        stations: stationsWithDist,
-        sourceName,
-        lastUpdated,
-      });
-    } catch (err: any) {
-      res.status(500).json({ error: "Failed to fetch ionosonde data" });
+  // API 1B: Current ionosonde measurements and derived regional values.
+  app.get('/api/ionosonde', async (req, res) => {
+    const coordinates = parseWeatherCoordinates(req.query.lat, req.query.lon);
+    if (!coordinates) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
     }
+
+    res.json(await getIonosondeApiResponse(coordinates.latitude, coordinates.longitude));
   });
 
   // API 2: Weather Snapshot & Live NOAA Location-Based Alerts
-  app.get("/api/weather", async (req, res) => {
-    const lat = parseFloat(req.query.lat as string) || 37.5407; // Default: Richmond, VA
-    const lon = parseFloat(req.query.lon as string) || -77.4360;
-
-    try {
-      let noaaAlerts: any[] = [];
-      let liveWeather: any = null;
-      let locationName = `Richmond, VA (${lat.toFixed(3)}°, ${lon.toFixed(3)}°)`;
-
-      // 1. Fetch location name from NWS Points API if available
-      try {
-        const pointRes = await fetch(`https://api.weather.gov/points/${lat.toFixed(4)},${lon.toFixed(4)}`, {
-          headers: {
-            'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
-            'Accept': 'application/geo+json'
-          }
-        });
-        if (pointRes.ok) {
-          const pointJson: any = await pointRes.json();
-          const props = pointJson.properties?.relativeLocation?.properties;
-          if (props?.city && props?.state) {
-            locationName = `${props.city}, ${props.state}`;
-          }
-        }
-      } catch (e) {
-        // Ignore point lookup failure
-      }
-
-      // 2. Fetch live NOAA weather alerts for the specific lat,lon coordinates
-      try {
-        const noaaRes = await fetch(`https://api.weather.gov/alerts/active?point=${lat.toFixed(4)},${lon.toFixed(4)}`, {
-          headers: {
-            'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
-            'Accept': 'application/geo+json'
-          }
-        });
-        if (noaaRes.ok) {
-          const noaaJson: any = await noaaRes.json();
-          if (noaaJson.features && Array.isArray(noaaJson.features)) {
-            noaaAlerts = noaaJson.features.map((feat: any) => ({
-              id: feat.id || feat.properties?.id || `NWS-${Math.random().toString(36).substring(2, 7)}`,
-              severity: feat.properties?.severity || 'Moderate',
-              title: feat.properties?.event || feat.properties?.headline || 'Weather Advisory',
-              description: feat.properties?.description || feat.properties?.headline || 'Active weather alert for area.',
-              area: feat.properties?.areaDesc || locationName,
-              expires: feat.properties?.expires ? new Date(feat.properties.expires).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Until further notice',
-              issued: feat.properties?.onset ? new Date(feat.properties.onset).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Recently',
-            }));
-          }
-        }
-      } catch (e) {
-        console.warn("NOAA API live fetch failed or offline for point", lat, lon);
-      }
-
-      // 3. Fetch live Open-Meteo current & hourly weather for lat,lon
-      let hourlyForecast: any[] = [];
-      try {
-        const meteoRes = await fetch(
-          `https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m,surface_pressure&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=12`
-        );
-        if (meteoRes.ok) {
-          const mData: any = await meteoRes.json();
-          const curr = mData.current || mData.current_weather || {};
-          
-          if (curr.temperature_2m !== undefined || curr.temperature !== undefined) {
-            const tempF = Math.round(curr.temperature_2m ?? curr.temperature ?? 75);
-            const tempC = Math.round((tempF - 32) * (5 / 9));
-            const windMph = Math.round(curr.wind_speed_10m ?? curr.windspeed ?? 5);
-            const windGustMph = Math.round(curr.wind_gusts_10m ?? (windMph + 6));
-            const windDirNum = curr.wind_direction_10m ?? curr.winddirection ?? 220;
-            const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
-            const windDir = dirs[Math.round(windDirNum / 45) % 8];
-
-            const humidity = Math.round(curr.relative_humidity_2m ?? 55);
-            const pressureHpa = Math.round(curr.pressure_msl ?? curr.surface_pressure ?? 1013);
-            const pressureInHg = Math.round((pressureHpa * 0.02953) * 100) / 100;
-            const weatherCode = curr.weather_code ?? curr.weathercode ?? 0;
-            const uvIndex = Math.round(curr.uv_index ?? 5);
-
-            // Process hourly forecast (next 6 hours)
-            if (mData.hourly && Array.isArray(mData.hourly.time)) {
-              const currentHourIdx = mData.hourly.time.findIndex((t: string) => new Date(t).getTime() >= Date.now() - 3600000);
-              const startIdx = currentHourIdx >= 0 ? currentHourIdx : 0;
-              const nextHours = mData.hourly.time.slice(startIdx, startIdx + 6);
-              
-              hourlyForecast = nextHours.map((t: string, idx: number) => {
-                const hourRealIdx = startIdx + idx;
-                const hTemp = Math.round(mData.hourly.temperature_2m?.[hourRealIdx] ?? tempF);
-                const hCode = mData.hourly.weather_code?.[hourRealIdx] ?? weatherCode;
-                const hPrecip = Math.round(mData.hourly.precipitation_probability?.[hourRealIdx] ?? 0);
-                const hWind = Math.round(mData.hourly.wind_speed_10m?.[hourRealIdx] ?? windMph);
-                const hTime = new Date(t).toLocaleTimeString([], { hour: 'numeric' });
-                return {
-                  time: hTime,
-                  tempF: hTemp,
-                  precipProb: hPrecip,
-                  windMph: hWind,
-                  weatherCode: hCode,
-                };
-              });
-            }
-
-            liveWeather = {
-              tempF,
-              tempC,
-              humidity,
-              pressureInHg,
-              pressureHpa,
-              windMph,
-              windDir,
-              windGustMph,
-              condition: weatherCode > 50 ? 'Precipitation/Rain' : weatherCode > 0 ? 'Partly Cloudy' : 'Clear Sky',
-              icon: weatherCode > 50 ? 'rain' : 'sun',
-              locationName,
-              dewPointF: Math.round(tempF - ((100 - humidity) / 5) * 1.8),
-              uvIndex,
-              visibilityMiles: 10,
-              lastUpdated: new Date().toLocaleTimeString(),
-              cached: false,
-              hourlyForecast,
-            };
-          }
-        }
-      } catch (e) {
-        console.warn("Open-Meteo live weather fetch failed", e);
-      }
-
-      // Fallback defaults if offline / unreachable
-      const weather = liveWeather || {
-        tempF: 78,
-        tempC: 25,
-        humidity: 50,
-        pressureInHg: 29.92,
-        pressureHpa: 1013,
-        windMph: 6,
-        windDir: "SW",
-        windGustMph: 12,
-        condition: "Clear Sky",
-        icon: "sun",
-        locationName,
-        dewPointF: 58,
-        uvIndex: 6,
-        visibilityMiles: 10,
-        lastUpdated: new Date().toLocaleTimeString(),
-        cached: false,
-        hourlyForecast: [
-          { time: '12 PM', tempF: 78, precipProb: 0, windMph: 6, weatherCode: 0 },
-          { time: '1 PM', tempF: 80, precipProb: 5, windMph: 7, weatherCode: 0 },
-          { time: '2 PM', tempF: 81, precipProb: 10, windMph: 8, weatherCode: 1 },
-          { time: '3 PM', tempF: 80, precipProb: 15, windMph: 9, weatherCode: 1 },
-          { time: '4 PM', tempF: 78, precipProb: 10, windMph: 7, weatherCode: 0 },
-          { time: '5 PM', tempF: 76, precipProb: 5, windMph: 6, weatherCode: 0 },
-        ],
-      };
-
-      res.json({ weather, alerts: noaaAlerts });
-    } catch (err: any) {
-      res.status(500).json({ error: "Failed to fetch weather data" });
+  app.get('/api/weather', async (req, res) => {
+    const coordinates = parseWeatherCoordinates(req.query.lat, req.query.lon);
+    if (!coordinates) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
     }
+
+    res.json(await getWeatherApiResponse(coordinates.latitude, coordinates.longitude));
+  });
+
+  app.get('/api/weather/current', async (req, res) => {
+    const coordinates = parseWeatherCoordinates(req.query.lat, req.query.lon);
+    if (!coordinates) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
+    }
+    res.json(await getCurrentWeatherApiResponse(coordinates.latitude, coordinates.longitude));
+  });
+
+  app.get('/api/weather/alerts', async (req, res) => {
+    const coordinates = parseWeatherCoordinates(req.query.lat, req.query.lon);
+    if (!coordinates) {
+      res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      return;
+    }
+    res.json(await getActiveAlertsApiResponse(coordinates.latitude, coordinates.longitude));
   });
 
   // API 4: HAM App Auto-Detection & Path Discovery Engine
@@ -794,7 +534,38 @@ Context provided: ${JSON.stringify(context || {})}`;
   let localTelemetryGps: {
     data: any;
     timestamp: number;
+    producerSource: {
+      id: string;
+      type: string;
+      raw: string;
+    };
   } | null = null;
+
+  const normalizeGpsProducerSource = (source: unknown) => {
+    const raw = typeof source === 'string' && source.trim()
+      ? source.trim()
+      : 'unknown_legacy_producer';
+
+    if (raw === 'browser_gnss_geolocation' || raw === 'browser_geolocation') {
+      return { id: 'gps:browser', type: 'browser_geolocation', raw };
+    }
+    if (raw === 'powershell_sync' || raw === 'local_telemetry_agent' || raw === 'toughbook_agent') {
+      return { id: 'gps:toughbook-agent', type: 'local_telemetry_agent', raw };
+    }
+    if (raw === 'manual_location') {
+      return { id: 'gps:manual', type: 'manual_location', raw };
+    }
+    if (raw === 'preset_location') {
+      return { id: 'gps:preset', type: 'preset_location', raw };
+    }
+    if (raw === 'configured_station_location') {
+      return { id: 'gps:configured-station', type: 'configured_station_location', raw };
+    }
+    if (raw === 'ip_geolocation') {
+      return { id: 'gps:ip-location', type: 'ip_geolocation', raw };
+    }
+    return { id: 'gps:legacy', type: 'unknown_legacy_producer', raw };
+  };
 
   // GPS Telemetry Sync Endpoints
   app.post(["/api/system/gps/telemetry", "/api/system/gps", "/api/gps/telemetry", "/api/gps"], (req, res) => {
@@ -815,13 +586,17 @@ Context provided: ${JSON.stringify(context || {})}`;
         return res.json({ success: true, message: "GPS Telemetry cleared" });
       }
 
-      const lat = parseFloat(body.lat ?? body.latitude ?? query.lat ?? query.latitude ?? 37.5407);
-      const lon = parseFloat(body.lon ?? body.lng ?? body.longitude ?? query.lon ?? query.lng ?? query.longitude ?? -77.4360);
+      const coordinates = parseGpsRequestCoordinates(body, query);
+      if (!coordinates) {
+        return res.status(400).json({ error: 'Valid latitude and longitude are required.' });
+      }
+      const { lat, lon } = coordinates;
       const gridSquare = body.gridSquare ?? body.grid ?? query.gridSquare ?? query.grid ?? "";
       const alt = parseFloat(body.altitudeM ?? body.alt ?? query.alt ?? 50);
 
       localTelemetryGps = {
         timestamp: Date.now(),
+        producerSource: normalizeGpsProducerSource(body.source ?? query.source),
         data: {
           success: true,
           source: body.source || "local_telemetry_agent",
@@ -850,6 +625,105 @@ Context provided: ${JSON.stringify(context || {})}`;
       success: false,
       message: "No live GPS telemetry pushed yet."
     });
+  });
+
+  app.get('/api/telemetry/gps', (req, res) => {
+    const now = new Date();
+    const receivedAt = now.toISOString();
+
+    if (!localTelemetryGps) {
+      const envelope: TelemetryEnvelope<GPSStatus> = {
+        status: 'unavailable',
+        source: {
+          id: 'gps:server',
+          type: 'system_gps',
+          name: 'GPS Telemetry',
+        },
+        timestamps: {
+          observedAt: receivedAt,
+          receivedAt,
+        },
+      };
+      return res.json(envelope);
+    }
+
+    try {
+      const { data, timestamp, producerSource } = localTelemetryGps;
+      const coordinates = parseCoordinates(data.lat, data.lon);
+      if (!coordinates) {
+        throw new Error('Stored GPS telemetry contains invalid coordinates');
+      }
+
+      const ageMs = now.getTime() - timestamp;
+      const isBrowser = producerSource.type === 'browser_geolocation';
+      const isLocalAgent = producerSource.type === 'local_telemetry_agent';
+      const freshnessMs = isBrowser ? 120000 : isLocalAgent ? 30000 : null;
+      const status: Extract<TelemetryStatus, 'ok' | 'degraded' | 'stale'> =
+        freshnessMs !== null
+          ? ageMs > freshnessMs ? 'stale' : 'ok'
+          : 'degraded';
+      const observedAt = new Date(timestamp).toISOString();
+
+      const gps: GPSStatus = {
+        lat: coordinates.lat,
+        lon: coordinates.lon,
+        altitudeM: data.altitudeM,
+        speedKmh: Number.isFinite(data.speedKmh) ? data.speedKmh : 0,
+        gridSquare: data.gridSquare,
+        satCount: data.satCount,
+        fixType: data.fixType,
+        lockTime: data.lockTime,
+        mode: data.mode,
+        deviceName: data.deviceName,
+        ...(data.comPort !== undefined ? { comPort: data.comPort } : {}),
+        ...(data.baudRate !== undefined ? { baudRate: data.baudRate } : {}),
+      };
+
+      const envelope: TelemetryEnvelope<GPSStatus> = {
+        status,
+        source: {
+          id: producerSource.id,
+          type: producerSource.type,
+          name: gps.deviceName || 'GPS Telemetry',
+          metadata: {
+            producerSource: producerSource.raw,
+          },
+        },
+        timestamps: {
+          observedAt,
+          receivedAt,
+          ...(freshnessMs !== null
+            ? { expiresAt: new Date(timestamp + freshnessMs).toISOString() }
+            : {}),
+        },
+        data: gps,
+      };
+
+      return res.json(envelope);
+    } catch (err: any) {
+      const envelope: TelemetryEnvelope<GPSStatus> = {
+        status: 'error',
+        source: {
+          id: localTelemetryGps.producerSource.id,
+          type: localTelemetryGps.producerSource.type,
+          name: 'GPS Telemetry',
+          metadata: {
+            producerSource: localTelemetryGps.producerSource.raw,
+          },
+        },
+        timestamps: {
+          observedAt: new Date(localTelemetryGps.timestamp).toISOString(),
+          receivedAt,
+        },
+        error: {
+          code: 'GPS_ADAPTER_FAILED',
+          message: err.message || 'GPS telemetry adapter failed',
+          retryable: true,
+        },
+      };
+
+      return res.status(500).json(envelope);
+    }
   });
 
   const telemetryEndpoints = [
@@ -1062,6 +936,66 @@ Context provided: ${JSON.stringify(context || {})}`;
     }
   });
 
+  // Canonical battery telemetry endpoint. The legacy battery API remains unchanged.
+  app.get('/api/telemetry/battery', async (req, res) => {
+    try {
+      const legacyResponse = await fetch(`http://127.0.0.1:${PORT}/api/system/battery`);
+      if (!legacyResponse.ok) {
+        throw new Error(`Legacy battery query failed with status ${legacyResponse.status}`);
+      }
+
+      const batteryData: any = await legacyResponse.json();
+      const now = new Date().toISOString();
+      const sourceType = batteryData.source || 'system_battery';
+      const telemetryAgeMs = localTelemetryBattery ? Date.now() - localTelemetryBattery.timestamp : 0;
+      const status: Extract<TelemetryStatus, 'ok' | 'degraded' | 'stale'> =
+        sourceType === 'local_telemetry_agent' && telemetryAgeMs > 15000
+          ? 'stale'
+          : sourceType.startsWith('simulated_')
+            ? 'degraded'
+            : 'ok';
+
+      const envelope: TelemetryEnvelope<DualBatteryStatus> = {
+        status,
+        source: {
+          id: sourceType,
+          type: sourceType,
+          name: 'Dual Battery System',
+        },
+        timestamps: {
+          observedAt: localTelemetryBattery
+            ? new Date(localTelemetryBattery.timestamp).toISOString()
+            : now,
+          receivedAt: now,
+        },
+        data: batteryData as DualBatteryStatus,
+      };
+
+      return res.json(envelope);
+    } catch (err: any) {
+      const now = new Date().toISOString();
+      const envelope: TelemetryEnvelope<DualBatteryStatus> = {
+        status: 'error',
+        source: {
+          id: 'system_battery',
+          type: 'system_battery',
+          name: 'Dual Battery System',
+        },
+        timestamps: {
+          observedAt: now,
+          receivedAt: now,
+        },
+        error: {
+          code: 'BATTERY_QUERY_FAILED',
+          message: err.message || 'Battery query failed',
+          retryable: true,
+        },
+      };
+
+      return res.status(500).json(envelope);
+    }
+  });
+
   // API 4: Download complete project ZIP for offline local deployment & live auto-updater
   app.get(["/api/download-project-zip", "/api/download-app-zip", "/api/update-app", "/api/download-update"], async (req, res) => {
     try {
@@ -1099,7 +1033,7 @@ Context provided: ${JSON.stringify(context || {})}`;
       addFolderRecursively(rootDir, zip);
 
       const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-      res.setHeader("Content-Disposition", 'attachment; filename="FieldOpsDashboard_v2.0.zip"');
+      res.setHeader("Content-Disposition", `attachment; filename="${getVersionedDownloadFilename()}"`);
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Length", buffer.length.toString());
       return res.end(buffer);
@@ -1125,7 +1059,7 @@ Context provided: ${JSON.stringify(context || {})}`;
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`FieldOpsDashboard Server running on http://localhost:${PORT}`);
+    console.log(`${PRODUCT_METADATA.productName} ${PRODUCT_METADATA.version} server running on http://localhost:${PORT}`);
   });
 }
 

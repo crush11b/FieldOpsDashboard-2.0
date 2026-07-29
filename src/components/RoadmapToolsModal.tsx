@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { PRODUCT_METADATA } from '../productMetadata';
+import { createAdifExport } from '../utils/adif';
 import { 
   X, 
   Wrench, 
@@ -17,7 +19,6 @@ import {
   Bot
 } from 'lucide-react';
 import { LogEntry, UIThemeMode } from '../types';
-import { DEFAULT_LOG_ENTRIES } from '../data/defaultConfig';
 import { playTacticalClick } from '../utils/audio';
 
 interface RoadmapToolsModalProps {
@@ -39,7 +40,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   gridSquare,
   initialTab = 'smart_deploy',
 }) => {
-  const [activeTab, setActiveTab] = useState<string>(initialTab);
+  const [activeTab, setActiveTab] = useState<string>(initialTab === 'smart_frequency' ? 'smart_deploy' : initialTab);
 
   // 1. SmartDeploy State (Antenna Length & NVIS vs DX Calculator)
   const [freqMHz, setFreqMHz] = useState<number>(14.074);
@@ -50,7 +51,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   const [selectedBandPlan, setSelectedBandPlan] = useState<string>('20m');
 
   // 3. SmartLog+ State
-  const [logs, setLogs] = useState<LogEntry[]>(DEFAULT_LOG_ENTRIES);
+  const [logs, setLogs] = useState<LogEntry[]>([]);
   const [newCall, setNewCall] = useState('');
   const [newBand, setNewBand] = useState('20m');
   const [newMode, setNewMode] = useState('FT8');
@@ -65,7 +66,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   const [aiChat, setAiChat] = useState<Array<{ sender: 'user' | 'ai'; text: string; time: string }>>([
     {
       sender: 'ai',
-      text: `Greetings ${callsign || 'Operator'}! FieldOps AI radio advisor online. Ask me about dipole tuning, NVIS propagation, POTA setup, SWR troubleshooting, or Q-codes!`,
+      text: `AI advisor availability depends on a configured Gemini service. Submit a question to check availability.`,
       time: new Date().toLocaleTimeString(),
     },
   ]);
@@ -107,10 +108,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
   const handleExportADIF = () => {
     playTacticalClick(audioEnabled);
-    let adif = `ADIF Export from FieldOpsDashboard v1.1.4\n<HEADER>\n<ADIF_VER:5>3.1.0\n<PROGRAMID:18>FieldOpsDashboard\n<EOH>\n`;
-    logs.forEach((l) => {
-      adif += `<CALL:${l.callsign.length}>${l.callsign} <BAND:${l.band.length}>${l.band} <MODE:${l.mode.length}>${l.mode} <FREQ:${l.frequency.length}>${l.frequency} <RST_SENT:${l.rstSent.length}>${l.rstSent} <RST_RCVD:${l.rstRcvd.length}>${l.rstRcvd} <GRIDSQUARE:${l.gridSquare.length}>${l.gridSquare} <MY_POTA_REF:${(l.potaRef||'').length}>${l.potaRef||''} <EOR>\n`;
-    });
+    const adif = createAdifExport(logs);
 
     const blob = new Blob([adif], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -178,7 +176,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-400 animate-spin-slow" />
             <h2 className="font-black text-base uppercase tracking-wider text-zinc-100">
-              ROADMAP SMART MODULES (v1.2 FIELD SUITE)
+              ROADMAP SMART MODULES ({PRODUCT_METADATA.displayVersion})
             </h2>
           </div>
 
@@ -205,13 +203,15 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
           <button
             id="tab-smart-frequency"
-            onClick={() => setActiveTab('smart_frequency')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'smart_frequency' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            disabled
+            aria-describedby="smart-frequency-tab-reason"
+            className="py-2.5 px-4 font-bold text-xs border-b-2 border-transparent flex items-center gap-1.5 whitespace-nowrap text-slate-600 cursor-not-allowed"
           >
-            <Radio className="w-4 h-4" /> 📡 SmartFrequency (BAND ADVISOR)
+            <Radio className="w-4 h-4" /> SmartFrequency (UNAVAILABLE)
           </button>
+          <span id="smart-frequency-tab-reason" className="sr-only">
+            Verified regional band-plan guidance is not yet implemented.
+          </span>
 
           <button
             id="tab-smart-log"
@@ -253,7 +253,12 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
                       type="number"
                       step="0.001"
                       value={freqMHz}
-                      onChange={(e) => setFreqMHz(parseFloat(e.target.value) || 14.074)}
+                      onChange={(e) => {
+                        const value = e.target.value.trim();
+                        if (value === '') return;
+                        const parsed = Number(value);
+                        if (Number.isFinite(parsed) && parsed > 0) setFreqMHz(parsed);
+                      }}
                       className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold font-mono"
                     />
                   </div>
@@ -498,7 +503,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
                   ))}
                   {aiLoading && (
                     <div className="p-2 rounded bg-slate-900 text-amber-300 text-xs font-mono animate-pulse">
-                      ⚡ AI calculating propagation & antenna response...
+                      Awaiting AI service response…
                     </div>
                   )}
                 </div>
@@ -517,7 +522,8 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
                   <button
                     id="btn-send-ai-prompt"
                     onClick={handleSendAiPrompt}
-                    disabled={aiLoading}
+                    disabled={aiLoading || !aiPrompt.trim()}
+                    title={!aiPrompt.trim() ? 'Enter a question before sending' : 'Send question to the configured AI service'}
                     className="px-4 py-2 bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-bold text-xs rounded flex items-center gap-1 active:scale-95 disabled:opacity-50"
                   >
                     <Send className="w-3.5 h-3.5" /> ASK

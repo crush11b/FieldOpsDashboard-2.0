@@ -8,15 +8,15 @@ import { AppLauncherGrid } from './components/AppLauncherGrid';
 import { ConfigModal } from './components/ConfigModal';
 import { RoadmapToolsModal } from './components/RoadmapToolsModal';
 import { TouchMenuDrawer } from './components/TouchMenuDrawer';
-import { AutoAppInstallerModal } from './components/AutoAppInstallerModal';
 
 import { 
   AppLauncherItem, 
   BandPropagation, 
   DashboardConfig, 
   DualBatteryStatus, 
+  ExternalDataStatus,
   GPSStatus, 
-  NetworkStatus, 
+  GPSProvenance,
   NOAAAlert, 
   SolarData, 
   UIThemeMode, 
@@ -25,8 +25,71 @@ import {
 } from './types';
 import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
+import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
+import { toFiniteNumber } from './utils/numbers';
 
 const STORAGE_KEY = 'fieldops_dashboard_config_v115';
+const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
+
+interface InitialGpsState {
+  gps: GPSStatus;
+  provenance: GPSProvenance;
+}
+
+const loadInitialGpsState = (): InitialGpsState => {
+  if (typeof window !== 'undefined') {
+    try {
+      const saved = localStorage.getItem(GPS_STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        const coordinates = parsed ? parseCoordinates(parsed.lat, parsed.lon) : null;
+        if (parsed && coordinates) {
+          return {
+            gps: {
+              ...parsed,
+              lat: coordinates.lat,
+              lon: coordinates.lon,
+              mode: parsed.mode === 'manual' ? 'manual' : 'auto',
+            },
+            provenance: {
+              status: 'cached',
+              source: {
+                id: 'gps:local-storage',
+                type: 'cached_local_storage',
+                name: 'Cached GPS Position',
+              },
+            },
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Failed to restore saved GPS status');
+    }
+  }
+
+  return {
+    gps: {
+      lat: Number.NaN,
+      lon: Number.NaN,
+      altitudeM: 0,
+      speedKmh: 0,
+      gridSquare: '',
+      satCount: 0,
+      fixType: 'Searching',
+      lockTime: '',
+      mode: 'auto',
+      deviceName: 'GPS Receiver',
+    },
+    provenance: {
+      status: 'connecting',
+      source: {
+        id: 'gps:startup',
+        type: 'gps_acquisition',
+        name: 'Waiting for GPS Location',
+      },
+    },
+  };
+};
 
 export default function App() {
   // 1. Dashboard Persistent Config
@@ -80,80 +143,33 @@ export default function App() {
     powerSource: 'Battery',
   });
 
-  // 3. Network Link Status
-  const [network, setNetwork] = useState<NetworkStatus>({
-    online: true,
-    type: 'cellular',
-    interfaceName: 'Panasonic LTE Modem (Sierra Wireless)',
-    dnsLatencyMs: 34,
-    ipAddress: '10.240.82.119',
-    signalDbm: -72,
-    packetsDropped: 0,
-  });
-
-  const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
-
-  // 4. GPS & Maidenhead Grid Square (Saved to LocalStorage)
-  const [gps, setGps] = useState<GPSStatus>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(GPS_STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          if (parsed && typeof parsed.lat === 'number' && typeof parsed.lon === 'number') {
-            return {
-              ...parsed,
-              mode: parsed.mode === 'manual' ? 'manual' : 'auto',
-            };
-          }
-        } catch (e) {
-          console.warn('Failed to parse saved GPS status');
-        }
-      }
-    }
-    return {
-      lat: 37.5407,
-      lon: -77.4360,
-      altitudeM: 51,
-      speedKmh: 0,
-      gridSquare: 'FM17hd',
-      satCount: 8,
-      fixType: '3D GPS Fix',
-      lockTime: new Date().toISOString().substring(11, 19) + ' UTC',
-      mode: 'auto',
-      deviceName: 'u-blox NEO-M8N USB GPS',
-    };
-  });
+  // 3. GPS & Maidenhead Grid Square (Saved to LocalStorage)
+  const [initialGpsState] = useState(loadInitialGpsState);
+  const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
+  const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
+  const operatingLocation = resolveGpsCoordinates(gps, gpsProvenance);
+  const operatingGridSquare = isCurrentOperatingLocation(operatingLocation) ? gps.gridSquare : '';
 
   // Persist GPS changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
-      localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
+      try {
+        if (operatingLocation) {
+          localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
+        }
+      } catch (e) {
+        console.warn('Failed to persist GPS status');
+      }
     }
-  }, [gps]);
+  }, [gps, gpsProvenance]);
 
   // 5. Weather & NOAA Alerts
-  const [weather, setWeather] = useState<WeatherData>({
-    tempF: 78,
-    tempC: 25,
-    humidity: 52,
-    pressureInHg: 30.08,
-    pressureHpa: 1018,
-    windMph: 6,
-    windDir: 'SW',
-    condition: 'Clear Sky',
-    icon: 'sun',
-    locationName: 'Richmond, VA (FM17hd)',
-    dewPointF: 58,
-    uvIndex: 6,
-    visibilityMiles: 10,
-    lastUpdated: new Date().toLocaleTimeString(),
-    cached: false,
-  });
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [weatherStatus, setWeatherStatus] = useState<ExternalDataStatus>('loading');
+  const [noaaAlerts, setNoaaAlerts] = useState<NOAAAlert[] | null>(null);
+  const [alertsStatus, setAlertsStatus] = useState<ExternalDataStatus>('loading');
 
-  const [noaaAlerts, setNoaaAlerts] = useState<NOAAAlert[]>([]);
-
-  // 6. VOACAP Propagation & Solar Flux Data
+  // 6. Regional HF Band Guidance & Solar Flux Data
   const [solar, setSolar] = useState<SolarData>({
     solarFlux: 162,
     sunspotNumber: 138,
@@ -174,21 +190,24 @@ export default function App() {
   const [roadmapActiveTab, setRoadmapActiveTab] = useState('smart_deploy');
   const [touchMenuOpen, setTouchMenuOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<AppLauncherItem | null>(null);
-  const [autoInstallerModalOpen, setAutoInstallerModalOpen] = useState(false);
 
   // Fetch live weather and solar data from backend Express server APIs
   useEffect(() => {
-    const fetchSolarAndWeather = async () => {
+    let cancelled = false;
+    const weatherController = new AbortController();
+    const alertsController = new AbortController();
+
+    const refreshSolar = async () => {
       try {
         const solarRes = await fetch('/api/solar-data');
         if (solarRes.ok) {
           const sData = await solarRes.json();
           setSolar((prev) => ({
             ...prev,
-            solarFlux: sData.solarFlux || prev.solarFlux,
-            sunspotNumber: sData.sunspotNumber || prev.sunspotNumber,
-            aIndex: sData.aIndex || prev.aIndex,
-            kIndex: sData.kIndex || prev.kIndex,
+            solarFlux: toFiniteNumber(sData.solarFlux) ?? prev.solarFlux,
+            sunspotNumber: toFiniteNumber(sData.sunspotNumber) ?? prev.sunspotNumber,
+            aIndex: toFiniteNumber(sData.aIndex) ?? prev.aIndex,
+            kIndex: toFiniteNumber(sData.kIndex) ?? prev.kIndex,
             kDescription: sData.kDescription || prev.kDescription,
             xray: sData.xray || prev.xray,
             lastUpdated: new Date().toLocaleTimeString(),
@@ -197,30 +216,73 @@ export default function App() {
       } catch (err) {
         console.warn('Backend solar endpoint fallback');
       }
+    };
 
-      try {
-        const weatherRes = await fetch(`/api/weather?lat=${gps.lat}&lon=${gps.lon}`);
-        if (weatherRes.ok) {
-          const wData = await weatherRes.json();
-          if (wData.weather) {
-            setWeather((prev) => ({ ...prev, ...wData.weather }));
+    const fetchSolarAndWeather = async () => {
+      if (!isCurrentOperatingLocation(operatingLocation)) {
+        setWeather(null);
+        setWeatherStatus('unavailable');
+        setNoaaAlerts(null);
+        setAlertsStatus('unavailable');
+        await refreshSolar();
+        return;
+      }
+
+      const coordinates = `lat=${operatingLocation.lat}&lon=${operatingLocation.lon}`;
+      const refreshWeather = async () => {
+        if (cancelled) return;
+        setWeather(null);
+        setWeatherStatus('loading');
+        try {
+          const response = await fetch(`/api/weather/current?${coordinates}`, {
+            signal: weatherController.signal,
+          });
+          const data = response.ok ? await response.json() : null;
+          if (!cancelled) {
+            setWeather(data?.weather ?? null);
+            setWeatherStatus(data?.weatherStatus === 'live' ? 'live' : 'unavailable');
           }
-          if (wData.alerts && Array.isArray(wData.alerts)) {
-            setNoaaAlerts(wData.alerts);
+        } catch {
+          if (!cancelled) {
+            setWeather(null);
+            setWeatherStatus('unavailable');
+            console.warn('Field weather unavailable');
           }
         }
-      } catch (err) {
-        console.warn('Backend weather endpoint fallback');
-      }
+      };
+
+      const refreshAlerts = async () => {
+        if (cancelled) return;
+        setNoaaAlerts(null);
+        setAlertsStatus('loading');
+        try {
+          const response = await fetch(`/api/weather/alerts?${coordinates}`, {
+            signal: alertsController.signal,
+          });
+          const data = response.ok ? await response.json() : null;
+          if (!cancelled) {
+            setNoaaAlerts(Array.isArray(data?.alerts) ? data.alerts : null);
+            setAlertsStatus(data?.alertsStatus === 'live' ? 'live' : 'unavailable');
+          }
+        } catch {
+          if (!cancelled) {
+            setNoaaAlerts(null);
+            setAlertsStatus('unavailable');
+            console.warn('NOAA alert status unavailable');
+          }
+        }
+      };
+
+      await Promise.allSettled([refreshSolar(), refreshWeather(), refreshAlerts()]);
     };
 
     fetchSolarAndWeather();
-  }, [gps.lat, gps.lon]);
-
-  // Handle App Launching
-  const handleLaunchApp = (app: AppLauncherItem) => {
-    console.log(`Launched ${app.name} (${app.executablePath})`);
-  };
+    return () => {
+      cancelled = true;
+      weatherController.abort();
+      alertsController.abort();
+    };
+  }, [gps.lat, gps.lon, gpsProvenance.status, gpsProvenance.source.type]);
 
   // Toggle Favorite App
   const handleToggleFavorite = (appId: string) => {
@@ -236,7 +298,10 @@ export default function App() {
   };
 
   // Handle GPS Updates
-  const handleUpdateGPS = (updated: Partial<GPSStatus>) => {
+  const handleUpdateGPS = (updated: Partial<GPSStatus>, provenance?: GPSProvenance) => {
+    if (provenance) {
+      setGpsProvenance(provenance);
+    }
     setGps((prev) => {
       const lat = updated.lat ?? prev.lat;
       const lon = updated.lon ?? prev.lon;
@@ -269,9 +334,8 @@ export default function App() {
         callsign={config.callsign}
         theme={config.theme}
         onThemeChange={handleThemeChange}
-        gps={gps}
+        gps={{ ...gps, gridSquare: operatingGridSquare }}
         battery={battery}
-        network={network}
         audioEnabled={config.audioFeedback}
         onToggleAudio={() => setConfig((prev) => ({ ...prev, audioFeedback: !prev.audioFeedback }))}
         onOpenConfig={() => setConfigModalOpen(true)}
@@ -286,7 +350,7 @@ export default function App() {
       {/* 2. Main Bento Grid Dashboard Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto p-3 sm:p-5 space-y-4">
         
-        {/* System Status Bento Grid (Battery, GPS, Weather, VOACAP Propagation) */}
+        {/* System Status Bento Grid (Battery, GPS, Weather, Regional HF Band Guidance) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
           {/* Dual Battery Status */}
           <BatteryStatusWidget
@@ -298,6 +362,7 @@ export default function App() {
           {/* GPS & Maidenhead Grid Badge */}
           <GPSGridWidget
             gps={gps}
+            provenance={gpsProvenance}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             onUpdateGPS={handleUpdateGPS}
@@ -312,17 +377,19 @@ export default function App() {
           <WeatherNOAAWidget
             weather={weather}
             alerts={noaaAlerts}
+            weatherStatus={weatherStatus}
+            alertsStatus={alertsStatus}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
           />
 
-          {/* Real-time VOACAP HF Propagation Forecast */}
+          {/* Regional HF Band Guidance */}
           <VOACAPPropagationWidget
             solar={solar}
             bands={bands}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
-            location={config.location}
+            location={isCurrentOperatingLocation(operatingLocation) ? operatingLocation : undefined}
             onRefreshSolar={async () => {
               const res = await fetch('/api/solar-data');
               if (res.ok) {
@@ -340,7 +407,6 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             gridColumns={config.appGridColumns}
-            onLaunchApp={handleLaunchApp}
             onToggleFavorite={handleToggleFavorite}
             onEditApp={(app) => {
               setEditingApp(app);
@@ -350,7 +416,6 @@ export default function App() {
               setEditingApp(null);
               setConfigModalOpen(true);
             }}
-            onOpenAutoInstaller={() => setAutoInstallerModalOpen(true)}
           />
         </section>
 
@@ -381,7 +446,7 @@ export default function App() {
 
           <div className="text-right">
             <span>
-              CALLSIGN: <strong className="text-amber-400">{config.callsign}</strong> • GRID: <strong className="text-emerald-400">{gps.gridSquare}</strong>
+              CALLSIGN: <strong className="text-amber-400">{config.callsign}</strong> • GRID: <strong className="text-emerald-400">{operatingGridSquare || 'Unavailable'}</strong>
             </span>
           </div>
         </div>
@@ -408,7 +473,7 @@ export default function App() {
         isOpen={roadmapModalOpen}
         onClose={() => setRoadmapModalOpen(false)}
         callsign={config.callsign}
-        gridSquare={gps.gridSquare}
+        gridSquare={operatingGridSquare}
         initialTab={roadmapActiveTab}
       />
 
@@ -424,18 +489,7 @@ export default function App() {
           setRoadmapModalOpen(true);
         }}
         callsign={config.callsign}
-        gridSquare={gps.gridSquare}
-      />
-
-      <AutoAppInstallerModal
-        isOpen={autoInstallerModalOpen}
-        onClose={() => setAutoInstallerModalOpen(false)}
-        theme={config.theme}
-        audioEnabled={config.audioFeedback}
-        apps={config.apps}
-        onUpdateAppPaths={(updatedApps) => {
-          setConfig((prev) => ({ ...prev, apps: updatedApps }));
-        }}
+        gridSquare={operatingGridSquare}
       />
 
     </div>

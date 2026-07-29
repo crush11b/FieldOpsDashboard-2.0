@@ -1,0 +1,65 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const metadata = readJson('product-metadata.json');
+const checkOnly = process.argv.includes('--check');
+const expectedTitle = `${metadata.productName} ${metadata.version} — ${metadata.releaseName}`;
+const expectedManifestName = `${metadata.productName} ${metadata.version} — ${metadata.releaseName}`;
+const failures = [];
+
+syncJson('package.json', (value) => ({ ...value, name: metadata.packageName, version: metadata.version }));
+syncJson('package-lock.json', (value) => ({
+  ...value,
+  name: metadata.packageName,
+  version: metadata.version,
+  packages: {
+    ...value.packages,
+    '': { ...value.packages[''], name: metadata.packageName, version: metadata.version },
+  },
+}));
+syncJson('public/manifest.json', (value) => ({ ...value, name: expectedManifestName }));
+syncJson('metadata.json', (value) => ({
+  ...value,
+  name: metadata.productId,
+  version: metadata.version,
+  releaseName: metadata.releaseName,
+}));
+syncText('bun.lock', (value) => value.replace(/("name":\s*")[^"]+("\s*,)/, `$1${metadata.packageName}$2`));
+syncText('index.html', (value) => value.replace(/<title>.*<\/title>/, `<title>${expectedTitle}</title>`));
+syncText('public/sw.js', (value) => value
+  .replace(/^\/\/ FieldOps Dashboard .* - Offline Field Service Worker/m, `// ${expectedTitle} - Offline Field Service Worker`)
+  .replace(/const CACHE_NAME = '[^']+';/, `const CACHE_NAME = 'fieldops-${metadata.version}-shell-v1';`));
+syncText('README_OFFLINE_DEPLOYMENT.txt', (value) => value.replace(
+  /FIELDOPS DASHBOARD v[^ ]+ - LOCAL \/ OFFLINE TOUGHBOOK DEPLOYMENT GUIDE/,
+  `FIELDOPS DASHBOARD ${metadata.version} - LOCAL / OFFLINE TOUGHBOOK DEPLOYMENT GUIDE`,
+));
+
+if (failures.length > 0) {
+  console.error(`Product metadata is out of sync: ${failures.join(', ')}`);
+  process.exitCode = 1;
+}
+
+function readJson(relativePath) {
+  return JSON.parse(fs.readFileSync(path.join(root, relativePath), 'utf8'));
+}
+
+function syncJson(relativePath, update) {
+  const current = readJson(relativePath);
+  const expected = `${JSON.stringify(update(current), null, 2)}\n`;
+  sync(relativePath, expected);
+}
+
+function syncText(relativePath, update) {
+  const filePath = path.join(root, relativePath);
+  sync(relativePath, update(fs.readFileSync(filePath, 'utf8')));
+}
+
+function sync(relativePath, expected) {
+  const filePath = path.join(root, relativePath);
+  const current = fs.readFileSync(filePath, 'utf8');
+  if (current === expected) return;
+  if (checkOnly) failures.push(relativePath);
+  else fs.writeFileSync(filePath, expected, 'utf8');
+}
