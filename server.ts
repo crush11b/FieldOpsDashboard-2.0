@@ -26,6 +26,7 @@ import {
 import { getIonosondeApiResponse } from './server/propagation';
 import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coordinates';
 import { toFiniteNumber } from './src/utils/numbers';
+import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 
 async function startServer() {
   const app = express();
@@ -73,7 +74,7 @@ async function startServer() {
       apiKey,
       httpOptions: {
         headers: {
-          'User-Agent': 'aistudio-build',
+          'User-Agent': getProductUserAgent('Gemini API'),
         }
       }
     });
@@ -85,7 +86,9 @@ async function startServer() {
       // In field ops, if online we fetch from NOAA SWPC
       let liveSolar: any = null;
       try {
-        const swpcRes = await fetch("https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json");
+        const swpcRes = await fetch("https://services.swpc.noaa.gov/json/solar-cycle/observed-solar-cycle-indices.json", {
+          headers: { 'User-Agent': getProductUserAgent('NOAA SWPC') },
+        });
         if (swpcRes.ok) {
           const swpcData: any = await swpcRes.json();
           if (Array.isArray(swpcData) && swpcData.length > 0) {
@@ -1030,7 +1033,7 @@ Context provided: ${JSON.stringify(context || {})}`;
       addFolderRecursively(rootDir, zip);
 
       const buffer = await zip.generateAsync({ type: "nodebuffer", compression: "DEFLATE" });
-      res.setHeader("Content-Disposition", 'attachment; filename="FieldOpsDashboard_v2.0.zip"');
+      res.setHeader("Content-Disposition", `attachment; filename="${getVersionedDownloadFilename()}"`);
       res.setHeader("Content-Type", "application/zip");
       res.setHeader("Content-Length", buffer.length.toString());
       return res.end(buffer);
@@ -1056,7 +1059,7 @@ Context provided: ${JSON.stringify(context || {})}`;
   }
 
   app.listen(PORT, "0.0.0.0", () => {
-    console.log(`FieldOpsDashboard Server running on http://localhost:${PORT}`);
+    console.log(`${PRODUCT_METADATA.productName} ${PRODUCT_METADATA.version} server running on http://localhost:${PORT}`);
   });
 }
 

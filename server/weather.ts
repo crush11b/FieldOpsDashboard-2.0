@@ -1,5 +1,6 @@
 import type { NOAAAlert, WeatherData } from '../src/types';
 import { parseCoordinates } from '../src/location/coordinates';
+import { getProductUserAgent } from '../src/productMetadata';
 
 export type ExternalDataStatus = 'live' | 'unavailable';
 
@@ -16,7 +17,7 @@ export interface WeatherCoordinates {
 }
 
 const NWS_HEADERS = {
-  'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
+  'User-Agent': `${getProductUserAgent('NOAA/NWS')} (contact@fieldops.radio)`,
   Accept: 'application/geo+json',
 };
 
@@ -145,6 +146,7 @@ async function fetchCurrentWeather(
   try {
     const response = await fetcher(
       `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=12`,
+      { headers: { 'User-Agent': getProductUserAgent('Open-Meteo') } },
     );
     if (!response.ok) return null;
     const body = await response.json() as Record<string, any>;

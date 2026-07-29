@@ -1,3 +1,5 @@
+import { getProductUserAgent } from '../src/productMetadata';
+
 export interface IonosondeStation {
   readonly code: string;
   readonly name: string;
@@ -59,7 +61,7 @@ export async function getIonosondeApiResponse(
   try {
     const response = await fetcher(KC2G_URL, {
       headers: {
-        'User-Agent': 'FieldOpsDashboard/2.1.0 (contact@fieldops.radio)',
+        'User-Agent': `${getProductUserAgent('KC2G')} (contact@fieldops.radio)`,
         Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,application/json',
       },
     });

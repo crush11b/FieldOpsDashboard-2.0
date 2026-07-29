@@ -3,6 +3,7 @@ import { BatteryCharging, Battery, Plug, Zap, AlertTriangle, ShieldCheck, Refres
 import { DualBatteryStatus, UIThemeMode } from '../types';
 import type { TelemetryEnvelope } from '../telemetry';
 import { toFiniteNumber } from '../utils/numbers';
+import { getVersionedDownloadFilename } from '../productMetadata';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
@@ -525,7 +526,7 @@ while ($true) {
 
                 <a
                   href="/api/download-project-zip"
-                  download="FieldOpsDashboard_v2.0.zip"
+                  download={getVersionedDownloadFilename()}
                   className="px-2.5 py-1 bg-blue-900/80 border border-blue-400/60 rounded text-blue-200 hover:bg-blue-800 transition-colors font-sans text-[10px] flex items-center gap-1"
                 >
                   📦 Download Complete Project Zip

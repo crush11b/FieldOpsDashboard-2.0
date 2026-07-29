@@ -1,4 +1,6 @@
 import React, { useState } from 'react';
+import { PRODUCT_METADATA } from '../productMetadata';
+import { createAdifExport } from '../utils/adif';
 import { 
   X, 
   Wrench, 
@@ -106,10 +108,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
   const handleExportADIF = () => {
     playTacticalClick(audioEnabled);
-    let adif = `ADIF Export from FieldOpsDashboard v1.1.4\n<HEADER>\n<ADIF_VER:5>3.1.0\n<PROGRAMID:18>FieldOpsDashboard\n<EOH>\n`;
-    logs.forEach((l) => {
-      adif += `<CALL:${l.callsign.length}>${l.callsign} <BAND:${l.band.length}>${l.band} <MODE:${l.mode.length}>${l.mode} <FREQ:${l.frequency.length}>${l.frequency} <RST_SENT:${l.rstSent.length}>${l.rstSent} <RST_RCVD:${l.rstRcvd.length}>${l.rstRcvd} <GRIDSQUARE:${l.gridSquare.length}>${l.gridSquare} <MY_POTA_REF:${(l.potaRef||'').length}>${l.potaRef||''} <EOR>\n`;
-    });
+    const adif = createAdifExport(logs);
 
     const blob = new Blob([adif], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
@@ -177,7 +176,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5 text-amber-400 animate-spin-slow" />
             <h2 className="font-black text-base uppercase tracking-wider text-zinc-100">
-              ROADMAP SMART MODULES (v1.2 FIELD SUITE)
+              ROADMAP SMART MODULES ({PRODUCT_METADATA.displayVersion})
             </h2>
           </div>
 

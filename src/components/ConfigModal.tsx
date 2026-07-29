@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { PRODUCT_METADATA } from '../productMetadata';
 import { X, Settings, Download, Upload, Plus, Trash2, Save, RefreshCw, Check, Code, Layers } from 'lucide-react';
 import { AppLauncherItem, DashboardConfig, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
@@ -93,7 +94,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `fieldops-config-${config.callsign || 'W7FIELD'}.json`;
+    a.download = `${PRODUCT_METADATA.productId}-config-${config.callsign || 'W7FIELD'}-${PRODUCT_METADATA.version}.json`;
     a.click();
     URL.revokeObjectURL(url);
   };
@@ -578,7 +579,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
         {/* Footer */}
         <div className="p-4 border-t border-current/15 flex items-center justify-between bg-black/40">
           <span className="text-[10px] text-slate-400">
-            FieldOpsDashboard v1.1.4 Config Engine
+            {PRODUCT_METADATA.productName} {PRODUCT_METADATA.displayVersion} Config Engine
           </span>
           <button
             id="btn-save-and-close-config"

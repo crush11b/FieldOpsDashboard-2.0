@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { DualBatteryStatus, GPSStatus, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
+import { getVersionedDownloadFilename, PRODUCT_METADATA } from '../productMetadata';
 
 interface HeaderBarProps {
   callsign: string;
@@ -81,7 +82,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     <header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
       <div className={`max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${headerBg} backdrop-blur-md`}>
         
-        {/* Left: Brand & Operator Callsign & Version v2.1 */}
+        {/* Left: Brand, operator callsign, and release version. */}
         <div className="flex items-center gap-3">
           <button
             id="btn-touch-menu-toggle"
@@ -111,7 +112,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 <span className={`text-[10px] px-2 py-0.5 rounded border uppercase tracking-widest font-mono font-bold ${
                   isNight ? 'border-red-900 text-red-400 bg-black' : isSunlight ? 'border-slate-500 bg-amber-300 text-slate-900' : 'border-zinc-700 bg-zinc-800/80 text-amber-400'
                 }`}>
-                  v2.1
+                  {PRODUCT_METADATA.displayVersion}
                 </span>
               </div>
             </div>
@@ -288,7 +289,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 const url = window.URL.createObjectURL(blob);
                 const a = document.createElement('a');
                 a.href = url;
-                a.download = 'FieldOpsDashboard_v2.0.zip';
+                a.download = getVersionedDownloadFilename();
                 document.body.appendChild(a);
                 a.click();
                 document.body.removeChild(a);
