@@ -31,6 +31,8 @@ $planningDocuments = @(
 )
 $stageRoot = Join-Path $repositoryRoot ('.planning-update-{0}' -f [Guid]::NewGuid().ToString('N'))
 $documentRoot = $stageRoot
+$backupRoot = Join-Path $stageRoot '.originals'
+$preserveStage = $false
 
 function Get-CellText {
     param(
@@ -174,6 +176,9 @@ try {
         $staged = Join-Path $stageRoot $relativePath
         [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($staged)) | Out-Null
         [System.IO.File]::Copy($source, $staged, $false)
+        $backup = Join-Path $backupRoot $relativePath
+        [System.IO.Directory]::CreateDirectory([System.IO.Path]::GetDirectoryName($backup)) | Out-Null
+        [System.IO.File]::Copy($source, $backup, $false)
     }
 
 Update-Docx 'docs/planning/Engineering_Backlog_v1.0_Part_1_Project_Foundation.docx' {
@@ -292,11 +297,44 @@ Update-Docx 'docs/planning/FieldOpsDashboard_Development_Roadmap_v1.0.docx' {
         }
     }
 
-    foreach ($relativePath in $planningDocuments) {
-        [System.IO.File]::Copy(
-            (Join-Path $stageRoot $relativePath),
-            (Join-Path $repositoryRoot $relativePath),
-            $true)
+    $replacedDocuments = [System.Collections.Generic.List[string]]::new()
+    try {
+        foreach ($relativePath in $planningDocuments) {
+            # File.Replace makes each individual destination transition atomic;
+            # the retained originals provide all-document rollback across the loop.
+            $replacementBackup = Join-Path $backupRoot (Join-Path '.replaced' $relativePath)
+            [System.IO.Directory]::CreateDirectory(
+                [System.IO.Path]::GetDirectoryName($replacementBackup)) | Out-Null
+            [System.IO.File]::Replace(
+                (Join-Path $stageRoot $relativePath),
+                (Join-Path $repositoryRoot $relativePath),
+                $replacementBackup,
+                $true)
+            $replacedDocuments.Add($relativePath)
+        }
+    }
+    catch {
+        $replacementFailure = $_
+        $rollbackFailures = [System.Collections.Generic.List[string]]::new()
+        for ($index = $replacedDocuments.Count - 1; $index -ge 0; $index--) {
+            $relativePath = $replacedDocuments[$index]
+            try {
+                [System.IO.File]::Copy(
+                    (Join-Path $backupRoot $relativePath),
+                    (Join-Path $repositoryRoot $relativePath),
+                    $true)
+            }
+            catch {
+                $rollbackFailures.Add("$relativePath`: $($_.Exception.Message)")
+            }
+        }
+
+        if ($rollbackFailures.Count -gt 0) {
+            $preserveStage = $true
+            throw "Planning update failed: $($replacementFailure.Exception.Message) Rollback was incomplete: $($rollbackFailures -join '; '). Recovery copies remain in '$backupRoot'."
+        }
+
+        throw $replacementFailure
     }
 
     Write-Output 'Updated authoritative planning documents for Task 2.3-03.'
@@ -305,7 +343,8 @@ finally {
     $resolvedStage = [System.IO.Path]::GetFullPath($stageRoot)
     $expectedPrefix = $repositoryRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar) +
         [System.IO.Path]::DirectorySeparatorChar + '.planning-update-'
-    if ($resolvedStage.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and
+    if (-not $preserveStage -and
+        $resolvedStage.StartsWith($expectedPrefix, [System.StringComparison]::OrdinalIgnoreCase) -and
         [System.IO.Directory]::Exists($resolvedStage)) {
         [System.IO.Directory]::Delete($resolvedStage, $true)
     }

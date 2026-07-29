@@ -1,17 +1,20 @@
 using FieldOps.ServiceControlPrototype;
 
 const string serviceName = "FieldOpsAgent";
-var mutexName = $"Local\\{serviceName}.RestartPrototype";
 
 if (args.Length != 0)
 {
     return (int)RestartExitCode.InvalidInvocation;
 }
 
-using var mutex = new Mutex(initiallyOwned: true, mutexName, out var ownsMutex);
-if (!ownsMutex)
+using var restartCoordination = RestartCoordination.TryAcquire();
+if (restartCoordination.State == RestartCoordinationState.AlreadyInProgress)
 {
     return (int)RestartExitCode.RestartAlreadyInProgress;
+}
+if (restartCoordination.State != RestartCoordinationState.Acquired)
+{
+    return (int)RestartExitCode.UnexpectedFailure;
 }
 
 try
@@ -25,14 +28,12 @@ try
         controller,
         new AgentHealthProbe(httpClient),
         transitionTimeout: TimeSpan.FromSeconds(30));
-    var result = await operation.ExecuteAsync(CancellationToken.None);
+    // A Windows mutex is thread-affine. Keep acquisition, the bounded operation,
+    // and release on this thread while asynchronous I/O completes underneath it.
+    var result = operation.ExecuteAsync(CancellationToken.None).GetAwaiter().GetResult();
     return (int)result.ExitCode;
 }
 catch
 {
     return (int)RestartExitCode.UnexpectedFailure;
-}
-finally
-{
-    mutex.ReleaseMutex();
 }

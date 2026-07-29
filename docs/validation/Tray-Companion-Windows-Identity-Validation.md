@@ -51,7 +51,7 @@ Expected under a standard user:
 
 - The explicitly permitted current-operator connection succeeds.
 - A DACL naming a different operator denies the client before any command is accepted.
-- No ACL contains Builtin Users, Everyone, Anonymous, or Network.
+- Builtin Users, Everyone, Anonymous, and Network receive no allow ACE; Anonymous and Network have explicit deny ACEs.
 - A pre-created pipe name causes the legitimate `FirstPipeInstance` server to fail; it never connects to the squatted instance.
 - Empty/malformed correlations, unsupported commands, oversized frames, timeouts, and concurrent operations are rejected.
 
@@ -115,6 +115,8 @@ $LASTEXITCODE
 ```
 
 For the no-argument run, accept UAC only on the approved validation machine. Expected success is exit code `0` only after the old service stops, SCM reports `Running` for the new instance, and authenticated health reports `ok`. Exercise UAC cancellation from the Tray prototype and verify it reports cancellation rather than success.
+
+While one elevated helper is deliberately held open during a restart, invoke it from a second interactive or RDP session. The second invocation must return exit code `17` without issuing another SCM stop or start request. Record both session IDs and exit codes.
 
 ## Evidence to retain
 

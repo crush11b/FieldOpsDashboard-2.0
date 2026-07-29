@@ -107,6 +107,11 @@
           "System.Diagnostics.EventLog": "8.0.1"
         }
       },
+      "System.Threading.AccessControl": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "cIed5+HuYz+eV9yu9TH95zPkqmm1J9Qps9wxjB335sU8tsqc2kGdlTEH9FZzZeCS8a7mNSEsN8ZkyhQp1gfdEw=="
+      },
       "xunit.abstractions": {
         "type": "Transitive",
         "resolved": "2.0.3",
@@ -151,7 +156,8 @@
         "type": "Project",
         "dependencies": {
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )",
-          "System.ServiceProcess.ServiceController": "[8.0.1, )"
+          "System.ServiceProcess.ServiceController": "[8.0.1, )",
+          "System.Threading.AccessControl": "[8.0.0, )"
         }
       },
       "fieldops.trayprototype": {
@@ -200,6 +206,11 @@
         "dependencies": {
           "System.Diagnostics.EventLog": "8.0.1"
         }
+      },
+      "System.Threading.AccessControl": {
+        "type": "Transitive",
+        "resolved": "8.0.0",
+        "contentHash": "cIed5+HuYz+eV9yu9TH95zPkqmm1J9Qps9wxjB335sU8tsqc2kGdlTEH9FZzZeCS8a7mNSEsN8ZkyhQp1gfdEw=="
       }
     }
   }

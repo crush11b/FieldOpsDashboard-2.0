@@ -140,8 +140,9 @@ Service availability and the future privileged command boundary must be protecte
 - The Named Pipe spike uses explicit SIDs, not `CurrentUserOnly`, World, or the broad local Users group; Anonymous and Network receive explicit deny ACEs.
 - Pipe messages are length-prefixed, capped at 4096 bytes, time-bounded, single-operation, and correlation-ID based.
 - Empty or malformed correlation IDs and unknown command types are rejected before command execution.
+- The native client rejects empty, malformed, or mismatched response correlation IDs. Correlation IDs associate a response with a request; they do not authenticate the pipe server.
 - `FirstPipeInstance` makes a pre-created pipe name fail closed; production must report and audit this condition.
-- Restart overlap is guarded by a fixed local mutex.
+- Restart overlap is guarded across Windows sessions by `Global\FieldOpsAgent.RestartPrototype`. Its protected DACL grants full control only to LocalSystem, Builtin Administrators, and the specific elevated identity that creates it; representative multi-session behavior remains part of field validation.
 - Production implementation must add auditable Windows Event Log outcomes without secrets or exact sensitive paths.
 
 ## Elevation and UAC

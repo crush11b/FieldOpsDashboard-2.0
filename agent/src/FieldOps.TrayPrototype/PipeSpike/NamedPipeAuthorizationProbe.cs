@@ -86,7 +86,13 @@ public sealed class NamedPipeAuthorizationProbe(
             TokenImpersonationLevel.Identification);
         await client.ConnectAsync(timeoutSource.Token);
         await WriteMessageAsync(client, request, timeoutSource.Token);
-        return await ReadMessageAsync<PipeProbeResponse>(client, timeoutSource.Token);
+        var response = await ReadMessageAsync<PipeProbeResponse>(client, timeoutSource.Token);
+        if (response.CorrelationId != request.CorrelationId)
+        {
+            throw new InvalidDataException("Named Pipe response correlation did not match the request.");
+        }
+
+        return response;
     }
 
     private static async Task<T> ReadMessageAsync<T>(Stream stream, CancellationToken cancellationToken)

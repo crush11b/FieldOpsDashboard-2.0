@@ -74,7 +74,7 @@ dotnet build .\agent\FieldOps.Agent.sln -c Release --no-restore
 
 The tray resolves `FieldOps.ServiceControlPrototype.exe` only beside its own executable. It does not use the working directory, `PATH`, environment configuration, or tray-provided paths. Restart displays UAC because the helper relies on the elevated Windows token and SCM authorization, not an application credential.
 
-The helper is fixed-purpose and accepts no arguments. Direct invocation is useful only for bounded validation:
+The helper is fixed-purpose, accepts no arguments, and uses the ACL-protected `Global\FieldOpsAgent.RestartPrototype` mutex so restart attempts from separate Windows sessions cannot overlap. Direct invocation is useful only for bounded validation:
 
 ```powershell
 & .\agent\src\FieldOps.ServiceControlPrototype\bin\Release\net8.0-windows\win-x64\FieldOps.ServiceControlPrototype.exe

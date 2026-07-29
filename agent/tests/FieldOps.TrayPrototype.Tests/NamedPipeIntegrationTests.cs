@@ -2,6 +2,7 @@ using System.Security.Principal;
 using System.Buffers.Binary;
 using System.IO.Pipes;
 using System.Text;
+using System.Text.Json;
 using FieldOps.TrayPrototype.PipeSpike;
 
 namespace FieldOps.TrayPrototype.Tests;
@@ -110,6 +111,44 @@ public sealed class NamedPipeIntegrationTests
 
     [Fact]
     [Trait("Category", "WindowsIntegration")]
+    public async Task Client_rejects_a_response_with_the_wrong_correlation_id()
+    {
+        var requestCorrelation = Guid.NewGuid();
+        var response = JsonSerializer.Serialize(
+            new PipeProbeResponse(Guid.NewGuid(), true, "authorized"));
+
+        var exception = await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await CallAgainstResponseAsync(requestCorrelation, response));
+
+        Assert.Contains("correlation", exception.Message, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    [Trait("Category", "WindowsIntegration")]
+    public async Task Client_rejects_an_empty_response_correlation_id()
+    {
+        var requestCorrelation = Guid.NewGuid();
+        var response = JsonSerializer.Serialize(
+            new PipeProbeResponse(Guid.Empty, true, "authorized"));
+
+        await Assert.ThrowsAsync<InvalidDataException>(async () =>
+            await CallAgainstResponseAsync(requestCorrelation, response));
+    }
+
+    [Fact]
+    [Trait("Category", "WindowsIntegration")]
+    public async Task Client_rejects_a_malformed_response_correlation_id()
+    {
+        var requestCorrelation = Guid.NewGuid();
+
+        await Assert.ThrowsAsync<JsonException>(async () =>
+            await CallAgainstResponseAsync(
+                requestCorrelation,
+                "{\"CorrelationId\":\"not-a-guid\",\"Accepted\":true,\"Result\":\"authorized\"}"));
+    }
+
+    [Fact]
+    [Trait("Category", "WindowsIntegration")]
     public async Task Malformed_correlation_id_closes_request_without_accepting_a_command()
     {
         var (probe, pipeName) = CreateCurrentOperatorProbe();
@@ -212,6 +251,47 @@ public sealed class NamedPipeIntegrationTests
                 new PipeAuthorizationPolicy(currentSid),
                 TimeSpan.FromSeconds(5)),
             pipeName);
+    }
+
+    private static async Task<PipeProbeResponse> CallAgainstResponseAsync(
+        Guid requestCorrelation,
+        string responseJson)
+    {
+        var pipeName = $"FieldOps.TrayPrototype.Tests.{Guid.NewGuid():N}";
+        await using var server = new NamedPipeServerStream(
+            pipeName,
+            PipeDirection.InOut,
+            maxNumberOfServerInstances: 1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance);
+        var serverTask = Task.Run(async () =>
+        {
+            await server.WaitForConnectionAsync();
+            var lengthBytes = new byte[sizeof(int)];
+            await server.ReadExactlyAsync(lengthBytes);
+            var requestLength = BinaryPrimitives.ReadInt32LittleEndian(lengthBytes);
+            var requestBytes = new byte[requestLength];
+            await server.ReadExactlyAsync(requestBytes);
+
+            var responseBytes = Encoding.UTF8.GetBytes(responseJson);
+            BinaryPrimitives.WriteInt32LittleEndian(lengthBytes, responseBytes.Length);
+            await server.WriteAsync(lengthBytes);
+            await server.WriteAsync(responseBytes);
+            await server.FlushAsync();
+        });
+
+        try
+        {
+            return await NamedPipeAuthorizationProbe.CallAsync(
+                pipeName,
+                requestCorrelation,
+                TimeSpan.FromSeconds(5),
+                CancellationToken.None);
+        }
+        finally
+        {
+            await serverTask;
+        }
     }
 
     private static async Task WriteRawMessageAsync(
