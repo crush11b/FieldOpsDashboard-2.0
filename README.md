@@ -1,111 +1,249 @@
 # FieldOps Dashboard
 
-> Rugged, offline-first Tactical Launch Platform and Operations Dashboard for Ham Radio Field Operators, POTA/SOTA Activators, and EMCOMM Teams running Panasonic ToughBook / ToughPad hardware.
+> Rugged, offline-first operations dashboard for amateur-radio field operators, POTA/SOTA activators, EMCOMM teams, and Panasonic ToughBook/ToughPad deployments.
 
-![FieldOps Dashboard](https://img.shields.io/badge/Platform-Panasonic_ToughBook_%2F_ToughPad-004B87?style=for-the-badge&logo=windows&logoColor=white)
-![Build Status](https://img.shields.io/badge/Status-Field_Ready-00C853?style=for-the-badge)
-![License](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)
+![Version](https://img.shields.io/badge/version-2.2.0-004B87?style=for-the-badge)
+![Status](https://img.shields.io/badge/status-active_development-F9A825?style=for-the-badge)
+![Platform](https://img.shields.io/badge/platform-Windows_10%2F11-0078D4?style=for-the-badge&logo=windows&logoColor=white)
+![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
 
----
+## Current release
 
-## 🛰️ Key Features
+**FieldOps Dashboard 2.2.0 — Trustworthy Dashboard**
 
-### 📡 GNSS / Serial GPS Integration
-- **Direct COM Port Selection**: Select hardware COM ports (e.g., `COM6 (GPS Receiver)`, `COM1` through `COM16`, Linux `/dev/ttyUSB0`, `/dev/ttyACM0`) or enter custom serial device strings.
-- **NMEA Baud Rate Tuning**: Support for standard NMEA 0183 baud rates (4800, 9600, 19200, 38400, 57600, 115200 BAUD).
-- **Automatic Maidenhead Grid Locator**: Instant conversion of GPS lat/lon into 6-character Maidenhead grid squares (e.g., `DN17bv`) with satellite constellation fix status (3D Fix, 2D Fix, RTK).
+Version 2.2 establishes the project’s reliability baseline. Operational data is now presented with explicit source, status, freshness, and provenance semantics instead of fabricated defaults or misleading success states.
 
-### 🔋 Dual-Battery System Monitoring
-- **ToughBook / ToughPad Dual-Power WMI Query**: Hardware polling engine querying Windows WMI (`Win32_Battery`) or Linux sysfs for both **Main Tablet Battery (BAT1)** and **Keyboard Dock Battery (BAT2)**.
-- **Fallbacks & Web Battery API**: Automatic fallback to browser `navigator.getBattery` driver API when available.
-- **Manual Calibration Mode**: Slider override panel for testing battery thresholds, critical warnings, and uncoupled keyboard dock scenarios.
+Release tag: [`v2.2.0`](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.2.0)
 
-### 📻 Ham Radio App Launcher & Quick Tools
-- **Tactical Launch Grid**: Configurable 2, 3, 4, or 6 column grid for WSJT-X, FLdigi, N1MM Log, Ham Radio Deluxe, Chirp, GridTracker, QRZ, and custom field software.
-- **Configuration Persistence**: Save and export application setups via JSON config modal.
+## What the project does
 
-### 📜 SmartLog+ ADIF Logger
-- **Rapid Contact Logging**: Log QSOs with Call, Frequency, Mode, RST, and Maidenhead Grid square.
-- **Distance & Bearing Stats**: Automatic distance (miles/km) and bearing angle calculation relative to your current station grid.
-- **ADIF File Import & Export**: Full ADIF (Amateur Data Interchange Format) file generator and reader for seamless upload to LoTW, QRZ, or eQL.
+FieldOps Dashboard combines field-radio tools, local hardware integration, weather and propagation context, application launching, and logging into one touch-friendly interface designed for unreliable or unavailable internet connectivity.
 
-### 🌤️ HF Propagation & Tactical Weather
-- **VOACAP HF Band Condition Status**: Real-time evaluation for 80m, 40m, 20m, 15m, 10m, and 6m bands based on Solar Flux Index (SFI), K-index, and A-index.
-- **NOAA Weather & Field Alerting**: Field weather station widget with active emergency weather alert banners.
+Core capabilities include:
 
-### 🎨 Tactical Field Display Modes
-- **Tactical Dark Mode**: Low-glare dark layout optimized for command tents.
-- **Night Vision Mode**: Monochromatic red phosphor theme preventing night-vision eye degradation.
-- **Sunlight Readable Mode**: Ultra-high contrast light theme designed for outdoor sunlight activation.
-- **OLED Monochrome Amber**: Classic vintage military terminal styling.
+- GPS position, source, fix state, age, and Maidenhead grid presentation
+- Weather and NOAA alert presentation with honest unavailable and stale states
+- Modeled HF propagation guidance clearly distinguished from measured data
+- ToughBook battery and system-status presentation
+- Configurable launcher tiles for radio and field applications
+- ADIF contact logging and export
+- Offline-capable frontend and local Express backend
+- A Windows Local Agent foundation for isolated hardware access
 
----
+## Trustworthy telemetry semantics
 
-## 🛠️ Architecture & Tech Stack
+FieldOps Dashboard does not substitute invented values when a source fails.
 
-- **Frontend**: React 18, TypeScript, Tailwind CSS, Lucide Icons, Framer Motion
-- **Backend**: Express.js server (`server.ts`) bundled with `esbuild` to CommonJS (`dist/server.cjs`)
-- **System Integration**: Node.js `child_process` execution for PowerShell WMI queries and native OS device access
+Telemetry can be represented as:
 
----
+- **Live** — current data from an active source
+- **Cached** — retained data that is still within an acceptable age
+- **Stale** — retained data that has exceeded its freshness threshold
+- **Unavailable** — no usable value is available
+- **Error** — the source failed, optionally with previously retained data
+- **Manual** — explicitly entered or overridden by the operator
+- **Modeled** — calculated guidance, not a direct measurement
 
-## 🚀 Getting Started
+Valid zero values remain valid. A reading of `0` is not automatically treated as missing.
+
+## Windows Local Agent
+
+The repository includes the first Windows Local Agent foundation under [`agent/`](agent/README.md).
+
+The agent is a Windows service that:
+
+- runs under the `LocalService` account
+- starts automatically with Windows
+- uses restart-on-failure service recovery
+- listens only on `127.0.0.1:43120`
+- provides an authenticated, read-only health endpoint
+- stores its local credential using Windows DPAPI
+
+### Important v2.2 boundary
+
+Telemetry transmission remains intentionally dormant in Version 2.2.
+
+Only `AgentLifecycleService` is registered. `TelemetrySenderService` and `HttpTelemetryDestination` are present as foundation code but are not registered or active.
+
+## Architecture
+
+```text
+Browser / touch UI
+        │
+        ▼
+React + TypeScript frontend
+        │
+        ▼
+Local Express backend
+        │
+        ├── weather and NOAA adapters
+        ├── propagation modeling
+        ├── configuration and ADIF export
+        └── authenticated telemetry receiver foundation
+
+Windows Local Agent
+        ├── Windows service lifecycle
+        ├── localhost-only health endpoint
+        ├── credential protection
+        └── dormant telemetry transport foundation
+```
+
+### Technology stack
+
+- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Lucide icons, Motion
+- **Backend:** Express.js, bundled with esbuild
+- **Testing:** Vitest, Testing Library, jsdom
+- **Windows Agent:** .NET 8 Windows service
+- **Deployment:** PowerShell-based offline and ToughBook deployment tooling
+
+## Getting started
 
 ### Prerequisites
-- Node.js 18+ or 20+
-- Windows 10/11 (for direct ToughBook WMI hardware battery queries) or Linux (Debian/Ubuntu/Arch)
 
-### Installation & Execution
+- Node.js 20 or newer recommended
+- npm
+- Windows 10/11 for ToughBook hardware integration and agent deployment
+- .NET 8 SDK only when building or testing the Windows agent from source
 
-1. **Clone the repository:**
-   ```bash
-   git clone https://github.com/your-username/field-ops-dashboard.git
-   cd field-ops-dashboard
-   ```
+### Clone and install
 
-2. **Install dependencies:**
-   ```bash
-   npm install
-   ```
-
-3. **Start the Development Server:**
-   ```bash
-   npm run dev
-   ```
-   Open `http://localhost:3000` in your browser.
-
-4. **Build for Production / Offline Deployment:**
-   ```bash
-   npm run build
-   npm start
-   ```
-
----
-
-## 📁 Repository Structure
-
+```powershell
+git clone https://github.com/crush11b/FieldOpsDashboard-2.0.git
+cd FieldOpsDashboard-2.0
+npm install
 ```
+
+### Run in development
+
+```powershell
+npm run dev
+```
+
+Open:
+
+```text
+http://localhost:3000
+```
+
+### Build and run production output
+
+```powershell
+npm run build
+npm start
+```
+
+## Validation commands
+
+### Frontend and Express
+
+```powershell
+npm run metadata:check
+npm run typecheck
+npm test
+npm run build
+```
+
+The Version 2.2 release baseline passed:
+
+- metadata synchronization
+- TypeScript validation
+- 180 automated tests across 18 files
+- frontend production build
+- Express production bundle
+- `git diff --check`
+
+### Windows agent
+
+```powershell
+dotnet build .\agent\FieldOps.Agent.sln
+dotnet test .\agent\FieldOps.Agent.sln
+```
+
+Create the self-contained Windows deployment bundle:
+
+```powershell
+dotnet publish .\agent\src\FieldOps.Agent\FieldOps.Agent.csproj `
+  -c Release `
+  -r win-x64 `
+  --self-contained true `
+  -p:RestoreLockedMode=true `
+  -o .\agent\publish\win-x64
+```
+
+## ToughBook deployment
+
+The repository contains an offline deployment guide and transactional updater:
+
+- [`README_OFFLINE_DEPLOYMENT.txt`](README_OFFLINE_DEPLOYMENT.txt)
+- [`UpdateDashboard.ps1`](UpdateDashboard.ps1)
+
+After deploying the dashboard package, install the Windows agent from an elevated PowerShell session:
+
+```powershell
+.\agent\scripts\Install-FieldOpsAgent.ps1
+```
+
+Verify the service:
+
+```powershell
+.\agent\scripts\Test-FieldOpsAgentHealth.ps1
+```
+
+Uninstall it with:
+
+```powershell
+.\agent\scripts\Uninstall-FieldOpsAgent.ps1
+```
+
+## Repository layout
+
+```text
 .
-├── server.ts                       # Express.js backend & hardware API endpoints
+├── agent/                     # .NET Windows Local Agent, tests, scripts, publish output
+├── docs/                      # Architecture, telemetry, ADRs, roadmap, and backlog material
+├── public/                    # PWA manifest and service worker
+├── scripts/                   # Product-metadata synchronization
+├── server/                    # Backend modules and server tests
 ├── src/
-│   ├── App.tsx                     # Main tactical field dashboard container
-│   ├── types.ts                    # Global TypeScript interfaces & data models
-│   ├── components/
-│   │   ├── BatteryStatusWidget.tsx # ToughBook/ToughPad dual battery monitor
-│   │   ├── GPSGridWidget.tsx       # GNSS COM Port selector & Maidenhead grid
-│   │   ├── ConfigModal.tsx         # App grid & COM port settings modal
-│   │   ├── SmartLogWidget.tsx      # ADIF contact logging engine
-│   │   ├── PropagationWidget.tsx   # VOACAP HF propagation & solar flux
-│   │   ├── WeatherWidget.tsx       # NOAA weather alert badge & forecast
-│   │   └── AppLauncherGrid.tsx     # Tactical software app grid
-│   └── data/
-│       └── defaultConfig.ts        # Default configuration & app links
-├── package.json                    # NPM build scripts & dependencies
-└── README.md                       # Documentation
+│   ├── components/            # Dashboard widgets and UI tests
+│   ├── location/              # Coordinate and Maidenhead logic
+│   ├── telemetry/             # Shared status, freshness, envelope, and display models
+│   ├── test/                  # Shared test setup and telemetry factories
+│   └── utils/                 # ADIF and numeric helpers
+├── product-metadata.json      # Canonical product and release identity
+├── server.ts                  # Express application entry point
+└── README.md
 ```
 
----
+## Product metadata
 
-## 📄 License
+Canonical identity is stored in [`product-metadata.json`](product-metadata.json):
 
-Distributed under the MIT License. See `LICENSE` for more information.
+- **Product:** FieldOps Dashboard
+- **Package:** `fieldops-dashboard`
+- **Version:** `2.2.0`
+- **Release:** Trustworthy Dashboard
+
+Run the synchronization check with:
+
+```powershell
+npm run metadata:check
+```
+
+## Roadmap
+
+Version 2.2 completed the Trustworthy Dashboard milestone.
+
+The next roadmap phase advances the secure local-agent architecture and hardware-integration foundation. Telemetry delivery should remain dormant until its planned activation task is implemented and reviewed.
+
+Project architecture and roadmap documents are available under [`docs/`](docs/README.md).
+
+## Project status
+
+This project is under active development. It is suitable for controlled development and field evaluation, but individual integrations may still be incomplete or intentionally disabled.
+
+Do not interpret unavailable, stale, cached, manual, or modeled values as live measurements.
+
+## License
+
+Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
