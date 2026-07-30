@@ -16,14 +16,34 @@ internal sealed class TrayApplicationContext(
     {
         Icon = SystemIcons.Application,
         Text = "FieldOps Dashboard",
-        Visible = true,
+        Visible = false,
     };
+    private bool started;
+    private bool shutdownStarted;
 
     public void Start()
     {
-        restartItem.Click += async (_, _) => await RestartAsync();
+        if (started)
+        {
+            throw new InvalidOperationException("The tray application context has already started.");
+        }
+
+        started = true;
+        restartItem.Click += async (_, _) =>
+        {
+            if (!shutdownStarted)
+            {
+                await RestartAsync();
+            }
+        };
         var refreshItem = new ToolStripMenuItem("Refresh");
-        refreshItem.Click += async (_, _) => await RefreshAsync();
+        refreshItem.Click += async (_, _) =>
+        {
+            if (!shutdownStarted)
+            {
+                await RefreshAsync();
+            }
+        };
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitThread();
 
@@ -38,23 +58,35 @@ internal sealed class TrayApplicationContext(
             exitItem,
         ]);
 
+        notifyIcon.Visible = true;
         _ = RefreshAsync();
     }
 
     protected override void ExitThreadCore()
     {
-        lifetimeCancellation.Cancel();
-        refreshCoordinator.Dispose();
-        lifetimeCancellation.Dispose();
-        notifyIcon.Visible = false;
-        notifyIcon.Dispose();
+        Shutdown();
         base.ExitThreadCore();
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing)
+        {
+            Shutdown();
+        }
+
+        base.Dispose(disposing);
     }
 
     private async Task RefreshAsync()
     {
         var result = await refreshCoordinator.RefreshAsync(lifetimeCancellation.Token);
         if (result is null)
+        {
+            return;
+        }
+
+        if (shutdownStarted)
         {
             return;
         }
@@ -69,11 +101,32 @@ internal sealed class TrayApplicationContext(
     {
         restartItem.Enabled = false;
         var result = await restartCoordinator.RestartAsync(lifetimeCancellation.Token);
+        if (shutdownStarted)
+        {
+            return;
+        }
+
         MessageBox.Show(
             result.Detail,
             result.Succeeded ? "FieldOps Agent restarted" : "FieldOps Agent restart failed",
             MessageBoxButtons.OK,
             result.Succeeded ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
         await RefreshAsync();
+    }
+
+    private void Shutdown()
+    {
+        if (shutdownStarted)
+        {
+            return;
+        }
+
+        shutdownStarted = true;
+        lifetimeCancellation.Cancel();
+        refreshCoordinator.Dispose();
+        notifyIcon.Visible = false;
+        notifyIcon.ContextMenuStrip?.Dispose();
+        notifyIcon.Dispose();
+        lifetimeCancellation.Dispose();
     }
 }
