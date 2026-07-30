@@ -3,6 +3,7 @@ using FieldOps.Agent;
 using FieldOps.Agent.Health;
 using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
+using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.EventLog;
 
 const string serviceName = "FieldOpsAgent";
@@ -34,7 +35,7 @@ builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfigur
 builder.Services.AddSingleton(sp => new NativeHealthGatewayServer(
     sp.GetRequiredService<NativeHealthAuthorizationPolicy>(),
     sp.GetRequiredService<INativeHealthSnapshotProvider>(),
-    TimeSpan.FromSeconds(5),
+    NativeHealthProtocol.ServerClientProcessingTimeout,
     sp.GetRequiredService<ILogger<NativeHealthGatewayServer>>()));
 builder.Services.AddTelemetryTransportFoundation();
 builder.Services.AddHostedService<AgentLifecycleService>();

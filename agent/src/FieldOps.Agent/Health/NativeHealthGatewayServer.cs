@@ -33,17 +33,29 @@ internal sealed class NativeHealthGatewayServer(
         await operationGate.WaitAsync(cancellationToken);
         try
         {
-            await using var server = CreateServer();
-            logger.LogInformation(
-                "Native read-only health gateway owns the fixed local pipe using protocol version {ProtocolVersion}",
-                NativeHealthProtocol.Version);
+            var ownershipLogged = false;
 
             while (!cancellationToken.IsCancellationRequested)
             {
+                var server = CreateServer();
                 try
                 {
+                    if (!ownershipLogged)
+                    {
+                        logger.LogInformation(
+                            "Native read-only health gateway owns the fixed local pipe using protocol version {ProtocolVersion}",
+                            NativeHealthProtocol.Version);
+                        ownershipLogged = true;
+                    }
+
                     await server.WaitForConnectionAsync(cancellationToken);
-                    await ProcessConnectedClientAsync(server, cancellationToken);
+                    using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(
+                        cancellationToken);
+                    timeoutSource.CancelAfter(operationTimeout);
+                    using var disposalRegistration = timeoutSource.Token.Register(
+                        static state => DisposeWithoutThrowing((NamedPipeServerStream)state!),
+                        server);
+                    await ProcessConnectedClientAsync(server, timeoutSource.Token);
                 }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
                 {
@@ -52,13 +64,14 @@ internal sealed class NativeHealthGatewayServer(
                 catch (Exception exception) when (exception is IOException
                     or InvalidDataException
                     or UnauthorizedAccessException
-                    or OperationCanceledException)
+                    or OperationCanceledException
+                    or ObjectDisposedException)
                 {
                     logger.LogWarning("Native health gateway request failed safely");
                 }
                 finally
                 {
-                    DisconnectSafely(server);
+                    DisposeSafely(server);
                 }
             }
         }
@@ -88,16 +101,11 @@ internal sealed class NativeHealthGatewayServer(
         }
     }
 
-    private static void DisconnectSafely(NamedPipeServerStream server)
+    private static void DisposeSafely(NamedPipeServerStream server)
     {
-        if (!server.IsConnected)
-        {
-            return;
-        }
-
         try
         {
-            server.Disconnect();
+            server.Dispose();
         }
         catch (Exception exception) when (exception is IOException
             or InvalidOperationException
@@ -107,20 +115,32 @@ internal sealed class NativeHealthGatewayServer(
         }
     }
 
+    private static void DisposeWithoutThrowing(NamedPipeServerStream server)
+    {
+        try
+        {
+            server.Dispose();
+        }
+        catch (Exception exception) when (exception is IOException
+            or InvalidOperationException
+            or ObjectDisposedException)
+        {
+            // The loop's finally block retries disposal and reports a typed recovery failure if needed.
+        }
+    }
+
     internal async Task ProcessConnectedClientAsync(
         Stream server,
         CancellationToken cancellationToken)
     {
-        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeoutSource.CancelAfter(operationTimeout);
         var request = await NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(
             server,
-            timeoutSource.Token);
-        var response = await CreateResponseAsync(request, timeoutSource.Token);
-        await NativeHealthMessageFraming.WriteAsync(server, response, timeoutSource.Token);
+            cancellationToken);
+        var response = await CreateResponseAsync(request, cancellationToken);
+        await NativeHealthMessageFraming.WriteAsync(server, response, cancellationToken);
         var acknowledgement = await NativeHealthMessageFraming.ReadAsync<NativeHealthAcknowledgement>(
             server,
-            timeoutSource.Token);
+            cancellationToken);
         if (acknowledgement.ProtocolVersion != NativeHealthProtocol.Version
             || acknowledgement.CorrelationId == Guid.Empty
             || acknowledgement.CorrelationId != request.CorrelationId)

@@ -13,7 +13,7 @@ public sealed class NativeHealthClient
     public NativeHealthClient()
         : this(
             NativeHealthProtocol.PipeName,
-            TimeSpan.FromSeconds(5),
+            NativeHealthProtocol.ClientOperationTimeout,
             new SecurityIdentifier(WellKnownSidType.LocalServiceSid, null))
     {
     }

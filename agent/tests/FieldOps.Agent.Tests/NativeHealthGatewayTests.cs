@@ -31,6 +31,14 @@ public sealed class NativeHealthGatewayTests
     }
 
     [Fact]
+    public void ServerProcessingBoundLeavesClientRecoveryBudget()
+    {
+        Assert.True(
+            NativeHealthProtocol.ServerClientProcessingTimeout
+                < NativeHealthProtocol.ClientOperationTimeout);
+    }
+
+    [Fact]
     public async Task ProviderFailureReturnsUnavailableWithoutDetails()
     {
         await WithRunningServerAsync(new ThrowingSnapshotProvider(), async () =>
@@ -112,6 +120,104 @@ public sealed class NativeHealthGatewayTests
 
         cancellation.Cancel();
         await runTask;
+    }
+
+    [Fact]
+    public async Task AbandonedSixtyFourByteFrameImmediatelyAllowsAValidRequest()
+    {
+        var server = CreateServer(
+            new StaticSnapshotProvider(CreateSnapshot()),
+            NativeHealthProtocol.ServerClientProcessingTimeout);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+        var runTask = server.RunAsync(cancellation.Token);
+        try
+        {
+            await using (var abandonedClient = await ConnectRawClientAsync())
+            {
+                var header = new byte[sizeof(int)];
+                BinaryPrimitives.WriteInt32LittleEndian(header, 64);
+                await abandonedClient.WriteAsync(header, cancellation.Token);
+                await abandonedClient.WriteAsync(new byte[] { 1 }, cancellation.Token);
+                await abandonedClient.FlushAsync(cancellation.Token);
+            }
+
+            var response = await CreateClient().ReadAsync(cancellation.Token);
+            Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await runTask;
+        }
+    }
+
+    [Fact]
+    public Task DeclaredFrameWithNoPayloadImmediatelyAllowsAValidRequest() =>
+        AssertImmediateRequestReadRecoveryAsync(async (client, cancellationToken) =>
+        {
+            var header = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(header, 64);
+            await client.WriteAsync(header, cancellationToken);
+            await client.FlushAsync(cancellationToken);
+        });
+
+    [Fact]
+    public Task PartialLengthPrefixImmediatelyAllowsAValidRequest() =>
+        AssertImmediateRequestReadRecoveryAsync(async (client, cancellationToken) =>
+        {
+            await client.WriteAsync(new byte[] { 64, 0 }, cancellationToken);
+            await client.FlushAsync(cancellationToken);
+        });
+
+    [Fact]
+    public async Task RepeatedTruncatedClientsImmediatelyAllowAValidRequest()
+    {
+        var server = CreateServer(
+            new StaticSnapshotProvider(CreateSnapshot()),
+            TimeSpan.FromMilliseconds(100));
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = server.RunAsync(cancellation.Token);
+        try
+        {
+            for (var attempt = 0; attempt < 3; attempt++)
+            {
+                await using (var client = await ConnectRawClientAsync())
+                {
+                    var header = new byte[sizeof(int)];
+                    BinaryPrimitives.WriteInt32LittleEndian(header, 64);
+                    await client.WriteAsync(header, cancellation.Token);
+                    await client.WriteAsync(new byte[] { 1 }, cancellation.Token);
+                    await client.FlushAsync(cancellation.Token);
+                }
+            }
+
+            var response = await CreateClient().ReadAsync(cancellation.Token);
+            Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await runTask.WaitAsync(TestTimeout);
+        }
+    }
+
+    [Fact]
+    public async Task ShutdownDuringAbandonedPartialRequestCompletesPromptly()
+    {
+        var server = CreateServer(
+            new StaticSnapshotProvider(CreateSnapshot()),
+            NativeHealthProtocol.ServerClientProcessingTimeout);
+        using var cancellation = new CancellationTokenSource();
+        var runTask = server.RunAsync(cancellation.Token);
+        await using var client = await ConnectRawClientAsync();
+        var header = new byte[sizeof(int)];
+        BinaryPrimitives.WriteInt32LittleEndian(header, 64);
+        await client.WriteAsync(header);
+        await client.WriteAsync(new byte[] { 1 });
+        await client.FlushAsync();
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TestTimeout);
     }
 
     [Fact]
@@ -432,7 +538,6 @@ public sealed class NativeHealthGatewayTests
         {
             await using var failedClient = await ConnectRawClientAsync();
             await failureScenario(failedClient);
-            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellation.Token);
 
             var response = await CreateClient().ReadAsync(cancellation.Token);
             Assert.Equal(NativeHealthResultCode.Ok, response.Result);
@@ -441,6 +546,31 @@ public sealed class NativeHealthGatewayTests
         {
             cancellation.Cancel();
             await runTask;
+        }
+    }
+
+    private async Task AssertImmediateRequestReadRecoveryAsync(
+        Func<NamedPipeClientStream, CancellationToken, Task> failureScenario)
+    {
+        var server = CreateServer(
+            new StaticSnapshotProvider(CreateSnapshot()),
+            TimeSpan.FromMilliseconds(100));
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = server.RunAsync(cancellation.Token);
+        try
+        {
+            await using (var failedClient = await ConnectRawClientAsync())
+            {
+                await failureScenario(failedClient, cancellation.Token);
+            }
+
+            var response = await CreateClient().ReadAsync(cancellation.Token);
+            Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await runTask.WaitAsync(TestTimeout);
         }
     }
 

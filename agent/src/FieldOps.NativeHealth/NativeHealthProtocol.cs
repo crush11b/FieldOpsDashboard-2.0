@@ -5,6 +5,8 @@ public static class NativeHealthProtocol
     public const int Version = 1;
     public const int MaximumMessageBytes = 4096;
     public const string PipeName = "FieldOps.Agent.NativeHealth.v1";
+    public static readonly TimeSpan ClientOperationTimeout = TimeSpan.FromSeconds(5);
+    public static readonly TimeSpan ServerClientProcessingTimeout = TimeSpan.FromSeconds(1);
 }
 
 public enum NativeHealthRequestType
