@@ -159,16 +159,13 @@ dotnet build .\agent\FieldOps.Agent.sln
 dotnet test .\agent\FieldOps.Agent.sln
 ```
 
-Create the self-contained Windows deployment bundle:
+Create the self-contained Windows agent and tray artifact bundles:
 
 ```powershell
-dotnet publish .\agent\src\FieldOps.Agent\FieldOps.Agent.csproj `
-  -c Release `
-  -r win-x64 `
-  --self-contained true `
-  -p:RestoreLockedMode=true `
-  -o .\agent\publish\win-x64
+.\agent\scripts\Publish-FieldOpsArtifacts.ps1
 ```
+
+Generated output is written under the ignored `agent\artifacts\publish\win-x64` root and is not installed, signed, or registered for startup. Existing service deployment remains PowerShell-based.
 
 ## ToughBook deployment
 

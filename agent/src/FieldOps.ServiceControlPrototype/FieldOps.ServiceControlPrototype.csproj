@@ -5,7 +5,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>FieldOps.ServiceControlPrototype</AssemblyName>
+    <AssemblyName>FieldOps.ServiceControl</AssemblyName>
     <RootNamespace>FieldOps.ServiceControlPrototype</RootNamespace>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>

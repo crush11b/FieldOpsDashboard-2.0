@@ -20,6 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\TestSupport\CanonicalProductMetadata.cs" Link="CanonicalProductMetadata.cs" />
     <ProjectReference Include="..\..\src\FieldOps.ServiceControlPrototype\FieldOps.ServiceControlPrototype.csproj" />
     <ProjectReference Include="..\..\src\FieldOps.TrayPrototype\FieldOps.TrayPrototype.csproj" />
   </ItemGroup>

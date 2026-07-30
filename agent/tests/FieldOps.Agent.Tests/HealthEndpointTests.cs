@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using FieldOps.TestSupport;
 
 namespace FieldOps.Agent.Tests;
 
@@ -25,7 +26,10 @@ public sealed class HealthEndpointTests : IClassFixture<AgentWebApplicationFacto
         Assert.NotNull(health);
         Assert.Equal("ok", health.Status);
         Assert.Equal("FieldOpsAgent", health.Service);
-        Assert.StartsWith("0.1.0-e2.001", health.Version, StringComparison.Ordinal);
+        Assert.StartsWith(
+            CanonicalProductMetadata.Load().Version,
+            health.Version,
+            StringComparison.Ordinal);
         Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
     }
 

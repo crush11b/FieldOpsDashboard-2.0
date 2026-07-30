@@ -137,7 +137,7 @@ public sealed class RestartCoordinatorTests
     {
         var helperPath = Path.Combine(
             AppContext.BaseDirectory,
-            CoLocatedPrototypePaths.RestartHelperFileName);
+            CoLocatedPaths.RestartHelperFileName);
         Assert.True(File.Exists(helperPath), $"Helper executable was not found at '{helperPath}'.");
         using var process = Process.Start(new ProcessStartInfo
         {
@@ -197,9 +197,9 @@ public sealed class RestartCoordinatorTests
             Environment.SetEnvironmentVariable("PATH", alternateDirectory);
             Environment.SetEnvironmentVariable("FIELDOPS_HELPER_PATH", Path.Combine(alternateDirectory, "other.exe"));
 
-            var path = CoLocatedPrototypePaths.GetRestartHelperPath();
+            var path = CoLocatedPaths.GetRestartHelperPath();
 
-            Assert.Equal(CoLocatedPrototypePaths.RestartHelperFileName, Path.GetFileName(path));
+            Assert.Equal(CoLocatedPaths.RestartHelperFileName, Path.GetFileName(path));
             Assert.Equal(
                 Path.GetFullPath(AppContext.BaseDirectory).TrimEnd(Path.DirectorySeparatorChar),
                 Path.GetDirectoryName(path)!.TrimEnd(Path.DirectorySeparatorChar),

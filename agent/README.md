@@ -9,13 +9,15 @@ dotnet build .\agent\FieldOps.Agent.sln
 dotnet test .\agent\FieldOps.Agent.sln
 ```
 
-Create the self-contained Windows deployment bundle from the repository root:
+Create the self-contained, version-synchronized Windows artifact bundles from the repository root:
 
 ```powershell
-dotnet publish .\agent\src\FieldOps.Agent\FieldOps.Agent.csproj -c Release -r win-x64 --self-contained true -p:RestoreLockedMode=true -o .\agent\publish\win-x64
+.\agent\scripts\Publish-FieldOpsArtifacts.ps1
 ```
 
-The packaged `agent\publish\win-x64` directory includes the .NET runtime and is copied to the ToughBook by the dashboard updater. The ToughBook does not require the .NET SDK or runtime.
+The generated, ignored `agent\artifacts\publish\win-x64` root contains separate `agent` and `tray` bundles plus a deterministic `artifact-manifest.json`. The manifest records the canonical product version from `product-metadata.json`, the full source revision, and the sorted size and SHA-256 inventory without hashing itself. Release-style publishing requires a clean worktree. The bundles include the .NET runtime, so the ToughBook does not require the .NET SDK or runtime.
+
+The production-named `FieldOps.Tray.exe` and `FieldOps.ServiceControl.exe` outputs are publish artifacts only. They are not installed, packaged as MSI, signed, or registered for startup. No operator group is provisioned. Existing PowerShell service deployment remains unchanged, telemetry remains dormant, and Task 2.3-03 remains incomplete.
 
 ## ToughBook install from the deployed package
 
@@ -50,9 +52,9 @@ Remove the service and its credential:
 
 The service listens only on `http://127.0.0.1:43120`. It does not enable CORS and exposes no telemetry, storage, tray, browser-gateway, or privileged-action endpoints.
 
-## Tray Companion architecture spike
+## Tray Companion architecture
 
-> **Prototype only:** neither project is installed, packaged, registered for startup, referenced by deployment scripts, or approved as a production component.
+> **Deliberately unpackaged:** the source project and namespace names remain prototype-named for review continuity, while generated distributable executables use their approved production names. Neither tray artifact is installed, signed, registered for startup, or referenced by deployment scripts.
 
 Task 2.3-03 is represented by two disposable projects:
 
@@ -73,16 +75,16 @@ Build first, then run the tray directly from its build output in a normal intera
 
 ```powershell
 dotnet build .\agent\FieldOps.Agent.sln -c Release --no-restore
-& .\agent\src\FieldOps.TrayPrototype\bin\Release\net8.0-windows\win-x64\FieldOps.TrayPrototype.exe
+& .\agent\artifacts\publish\win-x64\tray\FieldOps.Tray.exe
 $LASTEXITCODE
 ```
 
-The tray resolves `FieldOps.ServiceControlPrototype.exe` only beside its own executable. It does not use the working directory, `PATH`, environment configuration, or tray-provided paths. Restart displays UAC because the helper relies on the elevated Windows token and SCM authorization, not an application credential.
+The tray resolves `FieldOps.ServiceControl.exe` only beside its own executable. It does not use the working directory, `PATH`, environment configuration, or tray-provided paths. Restart displays UAC because the helper relies on the elevated Windows token and SCM authorization, not an application credential.
 
 The helper is fixed-purpose, accepts no arguments, and uses the ACL-protected `Global\FieldOpsAgent.RestartPrototype` mutex so restart attempts from separate Windows sessions cannot overlap. Direct invocation is useful only for bounded validation:
 
 ```powershell
-& .\agent\src\FieldOps.ServiceControlPrototype\bin\Release\net8.0-windows\win-x64\FieldOps.ServiceControlPrototype.exe
+& .\agent\artifacts\publish\win-x64\tray\FieldOps.ServiceControl.exe
 $LASTEXITCODE
 ```
 

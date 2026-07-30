@@ -484,7 +484,7 @@
       "fieldops.agent": {
         "type": "Project",
         "dependencies": {
-          "FieldOps.NativeHealth": "[1.0.0, )",
+          "FieldOps.NativeHealth": "[2.2.0, )",
           "Microsoft.Extensions.Hosting.WindowsServices": "[8.0.1, )",
           "Microsoft.Extensions.Logging.EventLog": "[8.0.1, )",
           "System.IO.Pipes.AccessControl": "[5.0.0, )",
