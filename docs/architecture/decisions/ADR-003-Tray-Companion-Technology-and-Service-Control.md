@@ -214,8 +214,8 @@ Production packaging must decide self-contained versus shared-runtime deployment
 
 ### Negative
 
-- The prototype duplicates protected-health credential reading pending a shared native-client library.
-- A non-admin tray cannot currently read the protected health credential, so standard-user health display remains unresolved until native-client provisioning is designed.
+- The tray uses the shared native-health client and does not read or duplicate the protected HTTP health credential.
+- Standard-user native health remains unavailable until the separately reviewed operator identity is provisioned and the user obtains a refreshed Windows token.
 - UAC is disruptive but honest.
 - A dedicated operators group cannot be completed without future installer changes.
 - Windows Forms is less suitable than WPF or WinUI for a large future desktop application.
