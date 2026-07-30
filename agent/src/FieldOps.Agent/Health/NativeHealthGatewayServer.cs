@@ -3,52 +3,129 @@ using FieldOps.NativeHealth;
 
 namespace FieldOps.Agent.Health;
 
-internal enum NativeHealthServeResult
+internal sealed class NativeHealthPipeOwnershipException : IOException
 {
-    Completed,
-    OperationInProgress,
+    public NativeHealthPipeOwnershipException(Exception innerException)
+        : base("The fixed native health pipe could not be exclusively created.", innerException)
+    {
+    }
+}
+
+internal sealed class NativeHealthPipeRecoveryException : IOException
+{
+    public NativeHealthPipeRecoveryException(Exception innerException)
+        : base("The native health pipe could not be recycled safely.", innerException)
+    {
+    }
 }
 
 internal sealed class NativeHealthGatewayServer(
     NativeHealthAuthorizationPolicy authorizationPolicy,
     INativeHealthSnapshotProvider snapshotProvider,
-    TimeSpan operationTimeout)
+    TimeSpan operationTimeout,
+    ILogger<NativeHealthGatewayServer> logger,
+    string pipeName = NativeHealthProtocol.PipeName)
 {
     private readonly SemaphoreSlim operationGate = new(1, 1);
 
-    public async Task<NativeHealthServeResult> ServeOnceAsync(CancellationToken cancellationToken)
+    public async Task RunAsync(CancellationToken cancellationToken)
     {
-        if (!await operationGate.WaitAsync(0, cancellationToken))
-        {
-            return NativeHealthServeResult.OperationInProgress;
-        }
-
+        await operationGate.WaitAsync(cancellationToken);
         try
         {
-            using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-            timeoutSource.CancelAfter(operationTimeout);
+            await using var server = CreateServer();
+            logger.LogInformation(
+                "Native read-only health gateway owns the fixed local pipe using protocol version {ProtocolVersion}",
+                NativeHealthProtocol.Version);
 
-            await using var server = NamedPipeServerStreamAcl.Create(
-                NativeHealthProtocol.PipeName,
-                PipeDirection.InOut,
-                maxNumberOfServerInstances: 1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous | PipeOptions.WriteThrough | PipeOptions.FirstPipeInstance,
-                inBufferSize: NativeHealthProtocol.MaximumMessageBytes,
-                outBufferSize: NativeHealthProtocol.MaximumMessageBytes,
-                authorizationPolicy.CreateSecurity());
-
-            await server.WaitForConnectionAsync(timeoutSource.Token);
-            var request = await NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(
-                server,
-                timeoutSource.Token);
-            var response = await CreateResponseAsync(request, timeoutSource.Token);
-            await NativeHealthMessageFraming.WriteAsync(server, response, timeoutSource.Token);
-            return NativeHealthServeResult.Completed;
+            while (!cancellationToken.IsCancellationRequested)
+            {
+                try
+                {
+                    await server.WaitForConnectionAsync(cancellationToken);
+                    await ProcessConnectedClientAsync(server, cancellationToken);
+                }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+                {
+                    break;
+                }
+                catch (Exception exception) when (exception is IOException
+                    or InvalidDataException
+                    or UnauthorizedAccessException
+                    or OperationCanceledException)
+                {
+                    logger.LogWarning("Native health gateway request failed safely");
+                }
+                finally
+                {
+                    DisconnectSafely(server);
+                }
+            }
         }
         finally
         {
             operationGate.Release();
+        }
+    }
+
+    private NamedPipeServerStream CreateServer()
+    {
+        try
+        {
+            return NamedPipeServerStreamAcl.Create(
+                pipeName,
+                PipeDirection.InOut,
+                maxNumberOfServerInstances: 1,
+                PipeTransmissionMode.Message,
+                PipeOptions.Asynchronous | PipeOptions.WriteThrough | PipeOptions.FirstPipeInstance,
+                inBufferSize: NativeHealthProtocol.MaximumMessageBytes,
+                outBufferSize: NativeHealthProtocol.MaximumMessageBytes,
+                authorizationPolicy.CreateSecurity());
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            throw new NativeHealthPipeOwnershipException(exception);
+        }
+    }
+
+    private static void DisconnectSafely(NamedPipeServerStream server)
+    {
+        if (!server.IsConnected)
+        {
+            return;
+        }
+
+        try
+        {
+            server.Disconnect();
+        }
+        catch (Exception exception) when (exception is IOException
+            or InvalidOperationException
+            or ObjectDisposedException)
+        {
+            throw new NativeHealthPipeRecoveryException(exception);
+        }
+    }
+
+    internal async Task ProcessConnectedClientAsync(
+        Stream server,
+        CancellationToken cancellationToken)
+    {
+        using var timeoutSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeoutSource.CancelAfter(operationTimeout);
+        var request = await NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(
+            server,
+            timeoutSource.Token);
+        var response = await CreateResponseAsync(request, timeoutSource.Token);
+        await NativeHealthMessageFraming.WriteAsync(server, response, timeoutSource.Token);
+        var acknowledgement = await NativeHealthMessageFraming.ReadAsync<NativeHealthAcknowledgement>(
+            server,
+            timeoutSource.Token);
+        if (acknowledgement.ProtocolVersion != NativeHealthProtocol.Version
+            || acknowledgement.CorrelationId == Guid.Empty
+            || acknowledgement.CorrelationId != request.CorrelationId)
+        {
+            throw new InvalidDataException("Native health acknowledgement was invalid.");
         }
     }
 
@@ -82,9 +159,9 @@ internal sealed class NativeHealthGatewayServer(
                     NativeHealthResultCode.Ok,
                     health);
         }
-        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            return CreateFailure(request, NativeHealthResultCode.Unavailable);
+            throw;
         }
         catch (Exception)
         {

@@ -492,7 +492,10 @@
         }
       },
       "fieldops.nativehealth": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "System.IO.Pipes.AccessControl": "[5.0.0, )"
+        }
       }
     },
     "net8.0-windows7.0/win-x64": {

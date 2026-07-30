@@ -1,9 +1,12 @@
 using System.Buffers.Binary;
 using System.IO.Pipes;
+using System.Security.AccessControl;
 using System.Security.Principal;
 using System.Text;
 using FieldOps.Agent.Health;
 using FieldOps.NativeHealth;
+using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 
 namespace FieldOps.Agent.Tests;
 
@@ -11,34 +14,31 @@ namespace FieldOps.Agent.Tests;
 public sealed class NativeHealthGatewayTests
 {
     private static readonly TimeSpan TestTimeout = TimeSpan.FromSeconds(5);
+    private static readonly SecurityIdentifier CurrentSid = WindowsIdentity.GetCurrent().User
+        ?? throw new InvalidOperationException("The current Windows identity does not have a SID.");
+    private readonly string pipeName = $"{NativeHealthProtocol.PipeName}.{Guid.NewGuid():N}";
 
     [Fact]
     public async Task FixedPipeReturnsOnlySanitizedHealth()
     {
         var snapshot = CreateSnapshot();
-        var server = CreateServer(new StaticSnapshotProvider(snapshot));
-        var serveTask = server.ServeOnceAsync(CancellationToken.None);
-        var response = await new NativeHealthClient(
-            NativeHealthProtocol.PipeName,
-            TestTimeout).ReadAsync(CancellationToken.None);
-
-        Assert.Equal(NativeHealthServeResult.Completed, await serveTask);
-        Assert.Equal(NativeHealthResultCode.Ok, response.Result);
-        Assert.Equal(snapshot, response.Health);
+        await WithRunningServerAsync(new StaticSnapshotProvider(snapshot), async () =>
+        {
+            var response = await CreateClient().ReadAsync();
+            Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+            Assert.Equal(snapshot, response.Health);
+        });
     }
 
     [Fact]
     public async Task ProviderFailureReturnsUnavailableWithoutDetails()
     {
-        var server = CreateServer(new ThrowingSnapshotProvider());
-        var serveTask = server.ServeOnceAsync(CancellationToken.None);
-        var response = await new NativeHealthClient(
-            NativeHealthProtocol.PipeName,
-            TestTimeout).ReadAsync(CancellationToken.None);
-
-        Assert.Equal(NativeHealthServeResult.Completed, await serveTask);
-        Assert.Equal(NativeHealthResultCode.Unavailable, response.Result);
-        Assert.Null(response.Health);
+        await WithRunningServerAsync(new ThrowingSnapshotProvider(), async () =>
+        {
+            var response = await CreateClient().ReadAsync();
+            Assert.Equal(NativeHealthResultCode.Unavailable, response.Result);
+            Assert.Null(response.Health);
+        });
     }
 
     [Theory]
@@ -49,167 +49,511 @@ public sealed class NativeHealthGatewayTests
         NativeHealthRequestType requestType,
         NativeHealthResultCode expectedResult)
     {
-        var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()));
-        var request = new NativeHealthRequest(version, Guid.NewGuid(), requestType);
-        var serveTask = server.ServeOnceAsync(CancellationToken.None);
-        var response = await ExchangeAsync(request, CancellationToken.None);
-
-        Assert.Equal(NativeHealthServeResult.Completed, await serveTask);
-        Assert.Equal(expectedResult, response.Result);
-        Assert.Null(response.Health);
+        await WithRunningServerAsync(new StaticSnapshotProvider(CreateSnapshot()), async () =>
+        {
+            var response = await ExchangeAsync(new(version, Guid.NewGuid(), requestType));
+            Assert.Equal(expectedResult, response.Result);
+            Assert.Null(response.Health);
+        });
     }
 
     [Fact]
     public async Task EmptyCorrelationFailsClosed()
     {
-        var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()));
-        var request = new NativeHealthRequest(
-            NativeHealthProtocol.Version,
-            Guid.Empty,
-            NativeHealthRequestType.ReadHealth);
-        var serveTask = server.ServeOnceAsync(CancellationToken.None);
-        var response = await ExchangeAsync(request, CancellationToken.None);
-
-        Assert.Equal(NativeHealthServeResult.Completed, await serveTask);
-        Assert.Equal(NativeHealthResultCode.InvalidRequest, response.Result);
-        Assert.Null(response.Health);
+        await WithRunningServerAsync(new StaticSnapshotProvider(CreateSnapshot()), async () =>
+        {
+            var response = await ExchangeAsync(new(
+                NativeHealthProtocol.Version,
+                Guid.Empty,
+                NativeHealthRequestType.ReadHealth));
+            Assert.Equal(NativeHealthResultCode.InvalidRequest, response.Result);
+            Assert.Null(response.Health);
+        });
     }
 
     [Theory]
     [InlineData(0, null)]
     [InlineData(NativeHealthProtocol.MaximumMessageBytes + 1, null)]
     [InlineData(1, "{")]
-    public async Task InvalidFramesAreRejected(int length, string? payloadText)
+    public async Task InvalidFramesDoNotTerminateTheListener(int length, string? payloadText)
+    {
+        await WithRunningServerAsync(new StaticSnapshotProvider(CreateSnapshot()), async () =>
+        {
+            await using (var client = await ConnectRawClientAsync())
+            {
+                var header = new byte[sizeof(int)];
+                BinaryPrimitives.WriteInt32LittleEndian(header, length);
+                await client.WriteAsync(header);
+                if (payloadText is not null)
+                {
+                    await client.WriteAsync(Encoding.UTF8.GetBytes(payloadText));
+                }
+
+                await client.FlushAsync();
+            }
+
+            await Task.Delay(TimeSpan.FromMilliseconds(50));
+            var response = await CreateClient().ReadAsync();
+            Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+        });
+    }
+
+    [Fact]
+    public async Task IdleListenerOutlivesTheProcessingTimeoutAndStillServesARequest()
+    {
+        var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()), TimeSpan.FromMilliseconds(50));
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = server.RunAsync(cancellation.Token);
+
+        await Task.Delay(TimeSpan.FromMilliseconds(200), cancellation.Token);
+        Assert.False(runTask.IsCompleted);
+        var response = await CreateClient().ReadAsync(cancellation.Token);
+        Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+
+        cancellation.Cancel();
+        await runTask;
+    }
+
+    [Fact]
+    public async Task ShutdownWhileWaitingForAConnectionCompletesPromptly()
     {
         var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()));
-        var serveTask = server.ServeOnceAsync(CancellationToken.None);
-        await using var client = await ConnectRawClientAsync(CancellationToken.None);
-        var header = new byte[sizeof(int)];
-        BinaryPrimitives.WriteInt32LittleEndian(header, length);
-        await client.WriteAsync(header, CancellationToken.None);
-        if (payloadText is not null)
+        using var cancellation = new CancellationTokenSource();
+        var runTask = server.RunAsync(cancellation.Token);
+
+        cancellation.Cancel();
+        await runTask.WaitAsync(TestTimeout);
+    }
+
+    [Fact]
+    public async Task StalledConnectedClientTimesOutWithoutTerminatingTheListener()
+    {
+        var server = CreateServer(
+            new StaticSnapshotProvider(CreateSnapshot()),
+            TimeSpan.FromMilliseconds(50));
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = server.RunAsync(cancellation.Token);
+
+        await using (var stalledClient = await ConnectRawClientAsync())
         {
-            await client.WriteAsync(Encoding.UTF8.GetBytes(payloadText), CancellationToken.None);
+            await Task.Delay(TimeSpan.FromMilliseconds(150), cancellation.Token);
         }
 
-        await client.FlushAsync(CancellationToken.None);
-        await Assert.ThrowsAsync<InvalidDataException>(() => serveTask);
+        await Task.Delay(TimeSpan.FromMilliseconds(50), cancellation.Token);
+        var response = await CreateClient().ReadAsync(cancellation.Token);
+        Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+
+        cancellation.Cancel();
+        await runTask;
     }
 
     [Fact]
-    public async Task ConcurrentServeAttemptIsRejectedWithoutOpeningAnotherInstance()
+    public Task ClientThatRemainsConnectedWithoutReadingResponseDoesNotBlockListener() =>
+        AssertListenerRecoversAsync(async client =>
+        {
+            await WriteRequestAsync(client);
+        });
+
+    [Fact]
+    public Task ClientThatClosesImmediatelyAfterRequestDoesNotBlockListener() =>
+        AssertListenerRecoversAsync(async client =>
+        {
+            await WriteRequestAsync(client);
+            await client.DisposeAsync();
+        });
+
+    [Fact]
+    public Task ClientThatClosesAfterPartialResponseDoesNotBlockListener() =>
+        AssertListenerRecoversAsync(async client =>
+        {
+            await WriteRequestAsync(client);
+            var singleByte = new byte[1];
+            await client.ReadExactlyAsync(singleByte);
+            await client.DisposeAsync();
+        });
+
+    [Fact]
+    public Task MissingAcknowledgementDoesNotBlockListener() =>
+        AssertListenerRecoversAsync(async client =>
+        {
+            await WriteRequestAsync(client);
+            _ = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
+                client,
+                CancellationToken.None);
+        });
+
+    [Fact]
+    public Task TruncatedAcknowledgementDoesNotBlockListener() =>
+        AssertListenerRecoversAsync(async client =>
+        {
+            await WriteRequestAsync(client);
+            _ = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
+                client,
+                CancellationToken.None);
+            var header = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(header, 100);
+            await client.WriteAsync(header);
+            await client.WriteAsync(new byte[] { 1 });
+            await client.FlushAsync();
+        });
+
+    [Fact]
+    public Task MismatchedAcknowledgementDoesNotBlockListener() =>
+        AssertListenerRecoversAsync(async client =>
+        {
+            await WriteRequestAsync(client);
+            _ = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
+                client,
+                CancellationToken.None);
+            await NativeHealthMessageFraming.WriteAsync(
+                client,
+                new NativeHealthAcknowledgement(NativeHealthProtocol.Version, Guid.NewGuid()),
+                CancellationToken.None);
+        });
+
+    [Fact]
+    public async Task ShutdownDuringAcknowledgementWaitCompletesPromptly()
     {
         var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()));
-        var first = server.ServeOnceAsync(CancellationToken.None);
-        var second = await server.ServeOnceAsync(CancellationToken.None);
-        var response = await new NativeHealthClient(
-            NativeHealthProtocol.PipeName,
-            TestTimeout).ReadAsync(CancellationToken.None);
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = server.RunAsync(cancellation.Token);
+        await using var client = await ConnectRawClientAsync();
+        await WriteRequestAsync(client);
+        _ = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
+            client,
+            CancellationToken.None);
 
-        Assert.Equal(NativeHealthServeResult.OperationInProgress, second);
-        Assert.Equal(NativeHealthResultCode.Ok, response.Result);
-        Assert.Equal(NativeHealthServeResult.Completed, await first);
+        cancellation.Cancel();
+        await runTask.WaitAsync(TestTimeout);
     }
 
     [Fact]
-    public async Task SquattedFixedPipeNameFailsFirstInstanceSafely()
+    public async Task ShutdownDuringResponseWriteCancelsProductionProcessingPath()
+    {
+        var request = new NativeHealthRequest(
+            NativeHealthProtocol.Version,
+            Guid.NewGuid(),
+            NativeHealthRequestType.ReadHealth);
+        await using var stream = await BlockingWriteStream.CreateAsync(request);
+        var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()));
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+
+        var processing = server.ProcessConnectedClientAsync(stream, cancellation.Token);
+        await stream.WriteStarted.Task.WaitAsync(TestTimeout);
+        cancellation.Cancel();
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => processing);
+    }
+
+    [Fact]
+    public async Task ListenerRetainsFirstPipeOwnershipAcrossRequests()
+    {
+        await WithRunningServerAsync(new StaticSnapshotProvider(CreateSnapshot()), async () =>
+        {
+            Assert.Equal(NativeHealthResultCode.Ok, (await CreateClient().ReadAsync()).Result);
+            var ownershipFailure = Record.Exception(() => new NamedPipeServerStream(
+                pipeName,
+                PipeDirection.InOut,
+                1,
+                PipeTransmissionMode.Byte,
+                PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance));
+            Assert.True(ownershipFailure is IOException or UnauthorizedAccessException);
+            Assert.Equal(NativeHealthResultCode.Ok, (await CreateClient().ReadAsync()).Result);
+        });
+    }
+
+    [Fact]
+    public async Task SquattedFixedPipeNameProducesTypedOwnershipFailure()
     {
         await using var squatter = new NamedPipeServerStream(
-            NativeHealthProtocol.PipeName,
+            pipeName,
             PipeDirection.InOut,
             1,
             PipeTransmissionMode.Byte,
             PipeOptions.Asynchronous);
         var server = CreateServer(new StaticSnapshotProvider(CreateSnapshot()));
 
-        await Assert.ThrowsAsync<IOException>(
-            () => server.ServeOnceAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<NativeHealthPipeOwnershipException>(
+            () => server.RunAsync(CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task HostedGatewayReportsDistinctSanitizedOwnershipFailure()
+    {
+        await using var squatter = new NamedPipeServerStream(
+            pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous);
+        var logger = new CapturingLogger<NativeHealthGatewayService>();
+        var service = new NativeHealthGatewayService(
+            CreateServer(new StaticSnapshotProvider(CreateSnapshot())),
+            logger);
+
+        await service.StartAsync(CancellationToken.None);
+        var entry = await logger.Entry.Task.WaitAsync(TestTimeout);
+        await service.StopAsync(CancellationToken.None);
+
+        Assert.Equal(NativeHealthGatewayService.PipeOwnershipFailureEvent, entry.EventId);
+        Assert.Contains("exclusive ownership", entry.Message, StringComparison.Ordinal);
+        Assert.Null(entry.Exception);
+    }
+
+    [Fact]
+    public void OwnershipRetryUsesCappedBackoffAndRateLimitedLogging()
+    {
+        Assert.Equal(TimeSpan.FromMilliseconds(250), NativeHealthGatewayService.GetRetryDelay(1));
+        Assert.Equal(TimeSpan.FromSeconds(30), NativeHealthGatewayService.GetRetryDelay(8));
+        Assert.Equal(TimeSpan.FromSeconds(30), NativeHealthGatewayService.GetRetryDelay(100));
+        Assert.True(NativeHealthGatewayService.ShouldLogFailure(1));
+        Assert.False(NativeHealthGatewayService.ShouldLogFailure(2));
+        Assert.True(NativeHealthGatewayService.ShouldLogFailure(20));
+    }
+
+    [Fact]
+    public async Task ClientRejectsUntrustedPipeOwnerBeforeSendingARequest()
+    {
+        var fakeServer = RunFakeServerAsync(request => CreateSnapshotResponse(request), CurrentSid);
+        var untrustedOwner = new SecurityIdentifier(WellKnownSidType.LocalServiceSid, null);
+
+        await Assert.ThrowsAsync<UnauthorizedAccessException>(
+            () => new NativeHealthClient(
+                pipeName,
+                TestTimeout,
+                untrustedOwner).ReadAsync());
+        await fakeServer;
     }
 
     [Fact]
     public async Task ClientRejectsMismatchedResponseCorrelation()
     {
-        var fakeServer = Task.Run(async () =>
-        {
-            await using var server = new NamedPipeServerStream(
-                NativeHealthProtocol.PipeName,
-                PipeDirection.InOut,
-                1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance);
-            await server.WaitForConnectionAsync(CancellationToken.None);
-            _ = await NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(
-                server,
-                CancellationToken.None);
-            await NativeHealthMessageFraming.WriteAsync(
-                server,
-                new NativeHealthResponse(
-                    NativeHealthProtocol.Version,
-                    Guid.NewGuid(),
-                    NativeHealthResultCode.Ok,
-                    CreateSnapshot()),
-                CancellationToken.None);
-        });
+        var fakeServer = RunFakeServerAsync(
+            request => CreateSnapshotResponse(request with { CorrelationId = Guid.NewGuid() }),
+            CurrentSid);
 
-        await Assert.ThrowsAsync<InvalidDataException>(
-            () => new NativeHealthClient(
-                NativeHealthProtocol.PipeName,
-                TestTimeout).ReadAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidDataException>(() => CreateClient().ReadAsync());
+        await fakeServer;
+    }
+
+    [Theory]
+    [InlineData(999, true)]
+    [InlineData((int)NativeHealthResultCode.Ok, false)]
+    [InlineData((int)NativeHealthResultCode.Unavailable, true)]
+    public async Task ClientRejectsInvalidResultAndPayloadCombinations(int result, bool includeHealth)
+    {
+        var fakeServer = RunFakeServerAsync(
+            request => new(
+                NativeHealthProtocol.Version,
+                request.CorrelationId,
+                (NativeHealthResultCode)result,
+                includeHealth ? CreateSnapshot() : null),
+            CurrentSid);
+
+        await Assert.ThrowsAsync<InvalidDataException>(() => CreateClient().ReadAsync());
         await fakeServer;
     }
 
     [Fact]
-    public async Task ClientTimesOutWhenServerDoesNotRespond()
+    public async Task ClientRejectsInvalidHealthFields()
     {
-        var fakeServer = Task.Run(async () =>
-        {
-            await using var server = new NamedPipeServerStream(
-                NativeHealthProtocol.PipeName,
-                PipeDirection.InOut,
-                1,
-                PipeTransmissionMode.Byte,
-                PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance);
-            await server.WaitForConnectionAsync(CancellationToken.None);
-            await Task.Delay(TimeSpan.FromMilliseconds(300));
-        });
+        var invalid = CreateSnapshot() with { Service = "", UptimeSeconds = -1 };
+        var fakeServer = RunFakeServerAsync(
+            request => CreateSnapshotResponse(request, invalid),
+            CurrentSid);
 
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            () => new NativeHealthClient(
-                NativeHealthProtocol.PipeName,
-                TimeSpan.FromMilliseconds(50)).ReadAsync(CancellationToken.None));
+        await Assert.ThrowsAsync<InvalidDataException>(() => CreateClient().ReadAsync());
         await fakeServer;
     }
 
-    private static NativeHealthGatewayServer CreateServer(INativeHealthSnapshotProvider provider)
+    [Fact]
+    public async Task ClientAcceptsBackwardWallClockAdjustmentWithNonnegativeUptime()
     {
-        var currentSid = WindowsIdentity.GetCurrent().User
-            ?? throw new InvalidOperationException("The current Windows identity does not have a SID.");
-        return new(
-            new NativeHealthAuthorizationPolicy(currentSid),
+        var adjusted = CreateSnapshot() with
+        {
+            StartedAt = DateTimeOffset.Parse("2026-07-29T10:02:00Z"),
+            CheckedAt = DateTimeOffset.Parse("2026-07-29T10:01:00Z"),
+            UptimeSeconds = 0,
+        };
+        var fakeServer = RunFakeServerAsync(
+            request => CreateSnapshotResponse(request, adjusted),
+            CurrentSid);
+
+        var response = await CreateClient().ReadAsync();
+        Assert.Equal(adjusted, response.Health);
+        await fakeServer;
+    }
+
+    [Fact]
+    public async Task ClientTimesOutWhenConnectedServerDoesNotRespond()
+    {
+        var fakeServer = RunFakeServerAsync(
+            async (_, cancellationToken) =>
+            {
+                await Task.Delay(TimeSpan.FromMilliseconds(300), cancellationToken);
+                return null;
+            },
+            CurrentSid,
+            CancellationToken.None);
+
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => new NativeHealthClient(
+                pipeName,
+                TimeSpan.FromMilliseconds(50),
+                CurrentSid).ReadAsync());
+        await fakeServer;
+    }
+
+    private async Task WithRunningServerAsync(
+        INativeHealthSnapshotProvider provider,
+        Func<Task> action)
+    {
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = CreateServer(provider).RunAsync(cancellation.Token);
+        try
+        {
+            await action();
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await runTask;
+        }
+    }
+
+    private async Task AssertListenerRecoversAsync(Func<NamedPipeClientStream, Task> failureScenario)
+    {
+        var server = CreateServer(
+            new StaticSnapshotProvider(CreateSnapshot()),
+            TimeSpan.FromMilliseconds(100));
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        var runTask = server.RunAsync(cancellation.Token);
+        try
+        {
+            await using var failedClient = await ConnectRawClientAsync();
+            await failureScenario(failedClient);
+            await Task.Delay(TimeSpan.FromMilliseconds(200), cancellation.Token);
+
+            var response = await CreateClient().ReadAsync(cancellation.Token);
+            Assert.Equal(NativeHealthResultCode.Ok, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await runTask;
+        }
+    }
+
+    private NativeHealthGatewayServer CreateServer(
+        INativeHealthSnapshotProvider provider,
+        TimeSpan? timeout = null) => new(
+            new NativeHealthAuthorizationPolicy(CurrentSid, CurrentSid),
             provider,
-            TestTimeout);
-    }
+            timeout ?? TestTimeout,
+            NullLogger<NativeHealthGatewayServer>.Instance,
+            pipeName);
 
-    private static async Task<NativeHealthResponse> ExchangeAsync(
-        NativeHealthRequest request,
-        CancellationToken cancellationToken)
+    private NativeHealthClient CreateClient() => new(
+        pipeName,
+        TestTimeout,
+        CurrentSid);
+
+    private async Task<NativeHealthResponse> ExchangeAsync(NativeHealthRequest request)
     {
-        await using var client = await ConnectRawClientAsync(cancellationToken);
-        await NativeHealthMessageFraming.WriteAsync(client, request, cancellationToken);
-        return await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(client, cancellationToken);
+        await using var client = await ConnectRawClientAsync();
+        await NativeHealthMessageFraming.WriteAsync(client, request, CancellationToken.None);
+        var response = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(client, CancellationToken.None);
+        await NativeHealthMessageFraming.WriteAsync(
+            client,
+            new NativeHealthAcknowledgement(NativeHealthProtocol.Version, request.CorrelationId),
+            CancellationToken.None);
+        return response;
     }
 
-    private static async Task<NamedPipeClientStream> ConnectRawClientAsync(CancellationToken cancellationToken)
+    private async Task<NamedPipeClientStream> ConnectRawClientAsync()
     {
         var client = new NamedPipeClientStream(
             ".",
-            NativeHealthProtocol.PipeName,
+            pipeName,
             PipeDirection.InOut,
             PipeOptions.Asynchronous,
             TokenImpersonationLevel.Identification);
-        await client.ConnectAsync(cancellationToken);
+        using var cancellation = new CancellationTokenSource(TestTimeout);
+        await client.ConnectAsync(cancellation.Token);
         return client;
     }
+
+    private static async Task WriteRequestAsync(NamedPipeClientStream client)
+    {
+        await NativeHealthMessageFraming.WriteAsync(
+            client,
+            new NativeHealthRequest(
+                NativeHealthProtocol.Version,
+                Guid.NewGuid(),
+                NativeHealthRequestType.ReadHealth),
+            CancellationToken.None);
+    }
+
+    private Task RunFakeServerAsync(
+        Func<NativeHealthRequest, NativeHealthResponse> responseFactory,
+        SecurityIdentifier owner) => RunFakeServerAsync(
+            (request, _) => Task.FromResult<NativeHealthResponse?>(responseFactory(request)),
+            owner,
+            CancellationToken.None);
+
+    private async Task RunFakeServerAsync(
+        Func<NativeHealthRequest, CancellationToken, Task<NativeHealthResponse?>> responseFactory,
+        SecurityIdentifier owner,
+        CancellationToken cancellationToken)
+    {
+        var security = new PipeSecurity();
+        security.SetOwner(owner);
+        security.AddAccessRule(new PipeAccessRule(CurrentSid, PipeAccessRights.FullControl, AccessControlType.Allow));
+        await using var server = NamedPipeServerStreamAcl.Create(
+            pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance,
+            NativeHealthProtocol.MaximumMessageBytes,
+            NativeHealthProtocol.MaximumMessageBytes,
+            security);
+        await server.WaitForConnectionAsync(cancellationToken);
+        try
+        {
+            var request = await NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(server, cancellationToken);
+            var response = await responseFactory(request, cancellationToken);
+            if (response is not null)
+            {
+                await NativeHealthMessageFraming.WriteAsync(server, response, cancellationToken);
+                using var acknowledgementTimeout = CancellationTokenSource.CreateLinkedTokenSource(
+                    cancellationToken);
+                acknowledgementTimeout.CancelAfter(TimeSpan.FromMilliseconds(250));
+                try
+                {
+                    _ = await NativeHealthMessageFraming.ReadAsync<NativeHealthAcknowledgement>(
+                        server,
+                        acknowledgementTimeout.Token);
+                }
+                catch (OperationCanceledException) when (acknowledgementTimeout.IsCancellationRequested)
+                {
+                    // A client that rejects correlation does not acknowledge the response.
+                }
+            }
+        }
+        catch (IOException)
+        {
+            // A client that rejects the owner can disconnect before sending a request.
+        }
+    }
+
+    private static NativeHealthResponse CreateSnapshotResponse(
+        NativeHealthRequest request,
+        NativeHealthSnapshot? snapshot = null) => new(
+            NativeHealthProtocol.Version,
+            request.CorrelationId,
+            NativeHealthResultCode.Ok,
+            snapshot ?? CreateSnapshot());
 
     private static NativeHealthSnapshot CreateSnapshot() => new(
         Status: "ok",
@@ -230,6 +574,74 @@ public sealed class NativeHealthGatewayTests
     {
         public ValueTask<NativeHealthSnapshot?> ReadAsync(CancellationToken cancellationToken) =>
             throw new InvalidOperationException("sensitive provider detail");
+    }
+
+    private sealed class CapturingLogger<T> : ILogger<T>
+    {
+        public TaskCompletionSource<LogEntry> Entry { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
+
+        public bool IsEnabled(LogLevel logLevel) => true;
+
+        public void Log<TState>(
+            LogLevel logLevel,
+            EventId eventId,
+            TState state,
+            Exception? exception,
+            Func<TState, Exception?, string> formatter)
+        {
+            if (eventId == NativeHealthGatewayService.PipeOwnershipFailureEvent)
+            {
+                Entry.TrySetResult(new(eventId, formatter(state, exception), exception));
+            }
+        }
+    }
+
+    private sealed record LogEntry(EventId EventId, string Message, Exception? Exception);
+
+    private sealed class BlockingWriteStream(byte[] requestBytes) : Stream
+    {
+        private readonly MemoryStream request = new(requestBytes, writable: false);
+
+        public TaskCompletionSource WriteStarted { get; } = new(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public override bool CanRead => true;
+        public override bool CanSeek => false;
+        public override bool CanWrite => true;
+        public override long Length => throw new NotSupportedException();
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public static async Task<BlockingWriteStream> CreateAsync(NativeHealthRequest request)
+        {
+            await using var serialized = new MemoryStream();
+            await NativeHealthMessageFraming.WriteAsync(serialized, request, CancellationToken.None);
+            return new(serialized.ToArray());
+        }
+
+        public override ValueTask<int> ReadAsync(
+            Memory<byte> buffer,
+            CancellationToken cancellationToken = default) => request.ReadAsync(buffer, cancellationToken);
+
+        public override async ValueTask WriteAsync(
+            ReadOnlyMemory<byte> buffer,
+            CancellationToken cancellationToken = default)
+        {
+            WriteStarted.TrySetResult();
+            await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
+        }
+
+        public override void Flush() => throw new NotSupportedException();
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+        public override void SetLength(long value) => throw new NotSupportedException();
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }
 

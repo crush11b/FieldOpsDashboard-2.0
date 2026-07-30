@@ -10,4 +10,12 @@
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="FieldOps.Agent.Tests" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="System.IO.Pipes.AccessControl" Version="5.0.0" />
+  </ItemGroup>
+
 </Project>

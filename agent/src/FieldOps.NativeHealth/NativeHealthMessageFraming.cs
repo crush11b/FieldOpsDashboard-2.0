@@ -1,10 +1,16 @@
 using System.Buffers.Binary;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace FieldOps.NativeHealth;
 
 public static class NativeHealthMessageFraming
 {
+    private static readonly JsonSerializerOptions SerializerOptions = new()
+    {
+        UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
+    };
+
     public static async Task<T> ReadAsync<T>(Stream stream, CancellationToken cancellationToken)
     {
         var lengthBuffer = new byte[sizeof(int)];
@@ -20,7 +26,7 @@ public static class NativeHealthMessageFraming
 
         try
         {
-            return JsonSerializer.Deserialize<T>(payload)
+            return JsonSerializer.Deserialize<T>(payload, SerializerOptions)
                 ?? throw new InvalidDataException("Native health message was empty or invalid.");
         }
         catch (JsonException exception)
@@ -34,7 +40,7 @@ public static class NativeHealthMessageFraming
         T message,
         CancellationToken cancellationToken)
     {
-        var payload = JsonSerializer.SerializeToUtf8Bytes(message);
+        var payload = JsonSerializer.SerializeToUtf8Bytes(message, SerializerOptions);
         if (payload.Length <= 0 || payload.Length > NativeHealthProtocol.MaximumMessageBytes)
         {
             throw new InvalidDataException("Native health message exceeds the allowed size.");

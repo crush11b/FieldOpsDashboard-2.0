@@ -39,3 +39,7 @@ public sealed record NativeHealthResponse(
     Guid CorrelationId,
     NativeHealthResultCode Result,
     NativeHealthSnapshot? Health);
+
+public sealed record NativeHealthAcknowledgement(
+    int ProtocolVersion,
+    Guid CorrelationId);

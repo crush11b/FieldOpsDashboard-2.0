@@ -79,6 +79,23 @@ public sealed class NativeHealthProtocolTests
     }
 
     [Fact]
+    public async Task FramingRejectsUnknownRequestMembers()
+    {
+        var correlationId = Guid.NewGuid();
+        var payload = Encoding.UTF8.GetBytes(
+            $$"""{"ProtocolVersion":1,"CorrelationId":"{{correlationId}}","RequestType":1,"Command":"restart"}""");
+        var message = new byte[sizeof(int) + payload.Length];
+        BinaryPrimitives.WriteInt32LittleEndian(message, payload.Length);
+        payload.CopyTo(message.AsSpan(sizeof(int)));
+        await using var stream = new MemoryStream(message);
+
+        await Assert.ThrowsAsync<InvalidDataException>(
+            () => NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(
+                stream,
+                CancellationToken.None));
+    }
+
+    [Fact]
     public async Task FramingRejectsOversizedPayload()
     {
         var payload = new string('x', NativeHealthProtocol.MaximumMessageBytes + 1);

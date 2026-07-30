@@ -34,7 +34,8 @@ builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfigur
 builder.Services.AddSingleton(sp => new NativeHealthGatewayServer(
     sp.GetRequiredService<NativeHealthAuthorizationPolicy>(),
     sp.GetRequiredService<INativeHealthSnapshotProvider>(),
-    TimeSpan.FromSeconds(5)));
+    TimeSpan.FromSeconds(5),
+    sp.GetRequiredService<ILogger<NativeHealthGatewayServer>>()));
 builder.Services.AddTelemetryTransportFoundation();
 builder.Services.AddHostedService<AgentLifecycleService>();
 builder.Services.AddHostedService<NativeHealthGatewayService>();
