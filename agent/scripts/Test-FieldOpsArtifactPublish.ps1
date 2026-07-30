@@ -6,14 +6,22 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')).TrimEnd('\', '/')
 $publishScript = Join-Path $PSScriptRoot 'Publish-FieldOpsArtifacts.ps1'
-$sourceRevision = (& git -C $repositoryRoot rev-parse HEAD).Trim()
+$metadataPath = Join-Path $repositoryRoot 'product-metadata.json'
+$sourceRevision = (& git -C $repositoryRoot rev-parse --verify 'HEAD^{commit}').Trim()
 if ($LASTEXITCODE -ne 0 -or $sourceRevision -notmatch '^[0-9a-f]{40}$') {
     throw 'Could not resolve a full source revision for publish validation.'
 }
+$metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
+$expectedProductVersion = [string]$metadata.version
+if ($expectedProductVersion -notmatch '^\d+\.\d+\.\d+$') {
+    throw "Canonical product version '$expectedProductVersion' is not numeric major.minor.patch metadata."
+}
+$expectedInformationalVersion = "$expectedProductVersion+$sourceRevision"
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("fieldops-publish-test-{0}" -f [Guid]::NewGuid().ToString('N'))
 $firstOutput = Join-Path $testRoot 'first'
 $secondOutput = Join-Path $testRoot 'second'
+$dirtyOutput = Join-Path $testRoot 'dirty'
 
 function Assert-UnsafeOutputRejected {
     param([AllowEmptyString()][Parameter(Mandatory = $true)][string]$Path)
@@ -51,6 +59,33 @@ function Get-OutputSnapshot {
     )
 }
 
+function Assert-RejectedAndPreserved {
+    param(
+        [Parameter(Mandatory = $true)][string]$Revision,
+        [switch]$AllowDirty
+    )
+
+    $before = Get-OutputSnapshot $firstOutput
+    $failedAsExpected = $false
+    try {
+        if ($AllowDirty) {
+            & $publishScript -OutputRoot $firstOutput -SourceRevision $Revision -AllowDirty
+        } else {
+            & $publishScript -OutputRoot $firstOutput -SourceRevision $Revision
+        }
+    } catch {
+        $failedAsExpected = $true
+    }
+    if (-not $failedAsExpected) {
+        throw "Source revision '$Revision' was not rejected as expected."
+    }
+
+    $after = Get-OutputSnapshot $firstOutput
+    if (Compare-Object $before $after -Property RelativePath, Size, Sha256) {
+        throw "Rejected source revision '$Revision' replaced or modified the prior successful output."
+    }
+}
+
 try {
     [IO.Directory]::CreateDirectory($testRoot) | Out-Null
     Assert-UnsafeOutputRejected ''
@@ -60,7 +95,7 @@ try {
     if (-not [string]::IsNullOrWhiteSpace($env:ProgramFiles)) {
         Assert-UnsafeOutputRejected $env:ProgramFiles
     }
-    & $publishScript -OutputRoot $firstOutput -SourceRevision $sourceRevision
+    & $publishScript -OutputRoot $firstOutput
     & $publishScript -OutputRoot $secondOutput -SourceRevision $sourceRevision
 
     $firstSnapshot = Get-OutputSnapshot $firstOutput
@@ -75,10 +110,10 @@ try {
     $manifest = $manifestText | ConvertFrom-Json
     if ($manifest.schemaVersion -ne 1 -or
         $manifest.product -ne 'FieldOps Dashboard' -or
-        $manifest.productVersion -ne '2.2.0' -or
+        $manifest.productVersion -ne $expectedProductVersion -or
         $manifest.sourceRevision -ne $sourceRevision -or
         -not $manifest.releaseStyle -or
-        $manifest.informationalVersion -ne "2.2.0+$sourceRevision") {
+        $manifest.informationalVersion -ne $expectedInformationalVersion) {
         throw 'The artifact manifest does not match the approved release-style schema and identity.'
     }
     if ($manifestText.IndexOf($repositoryRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
@@ -95,19 +130,38 @@ try {
         }
     }
 
-    $priorSnapshot = Get-OutputSnapshot $firstOutput
-    $failedAsExpected = $false
+    $differentCommit = (& git -C $repositoryRoot rev-parse --verify 'HEAD~1^{commit}').Trim()
+    if ($LASTEXITCODE -ne 0 -or $differentCommit -notmatch '^[0-9a-f]{40}$' -or $differentCommit -eq $sourceRevision) {
+        throw 'Could not resolve a different repository commit for provenance validation.'
+    }
+    $nonCommitObject = (& git -C $repositoryRoot rev-parse --verify 'HEAD:product-metadata.json').Trim()
+    if ($LASTEXITCODE -ne 0 -or $nonCommitObject -notmatch '^[0-9a-f]{40}$') {
+        throw 'Could not resolve a non-commit Git object for provenance validation.'
+    }
+
+    Assert-RejectedAndPreserved 'not-a-commit'
+    Assert-RejectedAndPreserved '0000000000000000000000000000000000000000'
+    Assert-RejectedAndPreserved $sourceRevision.Substring(0, 12)
+    Assert-RejectedAndPreserved $nonCommitObject
+    Assert-RejectedAndPreserved $differentCommit
+
+    $dirtyMarker = Join-Path $repositoryRoot ('.fieldops-publish-dirty-test-{0}' -f [Guid]::NewGuid().ToString('N'))
     try {
-        & $publishScript -OutputRoot $firstOutput -SourceRevision 'not-a-commit'
-    } catch {
-        $failedAsExpected = $true
-    }
-    if (-not $failedAsExpected) {
-        throw 'Invalid publish input did not fail as expected.'
-    }
-    $afterFailureSnapshot = Get-OutputSnapshot $firstOutput
-    if (Compare-Object $priorSnapshot $afterFailureSnapshot -Property RelativePath, Size, Sha256) {
-        throw 'A failed publish replaced or modified the prior successful output.'
+        [IO.File]::WriteAllText($dirtyMarker, 'publish provenance validation', [Text.UTF8Encoding]::new($false))
+        & $publishScript -OutputRoot $dirtyOutput -SourceRevision $sourceRevision -AllowDirty
+        $dirtyManifest = Get-Content -LiteralPath (Join-Path $dirtyOutput 'artifact-manifest.json') -Raw |
+            ConvertFrom-Json
+        if ($dirtyManifest.sourceRevision -ne $sourceRevision -or
+            $dirtyManifest.releaseStyle -or
+            $dirtyManifest.productVersion -ne $expectedProductVersion -or
+            $dirtyManifest.informationalVersion -ne "$expectedInformationalVersion.dirty") {
+            throw 'Dirty development output does not truthfully identify the checked-out HEAD and canonical version.'
+        }
+        Assert-RejectedAndPreserved $differentCommit -AllowDirty
+    } finally {
+        if (Test-Path -LiteralPath $dirtyMarker) {
+            Remove-Item -LiteralPath $dirtyMarker -Force
+        }
     }
 
     $required = @(

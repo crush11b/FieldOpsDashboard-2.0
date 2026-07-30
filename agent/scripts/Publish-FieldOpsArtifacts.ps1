@@ -77,6 +77,22 @@ function Invoke-DotNet {
     }
 }
 
+function Resolve-GitCommit {
+    param([Parameter(Mandatory = $true)][string]$Revision)
+
+    $resolved = @(& git -C $repositoryRoot rev-parse --verify "$Revision^{commit}" 2>$null)
+    if ($LASTEXITCODE -ne 0 -or $resolved.Count -ne 1) {
+        throw "Source revision '$Revision' does not resolve to a Git commit."
+    }
+
+    $commit = ([string]$resolved[0]).Trim()
+    if ($commit -notmatch '^[0-9a-f]{40}$') {
+        throw "Git resolved '$Revision' to an invalid canonical commit SHA."
+    }
+
+    return $commit
+}
+
 function Get-RelativeFileInventory {
     param([Parameter(Mandatory = $true)][string]$BundlePath)
 
@@ -139,16 +155,19 @@ $resolvedOutputRoot = Get-CanonicalPath $OutputRoot
 Assert-SafeOutputRoot $resolvedOutputRoot
 Assert-OwnedPriorOutput $resolvedOutputRoot
 
+$headRevision = Resolve-GitCommit 'HEAD'
 if ([string]::IsNullOrWhiteSpace($SourceRevision)) {
-    $SourceRevision = (& git -C $repositoryRoot rev-parse HEAD).Trim()
-    if ($LASTEXITCODE -ne 0) {
-        throw 'Could not resolve the source revision from Git.'
+    $SourceRevision = $headRevision
+} else {
+    if ($SourceRevision -notmatch '^[0-9a-fA-F]{40}$') {
+        throw 'Source revision must be a full 40-character Git commit SHA.'
+    }
+
+    $SourceRevision = Resolve-GitCommit ($SourceRevision.ToLowerInvariant())
+    if (-not $SourceRevision.Equals($headRevision, [StringComparison]::Ordinal)) {
+        throw "Source revision '$SourceRevision' does not match checked-out HEAD '$headRevision'."
     }
 }
-if ($SourceRevision -notmatch '^[0-9a-fA-F]{40}$') {
-    throw 'Source revision must be a full 40-character Git commit SHA.'
-}
-$SourceRevision = $SourceRevision.ToLowerInvariant()
 
 $dirtyPaths = @(& git -C $repositoryRoot status --porcelain=v1 --untracked-files=all)
 if ($LASTEXITCODE -ne 0) {

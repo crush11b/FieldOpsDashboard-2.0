@@ -21,6 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <Compile Include="..\TestSupport\CanonicalProductMetadata.cs" Link="CanonicalProductMetadata.cs" />
     <ProjectReference Include="..\..\src\FieldOps.Agent\FieldOps.Agent.csproj" />
     <ProjectReference Include="..\..\src\FieldOps.NativeHealth\FieldOps.NativeHealth.csproj" />
   </ItemGroup>

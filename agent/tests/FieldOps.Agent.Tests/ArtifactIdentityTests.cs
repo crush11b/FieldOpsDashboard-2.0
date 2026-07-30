@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Reflection;
 using FieldOps.NativeHealth;
+using FieldOps.TestSupport;
 
 namespace FieldOps.Agent.Tests;
 
@@ -15,22 +16,23 @@ public sealed class ArtifactIdentityTests
 
     private static void AssertAssembly(Assembly assembly, string expectedName)
     {
+        var canonical = CanonicalProductMetadata.Load();
         Assert.Equal(expectedName, assembly.GetName().Name);
-        Assert.Equal(new Version(2, 2, 0, 0), assembly.GetName().Version);
+        Assert.Equal(canonical.AssemblyVersion, assembly.GetName().Version);
         Assert.Equal(
-            "2.2.0.0",
+            canonical.FileVersion,
             assembly.GetCustomAttribute<AssemblyFileVersionAttribute>()?.Version);
 
         var informationalVersion = assembly
             .GetCustomAttribute<AssemblyInformationalVersionAttribute>()?
             .InformationalVersion;
         Assert.NotNull(informationalVersion);
-        Assert.StartsWith("2.2.0", informationalVersion, StringComparison.Ordinal);
+        Assert.StartsWith(canonical.Version, informationalVersion, StringComparison.Ordinal);
         Assert.DoesNotContain("0.1.0", informationalVersion, StringComparison.Ordinal);
         Assert.DoesNotContain("e2.001", informationalVersion, StringComparison.Ordinal);
 
         Assert.StartsWith(
-            "2.2.0",
+            canonical.Version,
             FileVersionInfo.GetVersionInfo(assembly.Location).ProductVersion,
             StringComparison.Ordinal);
     }
