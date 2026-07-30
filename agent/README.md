@@ -61,7 +61,7 @@ Task 2.3-03 is represented by two disposable projects:
 
 The Tray prototype also contains an isolated Named Pipe authorization probe with an explicit Windows ACL. The probe does not restart the agent and is not registered in production.
 
-The installed health-token ACL currently permits SYSTEM, local Administrators, and LocalService. A standard-user tray therefore reports health as unavailable until the selected constrained Named Pipe health gateway is implemented in a future reviewed increment; this spike deliberately does not broaden that ACL or register a pipe in the agent.
+The installed health-token ACL remains limited to SYSTEM, local Administrators, and LocalService. The agent-hosted native health gateway provides a separate fixed-purpose, sanitized, read-only path without exposing or broadening that credential. Its optional `Agent:NativeHealth:OperatorSid` setting is evaluated once during agent startup; changing the configured operator-group SID requires an agent restart. Group creation, membership provisioning, and tray integration remain separate reviewed work.
 
 ### Running the disposable prototypes
 

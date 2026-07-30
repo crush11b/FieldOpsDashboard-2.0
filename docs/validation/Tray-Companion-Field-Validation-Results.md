@@ -96,7 +96,7 @@ Add rows when the same test is run on multiple machines or identities. Do not ov
 
 ## Follow-up decisions
 
-- Production native health gateway: Pending validation.
+- Production native health gateway: Real-identity authorization checks passed on DEV-01. The original installed-service truncated-frame recovery failure was reproduced, remediated, and passed on rerun together with malformed-input, unread-response, and idle-listener recovery. See `Native-Health-Gateway-Installed-Service-Validation.md`. Genuine Anonymous and Network execution remain environment-dependent.
 - Production operator-group provisioning: Pending validation and installer review.
 - Cross-session coordination: Pending physical evidence.
 - UAC and SCM behavior: Pending physical evidence.

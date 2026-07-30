@@ -109,6 +109,16 @@ The pipe DACL should authorize LocalService, elevated local Administrators, and 
 
 Choose **Option C** for production native health access, subject to real LocalService, administrator, alternate-user, and ToughPad/ToughBook validation. This is a follow-up production implementation decision: the disposable spike validates protocol and ACL mechanics but does not register a pipe in `FieldOpsAgent`, create a group, or change installers.
 
+### Native channel trust boundary clarification
+
+The Named Pipe security boundary authenticates and authorizes callers to the FieldOps Agent through Windows identities and a narrow DACL. LocalService, elevated local Administrators, and the explicitly configured `FieldOps Operators` group are trusted identities within this boundary. Defending against a malicious process already running as LocalService, or against an elevated local administrator impersonating `FieldOpsAgent` by hosting the expected pipe, is outside the Task 2.3-03 threat model.
+
+`FirstPipeInstance` provides fail-closed detection when another process pre-creates the pipe name; it is not mutual authentication. Correlation IDs and acknowledgements provide protocol association and integrity only. They do not authenticate the pipe server.
+
+For this native channel, **authenticated health** means health delivered through the authorized native-agent boundary selected here. Task 2.3-03 does not require SCM server-PID matching, executable-path validation, signature validation, or cryptographic mutual authentication. Stronger server-identity verification may be considered later as defense in depth if the documented threat model changes.
+
+The optional operator-group SID configuration is evaluated when the agent starts. Changing that configuration requires an agent restart; this implementation does not mutate the live pipe DACL in response to configuration reload.
+
 ## Restart result contract
 
 The prototype distinguishes:
