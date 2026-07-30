@@ -1,7 +1,4 @@
-using System.Net.Http.Headers;
-using System.Security.Cryptography;
-using System.Text;
-using System.Text.Json;
+using FieldOps.NativeHealth;
 
 namespace FieldOps.TrayPrototype;
 
@@ -15,68 +12,76 @@ public enum AgentHealthState
     Healthy,
     Unhealthy,
     Unavailable,
+    ProtocolMismatch,
+    Rejected,
+    Timeout,
+    AccessDenied,
+    Canceled,
 }
 
 public sealed record AgentHealthResult(AgentHealthState State, string Detail);
 
-internal sealed class LoopbackAgentHealthClient(HttpClient httpClient) : IAgentHealthClient
+internal interface INativeHealthReader
 {
-    private static readonly Uri Endpoint = new("http://127.0.0.1:43120/api/v1/health");
+    Task<NativeHealthResponse> ReadAsync(CancellationToken cancellationToken);
+}
 
+internal sealed class SharedNativeHealthReader(NativeHealthClient client) : INativeHealthReader
+{
+    public Task<NativeHealthResponse> ReadAsync(CancellationToken cancellationToken) =>
+        client.ReadAsync(cancellationToken);
+}
+
+internal sealed class NativeAgentHealthClient(INativeHealthReader reader) : IAgentHealthClient
+{
     public async Task<AgentHealthResult> ReadAsync(CancellationToken cancellationToken)
     {
-        string credential;
         try
         {
-            credential = await ReadCredentialAsync(cancellationToken);
-        }
-        catch (Exception exception) when (exception is IOException
-            or UnauthorizedAccessException
-            or CryptographicException)
-        {
-            return new(AgentHealthState.Unavailable, "Protected health credential is unavailable to this user.");
-        }
-
-        using var request = new HttpRequestMessage(HttpMethod.Get, Endpoint);
-        request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", credential);
-
-        try
-        {
-            using var response = await httpClient.SendAsync(request, cancellationToken);
-            if (!response.IsSuccessStatusCode)
+            var response = await reader.ReadAsync(cancellationToken);
+            if (response.Result == NativeHealthResultCode.UnsupportedVersion)
             {
-                return new(AgentHealthState.Unavailable, $"Health request returned HTTP {(int)response.StatusCode}.");
+                return new(AgentHealthState.ProtocolMismatch, "Native health protocol is incompatible.");
             }
 
-            await using var body = await response.Content.ReadAsStreamAsync(cancellationToken);
-            using var document = await JsonDocument.ParseAsync(body, cancellationToken: cancellationToken);
-            var healthy = document.RootElement.TryGetProperty("status", out var status)
-                && string.Equals(status.GetString(), "ok", StringComparison.OrdinalIgnoreCase);
-            return healthy
-                ? new(AgentHealthState.Healthy, "Authenticated health check passed.")
-                : new(AgentHealthState.Unhealthy, "Agent responded without healthy status.");
-        }
-        catch (Exception exception) when (exception is HttpRequestException
-            or TaskCanceledException
-            or JsonException)
-        {
-            return new(AgentHealthState.Unavailable, "Authenticated health endpoint is unavailable.");
-        }
-    }
+            if (response.Result is NativeHealthResultCode.InvalidRequest
+                or NativeHealthResultCode.UnsupportedRequest)
+            {
+                return new(AgentHealthState.Rejected, "Native health response was rejected.");
+            }
 
-    private static async Task<string> ReadCredentialAsync(CancellationToken cancellationToken)
-    {
-        var programData = Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData);
-        var path = Path.Combine(programData, "FieldOpsDashboard", "Agent", "health-token.dat");
-        var protectedBytes = await File.ReadAllBytesAsync(path, cancellationToken);
-        var bytes = ProtectedData.Unprotect(protectedBytes, null, DataProtectionScope.LocalMachine);
-        try
-        {
-            return Encoding.ASCII.GetString(bytes);
+            if (response.Result != NativeHealthResultCode.Ok || response.Health is null)
+            {
+                return new(AgentHealthState.Unavailable, "Native health is unavailable.");
+            }
+
+            return string.Equals(response.Health.Status, "ok", StringComparison.OrdinalIgnoreCase)
+                ? new(AgentHealthState.Healthy, "Native health reports healthy.")
+                : new(AgentHealthState.Unhealthy, "Native health did not report healthy.");
         }
-        finally
+        catch (NativeHealthProtocolMismatchException)
         {
-            CryptographicOperations.ZeroMemory(bytes);
+            return new(AgentHealthState.ProtocolMismatch, "Native health protocol is incompatible.");
+        }
+        catch (NativeHealthResponseRejectedException)
+        {
+            return new(AgentHealthState.Rejected, "Native health response was rejected.");
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return new(AgentHealthState.AccessDenied, "Native health access was denied.");
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            return new(AgentHealthState.Canceled, "Native health refresh was canceled.");
+        }
+        catch (OperationCanceledException)
+        {
+            return new(AgentHealthState.Timeout, "Native health request timed out.");
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException)
+        {
+            return new(AgentHealthState.Unavailable, "Native health is unavailable.");
         }
     }
 }

@@ -1,5 +1,7 @@
 namespace FieldOps.TrayPrototype;
 
+using FieldOps.NativeHealth;
+
 internal static class Program
 {
     [STAThread]
@@ -8,10 +10,11 @@ internal static class Program
         const string serviceName = "FieldOpsAgent";
         ApplicationConfiguration.Initialize();
 
-        using var httpClient = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        var context = new TrayApplicationContext(
+        var refreshCoordinator = new TrayRefreshCoordinator(
             new WindowsServiceStatusReader(serviceName),
-            new LoopbackAgentHealthClient(httpClient),
+            new NativeAgentHealthClient(new SharedNativeHealthReader(new NativeHealthClient())));
+        var context = new TrayApplicationContext(
+            refreshCoordinator,
             new ElevatedRestartCoordinator(
                 CoLocatedPrototypePaths.GetRestartHelperPath(),
                 TimeSpan.FromSeconds(75)));

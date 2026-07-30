@@ -438,7 +438,19 @@ public sealed class NativeHealthGatewayTests
             request => CreateSnapshotResponse(request with { CorrelationId = Guid.NewGuid() }),
             CurrentSid);
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => CreateClient().ReadAsync());
+        await Assert.ThrowsAsync<NativeHealthResponseRejectedException>(() => CreateClient().ReadAsync());
+        await fakeServer;
+    }
+
+    [Fact]
+    public async Task ClientReportsProtocolVersionMismatchWithTypedFailure()
+    {
+        var fakeServer = RunFakeServerAsync(
+            request => CreateSnapshotResponse(request) with { ProtocolVersion = 999 },
+            CurrentSid);
+
+        await Assert.ThrowsAsync<NativeHealthProtocolMismatchException>(
+            () => CreateClient().ReadAsync());
         await fakeServer;
     }
 
@@ -456,7 +468,7 @@ public sealed class NativeHealthGatewayTests
                 includeHealth ? CreateSnapshot() : null),
             CurrentSid);
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => CreateClient().ReadAsync());
+        await Assert.ThrowsAsync<NativeHealthResponseRejectedException>(() => CreateClient().ReadAsync());
         await fakeServer;
     }
 
@@ -468,7 +480,7 @@ public sealed class NativeHealthGatewayTests
             request => CreateSnapshotResponse(request, invalid),
             CurrentSid);
 
-        await Assert.ThrowsAsync<InvalidDataException>(() => CreateClient().ReadAsync());
+        await Assert.ThrowsAsync<NativeHealthResponseRejectedException>(() => CreateClient().ReadAsync());
         await fakeServer;
     }
 

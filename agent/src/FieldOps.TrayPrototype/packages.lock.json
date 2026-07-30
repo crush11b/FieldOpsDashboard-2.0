@@ -56,6 +56,12 @@
         "resolved": "8.0.0",
         "contentHash": "cIed5+HuYz+eV9yu9TH95zPkqmm1J9Qps9wxjB335sU8tsqc2kGdlTEH9FZzZeCS8a7mNSEsN8ZkyhQp1gfdEw=="
       },
+      "fieldops.nativehealth": {
+        "type": "Project",
+        "dependencies": {
+          "System.IO.Pipes.AccessControl": "[5.0.0, )"
+        }
+      },
       "fieldops.servicecontrolprototype": {
         "type": "Project",
         "dependencies": {

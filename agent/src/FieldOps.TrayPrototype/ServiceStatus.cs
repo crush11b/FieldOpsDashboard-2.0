@@ -4,27 +4,47 @@ namespace FieldOps.TrayPrototype;
 
 public interface IServiceStatusReader
 {
-    ServiceStatusResult Read();
+    Task<ServiceStatusResult> ReadAsync(CancellationToken cancellationToken);
 }
 
-public sealed record ServiceStatusResult(ServiceControllerStatus? Status, string Detail)
+public enum ServiceObservationState
 {
-    public bool IsInstalled => Status is not null;
+    Available,
+    NotInstalled,
+    Unavailable,
+}
+
+public sealed record ServiceStatusResult(
+    ServiceObservationState State,
+    ServiceControllerStatus? Status,
+    string Detail)
+{
+    public bool IsInstalled => State == ServiceObservationState.Available;
 }
 
 internal sealed class WindowsServiceStatusReader(string serviceName) : IServiceStatusReader
 {
-    public ServiceStatusResult Read()
+    public Task<ServiceStatusResult> ReadAsync(CancellationToken cancellationToken) =>
+        Task.Run(Read, cancellationToken);
+
+    private ServiceStatusResult Read()
     {
         try
         {
             using var controller = new ServiceController(serviceName);
             controller.Refresh();
-            return new(controller.Status, $"Windows reports service state {controller.Status}.");
+            return new(
+                ServiceObservationState.Available,
+                controller.Status,
+                $"Windows reports service state {controller.Status}.");
         }
         catch (InvalidOperationException)
         {
-            return new(null, "FieldOps Agent is not installed.");
+            return new(ServiceObservationState.NotInstalled, null, "FieldOps Agent is not installed.");
+        }
+        catch (System.ComponentModel.Win32Exception)
+        {
+            return new(ServiceObservationState.Unavailable, null, "Windows service state is unavailable.");
         }
     }
 }

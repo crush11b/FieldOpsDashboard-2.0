@@ -5,10 +5,10 @@ using System.Windows.Forms;
 namespace FieldOps.TrayPrototype;
 
 internal sealed class TrayApplicationContext(
-    IServiceStatusReader serviceStatus,
-    IAgentHealthClient healthClient,
+    TrayRefreshCoordinator refreshCoordinator,
     IRestartCoordinator restartCoordinator) : ApplicationContext
 {
+    private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly ToolStripMenuItem statusItem = new("Status: checking...") { Enabled = false };
     private readonly ToolStripMenuItem healthItem = new("Health: checking...") { Enabled = false };
     private readonly ToolStripMenuItem restartItem = new("Restart FieldOps Agent");
@@ -43,6 +43,9 @@ internal sealed class TrayApplicationContext(
 
     protected override void ExitThreadCore()
     {
+        lifetimeCancellation.Cancel();
+        refreshCoordinator.Dispose();
+        lifetimeCancellation.Dispose();
         notifyIcon.Visible = false;
         notifyIcon.Dispose();
         base.ExitThreadCore();
@@ -50,20 +53,22 @@ internal sealed class TrayApplicationContext(
 
     private async Task RefreshAsync()
     {
-        var status = serviceStatus.Read();
-        statusItem.Text = status.Status is null ? "Service: not installed" : $"Service: {status.Status}";
-        restartItem.Enabled = status.Status is not (ServiceControllerStatus.StartPending
-            or ServiceControllerStatus.StopPending);
+        var result = await refreshCoordinator.RefreshAsync(lifetimeCancellation.Token);
+        if (result is null)
+        {
+            return;
+        }
 
-        var health = await healthClient.ReadAsync(CancellationToken.None);
-        healthItem.Text = $"Health: {health.State}";
-        notifyIcon.Text = $"FieldOps Agent: {status.Status?.ToString() ?? "not installed"}; {health.State}";
+        statusItem.Text = result.ServiceText;
+        healthItem.Text = result.HealthText;
+        restartItem.Enabled = result.RestartEnabled;
+        notifyIcon.Text = result.ToolTipText;
     }
 
     private async Task RestartAsync()
     {
         restartItem.Enabled = false;
-        var result = await restartCoordinator.RestartAsync(CancellationToken.None);
+        var result = await restartCoordinator.RestartAsync(lifetimeCancellation.Token);
         MessageBox.Show(
             result.Detail,
             result.Succeeded ? "FieldOps Agent restarted" : "FieldOps Agent restart failed",

@@ -19,6 +19,7 @@
   </ItemGroup>
 
   <ItemGroup>
+    <ProjectReference Include="..\FieldOps.NativeHealth\FieldOps.NativeHealth.csproj" />
     <ProjectReference Include="..\FieldOps.ServiceControlPrototype\FieldOps.ServiceControlPrototype.csproj" />
   </ItemGroup>
 

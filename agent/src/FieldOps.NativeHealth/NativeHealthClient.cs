@@ -48,18 +48,26 @@ public sealed class NativeHealthClient
             correlationId,
             NativeHealthRequestType.ReadHealth);
         await NativeHealthMessageFraming.WriteAsync(client, request, timeoutSource.Token);
-        var response = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
-            client,
-            timeoutSource.Token);
+        NativeHealthResponse response;
+        try
+        {
+            response = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
+                client,
+                timeoutSource.Token);
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new NativeHealthResponseRejectedException(exception);
+        }
 
         if (response.ProtocolVersion != NativeHealthProtocol.Version)
         {
-            throw new InvalidDataException("Native health response protocol version was invalid.");
+            throw new NativeHealthProtocolMismatchException();
         }
 
         if (response.CorrelationId == Guid.Empty || response.CorrelationId != correlationId)
         {
-            throw new InvalidDataException("Native health response correlation did not match the request.");
+            throw new NativeHealthResponseRejectedException();
         }
 
         await NativeHealthMessageFraming.WriteAsync(
@@ -67,7 +75,14 @@ public sealed class NativeHealthClient
             new NativeHealthAcknowledgement(NativeHealthProtocol.Version, correlationId),
             timeoutSource.Token);
 
-        ValidateResponse(response);
+        try
+        {
+            ValidateResponse(response);
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new NativeHealthResponseRejectedException(exception);
+        }
 
         return response;
     }
@@ -109,5 +124,21 @@ public sealed class NativeHealthClient
         {
             throw new InvalidDataException("Native health response fields were invalid.");
         }
+    }
+}
+
+public sealed class NativeHealthProtocolMismatchException()
+    : IOException("Native health response protocol version was invalid.");
+
+public sealed class NativeHealthResponseRejectedException : IOException
+{
+    public NativeHealthResponseRejectedException()
+        : base("Native health response was rejected.")
+    {
+    }
+
+    public NativeHealthResponseRejectedException(Exception innerException)
+        : base("Native health response was rejected.", innerException)
+    {
     }
 }
