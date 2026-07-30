@@ -27,8 +27,17 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ServiceIdentity>();
 builder.Services.AddSingleton<AgentCredentialProvider>();
+builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
+builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
+    builder.Configuration["Agent:NativeHealth:OperatorSid"],
+    sp.GetRequiredService<ILogger<NativeHealthAuthorizationPolicy>>()));
+builder.Services.AddSingleton(sp => new NativeHealthGatewayServer(
+    sp.GetRequiredService<NativeHealthAuthorizationPolicy>(),
+    sp.GetRequiredService<INativeHealthSnapshotProvider>(),
+    TimeSpan.FromSeconds(5)));
 builder.Services.AddTelemetryTransportFoundation();
 builder.Services.AddHostedService<AgentLifecycleService>();
+builder.Services.AddHostedService<NativeHealthGatewayService>();
 
 var app = builder.Build();
 var credentialProvider = app.Services.GetRequiredService<AgentCredentialProvider>();

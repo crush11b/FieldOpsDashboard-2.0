@@ -22,6 +22,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\..\src\FieldOps.Agent\FieldOps.Agent.csproj" />
+    <ProjectReference Include="..\..\src\FieldOps.NativeHealth\FieldOps.NativeHealth.csproj" />
   </ItemGroup>
 
 </Project>
