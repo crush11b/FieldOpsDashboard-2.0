@@ -33,7 +33,7 @@ This is additional evidence for the existing TRAY-003 failure: the disposable pr
 
 ## Coverage notes
 
-- Automated verification initially completed 215 of 216 tests because the known transient telemetry test failed. That telemetry test passed on its single isolated rerun, and the subsequent complete suite passed 216 of 216. The initial failure is retained here rather than rewritten as a successful run; this slice did not change telemetry.
+- Automated verification initially completed 215 of 216 tests because the known transient telemetry test failed. That telemetry test passed on its single isolated rerun, and the subsequent complete suite passed 216 of 216. Six remediation regression tests then increased the suite from 216 to 222 tests, and the post-remediation complete suite passed **222/222**. The initial failure is retained here rather than rewritten as a successful run; this slice did not change telemetry.
 - The service-transition test remains `NOT RUN`; one stopped state was observed during rapid refresh, but no start-pending or stop-pending state was held long enough to validate presentation.
 - Protocol mismatch, rejected response, timeout, refresh cancellation, and stale-result suppression retain deterministic automated coverage where an installed fixture could not safely own the fixed pipe.
 - The tray menu closing after selecting Refresh is normal notification-menu behavior; the icon remained available and the tray remained responsive.
