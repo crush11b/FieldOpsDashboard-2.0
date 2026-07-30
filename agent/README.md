@@ -56,12 +56,12 @@ The service listens only on `http://127.0.0.1:43120`. It does not enable CORS an
 
 Task 2.3-03 is represented by two disposable projects:
 
-- `src/FieldOps.TrayPrototype` is a .NET 8 Windows Forms `NotifyIcon` host. It reads real SCM state and the existing authenticated read-only health endpoint.
+- `src/FieldOps.TrayPrototype` is a .NET 8 Windows Forms `NotifyIcon` host. It reads real SCM state independently and uses the shared native-health client for sanitized read-only agent health.
 - `src/FieldOps.ServiceControlPrototype` is a fixed-purpose helper launched with UAC. It can stop and start only the compiled-in `FieldOpsAgent` service and returns typed exit codes after bounded transitions and an authenticated health check.
 
 The Tray prototype also contains an isolated Named Pipe authorization probe with an explicit Windows ACL. The probe does not restart the agent and is not registered in production.
 
-The installed health-token ACL remains limited to SYSTEM, local Administrators, and LocalService. The agent-hosted native health gateway provides a separate fixed-purpose, sanitized, read-only path without exposing or broadening that credential. Its optional `Agent:NativeHealth:OperatorSid` setting is evaluated once during agent startup; changing the configured operator-group SID requires an agent restart. Group creation, membership provisioning, and tray integration remain separate reviewed work.
+The installed health-token ACL remains limited to SYSTEM, local Administrators, and LocalService. The agent-hosted native health gateway provides a separate fixed-purpose, sanitized, read-only path without exposing or broadening that credential. Its optional `Agent:NativeHealth:OperatorSid` setting is evaluated once during agent startup; changing the configured operator-group SID requires an agent restart. The tray consumes this shared native client; group creation and membership provisioning remain separate reviewed work.
 
 ### Running the disposable prototypes
 

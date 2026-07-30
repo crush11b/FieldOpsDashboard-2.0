@@ -152,6 +152,12 @@
           "xunit.extensibility.core": "[2.9.2]"
         }
       },
+      "fieldops.nativehealth": {
+        "type": "Project",
+        "dependencies": {
+          "System.IO.Pipes.AccessControl": "[5.0.0, )"
+        }
+      },
       "fieldops.servicecontrolprototype": {
         "type": "Project",
         "dependencies": {
@@ -163,6 +169,7 @@
       "fieldops.trayprototype": {
         "type": "Project",
         "dependencies": {
+          "FieldOps.NativeHealth": "[1.0.0, )",
           "FieldOps.ServiceControlPrototype": "[1.0.0, )",
           "System.IO.Pipes.AccessControl": "[5.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )",

@@ -9,6 +9,8 @@ public sealed class NativeHealthClient
     private readonly string pipeName;
     private readonly TimeSpan operationTimeout;
     private readonly SecurityIdentifier trustedServerOwner;
+    private readonly Func<Stream, NativeHealthAcknowledgement, CancellationToken, Task>
+        writeAcknowledgement;
 
     public NativeHealthClient()
         : this(
@@ -21,11 +23,17 @@ public sealed class NativeHealthClient
     internal NativeHealthClient(
         string pipeName,
         TimeSpan operationTimeout,
-        SecurityIdentifier trustedServerOwner)
+        SecurityIdentifier trustedServerOwner,
+        Func<Stream, NativeHealthAcknowledgement, CancellationToken, Task>? writeAcknowledgement = null)
     {
         this.pipeName = pipeName;
         this.operationTimeout = operationTimeout;
         this.trustedServerOwner = trustedServerOwner;
+        this.writeAcknowledgement = writeAcknowledgement
+            ?? ((stream, acknowledgement, token) => NativeHealthMessageFraming.WriteAsync(
+                stream,
+                acknowledgement,
+                token));
     }
 
     public async Task<NativeHealthResponse> ReadAsync(CancellationToken cancellationToken = default)
@@ -48,26 +56,45 @@ public sealed class NativeHealthClient
             correlationId,
             NativeHealthRequestType.ReadHealth);
         await NativeHealthMessageFraming.WriteAsync(client, request, timeoutSource.Token);
-        var response = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
-            client,
-            timeoutSource.Token);
+        NativeHealthResponse response;
+        try
+        {
+            response = await NativeHealthMessageFraming.ReadAsync<NativeHealthResponse>(
+                client,
+                timeoutSource.Token);
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new NativeHealthResponseRejectedException(exception);
+        }
+        catch (EndOfStreamException exception)
+        {
+            throw new NativeHealthResponseRejectedException(exception);
+        }
 
         if (response.ProtocolVersion != NativeHealthProtocol.Version)
         {
-            throw new InvalidDataException("Native health response protocol version was invalid.");
+            throw new NativeHealthProtocolMismatchException();
         }
 
         if (response.CorrelationId == Guid.Empty || response.CorrelationId != correlationId)
         {
-            throw new InvalidDataException("Native health response correlation did not match the request.");
+            throw new NativeHealthResponseRejectedException();
         }
 
-        await NativeHealthMessageFraming.WriteAsync(
+        try
+        {
+            ValidateResponse(response);
+        }
+        catch (InvalidDataException exception)
+        {
+            throw new NativeHealthResponseRejectedException(exception);
+        }
+
+        await writeAcknowledgement(
             client,
             new NativeHealthAcknowledgement(NativeHealthProtocol.Version, correlationId),
             timeoutSource.Token);
-
-        ValidateResponse(response);
 
         return response;
     }
@@ -109,5 +136,21 @@ public sealed class NativeHealthClient
         {
             throw new InvalidDataException("Native health response fields were invalid.");
         }
+    }
+}
+
+public sealed class NativeHealthProtocolMismatchException()
+    : IOException("Native health response protocol version was invalid.");
+
+public sealed class NativeHealthResponseRejectedException : IOException
+{
+    public NativeHealthResponseRejectedException()
+        : base("Native health response was rejected.")
+    {
+    }
+
+    public NativeHealthResponseRejectedException(Exception innerException)
+        : base("Native health response was rejected.", innerException)
+    {
     }
 }
