@@ -167,7 +167,11 @@ The production design may instead grant a dedicated operators group narrowly sco
 
 ## Process lifecycle and startup
 
-The tray is a separate per-user process, not a Windows service and not hosted inside `FieldOpsAgent`. Production startup registration, single-instance behavior across sessions, Explorer restart behavior, sleep/resume refresh, and sign-out cleanup remain implementation work. The prototype owns a notification icon for its message-loop lifetime and removes it on exit.
+The tray is a separate interactive process, not a Windows service and not hosted inside `FieldOpsAgent`. It atomically acquires the protected named mutex `Local\FieldOps.Tray.Instance.v1` before constructing Windows Forms, SCM, native-health, refresh, or restart objects. This establishes one primary tray per Windows session, with access restricted to the creating user and LocalSystem; it does not grant Builtin Users or World. The same identity in the same session can access the mutex and receives duplicate exit code 10 without activating or replacing the primary. The same identity in another session uses a separate `Local\` object and can run an independent primary. A different identity in the same session normally cannot access the first creator's protected mutex and receives acquisition failure 20, not duplicate status or an independent primary. A different identity in another session can run an independent primary. LocalSystem in the same session/object namespace is authorized and contends for the same mutex. Fast User Switching and RDP normally use distinct session-local namespaces, allowing one primary per session.
+
+The primary process owns the mutex through host creation, startup, the message loop, and shutdown. Normal exit returns 0. Sanitized acquisition, startup, or lifecycle failure returns 20. Normal shutdown and partial-startup failure cancel pending refresh work, suppress late results, clear `NotifyIcon.Visible`, dispose the icon and menu resources, and release instance ownership. Abandoned mutex ownership is recovered by the next acquisition rather than becoming a persistent lockout.
+
+This implements production-grade lifecycle behavior inside the still-named `FieldOps.TrayPrototype` project. Renaming and packaging are not required by the Roadmap acceptance language and remain deferred with installer registration, Windows startup registration, signing, operator-group provisioning, Explorer restart behavior, sleep/resume behavior, and representative sign-out/multi-session validation.
 
 ## Failure reporting
 

@@ -173,7 +173,8 @@
           "FieldOps.ServiceControlPrototype": "[1.0.0, )",
           "System.IO.Pipes.AccessControl": "[5.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )",
-          "System.ServiceProcess.ServiceController": "[8.0.1, )"
+          "System.ServiceProcess.ServiceController": "[8.0.1, )",
+          "System.Threading.AccessControl": "[8.0.0, )"
         }
       }
     },

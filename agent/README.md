@@ -63,6 +63,10 @@ The Tray prototype also contains an isolated Named Pipe authorization probe with
 
 The installed health-token ACL remains limited to SYSTEM, local Administrators, and LocalService. The agent-hosted native health gateway provides a separate fixed-purpose, sanitized, read-only path without exposing or broadening that credential. Its optional `Agent:NativeHealth:OperatorSid` setting is evaluated once during agent startup; changing the configured operator-group SID requires an agent restart. The tray consumes this shared native client; group creation and membership provisioning remain separate reviewed work.
 
+The tray lifecycle is production-grade within this otherwise unpackaged prototype. Before creating `NotifyIcon`, SCM, native-health, refresh, or restart objects, the process atomically acquires `Local\FieldOps.Tray.Instance.v1`. This provides one primary tray per Windows session, with access restricted to the creating user and LocalSystem. The same identity in the same session receives duplicate exit code `10`; the same identity in another session uses a separate `Local\` object and can run an independent primary. A different identity in the same session normally cannot access the protected object and receives lifecycle failure `20`, not duplicate status or an independent primary. A different identity in another session can run an independent primary. LocalSystem in the same session/object namespace is authorized and contends for that session's mutex. Fast User Switching and RDP normally use distinct session-local namespaces and therefore allow one primary per session.
+
+Tray process exit codes are stable: `0` is a normal primary-instance exit, `10` is a duplicate no-op exit, and `20` is a sanitized startup or lifecycle failure. The primary retains mutex ownership through host creation, startup, the Windows Forms message loop, and deterministic disposal. Startup or message-loop failure clears any visible icon, cancels refresh work, disposes lifecycle resources, and releases ownership. Project/assembly naming, installation, startup registration, packaging, signing, and operator-group provisioning remain deferred.
+
 ### Running the disposable prototypes
 
 Build first, then run the tray directly from its build output in a normal interactive session:
@@ -70,6 +74,7 @@ Build first, then run the tray directly from its build output in a normal intera
 ```powershell
 dotnet build .\agent\FieldOps.Agent.sln -c Release --no-restore
 & .\agent\src\FieldOps.TrayPrototype\bin\Release\net8.0-windows\win-x64\FieldOps.TrayPrototype.exe
+$LASTEXITCODE
 ```
 
 The tray resolves `FieldOps.ServiceControlPrototype.exe` only beside its own executable. It does not use the working directory, `PATH`, environment configuration, or tray-provided paths. Restart displays UAC because the helper relies on the elevated Windows token and SCM authorization, not an application credential.
