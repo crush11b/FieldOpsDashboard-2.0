@@ -485,6 +485,67 @@ public sealed class NativeHealthGatewayTests
     }
 
     [Fact]
+    public async Task ClientRejectsPartialResponseLengthPrefix()
+    {
+        var fakeServer = RunRawResponseServerAsync(async (server, _) =>
+        {
+            await server.WriteAsync(new byte[] { 64, 0 });
+            await server.FlushAsync();
+        });
+
+        await Assert.ThrowsAsync<NativeHealthResponseRejectedException>(() => CreateClient().ReadAsync());
+        await fakeServer;
+    }
+
+    [Fact]
+    public async Task ClientRejectsTruncatedResponsePayload()
+    {
+        var fakeServer = RunRawResponseServerAsync(async (server, _) =>
+        {
+            var header = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(header, 64);
+            await server.WriteAsync(header);
+            await server.WriteAsync(new byte[] { 1 });
+            await server.FlushAsync();
+        });
+
+        await Assert.ThrowsAsync<NativeHealthResponseRejectedException>(() => CreateClient().ReadAsync());
+        await fakeServer;
+    }
+
+    [Fact]
+    public async Task ClientRejectsStructurallyInvalidResponseBeforeAcknowledgement()
+    {
+        var fakeServer = RunRawResponseServerAsync(async (server, request) =>
+        {
+            await NativeHealthMessageFraming.WriteAsync(
+                server,
+                CreateSnapshotResponse(request) with { Health = null },
+                CancellationToken.None);
+        });
+
+        await Assert.ThrowsAsync<NativeHealthResponseRejectedException>(() => CreateClient().ReadAsync());
+        await fakeServer;
+    }
+
+    [Fact]
+    public async Task ValidResponseAcknowledgementFailureRemainsAnAvailabilityFailure()
+    {
+        var fakeServer = RunFakeServerAsync(
+            request => CreateSnapshotResponse(request),
+            CurrentSid);
+        var client = new NativeHealthClient(
+            pipeName,
+            TestTimeout,
+            CurrentSid,
+            (_, _, _) => Task.FromException(new IOException("Acknowledgement failed.")));
+
+        var exception = await Assert.ThrowsAnyAsync<IOException>(() => client.ReadAsync());
+        Assert.IsNotType<NativeHealthResponseRejectedException>(exception);
+        await fakeServer;
+    }
+
+    [Fact]
     public async Task ClientAcceptsBackwardWallClockAdjustmentWithNonnegativeUptime()
     {
         var adjusted = CreateSnapshot() with
@@ -642,6 +703,31 @@ public sealed class NativeHealthGatewayTests
             (request, _) => Task.FromResult<NativeHealthResponse?>(responseFactory(request)),
             owner,
             CancellationToken.None);
+
+    private async Task RunRawResponseServerAsync(
+        Func<NamedPipeServerStream, NativeHealthRequest, Task> writeResponse)
+    {
+        var security = new PipeSecurity();
+        security.SetOwner(CurrentSid);
+        security.AddAccessRule(new PipeAccessRule(
+            CurrentSid,
+            PipeAccessRights.FullControl,
+            AccessControlType.Allow));
+        await using var server = NamedPipeServerStreamAcl.Create(
+            pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Byte,
+            PipeOptions.Asynchronous | PipeOptions.FirstPipeInstance,
+            NativeHealthProtocol.MaximumMessageBytes,
+            NativeHealthProtocol.MaximumMessageBytes,
+            security);
+        await server.WaitForConnectionAsync();
+        var request = await NativeHealthMessageFraming.ReadAsync<NativeHealthRequest>(
+            server,
+            CancellationToken.None);
+        await writeResponse(server, request);
+    }
 
     private async Task RunFakeServerAsync(
         Func<NativeHealthRequest, CancellationToken, Task<NativeHealthResponse?>> responseFactory,

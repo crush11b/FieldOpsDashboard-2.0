@@ -98,6 +98,7 @@ internal sealed class TrayRefreshCoordinator(
         {
             ServiceControllerStatus.Stopped => "Health: Service stopped",
             ServiceControllerStatus.StartPending => "Health: Starting",
+            ServiceControllerStatus.StopPending => "Health: Stopping",
             _ => $"Health: {HealthLabel(health.State)}",
         };
         var serviceLabel = service.State == ServiceObservationState.Available
@@ -107,6 +108,7 @@ internal sealed class TrayRefreshCoordinator(
         {
             ServiceControllerStatus.Stopped => "Service stopped",
             ServiceControllerStatus.StartPending => "Starting",
+            ServiceControllerStatus.StopPending => "Stopping",
             _ => HealthLabel(health.State),
         };
 
@@ -123,7 +125,7 @@ internal sealed class TrayRefreshCoordinator(
     private static string HealthLabel(AgentHealthState state) => state switch
     {
         AgentHealthState.Healthy => "Healthy",
-        AgentHealthState.Unhealthy => "Unavailable",
+        AgentHealthState.Unhealthy => "Unhealthy",
         AgentHealthState.ProtocolMismatch => "Protocol mismatch",
         AgentHealthState.Rejected => "Response rejected",
         AgentHealthState.Timeout => "Timed out",

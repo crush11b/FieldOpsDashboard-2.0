@@ -49,6 +49,35 @@ public sealed class TrayRefreshCoordinatorTests
     }
 
     [Fact]
+    public async Task Stop_pending_is_presented_as_stopping_without_discarding_healthy_native_observation()
+    {
+        using var coordinator = CreateCoordinator(
+            Service(ServiceObservationState.Available, ServiceControllerStatus.StopPending),
+            Health(AgentHealthState.Healthy));
+
+        var result = await coordinator.RefreshAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("Health: Stopping", result.HealthText);
+        Assert.Contains("Stopping", result.ToolTipText, StringComparison.Ordinal);
+        Assert.Equal(AgentHealthState.Healthy, result.Health.State);
+    }
+
+    [Fact]
+    public async Task Running_service_preserves_authenticated_unhealthy_presentation()
+    {
+        using var coordinator = CreateCoordinator(
+            Service(ServiceObservationState.Available, ServiceControllerStatus.Running),
+            Health(AgentHealthState.Unhealthy));
+
+        var result = await coordinator.RefreshAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("Health: Unhealthy", result.HealthText);
+        Assert.Equal(AgentHealthState.Unhealthy, result.Health.State);
+    }
+
+    [Fact]
     public async Task Unavailable_scm_does_not_discard_healthy_native_observation()
     {
         using var coordinator = CreateCoordinator(
