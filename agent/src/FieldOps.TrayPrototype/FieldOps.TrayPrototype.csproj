@@ -6,7 +6,7 @@
     <UseWindowsForms>true</UseWindowsForms>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AssemblyName>FieldOps.TrayPrototype</AssemblyName>
+    <AssemblyName>FieldOps.Tray</AssemblyName>
     <RootNamespace>FieldOps.TrayPrototype</RootNamespace>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>

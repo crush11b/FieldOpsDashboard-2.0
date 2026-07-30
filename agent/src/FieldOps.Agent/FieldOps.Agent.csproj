@@ -6,8 +6,6 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FieldOps.Agent</RootNamespace>
     <AssemblyName>FieldOps.Agent</AssemblyName>
-    <Version>0.1.0</Version>
-    <InformationalVersion>0.1.0-e2.001</InformationalVersion>
     <RuntimeIdentifier>win-x64</RuntimeIdentifier>
     <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
   </PropertyGroup>

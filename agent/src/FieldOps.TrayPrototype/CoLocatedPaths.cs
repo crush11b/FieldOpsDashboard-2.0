@@ -1,8 +1,8 @@
 namespace FieldOps.TrayPrototype;
 
-internal static class CoLocatedPrototypePaths
+internal static class CoLocatedPaths
 {
-    internal const string RestartHelperFileName = "FieldOps.ServiceControlPrototype.exe";
+    internal const string RestartHelperFileName = "FieldOps.ServiceControl.exe";
 
     internal static string GetRestartHelperPath()
     {
@@ -13,7 +13,7 @@ internal static class CoLocatedPrototypePaths
                 baseDirectory.TrimEnd(Path.DirectorySeparatorChar),
                 StringComparison.OrdinalIgnoreCase))
         {
-            throw new InvalidOperationException("Restart helper must be co-located with the Tray prototype.");
+            throw new InvalidOperationException("Restart helper must be co-located with the FieldOps Tray.");
         }
 
         return helperPath;

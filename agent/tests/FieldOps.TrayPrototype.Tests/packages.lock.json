@@ -158,7 +158,7 @@
           "System.IO.Pipes.AccessControl": "[5.0.0, )"
         }
       },
-      "fieldops.servicecontrolprototype": {
+      "FieldOps.ServiceControl": {
         "type": "Project",
         "dependencies": {
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )",
@@ -166,11 +166,11 @@
           "System.Threading.AccessControl": "[8.0.0, )"
         }
       },
-      "fieldops.trayprototype": {
+      "FieldOps.Tray": {
         "type": "Project",
         "dependencies": {
-          "FieldOps.NativeHealth": "[1.0.0, )",
-          "FieldOps.ServiceControlPrototype": "[1.0.0, )",
+          "FieldOps.NativeHealth": "[2.2.0, )",
+          "FieldOps.ServiceControl": "[2.2.0, )",
           "System.IO.Pipes.AccessControl": "[5.0.0, )",
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )",
           "System.ServiceProcess.ServiceController": "[8.0.1, )",

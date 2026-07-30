@@ -87,7 +87,7 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
         var context = new TrayApplicationContext(
             refreshCoordinator,
             new ElevatedRestartCoordinator(
-                CoLocatedPrototypePaths.GetRestartHelperPath(),
+                CoLocatedPaths.GetRestartHelperPath(),
                 TimeSpan.FromSeconds(75)));
         return new WindowsFormsTrayApplicationHost(context);
     }

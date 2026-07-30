@@ -63,7 +63,7 @@
           "System.IO.Pipes.AccessControl": "[5.0.0, )"
         }
       },
-      "fieldops.servicecontrolprototype": {
+      "FieldOps.ServiceControl": {
         "type": "Project",
         "dependencies": {
           "System.Security.Cryptography.ProtectedData": "[8.0.0, )",
