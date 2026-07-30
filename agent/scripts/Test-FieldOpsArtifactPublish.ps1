@@ -81,15 +81,15 @@ try {
         $manifest.informationalVersion -ne "2.2.0+$sourceRevision") {
         throw 'The artifact manifest does not match the approved release-style schema and identity.'
     }
-    if ($manifestText.Contains($repositoryRoot, [StringComparison]::OrdinalIgnoreCase) -or
-        $manifestText.Contains([Environment]::UserName, [StringComparison]::OrdinalIgnoreCase) -or
-        $manifestText.Contains([Environment]::MachineName, [StringComparison]::OrdinalIgnoreCase)) {
+    if ($manifestText.IndexOf($repositoryRoot, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $manifestText.IndexOf([Environment]::UserName, [StringComparison]::OrdinalIgnoreCase) -ge 0 -or
+        $manifestText.IndexOf([Environment]::MachineName, [StringComparison]::OrdinalIgnoreCase) -ge 0) {
         throw 'The artifact manifest contains machine-specific identity or an absolute repository path.'
     }
     foreach ($bundle in $manifest.bundles) {
         foreach ($file in $bundle.files) {
             if ([IO.Path]::IsPathRooted([string]$file.relativePath) -or
-                ([string]$file.relativePath).Contains('..', [StringComparison]::Ordinal)) {
+                ([string]$file.relativePath).IndexOf('..', [StringComparison]::Ordinal) -ge 0) {
                 throw "Manifest path '$($file.relativePath)' is not a safe relative path."
             }
         }
