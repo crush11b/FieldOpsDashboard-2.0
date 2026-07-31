@@ -3,9 +3,11 @@ param()
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+Import-Module (Join-Path $PSScriptRoot 'FieldOps.TrayStartup.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $installPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'FieldOpsDashboard\Agent')).TrimEnd('\')
+$trayInstallPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray')).TrimEnd('\')
 $dataPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'FieldOpsDashboard\Agent')).TrimEnd('\')
 
 function Assert-SafeRemovalPath {
@@ -37,7 +39,10 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 Assert-SafeRemovalPath -Path $installPath -ExpectedRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard')
+Assert-SafeRemovalPath -Path $trayInstallPath -ExpectedRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard')
 Assert-SafeRemovalPath -Path $dataPath -ExpectedRoot (Join-Path $env:ProgramData 'FieldOpsDashboard')
+
+Remove-FieldOpsTrayStartup
 
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 if ($service) {
@@ -52,7 +57,7 @@ if ($service) {
     }
 }
 
-foreach ($path in @($InstallPath, $DataPath)) {
+foreach ($path in @($installPath, $trayInstallPath, $dataPath)) {
     if (Test-Path -LiteralPath $path) {
         Remove-Item -LiteralPath $path -Recurse -Force
     }

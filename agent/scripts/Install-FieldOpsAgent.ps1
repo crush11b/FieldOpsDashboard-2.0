@@ -1,15 +1,18 @@
 [CmdletBinding()]
 param(
-    [string]$PublishPath = (Join-Path $PSScriptRoot '..\publish\win-x64')
+    [string]$PublishPath = (Join-Path $PSScriptRoot '..\artifacts\publish\win-x64\agent'),
+    [string]$TrayPublishPath = (Join-Path $PSScriptRoot '..\artifacts\publish\win-x64\tray')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
+Import-Module (Join-Path $PSScriptRoot 'FieldOps.TrayStartup.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $executableName = 'FieldOps.Agent.exe'
 $installPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Agent'
+$trayInstallPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray'
 $dataPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Agent'
 
 function Invoke-ServiceControl {
@@ -125,9 +128,14 @@ if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administra
 }
 
 $resolvedPublishPath = (Resolve-Path -LiteralPath $PublishPath).Path
+$resolvedTrayPublishPath = (Resolve-Path -LiteralPath $TrayPublishPath).Path
 $sourceExecutable = Join-Path $resolvedPublishPath $executableName
+$sourceTrayExecutable = Join-Path $resolvedTrayPublishPath 'FieldOps.Tray.exe'
 if (-not (Test-Path -LiteralPath $sourceExecutable -PathType Leaf)) {
     throw "Published agent executable was not found at '$sourceExecutable'."
+}
+if (-not (Test-Path -LiteralPath $sourceTrayExecutable -PathType Leaf)) {
+    throw "Published tray executable was not found at '$sourceTrayExecutable'."
 }
 
 if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
@@ -137,22 +145,32 @@ if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
 if ((Test-Path -LiteralPath $installPath) -or (Test-Path -LiteralPath $dataPath)) {
     throw 'Existing FieldOps Agent files were found. Run the uninstaller before reinstalling.'
 }
+if (Test-Path -LiteralPath $trayInstallPath) {
+    throw 'Existing FieldOps tray files were found. Run the uninstaller before reinstalling.'
+}
 
 $installCreated = $false
+$trayInstallCreated = $false
 $dataCreated = $false
 $eventSourceCreated = $false
 $serviceCreated = $false
 $serviceCreateAttempted = $false
 $credentialTempPath = $null
+$trayStartupRegistered = $false
 
 try {
     New-Item -ItemType Directory -Path $installPath | Out-Null
     $installCreated = $true
+    New-Item -ItemType Directory -Path $trayInstallPath | Out-Null
+    $trayInstallCreated = $true
     New-Item -ItemType Directory -Path $dataPath | Out-Null
     $dataCreated = $true
     Set-FieldOpsAcl -Path $dataPath -IsDirectory $true
     Assert-FieldOpsAcl -Path $dataPath
     Copy-Item -Path (Join-Path $resolvedPublishPath '*') -Destination $installPath -Recurse -Force
+    Copy-Item -Path (Join-Path $resolvedTrayPublishPath '*') -Destination $trayInstallPath -Recurse -Force
+    Register-FieldOpsTrayStartup -TrayPath (Join-Path $trayInstallPath 'FieldOps.Tray.exe') | Out-Null
+    $trayStartupRegistered = $true
 
     $tokenBytes = New-Object byte[] 32
     $random = [Security.Cryptography.RandomNumberGenerator]::Create()
@@ -218,9 +236,13 @@ try {
     $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
 
     Write-Host "FieldOps Local Agent installed and running from '$installPath'."
+    Write-Host "FieldOps tray startup registered for the current user at '$trayInstallPath\FieldOps.Tray.exe'."
 } catch {
     $failure = $_
     $rollbackFailures = @()
+    if ($trayStartupRegistered) {
+        try { Remove-FieldOpsTrayStartup } catch { $rollbackFailures += "Could not remove tray startup registration: $($_.Exception.Message)" }
+    }
     if ($serviceCreateAttempted) {
         $rollbackService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
         if ($rollbackService) {
@@ -262,6 +284,9 @@ try {
             $rollbackFailures += "Could not remove install directory '$installPath': $($_.Exception.Message)"
         }
     }
+    if ($trayInstallCreated -and (Test-Path -LiteralPath $trayInstallPath)) {
+        try { Remove-Item -LiteralPath $trayInstallPath -Recurse -Force } catch { $rollbackFailures += "Could not remove tray install directory '$trayInstallPath': $($_.Exception.Message)" }
+    }
 
     for ($attempt = 0; $attempt -lt 20 -and
         (Get-Service -Name $serviceName -ErrorAction SilentlyContinue); $attempt++) {
@@ -273,7 +298,7 @@ try {
     if ($eventSourceCreated -and [Diagnostics.EventLog]::SourceExists($serviceName)) {
         $rollbackFailures += "Event Log source '$serviceName' still exists after rollback."
     }
-    foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath)) {
+    foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath, $trayInstallPath)) {
         if ($remainingPath -and (Test-Path -LiteralPath $remainingPath)) {
             $rollbackFailures += "Path '$remainingPath' still exists after rollback."
         }

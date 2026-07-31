@@ -62,6 +62,37 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void TrayStartupIsPerUserQuotedAndIntegratedWithInstall()
+    {
+        Assert.Contains("TrayPublishPath", InstallerScript);
+        Assert.Contains("FieldOps.Tray.exe", InstallerScript);
+        Assert.Contains("Register-FieldOpsTrayStartup", InstallerScript);
+        Assert.Contains("FieldOps.TrayStartup.psm1", InstallerScript);
+        Assert.Contains("$trayInstallPath", InstallerScript);
+        Assert.Contains("FieldOps tray startup registered for the current user", InstallerScript);
+    }
+
+    [Fact]
+    public void TrayStartupRemovalIsIntegratedWithUninstall()
+    {
+        var uninstaller = File.ReadAllText(FindScript("Uninstall-FieldOpsAgent.ps1"));
+        Assert.Contains("FieldOps.TrayStartup.psm1", uninstaller);
+        Assert.Contains("Remove-FieldOpsTrayStartup", uninstaller);
+        Assert.Contains("$trayInstallPath", uninstaller);
+    }
+
+    [Fact]
+    public void TrayStartupModuleUsesCurrentUserRunKeyAndQuotedExecutable()
+    {
+        var module = File.ReadAllText(FindScript("FieldOps.TrayStartup.psm1"));
+        Assert.Contains("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", module);
+        Assert.Contains("FieldOpsDashboardTray", module);
+        Assert.Contains("Resolve-Path -LiteralPath $TrayPath", module);
+        Assert.Contains("$command = '\"{0}\"' -f $resolved", module);
+        Assert.Contains("Remove-ItemProperty", module);
+    }
+
+    [Fact]
     public void NoServiceControlOptionContainsAnEmbeddedValue()
     {
         Assert.DoesNotMatch(new Regex("['\\\"](?:binPath|start|obj|DisplayName|reset|actions)=\\s+[^'\\\"]+['\\\"]"), InstallerScript);
@@ -101,5 +132,21 @@ public sealed class InstallerScriptTests
         }
 
         throw new FileNotFoundException("Could not locate agent/scripts/Install-FieldOpsAgent.ps1.");
+    }
+
+    private static string FindScript(string name)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "scripts", name);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate agent/scripts/{name}.");
     }
 }

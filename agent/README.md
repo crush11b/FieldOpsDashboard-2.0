@@ -17,7 +17,7 @@ Create the self-contained, version-synchronized Windows artifact bundles from th
 
 The generated, ignored `agent\artifacts\publish\win-x64` root contains separate `agent` and `tray` bundles plus a deterministic `artifact-manifest.json`. The manifest records the canonical product version from `product-metadata.json`, the full source revision, and the sorted size and SHA-256 inventory without hashing itself. Release-style publishing requires a clean worktree. The bundles include the .NET runtime, so the ToughBook does not require the .NET SDK or runtime.
 
-The production-named `FieldOps.Tray.exe` and `FieldOps.ServiceControl.exe` outputs are publish artifacts only. They are not installed, packaged as MSI, signed, or registered for startup. No operator group is provisioned. Existing PowerShell service deployment remains unchanged, telemetry remains dormant, and Task 2.3-03 remains incomplete.
+The production-named `FieldOps.Tray.exe` and `FieldOps.ServiceControl.exe` outputs are published beside the service bundle. The PowerShell installer copies the tray beside the installed agent and registers only the current installing user's HKCU Run value for tray startup. They are not packaged as MSI or signed, telemetry remains dormant, and Task 2.3-03 remains focused on the single-operator MVP.
 
 ## ToughBook install from the deployed package
 
@@ -54,7 +54,7 @@ The service listens only on `http://127.0.0.1:43120`. It does not enable CORS an
 
 ## Tray Companion architecture
 
-> **Deliberately unpackaged:** the source project and namespace names remain prototype-named for review continuity, while generated distributable executables use their approved production names. Neither tray artifact is installed, signed, registered for startup, or referenced by deployment scripts.
+> **Deliberately unpackaged:** the source project and namespace names remain prototype-named for review continuity, while generated distributable executables use their approved production names. The tray and fixed helper are copied by the PowerShell deployment path; startup registration is per-user HKCU only. MSI packaging and signing remain deferred.
 
 Task 2.3-03 is represented by two disposable projects:
 
@@ -67,7 +67,7 @@ The installed health-token ACL remains limited to SYSTEM, local Administrators, 
 
 The tray lifecycle is production-grade within this otherwise unpackaged prototype. Before creating `NotifyIcon`, SCM, native-health, refresh, or restart objects, the process atomically acquires `Local\FieldOps.Tray.Instance.v1`. This provides one primary tray per Windows session, with access restricted to the creating user and LocalSystem. The same identity in the same session receives duplicate exit code `10`; the same identity in another session uses a separate `Local\` object and can run an independent primary. A different identity in the same session normally cannot access the protected object and receives lifecycle failure `20`, not duplicate status or an independent primary. A different identity in another session can run an independent primary. LocalSystem in the same session/object namespace is authorized and contends for that session's mutex. Fast User Switching and RDP normally use distinct session-local namespaces and therefore allow one primary per session.
 
-Tray process exit codes are stable: `0` is a normal primary-instance exit, `10` is a duplicate no-op exit, and `20` is a sanitized startup or lifecycle failure. The primary retains mutex ownership through host creation, startup, the Windows Forms message loop, and deterministic disposal. Startup or message-loop failure clears any visible icon, cancels refresh work, disposes lifecycle resources, and releases ownership. Project/assembly naming, installation, startup registration, packaging, signing, and operator-group provisioning remain deferred.
+Tray process exit codes are stable: `0` is a normal primary-instance exit, `10` is a duplicate no-op exit, and `20` is a sanitized startup or lifecycle failure. The primary retains mutex ownership through host creation, startup, the Windows Forms message loop, and deterministic disposal. Startup or message-loop failure clears any visible icon, cancels refresh work, disposes lifecycle resources, and releases ownership. The installer registers only the current user's tray startup command and the uninstaller removes that value; packaging and signing remain deferred.
 
 ### Running the disposable prototypes
 
