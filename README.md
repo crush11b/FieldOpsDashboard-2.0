@@ -15,6 +15,17 @@ Version 2.2 establishes the project’s reliability baseline. Operational data i
 
 Release tag: [`v2.2.0`](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.2.0)
 
+## Current product direction
+
+The project is currently rebaselined around a **single-operator, locally operated field MVP**. The existing trustworthy telemetry, Windows service, authentication, and hardware-integration framework is preserved, but broader multi-user, enterprise, fleet, signing, remote-administration, and advanced hardening work is deferred until real deployment needs justify it.
+
+Version 2.3 now prioritizes a usable ToughBook/ToughPad installation with dependable startup, practical tray behavior, real GNSS, real Windows system telemetry, and representative field validation. Operator-facing Field Tools follow immediately after the MVP.
+
+See:
+
+- [`docs/planning/FieldOpsDashboard_Project_Rebaseline_2026.md`](docs/planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
+- [`docs/architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md`](docs/architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md)
+
 ## What the project does
 
 FieldOps Dashboard combines field-radio tools, local hardware integration, weather and propagation context, application launching, and logging into one touch-friendly interface designed for unreliable or unavailable internet connectivity.
@@ -231,7 +242,9 @@ npm run metadata:check
 
 Version 2.2 completed the Trustworthy Dashboard milestone.
 
-The next roadmap phase advances the secure local-agent architecture and hardware-integration foundation. Telemetry delivery should remain dormant until its planned activation task is implemented and reviewed.
+Version 2.3 is redefined as **Single-Operator Field MVP**. It focuses on dependable startup and deployment, practical tray behavior, minimal local integration, serial-port enumeration, real NMEA GNSS, real Windows system telemetry, and representative ToughBook/ToughPad operational validation.
+
+Multi-user, enterprise, fleet, remote-administration, signing, and generalized hardening work remain part of the long-term framework but are intentionally deferred from the current release path. Version 2.4 is expected to shift decisively toward operator-facing Field Tools.
 
 Project architecture and roadmap documents are available under [`docs/`](docs/README.md).
 
