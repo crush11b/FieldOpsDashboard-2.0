@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Drawing;
 using System.ServiceProcess;
 using System.Windows.Forms;
@@ -12,6 +13,7 @@ internal sealed class TrayApplicationContext(
     private readonly ToolStripMenuItem statusItem = new("Status: checking...") { Enabled = false };
     private readonly ToolStripMenuItem healthItem = new("Health: checking...") { Enabled = false };
     private readonly ToolStripMenuItem restartItem = new("Restart FieldOps Agent");
+    private readonly System.Windows.Forms.Timer refreshTimer = new() { Interval = 5000 };
     private readonly NotifyIcon notifyIcon = new()
     {
         Icon = SystemIcons.Application,
@@ -29,6 +31,7 @@ internal sealed class TrayApplicationContext(
         }
 
         started = true;
+        refreshTimer.Tick += async (_, _) => await RefreshAsync();
         restartItem.Click += async (_, _) =>
         {
             if (!shutdownStarted)
@@ -44,11 +47,14 @@ internal sealed class TrayApplicationContext(
                 await RefreshAsync();
             }
         };
+        var dashboardItem = new ToolStripMenuItem("Open Dashboard");
+        dashboardItem.Click += (_, _) => OpenDashboard();
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitThread();
 
         notifyIcon.ContextMenuStrip = new ContextMenuStrip();
         notifyIcon.ContextMenuStrip.Items.AddRange([
+            dashboardItem,
             statusItem,
             healthItem,
             new ToolStripSeparator(),
@@ -59,6 +65,7 @@ internal sealed class TrayApplicationContext(
         ]);
 
         notifyIcon.Visible = true;
+        refreshTimer.Start();
         _ = RefreshAsync();
     }
 
@@ -123,10 +130,21 @@ internal sealed class TrayApplicationContext(
 
         shutdownStarted = true;
         lifetimeCancellation.Cancel();
+        refreshTimer.Stop();
+        refreshTimer.Dispose();
         refreshCoordinator.Dispose();
         notifyIcon.Visible = false;
         notifyIcon.ContextMenuStrip?.Dispose();
         notifyIcon.Dispose();
         lifetimeCancellation.Dispose();
+    }
+
+    private static void OpenDashboard()
+    {
+        Process.Start(new ProcessStartInfo
+        {
+            FileName = "http://localhost:3000",
+            UseShellExecute = true,
+        });
     }
 }

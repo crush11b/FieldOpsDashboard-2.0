@@ -125,6 +125,7 @@ internal sealed class TrayRefreshCoordinator(
     private static string HealthLabel(AgentHealthState state) => state switch
     {
         AgentHealthState.Healthy => "Healthy",
+        AgentHealthState.Degraded => "Degraded",
         AgentHealthState.Unhealthy => "Unhealthy",
         AgentHealthState.ProtocolMismatch => "Protocol mismatch",
         AgentHealthState.Rejected => "Response rejected",

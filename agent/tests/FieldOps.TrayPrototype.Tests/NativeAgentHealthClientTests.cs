@@ -15,6 +15,15 @@ public sealed class NativeAgentHealthClientTests
     }
 
     [Fact]
+    public async Task Degraded_response_maps_to_degraded()
+    {
+        var result = await CreateClient(Response(NativeHealthResultCode.Ok, Snapshot("degraded")))
+            .ReadAsync(CancellationToken.None);
+
+        Assert.Equal(AgentHealthState.Degraded, result.State);
+    }
+
+    [Fact]
     public async Task Unavailable_response_maps_to_unavailable()
     {
         var result = await CreateClient(Response(NativeHealthResultCode.Unavailable, null))
