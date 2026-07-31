@@ -1,7 +1,16 @@
 # Project Documentation
 
-The `architecture/` directory contains the project's design baseline.
+The `architecture/` directory contains the project's design baseline and accepted Architecture Decision Records.
 
-The `planning/` directory contains the development roadmap and engineering backlog.
+The `planning/` directory contains the development roadmap, engineering backlog, and approved project rebaseline material.
 
-These documents are the authoritative reference for implementation decisions.
+## Current governing direction
+
+The active product strategy is defined by:
+
+- [`planning/FieldOpsDashboard_Project_Rebaseline_2026.md`](planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
+- [`architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md`](architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md)
+
+These documents preserve the existing architecture while reprioritizing delivery around a usable single-operator field product. Multi-user, enterprise, fleet, remote-administration, signing, and advanced hardening work remain documented future capabilities but do not block the current MVP.
+
+The roadmap and engineering backlog remain authoritative for implementation sequencing after they are reconciled with the approved rebaseline.
