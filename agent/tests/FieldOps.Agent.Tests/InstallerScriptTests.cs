@@ -105,6 +105,9 @@ public sealed class InstallerScriptTests
         Assert.Contains("npm run build", updater);
         Assert.Contains("ArgumentList 'start'", updater);
         Assert.DoesNotContain("npm run dev", updater);
+        var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
+        Assert.Contains("UpdateDashboard.ps1", batch);
+        Assert.Contains("C:\\FieldOpsDashboard", updater);
     }
 
     [Fact]

@@ -125,3 +125,10 @@ dotnet test .\agent\tests\FieldOps.TrayPrototype.Tests\FieldOps.TrayPrototype.Te
 Current-user allow/deny behavior, framing, size, timeout, concurrency, unsupported command, malformed correlation, and pipe-squatting behavior run on Windows without elevation. Tests using genuinely distinct administrator, alternate-user, LocalService, anonymous, or network tokens require the documented field procedure in `docs/validation/Tray-Companion-Windows-Identity-Validation.md`.
 
 ADR-003 documents the architecture decision and field-validation requirements. The spike does not change installers, packaging, startup registration, credential provisioning, product metadata, or dormant telemetry delivery.
+## Operator updater
+
+The repository-root `UpdateDashboard.bat` is the supported single-operator entry point. Copy
+`UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; future runs update
+`C:\FieldOpsDashboard`, publish the agent and tray, delegate installation/startup registration to
+the existing installer, provision the protected dashboard telemetry credential, and launch the
+production server with `npm start`. Do not use `npm run dev` for an installed deployment.
