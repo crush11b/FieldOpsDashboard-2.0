@@ -1,13 +1,21 @@
 [CmdletBinding()]
 param(
-    [string]$PublishPath = (Join-Path $PSScriptRoot '..\artifacts\publish\win-x64\agent'),
-    [string]$TrayPublishPath = (Join-Path $PSScriptRoot '..\artifacts\publish\win-x64\tray')
+    [string]$PublishPath,
+    [string]$TrayPublishPath
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+$scriptPath = $MyInvocation.MyCommand.Path
+$scriptDirectory = if (-not [string]::IsNullOrWhiteSpace($scriptPath)) { Split-Path -Parent $scriptPath } else { $PSScriptRoot }
+if ([string]::IsNullOrWhiteSpace($scriptDirectory)) { throw 'Could not resolve the installer script directory.' }
+if ([string]::IsNullOrWhiteSpace($PublishPath)) { $PublishPath = Join-Path $scriptDirectory '..\artifacts\publish\win-x64\agent' }
+if ([string]::IsNullOrWhiteSpace($TrayPublishPath)) { $TrayPublishPath = Join-Path $scriptDirectory '..\artifacts\publish\win-x64\tray' }
+foreach ($required in @((Join-Path $PublishPath 'FieldOps.Agent.exe'), (Join-Path $TrayPublishPath 'FieldOps.Tray.exe'))) {
+    if (-not (Test-Path -LiteralPath $required -PathType Leaf)) { throw "Native publish layout is missing '$required'." }
+}
 Add-Type -AssemblyName System.Security
-Import-Module (Join-Path $PSScriptRoot 'FieldOps.TrayStartup.psm1') -Force
+Import-Module (Join-Path $scriptDirectory 'FieldOps.TrayStartup.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $executableName = 'FieldOps.Agent.exe'
