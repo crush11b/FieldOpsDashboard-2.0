@@ -1,7 +1,7 @@
 # FieldOps Dashboard - validated transactional updater
 [CmdletBinding()]
 param(
-    [string]$InstallPath = $PSScriptRoot,
+    [string]$InstallPath = 'C:\FieldOpsDashboard',
     [string[]]$PackageUrls = @(
         # Development source; change to main after feature/2.3-mvp-02-tray-usability merges.
         'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/2.3-mvp-02-tray-usability.zip'
