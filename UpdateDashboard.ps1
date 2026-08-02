@@ -3,7 +3,8 @@
 param(
     [string]$InstallPath = $PSScriptRoot,
     [string[]]$PackageUrls = @(
-        'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/E1-telemetry-foundation.zip'
+        # Development source; change to main after feature/2.3-mvp-02-tray-usability merges.
+        'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/2.3-mvp-02-tray-usability.zip'
     ),
     [switch]$SkipLaunch,
     [switch]$SkipProcessStop,
@@ -17,12 +18,13 @@ $ProgressPreference = 'SilentlyContinue'
 
 $requiredPackageFiles = @(
     'package.json',
-    'agent\publish\win-x64\FieldOps.Agent.exe'
+    'agent\scripts\Publish-FieldOpsArtifacts.ps1',
+    'agent\scripts\Install-FieldOpsAgent.ps1',
+    'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1'
 )
 $requiredDeploymentFiles = @(
     'package.json',
-    'server.ts',
-    'agent\publish\win-x64\FieldOps.Agent.exe'
+    'server.ts'
 )
 
 function Get-PackageRoot {
@@ -160,15 +162,30 @@ try {
     }
 
     Assert-RequiredFiles -Root $resolvedInstallPath -RequiredFiles $requiredDeploymentFiles -Description 'Deployed installation'
+    Write-Host '[5/7] Restoring dependencies and building production dashboard...' -ForegroundColor Yellow
+    Set-Location -LiteralPath $resolvedInstallPath
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is required for the production dashboard build.' }
+    & npm install --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE." }
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE." }
+
+    Write-Host '[6/7] Publishing and installing the Local Agent and tray...' -ForegroundColor Yellow
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Publish-FieldOpsArtifacts.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "FieldOps artifact publish failed with exit code $LASTEXITCODE." }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1')
+    if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
+    if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
     Write-Host '[OK] Deployment verified.' -ForegroundColor Green
 
     $deploymentStarted = $false
     Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
 
     if (-not $SkipLaunch) {
-        Write-Host '[5/5] Starting Dashboard Server...' -ForegroundColor Green
+        Write-Host '[7/7] Starting production Dashboard Server...' -ForegroundColor Green
         Set-Location -LiteralPath $resolvedInstallPath
-        npm run dev
+        Start-Process -FilePath 'npm.cmd' -ArgumentList 'start' -WorkingDirectory $resolvedInstallPath
     } else {
         Write-Host '[5/5] Dashboard launch skipped.' -ForegroundColor Gray
     }

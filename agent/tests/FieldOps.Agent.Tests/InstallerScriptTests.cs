@@ -93,6 +93,21 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void DesktopUpdaterUsesCurrentPublishAndProductionInstallPath()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
+        Assert.Contains("feature/2.3-mvp-02-tray-usability.zip", updater);
+        Assert.DoesNotContain("agent\\publish\\win-x64", updater);
+        Assert.Contains("Publish-FieldOpsArtifacts.ps1", updater);
+        Assert.Contains("Install-FieldOpsAgent.ps1", updater);
+        Assert.Contains("Provision-FieldOpsTelemetryCredential.ps1", updater);
+        Assert.Contains("npm run build", updater);
+        Assert.Contains("ArgumentList 'start'", updater);
+        Assert.DoesNotContain("npm run dev", updater);
+    }
+
+    [Fact]
     public void NoServiceControlOptionContainsAnEmbeddedValue()
     {
         Assert.DoesNotMatch(new Regex("['\\\"](?:binPath|start|obj|DisplayName|reset|actions)=\\s+[^'\\\"]+['\\\"]"), InstallerScript);
@@ -148,5 +163,16 @@ public sealed class InstallerScriptTests
         }
 
         throw new FileNotFoundException($"Could not locate agent/scripts/{name}.");
+    }
+
+    private static string GetRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "UpdateDashboard.ps1"))) return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not locate repository root.");
     }
 }
