@@ -205,7 +205,11 @@ try {
             Move-Item -LiteralPath $backupPath -Destination $resolvedInstallPath
             Write-Host '[OK] Previous installation restored.' -ForegroundColor Yellow
         } catch {
-            Write-Host "[X] Rollback failed: $($_.Exception.ToString())" -ForegroundColor Red
+            $lockedPath = if (Test-Path -LiteralPath $resolvedInstallPath) { $resolvedInstallPath } else { $backupPath }
+            $lockingProcesses = @(Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique)
+            $lockHint = if ($lockingProcesses.Count -gt 0) { $lockingProcesses -join ', ' } else { 'undetermined' }
+            Write-Host "[X] Rollback failed while handling '$lockedPath'. Likely locking process: $lockHint. Partial state: dashboard activation may remain at '$resolvedInstallPath' and backup may remain at '$backupPath'." -ForegroundColor Red
+            Write-Host "[X] Rollback error: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 
