@@ -111,6 +111,13 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void NativePublishRestoresTheWinX64RuntimePacks()
+    {
+        var publish = File.ReadAllText(FindScript("Publish-FieldOpsArtifacts.ps1"));
+        Assert.Contains("'restore', $solutionPath, '--locked-mode', '-r', 'win-x64'", publish);
+    }
+
+    [Fact]
     public void NoServiceControlOptionContainsAnEmbeddedValue()
     {
         Assert.DoesNotMatch(new Regex("['\\\"](?:binPath|start|obj|DisplayName|reset|actions)=\\s+[^'\\\"]+['\\\"]"), InstallerScript);

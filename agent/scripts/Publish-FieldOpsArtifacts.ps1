@@ -205,7 +205,8 @@ try {
     [IO.Directory]::CreateDirectory($agentOutput) | Out-Null
     [IO.Directory]::CreateDirectory($trayOutput) | Out-Null
 
-    Invoke-DotNet @('restore', $solutionPath, '--locked-mode')
+    # Restore the target RID so self-contained publish has the required runtime packs.
+    Invoke-DotNet @('restore', $solutionPath, '--locked-mode', '-r', 'win-x64')
     $versionProperties = @(
         "-p:Version=$productVersion",
         "-p:AssemblyVersion=$numericVersion",
