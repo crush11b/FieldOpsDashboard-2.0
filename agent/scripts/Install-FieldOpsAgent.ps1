@@ -39,7 +39,7 @@ function Set-FieldOpsAcl {
     )
 
     $inheritance = if ($IsDirectory) { '(OI)(CI)' } else { '' }
-    & icacls.exe $Path /inheritance:r /grant:r "S-1-5-18:$inheritance(F)" "S-1-5-32-544:$inheritance(F)" "S-1-5-19:$inheritance(R)" | Out-Null
+    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:$inheritance(F)" "*S-1-5-32-544:$inheritance(F)" "*S-1-5-19:$inheritance(R)" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "icacls ACL application failed for '$Path' (exit code $LASTEXITCODE)." }
 }
 
