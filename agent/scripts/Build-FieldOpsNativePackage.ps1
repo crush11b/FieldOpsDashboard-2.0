@@ -1,8 +1,10 @@
 [CmdletBinding()]
-param([string]$OutputPath = (Join-Path $PSScriptRoot '..\artifacts\packages\fieldops-native-win-x64.zip'))
+param([string]$OutputPath)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
-$root = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..'))
+$scriptRoot = Split-Path -Parent $MyInvocation.MyCommand.Path
+$root = [IO.Path]::GetFullPath((Join-Path $scriptRoot '..\..'))
+if ([string]::IsNullOrWhiteSpace($OutputPath)) { $OutputPath = Join-Path $scriptRoot '..\artifacts\packages\fieldops-native-win-x64.zip' }
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'agent\scripts\Publish-FieldOpsArtifacts.ps1') -AllowDirty
 if ($LASTEXITCODE -ne 0) { throw "Native publish failed with exit code $LASTEXITCODE." }
 $source = Join-Path $root 'agent\artifacts\publish\win-x64'
