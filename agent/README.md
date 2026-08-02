@@ -127,6 +127,8 @@ Current-user allow/deny behavior, framing, size, timeout, concurrency, unsupport
 ADR-003 documents the architecture decision and field-validation requirements. The spike does not change installers, packaging, startup registration, credential provisioning, product metadata, or dormant telemetry delivery.
 ## Operator updater
 
+Developers build the native bundle with `powershell -ExecutionPolicy Bypass -File .\agent\scripts\Build-FieldOpsNativePackage.ps1`. This writes `agent\artifacts\packages\fieldops-native-win-x64.zip`; upload it to the configured `mvp-native` release asset. The ToughBook updater downloads it automatically and does not require the .NET SDK.
+
 The repository-root `UpdateDashboard.bat` is the supported single-operator entry point. Copy
 `UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; future runs update
 `C:\FieldOpsDashboard`, publish the agent and tray, delegate installation/startup registration to

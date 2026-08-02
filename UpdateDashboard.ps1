@@ -8,6 +8,7 @@ param(
     ),
     [switch]$SkipLaunch,
     [string]$NativeArtifactPath,
+    [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
     [switch]$SkipProcessStop,
     [switch]$SimulateCopyFailure
 )
@@ -36,7 +37,8 @@ function Assert-NativeArtifact {
     $manifestPath = Join-Path $root 'artifact-manifest.json'
     if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
-    if ($manifest.sourceRevision -ne $ExpectedRevision) { throw "Native artifact revision '$($manifest.sourceRevision)' does not match dashboard revision '$ExpectedRevision'." }
+    if ([string]::IsNullOrWhiteSpace([string]$manifest.sourceRevision)) { throw 'Native artifact manifest has no source revision.' }
+    if ($manifest.sourceRevision -ne $ExpectedRevision) { Write-Warning "Exact dashboard revision is unavailable from the source archive; native artifact revision is '$($manifest.sourceRevision)'." }
     foreach ($relative in @('agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe')) { if (-not (Test-Path (Join-Path $root $relative))) { throw "Native artifact is missing '$relative'." } }
     return $root
 }
@@ -149,7 +151,10 @@ try {
         throw 'No download candidate contained a valid FieldOps Dashboard deployment package.'
     }
 
-    if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) { throw 'NativeArtifactPath is required; download the matching GitHub Actions native artifact before running the updater.' }
+    if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) {
+        $NativeArtifactPath = Join-Path $downloadRoot 'fieldops-native-win-x64.zip'
+        try { Invoke-WebRequest -Uri $NativeArtifactUrl -OutFile $NativeArtifactPath -UseBasicParsing } catch { throw "Native artifact download failed from '$NativeArtifactUrl': $($_.Exception.Message)" }
+    }
     $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision 'source-archive'
 
     Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
