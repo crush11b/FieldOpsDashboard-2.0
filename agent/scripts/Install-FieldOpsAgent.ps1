@@ -146,14 +146,17 @@ if (-not (Test-Path -LiteralPath $sourceTrayExecutable -PathType Leaf)) {
     throw "Published tray executable was not found at '$sourceTrayExecutable'."
 }
 
-if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-    throw "Service '$serviceName' is already installed. Uninstall it before reinstalling."
+$existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+$upgrade = $null -ne $existingService
+if ($upgrade) {
+    Stop-Service -Name $serviceName -Force -ErrorAction Stop
+    $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
 }
 
-if ((Test-Path -LiteralPath $installPath) -or (Test-Path -LiteralPath $dataPath)) {
+if (-not $upgrade -and ((Test-Path -LiteralPath $installPath) -or (Test-Path -LiteralPath $dataPath))) {
     throw 'Existing FieldOps Agent files were found. Run the uninstaller before reinstalling.'
 }
-if (Test-Path -LiteralPath $trayInstallPath) {
+if (-not $upgrade -and (Test-Path -LiteralPath $trayInstallPath)) {
     throw 'Existing FieldOps tray files were found. Run the uninstaller before reinstalling.'
 }
 
@@ -167,12 +170,12 @@ $credentialTempPath = $null
 $trayStartupRegistered = $false
 
 try {
-    New-Item -ItemType Directory -Path $installPath | Out-Null
-    $installCreated = $true
-    New-Item -ItemType Directory -Path $trayInstallPath | Out-Null
-    $trayInstallCreated = $true
-    New-Item -ItemType Directory -Path $dataPath | Out-Null
-    $dataCreated = $true
+    New-Item -ItemType Directory -Path $installPath -Force | Out-Null
+    $installCreated = -not $upgrade
+    New-Item -ItemType Directory -Path $trayInstallPath -Force | Out-Null
+    $trayInstallCreated = -not $upgrade
+    New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
+    $dataCreated = -not $upgrade
     Set-FieldOpsAcl -Path $dataPath -IsDirectory $true
     Assert-FieldOpsAcl -Path $dataPath
     Copy-Item -Path (Join-Path $resolvedPublishPath '*') -Destination $installPath -Recurse -Force
@@ -180,6 +183,8 @@ try {
     Register-FieldOpsTrayStartup -TrayPath (Join-Path $trayInstallPath 'FieldOps.Tray.exe') | Out-Null
     $trayStartupRegistered = $true
 
+    $credentialPath = Join-Path $dataPath 'health-token.dat'
+    if ($upgrade -and (Test-Path $credentialPath)) { $protectedToken = $null } else {
     $tokenBytes = New-Object byte[] 32
     $random = [Security.Cryptography.RandomNumberGenerator]::Create()
     try {
@@ -201,7 +206,6 @@ try {
         $token = $null
     }
 
-    $credentialPath = Join-Path $dataPath 'health-token.dat'
     $credentialTempPath = Join-Path $dataPath ('.health-token-{0}.tmp' -f [Guid]::NewGuid().ToString('N'))
     try {
         [IO.File]::WriteAllBytes($credentialTempPath, $protectedToken)
@@ -213,6 +217,7 @@ try {
     } finally {
         [Array]::Clear($protectedToken, 0, $protectedToken.Length)
     }
+    }
 
     if (-not [Diagnostics.EventLog]::SourceExists($serviceName)) {
         New-EventLog -LogName Application -Source $serviceName
@@ -221,6 +226,7 @@ try {
 
     $installedExecutable = Join-Path $installPath $executableName
     $binaryPath = '"{0}"' -f $installedExecutable
+    if (-not $upgrade) {
     $serviceCreateAttempted = $true
     Invoke-ServiceControl -Arguments @(
         'create',
@@ -231,19 +237,21 @@ try {
         'DisplayName=', 'FieldOps Local Agent'
     )
     $serviceCreated = $true
-    Invoke-ServiceControl -Arguments @('description', $serviceName, 'Trusted local service boundary for FieldOps Dashboard.')
-    Invoke-ServiceControl -Arguments @(
+    }
+    if (-not $upgrade) { Invoke-ServiceControl -Arguments @('description', $serviceName, 'Trusted local service boundary for FieldOps Dashboard.') }
+    if (-not $upgrade) { Invoke-ServiceControl -Arguments @(
         'failure',
         $serviceName,
         'reset=', '86400',
         'actions=', 'restart/5000/restart/15000/restart/30000'
-    )
+    ) }
 
     Start-Service -Name $serviceName
     $service = Get-Service -Name $serviceName
     $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
 
-    Write-Host "FieldOps Local Agent installed and running from '$installPath'."
+    $operation = if ($upgrade) { 'upgraded' } else { 'installed' }
+    Write-Host "FieldOps Local Agent $operation and running from '$installPath'."
     Write-Host "FieldOps tray startup registered for the current user at '$trayInstallPath\FieldOps.Tray.exe'."
 } catch {
     $failure = $_
