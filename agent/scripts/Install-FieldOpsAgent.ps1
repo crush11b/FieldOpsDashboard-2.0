@@ -38,43 +38,9 @@ function Set-FieldOpsAcl {
         [Parameter(Mandatory = $true)][bool]$IsDirectory
     )
 
-    if ($IsDirectory) {
-        $acl = New-Object Security.AccessControl.DirectorySecurity
-        $inheritance = [Security.AccessControl.InheritanceFlags]'ContainerInherit, ObjectInherit'
-    } else {
-        $acl = New-Object Security.AccessControl.FileSecurity
-        $inheritance = [Security.AccessControl.InheritanceFlags]::None
-    }
-
-    $acl.SetAccessRuleProtection($true, $false)
-    $propagation = [Security.AccessControl.PropagationFlags]::None
-    $allow = [Security.AccessControl.AccessControlType]::Allow
-    $rules = @(
-        [Security.AccessControl.FileSystemAccessRule]::new(
-            [Security.Principal.SecurityIdentifier]::new('S-1-5-18'),
-            [Security.AccessControl.FileSystemRights]::FullControl,
-            $inheritance,
-            $propagation,
-            $allow),
-        [Security.AccessControl.FileSystemAccessRule]::new(
-            [Security.Principal.SecurityIdentifier]::new('S-1-5-32-544'),
-            [Security.AccessControl.FileSystemRights]::FullControl,
-            $inheritance,
-            $propagation,
-            $allow),
-        [Security.AccessControl.FileSystemAccessRule]::new(
-            [Security.Principal.SecurityIdentifier]::new('S-1-5-19'),
-            [Security.AccessControl.FileSystemRights]::ReadAndExecute,
-            $inheritance,
-            $propagation,
-            $allow)
-    )
-
-    foreach ($rule in $rules) {
-        $acl.AddAccessRule($rule) | Out-Null
-    }
-
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    $inheritance = if ($IsDirectory) { '(OI)(CI)' } else { '' }
+    & icacls.exe $Path /inheritance:r /grant:r "S-1-5-18:$inheritance(F)" "S-1-5-32-544:$inheritance(F)" "S-1-5-19:$inheritance(R)" | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw "icacls ACL application failed for '$Path' (exit code $LASTEXITCODE)." }
 }
 
 function Assert-FieldOpsAcl {
