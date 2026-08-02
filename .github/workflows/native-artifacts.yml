@@ -1,0 +1,28 @@
+name: Native artifacts
+
+on:
+  push:
+    branches: [main, feature/2.3-mvp-02-tray-usability]
+  workflow_dispatch:
+
+jobs:
+  publish:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Restore, build, and test
+        run: dotnet test agent/FieldOps.Agent.sln --configuration Release
+      - name: Publish native artifacts
+        shell: pwsh
+        run: ./agent/scripts/Publish-FieldOpsArtifacts.ps1 -AllowDirty -SourceRevision $env:GITHUB_SHA
+      - name: Package native artifacts
+        shell: pwsh
+        run: |
+          Compress-Archive -Path agent/artifacts/publish/win-x64/agent,agent/artifacts/publish/win-x64/tray,agent/artifacts/publish/win-x64/artifact-manifest.json -DestinationPath fieldops-native-win-x64.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fieldops-native-win-x64
+          path: fieldops-native-win-x64.zip

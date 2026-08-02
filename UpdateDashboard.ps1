@@ -7,6 +7,7 @@ param(
         'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/2.3-mvp-02-tray-usability.zip'
     ),
     [switch]$SkipLaunch,
+    [string]$NativeArtifactPath,
     [switch]$SkipProcessStop,
     [switch]$SimulateCopyFailure
 )
@@ -26,6 +27,19 @@ $requiredDeploymentFiles = @(
     'package.json',
     'server.ts'
 )
+
+function Assert-NativeArtifact {
+    param([Parameter(Mandatory=$true)][string]$Path, [Parameter(Mandatory=$true)][string]$ExpectedRevision)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required native artifact '$Path' is unavailable for revision '$ExpectedRevision'." }
+    $root = Join-Path $downloadRoot 'native'
+    Expand-Archive -LiteralPath $Path -DestinationPath $root -Force
+    $manifestPath = Join-Path $root 'artifact-manifest.json'
+    if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
+    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    if ($manifest.sourceRevision -ne $ExpectedRevision) { throw "Native artifact revision '$($manifest.sourceRevision)' does not match dashboard revision '$ExpectedRevision'." }
+    foreach ($relative in @('agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe')) { if (-not (Test-Path (Join-Path $root $relative))) { throw "Native artifact is missing '$relative'." } }
+    return $root
+}
 
 function Get-PackageRoot {
     param([Parameter(Mandatory = $true)][string]$ExtractPath)
@@ -135,6 +149,9 @@ try {
         throw 'No download candidate contained a valid FieldOps Dashboard deployment package.'
     }
 
+    if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) { throw 'NativeArtifactPath is required; download the matching GitHub Actions native artifact before running the updater.' }
+    $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision 'source-archive'
+
     Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
     Copy-PackageTree -Source $packageRoot -Destination $stagePath
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
@@ -171,8 +188,10 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE." }
 
     Write-Host '[6/7] Publishing and installing the Local Agent and tray...' -ForegroundColor Yellow
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Publish-FieldOpsArtifacts.ps1')
-    if ($LASTEXITCODE -ne 0) { throw "FieldOps artifact publish failed with exit code $LASTEXITCODE." }
+    $artifactRoot = Join-Path $resolvedInstallPath 'agent\artifacts\publish\win-x64'
+    New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1')
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
