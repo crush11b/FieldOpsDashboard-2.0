@@ -118,6 +118,11 @@ internal sealed class TrayApplicationContext(
             result.Succeeded ? "FieldOps Agent restarted" : "FieldOps Agent restart failed",
             MessageBoxButtons.OK,
             result.Succeeded ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        // The restart helper verifies authenticated health through the same native
+        // endpoint, but the service may still be replacing its pipe instance. Poll
+        // through the shared tray health client after the restart settles so stale
+        // Access Denied state cannot remain visible.
+        await Task.Delay(TimeSpan.FromMilliseconds(250), lifetimeCancellation.Token);
         await RefreshAsync();
     }
 
