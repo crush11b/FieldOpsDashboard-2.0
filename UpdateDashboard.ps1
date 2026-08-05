@@ -2,6 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
+    [Parameter(Mandatory = $true)][string]$OperatorAccount,
     [string[]]$PackageUrls = @(
         # Development source; change to main after feature/2.3-mvp-02-tray-usability merges.
         'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/2.3-mvp-02-tray-usability.zip'
@@ -22,6 +23,7 @@ $requiredPackageFiles = @(
     'package.json',
     'agent\scripts\Publish-FieldOpsArtifacts.ps1',
     'agent\scripts\Install-FieldOpsAgent.ps1',
+    'agent\scripts\FieldOps.OperatorProvisioning.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1'
 )
 $requiredDeploymentFiles = @(
@@ -197,7 +199,7 @@ try {
     New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray')
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
     if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }

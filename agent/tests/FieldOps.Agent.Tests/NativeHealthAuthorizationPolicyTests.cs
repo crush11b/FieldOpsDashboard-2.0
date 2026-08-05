@@ -54,6 +54,26 @@ public sealed class NativeHealthAuthorizationPolicyTests
         AssertExactRules(policy.CreateSecurity(), operatorSid);
     }
 
+    [Fact]
+    public void PersistedOperatorSidReconstructsTheSameAclAfterServiceRestart()
+    {
+        var persistedSid = "S-1-5-21-111111111-222222222-333333333-1001";
+        var resolver = new FixedSidResolver(SidAccountType.Alias);
+
+        var initialProcessPolicy = NativeHealthAuthorizationPolicy.FromConfiguration(
+            persistedSid,
+            NullLogger.Instance,
+            resolver);
+        var replacementProcessPolicy = NativeHealthAuthorizationPolicy.FromConfiguration(
+            persistedSid,
+            NullLogger.Instance,
+            resolver);
+
+        Assert.Equal(initialProcessPolicy.OperatorSid, replacementProcessPolicy.OperatorSid);
+        AssertExactRules(initialProcessPolicy.CreateSecurity(), initialProcessPolicy.OperatorSid);
+        AssertExactRules(replacementProcessPolicy.CreateSecurity(), replacementProcessPolicy.OperatorSid);
+    }
+
     [Theory]
     [InlineData((int)SidAccountType.User)]
     [InlineData((int)SidAccountType.Computer)]

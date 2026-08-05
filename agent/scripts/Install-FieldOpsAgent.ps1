@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$PublishPath,
-    [string]$TrayPublishPath
+    [string]$TrayPublishPath,
+    [Parameter(Mandatory = $true)][string]$OperatorAccount
 )
 
 Set-StrictMode -Version Latest
@@ -16,12 +17,14 @@ foreach ($required in @((Join-Path $PublishPath 'FieldOps.Agent.exe'), (Join-Pat
 }
 Add-Type -AssemblyName System.Security
 Import-Module (Join-Path $scriptDirectory 'FieldOps.TrayStartup.psm1') -Force
+Import-Module (Join-Path $scriptDirectory 'FieldOps.OperatorProvisioning.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $executableName = 'FieldOps.Agent.exe'
 $installPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Agent'
 $trayInstallPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray'
 $dataPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Agent'
+$operatorStatePath = Join-Path $dataPath 'operator-provisioning.json'
 
 function Invoke-ServiceControl {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
@@ -134,6 +137,8 @@ $serviceCreated = $false
 $serviceCreateAttempted = $false
 $credentialTempPath = $null
 $trayStartupRegistered = $false
+$operatorProvisioning = $null
+$operatorEnvironmentConfigured = $false
 
 try {
     New-Item -ItemType Directory -Path $installPath -Force | Out-Null
@@ -144,6 +149,9 @@ try {
     $dataCreated = -not $upgrade
     Set-FieldOpsAcl -Path $dataPath -IsDirectory $true
     Assert-FieldOpsAcl -Path $dataPath
+    $operatorProvisioning = New-FieldOpsOperatorProvisioning `
+        -OperatorAccount $OperatorAccount `
+        -StatePath $operatorStatePath
     Copy-Item -Path (Join-Path $resolvedPublishPath '*') -Destination $installPath -Recurse -Force
     Copy-Item -Path (Join-Path $resolvedTrayPublishPath '*') -Destination $trayInstallPath -Recurse -Force
     Register-FieldOpsTrayStartup -TrayPath (Join-Path $trayInstallPath 'FieldOps.Tray.exe') | Out-Null
@@ -212,6 +220,10 @@ try {
         'actions=', 'restart/5000/restart/15000/restart/30000'
     ) }
 
+    Set-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName `
+        -GroupSid $operatorProvisioning.GroupSid
+    $operatorEnvironmentConfigured = $true
+
     Start-Service -Name $serviceName
     $service = Get-Service -Name $serviceName
     $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
@@ -219,9 +231,16 @@ try {
     $operation = if ($upgrade) { 'upgraded' } else { 'installed' }
     Write-Host "FieldOps Local Agent $operation and running from '$installPath'."
     Write-Host "FieldOps tray startup registered for the current user at '$trayInstallPath\FieldOps.Tray.exe'."
+    Write-Host "The configured operator must sign out and sign in before native-health access if group membership was newly added."
 } catch {
     $failure = $_
     $rollbackFailures = @()
+    if ($operatorEnvironmentConfigured -and -not $upgrade) {
+        try { Remove-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName } catch { $rollbackFailures += "Could not remove native-health operator service configuration: $($_.Exception.Message)" }
+    }
+    if ($operatorProvisioning) {
+        try { Undo-FieldOpsOperatorProvisioningAttempt -Provisioning $operatorProvisioning } catch { $rollbackFailures += "Could not roll back operator provisioning: $($_.Exception.Message)" }
+    }
     if ($trayStartupRegistered) {
         try { Remove-FieldOpsTrayStartup } catch { $rollbackFailures += "Could not remove tray startup registration: $($_.Exception.Message)" }
     }
