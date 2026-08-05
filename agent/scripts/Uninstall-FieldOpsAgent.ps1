@@ -73,13 +73,22 @@ foreach ($path in @($installPath, $trayInstallPath)) {
     }
 }
 if (Test-Path -LiteralPath $dataPath) {
-    if ($operatorStateRemoved -or -not (Test-Path -LiteralPath $operatorStatePath -PathType Leaf)) {
-        Remove-Item -LiteralPath $dataPath -Recurse -Force
-    } else {
-        Get-ChildItem -LiteralPath $dataPath -Force |
-            Where-Object { $_.FullName -ne $operatorStatePath } |
-            Remove-Item -Recurse -Force
+    $knownDataFiles = @(
+        (Join-Path $dataPath 'health-token.dat'),
+        $operatorStatePath
+    )
+    foreach ($knownDataFile in $knownDataFiles) {
+        if (Test-Path -LiteralPath $knownDataFile -PathType Leaf -and
+            ($operatorStateRemoved -or $knownDataFile -ne $operatorStatePath)) {
+            Remove-Item -LiteralPath $knownDataFile -Force
+        }
+    }
+    if (@(Get-ChildItem -LiteralPath $dataPath -Force).Count -eq 0) {
+        Remove-Item -LiteralPath $dataPath -Force
+    } elseif (Test-Path -LiteralPath $operatorStatePath -PathType Leaf) {
         Write-Warning "Preserved operator ownership state at '$operatorStatePath' because group ownership could not be proven."
+    } else {
+        Write-Warning "Preserved unrelated files under '$dataPath'."
     }
 }
 

@@ -139,6 +139,7 @@ $credentialTempPath = $null
 $trayStartupRegistered = $false
 $operatorProvisioning = $null
 $operatorEnvironmentConfigured = $false
+$operatorEnvironmentSnapshot = $null
 
 try {
     New-Item -ItemType Directory -Path $installPath -Force | Out-Null
@@ -220,6 +221,7 @@ try {
         'actions=', 'restart/5000/restart/15000/restart/30000'
     ) }
 
+    $operatorEnvironmentSnapshot = Get-FieldOpsServiceEnvironment -ServiceName $serviceName
     Set-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName `
         -GroupSid $operatorProvisioning.GroupSid
     $operatorEnvironmentConfigured = $true
@@ -235,8 +237,12 @@ try {
 } catch {
     $failure = $_
     $rollbackFailures = @()
-    if ($operatorEnvironmentConfigured -and -not $upgrade) {
-        try { Remove-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName } catch { $rollbackFailures += "Could not remove native-health operator service configuration: $($_.Exception.Message)" }
+    if ($operatorEnvironmentConfigured -and $operatorEnvironmentSnapshot) {
+        try {
+            Restore-FieldOpsServiceEnvironment -ServiceName $serviceName `
+                -Exists $operatorEnvironmentSnapshot.Exists `
+                -Entries $operatorEnvironmentSnapshot.Entries
+        } catch { $rollbackFailures += "Could not restore native-health operator service configuration: $($_.Exception.Message)" }
     }
     if ($operatorProvisioning) {
         try { Undo-FieldOpsOperatorProvisioningAttempt -Provisioning $operatorProvisioning } catch { $rollbackFailures += "Could not roll back operator provisioning: $($_.Exception.Message)" }

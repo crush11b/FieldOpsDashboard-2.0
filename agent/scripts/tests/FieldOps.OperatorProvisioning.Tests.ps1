@@ -96,7 +96,7 @@ Describe 'FieldOps operator provisioning source invariants' {
 
     It 'preserves administrator-owned groups on uninstall and rollback' {
         $moduleSource | Should Match '\$membershipAddedThisRun -and -not \$groupCreatedThisRun'
-        $moduleSource | Should Match 'if \(\[bool\]\$state\.groupProductOwned\)'
+        $moduleSource | Should Match '\[bool\]\$state\.groupProductOwned -and \$unrelatedMembers\.Count -eq 0'
         $moduleSource | Should Match 'preserving group and membership state'
     }
 }

@@ -105,7 +105,7 @@ public sealed class OperatorProvisioningScriptTests
         Assert.Contains("$stateWrittenThisRun -and", Module);
         Assert.Contains("$rollbackFailures.Count -eq 0", Module);
         Assert.Contains("Undo-FieldOpsOperatorProvisioningAttempt", Installer);
-        Assert.Contains("Remove-FieldOpsOperatorServiceEnvironment", Installer);
+        Assert.Contains("Restore-FieldOpsServiceEnvironment", Installer);
         Assert.Contains("$operatorEnvironmentConfigured", Installer);
         Assert.Contains("Rollback incomplete:", Module);
     }
@@ -113,8 +113,8 @@ public sealed class OperatorProvisioningScriptTests
     [Fact]
     public void UninstallDeletesOnlyProvenProductOwnedState()
     {
-        Assert.Contains("if ([bool]$state.groupProductOwned)", Module);
-        Assert.Contains("elseif ([bool]$state.membershipProductOwned", Module);
+        Assert.Contains("if ([bool]$state.groupProductOwned -and $unrelatedMembers.Count -eq 0)", Module);
+        Assert.Contains("if ([bool]$state.membershipProductOwned", Module);
         Assert.Contains("[string]$group.SID.Value -ne [string]$state.groupSid", Module);
         Assert.Contains("preserving group and membership state", Module);
         Assert.Contains("Preserved operator ownership state", Uninstaller);
@@ -128,6 +128,20 @@ public sealed class OperatorProvisioningScriptTests
         Assert.Contains("StartsWith($entryPrefix", Module);
         Assert.DoesNotContain("Get-LocalGroupMember -Group $script:CanonicalGroupName | Remove-LocalGroupMember", Module);
         Assert.Contains("-Member ([string]$state.enrolledAccountSid)", Module);
+        Assert.Contains("$unrelatedMembers", Module);
+        Assert.Contains("$unrelatedMembers.Count -eq 0", Module);
+        Assert.Contains("knownDataFiles", Uninstaller);
+        Assert.DoesNotContain("Remove-Item -LiteralPath $dataPath -Recurse -Force", Uninstaller);
+    }
+
+    [Fact]
+    public void UpgradeRollbackRestoresThePriorServiceEnvironment()
+    {
+        Assert.Contains("Get-FieldOpsServiceEnvironment", Installer);
+        Assert.Contains("Restore-FieldOpsServiceEnvironment", Installer);
+        Assert.Contains("$operatorEnvironmentSnapshot.Entries", Installer);
+        Assert.Contains("Get-FieldOpsServiceEnvironment", Module);
+        Assert.Contains("PropertyType MultiString", Module);
     }
 
     [Fact]

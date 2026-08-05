@@ -304,6 +304,44 @@ function Get-FieldOpsServiceRegistryPath {
     return "HKLM:\SYSTEM\CurrentControlSet\Services\$ServiceName"
 }
 
+function Get-FieldOpsServiceEnvironment {
+    [CmdletBinding()]
+    param([Parameter(Mandatory = $true)][string]$ServiceName)
+
+    $servicePath = Get-FieldOpsServiceRegistryPath -ServiceName $ServiceName
+    if (-not (Test-Path -LiteralPath $servicePath -PathType Container)) {
+        return [pscustomobject]@{ Exists = $false; Entries = @() }
+    }
+
+    $property = Get-ItemProperty -LiteralPath $servicePath -Name Environment -ErrorAction SilentlyContinue
+    if ($null -eq $property) {
+        return [pscustomobject]@{ Exists = $false; Entries = @() }
+    }
+
+    return [pscustomobject]@{ Exists = $true; Entries = @($property.Environment) }
+}
+
+function Restore-FieldOpsServiceEnvironment {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][string]$ServiceName,
+        [Parameter(Mandatory = $true)][bool]$Exists,
+        [Parameter(Mandatory = $true)][AllowEmptyCollection()][string[]]$Entries
+    )
+
+    $servicePath = Get-FieldOpsServiceRegistryPath -ServiceName $ServiceName
+    if (-not (Test-Path -LiteralPath $servicePath -PathType Container)) {
+        return
+    }
+
+    if ($Exists) {
+        New-ItemProperty -LiteralPath $servicePath -Name Environment -PropertyType MultiString `
+            -Value $Entries -Force | Out-Null
+    } else {
+        Remove-ItemProperty -LiteralPath $servicePath -Name Environment -ErrorAction SilentlyContinue
+    }
+}
+
 function Set-FieldOpsOperatorServiceEnvironment {
     [CmdletBinding()]
     param(
@@ -403,13 +441,20 @@ function Remove-FieldOpsOperatorProvisioning {
         return $false
     }
 
-    if ([bool]$state.groupProductOwned) {
+    $members = @(Get-LocalGroupMember -Group $script:CanonicalGroupName -ErrorAction Stop)
+    $unrelatedMembers = @($members | Where-Object {
+        -not $_.SID -or $_.SID.Value -ne [string]$state.enrolledAccountSid
+    })
+
+    if ([bool]$state.groupProductOwned -and $unrelatedMembers.Count -eq 0) {
         Remove-LocalGroup -Name $script:CanonicalGroupName
-    } elseif ([bool]$state.membershipProductOwned -and
-        (Test-FieldOpsLocalGroupMembership -GroupName $script:CanonicalGroupName `
-            -AccountSid ([string]$state.enrolledAccountSid))) {
-        Remove-LocalGroupMember -Group $script:CanonicalGroupName `
-            -Member ([string]$state.enrolledAccountSid) -Confirm:$false
+    } else {
+        if ([bool]$state.membershipProductOwned -and
+            (Test-FieldOpsLocalGroupMembership -GroupName $script:CanonicalGroupName `
+                -AccountSid ([string]$state.enrolledAccountSid))) {
+            Remove-LocalGroupMember -Group $script:CanonicalGroupName `
+                -Member ([string]$state.enrolledAccountSid) -Confirm:$false
+        }
     }
 
     Remove-Item -LiteralPath $StatePath -Force
@@ -419,6 +464,8 @@ function Remove-FieldOpsOperatorProvisioning {
 Export-ModuleMember -Function @(
     'Get-FieldOpsCanonicalOperatorGroupName',
     'Get-FieldOpsOperatorEnvironmentName',
+    'Get-FieldOpsServiceEnvironment',
+    'Restore-FieldOpsServiceEnvironment',
     'New-FieldOpsOperatorProvisioning',
     'Set-FieldOpsOperatorServiceEnvironment',
     'Remove-FieldOpsOperatorServiceEnvironment',
