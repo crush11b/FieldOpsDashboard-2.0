@@ -3,10 +3,9 @@
 param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
     [Parameter(Mandatory = $true)][string]$OperatorAccount,
-    [string[]]$PackageUrls = @(
-        # Development source; change to main after feature/2.3-mvp-02-tray-usability merges.
-        'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/2.3-mvp-02-tray-usability.zip'
-    ),
+    [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
+    # Development default; change to main after this feature branch merges.
+    [string]$Branch = 'fix-2.3-mvp-03-post-restart-native-health',
     [switch]$SkipLaunch,
     [string]$NativeArtifactPath,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
@@ -35,7 +34,9 @@ function Assert-NativeArtifact {
     param([Parameter(Mandatory=$true)][string]$Path, [Parameter(Mandatory=$true)][string]$ExpectedRevision)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required native artifact '$Path' is unavailable for revision '$ExpectedRevision'." }
     $root = Join-Path $downloadRoot 'native'
-    Expand-Archive -LiteralPath $Path -DestinationPath $root -Force
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($Path, $root)
     $manifestPath = Join-Path $root 'artifact-manifest.json'
     if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
@@ -58,7 +59,16 @@ function Get-PackageRoot {
         return $children[0].FullName
     }
 
-    return $ExtractPath
+    throw 'Downloaded package did not contain exactly one repository root with package.json.'
+}
+
+function Expand-GitHubTarGz {
+    param([Parameter(Mandatory = $true)][string]$ArchivePath, [Parameter(Mandatory = $true)][string]$DestinationPath)
+    $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+    if (-not $tar) { throw 'Windows tar.exe is required to extract the dashboard package.' }
+    New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    & $tar.Source @('-xzf', $ArchivePath, '-C', $DestinationPath)
+    if ($LASTEXITCODE -ne 0) { throw "tar.exe failed with exit code $LASTEXITCODE while extracting the dashboard package." }
 }
 
 function Assert-RequiredFiles {
@@ -122,9 +132,9 @@ try {
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
 
     Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
-    for ($index = 0; $index -lt $PackageUrls.Count; $index++) {
-        $url = $PackageUrls[$index]
-        $archivePath = Join-Path $downloadRoot "candidate-$index.zip"
+    $url = "https://github.com/$Repository/archive/refs/heads/$Branch.tar.gz"
+    for ($index = 0; $index -lt 1; $index++) {
+        $archivePath = Join-Path $downloadRoot "candidate-$index.tar.gz"
         $extractPath = Join-Path $downloadRoot "candidate-$index"
 
         try {
@@ -135,7 +145,7 @@ try {
                 Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing
             }
 
-            Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
+            Expand-GitHubTarGz -ArchivePath $archivePath -DestinationPath $extractPath
             $candidateRoot = Get-PackageRoot -ExtractPath $extractPath
             Assert-RequiredFiles -Root $candidateRoot -RequiredFiles $requiredPackageFiles -Description 'Downloaded package'
             $packageRoot = $candidateRoot
@@ -170,6 +180,7 @@ try {
     }
 
     Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
+    # Ensure the updater is not running from the directory it is about to move.
     Set-Location -LiteralPath $installParent
     Move-Item -LiteralPath $resolvedInstallPath -Destination $backupPath
     $deploymentStarted = $true

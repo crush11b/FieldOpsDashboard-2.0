@@ -97,7 +97,13 @@ public sealed class InstallerScriptTests
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
-        Assert.Contains("feature/2.3-mvp-02-tray-usability.zip", updater);
+        Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("$Branch = 'fix-2.3-mvp-03-post-restart-native-health'", updater);
+        Assert.Contains("$Repository = 'crush11b/FieldOpsDashboard-2.0'", updater);
+        Assert.Contains(".tar.gz", updater);
+        Assert.DoesNotContain("Expand-Archive", updater);
+        Assert.Contains("tar.exe", updater);
+        Assert.Contains("-OperatorAccount $OperatorAccount", updater);
         Assert.DoesNotContain("agent\\publish\\win-x64", updater);
         Assert.Contains("Publish-FieldOpsArtifacts.ps1", updater);
         Assert.Contains("Install-FieldOpsAgent.ps1", updater);
@@ -108,6 +114,7 @@ public sealed class InstallerScriptTests
         var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
         Assert.Contains("UpdateDashboard.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
+        Assert.Contains("Set-Location -LiteralPath $installParent", updater);
     }
 
     [Fact]
