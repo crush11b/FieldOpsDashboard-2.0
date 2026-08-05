@@ -18,6 +18,7 @@ foreach ($required in @((Join-Path $PublishPath 'FieldOps.Agent.exe'), (Join-Pat
 Add-Type -AssemblyName System.Security
 Import-Module (Join-Path $scriptDirectory 'FieldOps.TrayStartup.psm1') -Force
 Import-Module (Join-Path $scriptDirectory 'FieldOps.OperatorProvisioning.psm1') -Force
+Import-Module (Join-Path $scriptDirectory 'FieldOps.Acl.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $executableName = 'FieldOps.Agent.exe'
@@ -85,16 +86,7 @@ function Assert-FieldOpsAcl {
         throw "LocalService cannot read '$Path'."
     }
 
-    $forbiddenLocalServiceRights =
-        [Security.AccessControl.FileSystemRights]::WriteData -bor
-        [Security.AccessControl.FileSystemRights]::AppendData -bor
-        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
-        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
-        (if ($IsDirectory) { [Security.AccessControl.FileSystemRights]::None } else { [Security.AccessControl.FileSystemRights]::ExecuteFile }) -bor
-        [Security.AccessControl.FileSystemRights]::Delete -bor
-        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
-        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
-        [Security.AccessControl.FileSystemRights]::TakeOwnership
+    $forbiddenLocalServiceRights = Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $IsDirectory
     if (($localServiceRule.FileSystemRights -band $forbiddenLocalServiceRights) -ne 0) {
         throw "LocalService has excessive rights on '$Path'."
     }
