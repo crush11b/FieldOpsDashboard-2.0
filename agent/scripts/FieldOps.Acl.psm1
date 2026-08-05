@@ -4,7 +4,7 @@ function Get-FieldOpsForbiddenLocalServiceRights {
     param([Parameter(Mandatory = $true)][bool]$IsDirectory)
 
     $forbiddenExecuteRights = if ($IsDirectory) {
-        [Security.AccessControl.FileSystemRights]::None
+        [Security.AccessControl.FileSystemRights]0
     } else {
         [Security.AccessControl.FileSystemRights]::ExecuteFile
     }
