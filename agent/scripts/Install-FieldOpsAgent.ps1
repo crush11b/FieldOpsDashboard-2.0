@@ -42,12 +42,13 @@ function Set-FieldOpsAcl {
     )
 
     $inheritance = if ($IsDirectory) { '(OI)(CI)' } else { '' }
-    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:$inheritance(F)" "*S-1-5-32-544:$inheritance(F)" "*S-1-5-19:$inheritance(R)" | Out-Null
+    $localServiceRights = if ($IsDirectory) { 'RX' } else { 'R' }
+    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:$inheritance(F)" "*S-1-5-32-544:$inheritance(F)" "*S-1-5-19:$inheritance($localServiceRights)" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "icacls ACL application failed for '$Path' (exit code $LASTEXITCODE)." }
 }
 
 function Assert-FieldOpsAcl {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][bool]$IsDirectory)
 
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected) {
@@ -79,8 +80,8 @@ function Assert-FieldOpsAcl {
     }
 
     $localServiceRule = $rules | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-19' }
-    if (($localServiceRule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) -ne
-        [Security.AccessControl.FileSystemRights]::ReadAndExecute) {
+    $requiredLocalServiceRights = if ($IsDirectory) { [Security.AccessControl.FileSystemRights]::ReadAndExecute } else { [Security.AccessControl.FileSystemRights]::Read }
+    if (($localServiceRule.FileSystemRights -band $requiredLocalServiceRights) -ne $requiredLocalServiceRights) {
         throw "LocalService cannot read '$Path'."
     }
 
@@ -89,6 +90,7 @@ function Assert-FieldOpsAcl {
         [Security.AccessControl.FileSystemRights]::AppendData -bor
         [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
         [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
+        (if ($IsDirectory) { [Security.AccessControl.FileSystemRights]::None } else { [Security.AccessControl.FileSystemRights]::ExecuteFile }) -bor
         [Security.AccessControl.FileSystemRights]::Delete -bor
         [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
         [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
@@ -152,7 +154,7 @@ try {
     New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
     $dataCreated = -not $upgrade
     Set-FieldOpsAcl -Path $dataPath -IsDirectory $true
-    Assert-FieldOpsAcl -Path $dataPath
+    Assert-FieldOpsAcl -Path $dataPath -IsDirectory $true
     $operatorProvisioning = New-FieldOpsOperatorProvisioning `
         -OperatorAccount $OperatorAccount `
         -StatePath $operatorStatePath
@@ -188,10 +190,10 @@ try {
     try {
         [IO.File]::WriteAllBytes($credentialTempPath, $protectedToken)
         Set-FieldOpsAcl -Path $credentialTempPath -IsDirectory $false
-        Assert-FieldOpsAcl -Path $credentialTempPath
+        Assert-FieldOpsAcl -Path $credentialTempPath -IsDirectory $false
         Move-Item -LiteralPath $credentialTempPath -Destination $credentialPath
         $credentialTempPath = $null
-        Assert-FieldOpsAcl -Path $credentialPath
+        Assert-FieldOpsAcl -Path $credentialPath -IsDirectory $false
     } finally {
         [Array]::Clear($protectedToken, 0, $protectedToken.Length)
     }

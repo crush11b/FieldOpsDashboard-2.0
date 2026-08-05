@@ -127,8 +127,15 @@ $backupPath = Join-Path $installParent ".$installName-backup-$transactionId"
 $failedPath = Join-Path $installParent ".$installName-failed-$transactionId"
 $packageRoot = $null
 $deploymentStarted = $false
+$safeWorkingDirectory = $installParent
 
 try {
+    $staleArtifacts = @(Get-ChildItem -LiteralPath $installParent -Force -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like ".$installName-backup-*" -or $_.Name -like ".$installName-stage-*" -or $_.Name -like ".$installName-failed-*"
+    })
+    if ($staleArtifacts.Count -gt 0) {
+        Write-Warning "Previous update recovery folders were found and will be preserved: $($staleArtifacts.Name -join ', ')"
+    }
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
 
     Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
@@ -231,6 +238,7 @@ try {
 
     if ($deploymentStarted -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
         try {
+            Set-Location -LiteralPath $safeWorkingDirectory
             $newNodeModules = Join-Path $resolvedInstallPath 'node_modules'
             if ((Test-Path -LiteralPath $newNodeModules -PathType Container) -and
                 -not (Test-Path -LiteralPath (Join-Path $backupPath 'node_modules'))) {
@@ -253,7 +261,7 @@ try {
     Write-UpdateError -ErrorRecord $updateError
     exit 1
 } finally {
-    Set-Location -LiteralPath $installParent
+    Set-Location -LiteralPath $safeWorkingDirectory
     foreach ($path in @($downloadRoot, $stagePath, $failedPath)) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue
