@@ -147,6 +147,12 @@ public sealed class OperatorProvisioningScriptTests
         Assert.Contains("WaitForStatus(\n                [ServiceProcess.ServiceControllerStatus]::Running", Installer);
         Assert.Contains("$pathsExpectedToBeRemoved", Installer);
         Assert.DoesNotContain("foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath, $trayInstallPath))", Installer);
+        Assert.DoesNotContain("$serviceStopAttempted", Installer);
+        Assert.Contains("if (-not $upgrade -and $serviceCreateAttempted)", Installer);
+        Assert.Contains("elseif ($upgrade)", Installer);
+        Assert.Contains("Pre-existing service '$serviceName' is missing after rollback", Installer);
+        Assert.Contains("expectedServiceStatus", Installer);
+        Assert.Contains("$serviceWasRunning", Installer);
     }
 
     [Fact]

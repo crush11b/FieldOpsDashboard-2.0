@@ -138,11 +138,9 @@ $trayStartupRegistered = $false
 $operatorProvisioning = $null
 $operatorEnvironmentConfigured = $false
 $operatorEnvironmentSnapshot = $null
-$serviceStopAttempted = $false
 
 try {
     if ($upgrade) {
-        $serviceStopAttempted = $true
         Stop-Service -Name $serviceName -Force -ErrorAction Stop
         $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
     }
@@ -314,12 +312,31 @@ try {
         try { Remove-Item -LiteralPath $trayInstallPath -Recurse -Force } catch { $rollbackFailures += "Could not remove tray install directory '$trayInstallPath': $($_.Exception.Message)" }
     }
 
-    for ($attempt = 0; $attempt -lt 20 -and
-        (Get-Service -Name $serviceName -ErrorAction SilentlyContinue); $attempt++) {
-        Start-Sleep -Milliseconds 250
-    }
-    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-        $rollbackFailures += "Service '$serviceName' still exists after rollback."
+    if (-not $upgrade -and $serviceCreateAttempted) {
+        for ($attempt = 0; $attempt -lt 20 -and
+            (Get-Service -Name $serviceName -ErrorAction SilentlyContinue); $attempt++) {
+            Start-Sleep -Milliseconds 250
+        }
+        if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+            $rollbackFailures += "Service '$serviceName' still exists after rollback."
+        }
+    } elseif ($upgrade) {
+        $expectedServiceStatus = if ($serviceWasRunning) {
+            [ServiceProcess.ServiceControllerStatus]::Running
+        } else {
+            [ServiceProcess.ServiceControllerStatus]::Stopped
+        }
+        $rollbackService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        $expectedStatusText = $expectedServiceStatus.ToString()
+        if (-not $rollbackService) {
+            $rollbackFailures += "Pre-existing service '$serviceName' is missing after rollback; expected status '$expectedStatusText'."
+        } else {
+            try {
+                $rollbackService.WaitForStatus($expectedServiceStatus, [TimeSpan]::FromSeconds(30))
+            } catch {
+                $rollbackFailures += "Pre-existing service '$serviceName' did not return to '$expectedStatusText' after rollback: $($_.Exception.Message)"
+            }
+        }
     }
     if ($eventSourceCreated -and [Diagnostics.EventLog]::SourceExists($serviceName)) {
         $rollbackFailures += "Event Log source '$serviceName' still exists after rollback."
