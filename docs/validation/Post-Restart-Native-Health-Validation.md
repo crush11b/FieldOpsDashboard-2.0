@@ -12,7 +12,28 @@ The native-health client remains per-request and holds no reusable connection or
 
 Regression coverage verifies explicit operator selection, local user SID resolution, idempotent group enrollment, persisted service-environment configuration, ACL reconstruction from the configured group SID, fail-closed invalid configuration, no broad ACL identities, safe ownership-aware rollback/uninstall, fresh native-health connections, truthful refresh states, and restart/shutdown cancellation behavior.
 
-## Remaining ToughBook acceptance
+## ToughBook acceptance result
+
+Validated on the primary ToughBook using the normal local operator account `stick`.
+
+- The corrected installer completed successfully.
+- The machine was rebooted to refresh local-group membership.
+- Initial status was `FieldOpsAgent: Running` and tray native health `Healthy`.
+- The tray's **Restart Service** action completed successfully.
+- After restart, the tray returned to `Running` / `Healthy` without relaunch.
+- The persistent post-restart `Access Denied` condition did not recur.
+
+## Windows-specific defects corrected during validation
+
+- GitHub ZIP extraction failure in the PowerShell updater; replaced with `.tar.gz` and `tar.exe`.
+- Updater working-directory lock during rollback; rollback now leaves the installation tree first.
+- Installer ACL application/validation mismatch; directory and file rights now match validation.
+- Windows PowerShell 5.1 incompatibility from inline conditional syntax; calculation was refactored.
+- Unsupported `FileSystemRights::None`; replaced with the zero-valued enum cast.
+
+This records single-operator hardware acceptance only; it does not claim broad installer hardening or multi-user validation.
+
+<!-- Historical validation procedure retained below for reference. -->
 
 Run this only on the primary supported ToughBook after code review:
 
