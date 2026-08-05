@@ -142,6 +142,11 @@ public sealed class OperatorProvisioningScriptTests
         Assert.Contains("$operatorEnvironmentSnapshot.Entries", Installer);
         Assert.Contains("Get-FieldOpsServiceEnvironment", Module);
         Assert.Contains("PropertyType MultiString", Module);
+        Assert.Contains("$serviceWasRunning", Installer);
+        Assert.Contains("Could not restore the previously running FieldOps Agent service", Installer);
+        Assert.Contains("WaitForStatus(\n                [ServiceProcess.ServiceControllerStatus]::Running", Installer);
+        Assert.Contains("$pathsExpectedToBeRemoved", Installer);
+        Assert.DoesNotContain("foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath, $trayInstallPath))", Installer);
     }
 
     [Fact]

@@ -117,10 +117,8 @@ if (-not (Test-Path -LiteralPath $sourceTrayExecutable -PathType Leaf)) {
 
 $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 $upgrade = $null -ne $existingService
-if ($upgrade) {
-    Stop-Service -Name $serviceName -Force -ErrorAction Stop
-    $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
-}
+$serviceWasRunning = $upgrade -and
+    $existingService.Status -eq [ServiceProcess.ServiceControllerStatus]::Running
 
 if (-not $upgrade -and ((Test-Path -LiteralPath $installPath) -or (Test-Path -LiteralPath $dataPath))) {
     throw 'Existing FieldOps Agent files were found. Run the uninstaller before reinstalling.'
@@ -140,8 +138,15 @@ $trayStartupRegistered = $false
 $operatorProvisioning = $null
 $operatorEnvironmentConfigured = $false
 $operatorEnvironmentSnapshot = $null
+$serviceStopAttempted = $false
 
 try {
+    if ($upgrade) {
+        $serviceStopAttempted = $true
+        Stop-Service -Name $serviceName -Force -ErrorAction Stop
+        $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+    }
+
     New-Item -ItemType Directory -Path $installPath -Force | Out-Null
     $installCreated = -not $upgrade
     New-Item -ItemType Directory -Path $trayInstallPath -Force | Out-Null
@@ -263,6 +268,20 @@ try {
             }
         }
     }
+
+    if ($upgrade -and $serviceWasRunning -and -not $serviceCreateAttempted) {
+        try {
+            $rollbackService = Get-Service -Name $serviceName -ErrorAction Stop
+            if ($rollbackService.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+                Start-Service -Name $serviceName -ErrorAction Stop
+            }
+            $rollbackService.WaitForStatus(
+                [ServiceProcess.ServiceControllerStatus]::Running,
+                [TimeSpan]::FromSeconds(30))
+        } catch {
+            $rollbackFailures += "Could not restore the previously running FieldOps Agent service: $($_.Exception.Message)"
+        }
+    }
     if ($eventSourceCreated) {
         try {
             Remove-EventLog -Source $serviceName -ErrorAction Stop
@@ -305,8 +324,13 @@ try {
     if ($eventSourceCreated -and [Diagnostics.EventLog]::SourceExists($serviceName)) {
         $rollbackFailures += "Event Log source '$serviceName' still exists after rollback."
     }
-    foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath, $trayInstallPath)) {
-        if ($remainingPath -and (Test-Path -LiteralPath $remainingPath)) {
+    $pathsExpectedToBeRemoved = @()
+    if ($dataCreated) { $pathsExpectedToBeRemoved += $dataPath }
+    if ($installCreated) { $pathsExpectedToBeRemoved += $installPath }
+    if ($trayInstallCreated) { $pathsExpectedToBeRemoved += $trayInstallPath }
+    if ($credentialTempPath) { $pathsExpectedToBeRemoved += $credentialTempPath }
+    foreach ($remainingPath in $pathsExpectedToBeRemoved) {
+        if (Test-Path -LiteralPath $remainingPath) {
             $rollbackFailures += "Path '$remainingPath' still exists after rollback."
         }
     }

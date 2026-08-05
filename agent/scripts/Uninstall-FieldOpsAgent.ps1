@@ -78,7 +78,7 @@ if (Test-Path -LiteralPath $dataPath) {
         $operatorStatePath
     )
     foreach ($knownDataFile in $knownDataFiles) {
-        if (Test-Path -LiteralPath $knownDataFile -PathType Leaf -and
+        if ((Test-Path -LiteralPath $knownDataFile -PathType Leaf) -and
             ($operatorStateRemoved -or $knownDataFile -ne $operatorStatePath)) {
             Remove-Item -LiteralPath $knownDataFile -Force
         }
