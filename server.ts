@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import { execSync, execFileSync } from "child_process";
 import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -65,6 +65,18 @@ async function startServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  app.get('/api/serial-ports', (_req, res) => {
+    const observedAtUtc = new Date().toISOString();
+    if (process.platform !== 'win32') return res.json({ observedAtUtc, status: 'Unavailable', ports: [], error: 'Windows serial-port enumeration is unavailable on this platform.' });
+    try {
+      const script = "$items=@(Get-CimInstance Win32_PnPEntity | Where-Object {$_.Name -match '\\(COM[0-9]+\\)'} | ForEach-Object {[pscustomobject]@{portName=([regex]::Match($_.Name,'COM[0-9]+')).Value;friendlyName=$_.Name;description=$_.Description;manufacturer=$_.Manufacturer;deviceId=$_.DeviceID;pnpDeviceId=$_.PNPDeviceID;present=([bool]$_.Status -and $_.Status -eq 'OK')}}); $items | ConvertTo-Json -Compress";
+      const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 5000 }).trim();
+      const parsed = output ? JSON.parse(output) : [];
+      const ports = (Array.isArray(parsed) ? parsed : [parsed]).filter((p) => p?.portName).sort((a, b) => a.portName.localeCompare(b.portName, undefined, { numeric: true }));
+      return res.json({ observedAtUtc, status: 'Ok', ports, error: null });
+    } catch { return res.json({ observedAtUtc, status: 'Error', ports: [], error: 'Serial-port enumeration failed.' }); }
+  });
 
   // Server-side Gemini AI setup
   const getAiClient = () => {

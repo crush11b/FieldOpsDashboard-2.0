@@ -3,6 +3,7 @@ using FieldOps.Agent;
 using FieldOps.Agent.Health;
 using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
+using FieldOps.Agent.Serial;
 using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.EventLog;
 
@@ -28,6 +29,7 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ServiceIdentity>();
 builder.Services.AddSingleton<AgentCredentialProvider>();
+builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
     builder.Configuration["Agent:NativeHealth:OperatorSid"],
@@ -59,6 +61,9 @@ app.MapGet("/api/v1/health", (ServiceIdentity identity, TimeProvider timeProvide
         CheckedAt: checkedAt,
         UptimeSeconds: Math.Max(0, (long)(checkedAt - identity.StartedAt).TotalSeconds)));
 });
+
+app.MapGet("/api/v1/serial-ports", (ISerialPortEnumerator enumerator, CancellationToken cancellationToken) =>
+    Results.Ok(enumerator.Enumerate(cancellationToken)));
 
 await app.RunAsync();
 
