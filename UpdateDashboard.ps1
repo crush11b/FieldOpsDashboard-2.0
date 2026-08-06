@@ -2,10 +2,10 @@
 [CmdletBinding()]
 param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
-    [string[]]$PackageUrls = @(
-        # Development source; change to main after feature/2.3-mvp-02-tray-usability merges.
-        'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/2.3-mvp-02-tray-usability.zip'
-    ),
+    [Parameter(Mandatory = $true)][string]$OperatorAccount,
+    [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
+    # Development default; change to main after this feature branch merges.
+    [string]$Branch = 'feature/2.3-mvp-02-tray-usability',
     [switch]$SkipLaunch,
     [string]$NativeArtifactPath,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
@@ -22,6 +22,7 @@ $requiredPackageFiles = @(
     'package.json',
     'agent\scripts\Publish-FieldOpsArtifacts.ps1',
     'agent\scripts\Install-FieldOpsAgent.ps1',
+    'agent\scripts\FieldOps.OperatorProvisioning.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1'
 )
 $requiredDeploymentFiles = @(
@@ -33,7 +34,9 @@ function Assert-NativeArtifact {
     param([Parameter(Mandatory=$true)][string]$Path, [Parameter(Mandatory=$true)][string]$ExpectedRevision)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required native artifact '$Path' is unavailable for revision '$ExpectedRevision'." }
     $root = Join-Path $downloadRoot 'native'
-    Expand-Archive -LiteralPath $Path -DestinationPath $root -Force
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($Path, $root)
     $manifestPath = Join-Path $root 'artifact-manifest.json'
     if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
@@ -56,7 +59,16 @@ function Get-PackageRoot {
         return $children[0].FullName
     }
 
-    return $ExtractPath
+    throw 'Downloaded package did not contain exactly one repository root with package.json.'
+}
+
+function Expand-GitHubTarGz {
+    param([Parameter(Mandatory = $true)][string]$ArchivePath, [Parameter(Mandatory = $true)][string]$DestinationPath)
+    $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+    if (-not $tar) { throw 'Windows tar.exe is required to extract the dashboard package.' }
+    New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    & $tar.Source @('-xzf', $ArchivePath, '-C', $DestinationPath)
+    if ($LASTEXITCODE -ne 0) { throw "tar.exe failed with exit code $LASTEXITCODE while extracting the dashboard package." }
 }
 
 function Assert-RequiredFiles {
@@ -115,14 +127,21 @@ $backupPath = Join-Path $installParent ".$installName-backup-$transactionId"
 $failedPath = Join-Path $installParent ".$installName-failed-$transactionId"
 $packageRoot = $null
 $deploymentStarted = $false
+$safeWorkingDirectory = $installParent
 
 try {
+    $staleArtifacts = @(Get-ChildItem -LiteralPath $installParent -Force -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like ".$installName-backup-*" -or $_.Name -like ".$installName-stage-*" -or $_.Name -like ".$installName-failed-*"
+    })
+    if ($staleArtifacts.Count -gt 0) {
+        Write-Warning "Previous update recovery folders were found and will be preserved: $($staleArtifacts.Name -join ', ')"
+    }
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
 
     Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
-    for ($index = 0; $index -lt $PackageUrls.Count; $index++) {
-        $url = $PackageUrls[$index]
-        $archivePath = Join-Path $downloadRoot "candidate-$index.zip"
+    $url = "https://github.com/$Repository/archive/refs/heads/$Branch.tar.gz"
+    for ($index = 0; $index -lt 1; $index++) {
+        $archivePath = Join-Path $downloadRoot "candidate-$index.tar.gz"
         $extractPath = Join-Path $downloadRoot "candidate-$index"
 
         try {
@@ -133,7 +152,7 @@ try {
                 Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing
             }
 
-            Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
+            Expand-GitHubTarGz -ArchivePath $archivePath -DestinationPath $extractPath
             $candidateRoot = Get-PackageRoot -ExtractPath $extractPath
             Assert-RequiredFiles -Root $candidateRoot -RequiredFiles $requiredPackageFiles -Description 'Downloaded package'
             $packageRoot = $candidateRoot
@@ -168,6 +187,7 @@ try {
     }
 
     Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
+    # Ensure the updater is not running from the directory it is about to move.
     Set-Location -LiteralPath $installParent
     Move-Item -LiteralPath $resolvedInstallPath -Destination $backupPath
     $deploymentStarted = $true
@@ -197,7 +217,7 @@ try {
     New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray')
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
     if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
@@ -218,6 +238,7 @@ try {
 
     if ($deploymentStarted -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
         try {
+            Set-Location -LiteralPath $safeWorkingDirectory
             $newNodeModules = Join-Path $resolvedInstallPath 'node_modules'
             if ((Test-Path -LiteralPath $newNodeModules -PathType Container) -and
                 -not (Test-Path -LiteralPath (Join-Path $backupPath 'node_modules'))) {
@@ -240,7 +261,7 @@ try {
     Write-UpdateError -ErrorRecord $updateError
     exit 1
 } finally {
-    Set-Location -LiteralPath $installParent
+    Set-Location -LiteralPath $safeWorkingDirectory
     foreach ($path in @($downloadRoot, $stagePath, $failedPath)) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue

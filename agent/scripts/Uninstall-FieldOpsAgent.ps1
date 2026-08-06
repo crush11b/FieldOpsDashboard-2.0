@@ -4,11 +4,13 @@ param()
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Import-Module (Join-Path $PSScriptRoot 'FieldOps.TrayStartup.psm1') -Force
+Import-Module (Join-Path $PSScriptRoot 'FieldOps.OperatorProvisioning.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $installPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'FieldOpsDashboard\Agent')).TrimEnd('\')
 $trayInstallPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray')).TrimEnd('\')
 $dataPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'FieldOpsDashboard\Agent')).TrimEnd('\')
+$operatorStatePath = Join-Path $dataPath 'operator-provisioning.json'
 
 function Assert-SafeRemovalPath {
     param(
@@ -51,15 +53,42 @@ if ($service) {
         $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
     }
 
+    Remove-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName
     & sc.exe delete $serviceName | Out-Null
     if ($LASTEXITCODE -ne 0) {
         throw "Failed to remove service '$serviceName'."
     }
 }
 
-foreach ($path in @($installPath, $trayInstallPath, $dataPath)) {
+try {
+    $operatorStateRemoved = Remove-FieldOpsOperatorProvisioning -StatePath $operatorStatePath
+} catch {
+    $operatorStateRemoved = $false
+    Write-Warning "Operator provisioning cleanup was not safe: $($_.Exception.Message) Group, membership, and ownership state are being preserved."
+}
+
+foreach ($path in @($installPath, $trayInstallPath)) {
     if (Test-Path -LiteralPath $path) {
         Remove-Item -LiteralPath $path -Recurse -Force
+    }
+}
+if (Test-Path -LiteralPath $dataPath) {
+    $knownDataFiles = @(
+        (Join-Path $dataPath 'health-token.dat'),
+        $operatorStatePath
+    )
+    foreach ($knownDataFile in $knownDataFiles) {
+        if ((Test-Path -LiteralPath $knownDataFile -PathType Leaf) -and
+            ($operatorStateRemoved -or $knownDataFile -ne $operatorStatePath)) {
+            Remove-Item -LiteralPath $knownDataFile -Force
+        }
+    }
+    if (@(Get-ChildItem -LiteralPath $dataPath -Force).Count -eq 0) {
+        Remove-Item -LiteralPath $dataPath -Force
+    } elseif (Test-Path -LiteralPath $operatorStatePath -PathType Leaf) {
+        Write-Warning "Preserved operator ownership state at '$operatorStatePath' because group ownership could not be proven."
+    } else {
+        Write-Warning "Preserved unrelated files under '$dataPath'."
     }
 }
 

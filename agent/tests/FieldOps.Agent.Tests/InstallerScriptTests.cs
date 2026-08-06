@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 
 namespace FieldOps.Agent.Tests;
 
@@ -97,7 +98,14 @@ public sealed class InstallerScriptTests
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
-        Assert.Contains("feature/2.3-mvp-02-tray-usability.zip", updater);
+        Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("$Branch = 'feature/2.3-mvp-02-tray-usability'", updater);
+        Assert.DoesNotContain("$Branch = 'fix-2.3-mvp-03-post-restart-native-health'", updater);
+        Assert.Contains("$Repository = 'crush11b/FieldOpsDashboard-2.0'", updater);
+        Assert.Contains(".tar.gz", updater);
+        Assert.DoesNotContain("Expand-Archive", updater);
+        Assert.Contains("tar.exe", updater);
+        Assert.Contains("-OperatorAccount $OperatorAccount", updater);
         Assert.DoesNotContain("agent\\publish\\win-x64", updater);
         Assert.Contains("Publish-FieldOpsArtifacts.ps1", updater);
         Assert.Contains("Install-FieldOpsAgent.ps1", updater);
@@ -108,6 +116,18 @@ public sealed class InstallerScriptTests
         var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
         Assert.Contains("UpdateDashboard.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
+        Assert.Contains("Set-Location -LiteralPath $installParent", updater);
+    }
+
+    [Fact]
+    public void AclRightsCalculationRunsUnderWindowsPowerShellSemantics()
+    {
+        var module = Path.Combine(GetRepositoryRoot(), "agent", "scripts", "FieldOps.Acl.psm1");
+        var command = $"Import-Module -Force '{module}'; $d=Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $true; $f=Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $false; if (($d -band [Security.AccessControl.FileSystemRights]::ExecuteFile) -ne 0) {{ exit 1 }}; if (($f -band [Security.AccessControl.FileSystemRights]::ExecuteFile) -eq 0) {{ exit 2 }}; if (($f -band [Security.AccessControl.FileSystemRights]::WriteData) -eq 0) {{ exit 3 }}";
+        using var process = Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command.Replace("\"", "\\\"")}\"") { UseShellExecute = false, RedirectStandardError = true });
+        Assert.NotNull(process);
+        process!.WaitForExit();
+        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
     }
 
     [Fact]

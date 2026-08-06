@@ -1,7 +1,8 @@
 [CmdletBinding()]
 param(
     [string]$PublishPath,
-    [string]$TrayPublishPath
+    [string]$TrayPublishPath,
+    [Parameter(Mandatory = $true)][string]$OperatorAccount
 )
 
 Set-StrictMode -Version Latest
@@ -16,12 +17,15 @@ foreach ($required in @((Join-Path $PublishPath 'FieldOps.Agent.exe'), (Join-Pat
 }
 Add-Type -AssemblyName System.Security
 Import-Module (Join-Path $scriptDirectory 'FieldOps.TrayStartup.psm1') -Force
+Import-Module (Join-Path $scriptDirectory 'FieldOps.OperatorProvisioning.psm1') -Force
+Import-Module (Join-Path $scriptDirectory 'FieldOps.Acl.psm1') -Force
 
 $serviceName = 'FieldOpsAgent'
 $executableName = 'FieldOps.Agent.exe'
 $installPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Agent'
 $trayInstallPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray'
 $dataPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Agent'
+$operatorStatePath = Join-Path $dataPath 'operator-provisioning.json'
 
 function Invoke-ServiceControl {
     param([Parameter(Mandatory = $true)][string[]]$Arguments)
@@ -39,12 +43,13 @@ function Set-FieldOpsAcl {
     )
 
     $inheritance = if ($IsDirectory) { '(OI)(CI)' } else { '' }
-    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:$inheritance(F)" "*S-1-5-32-544:$inheritance(F)" "*S-1-5-19:$inheritance(R)" | Out-Null
+    $localServiceRights = if ($IsDirectory) { 'RX' } else { 'R' }
+    & icacls.exe $Path /inheritance:r /grant:r "*S-1-5-18:$inheritance(F)" "*S-1-5-32-544:$inheritance(F)" "*S-1-5-19:$inheritance($localServiceRights)" | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "icacls ACL application failed for '$Path' (exit code $LASTEXITCODE)." }
 }
 
 function Assert-FieldOpsAcl {
-    param([Parameter(Mandatory = $true)][string]$Path)
+    param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][bool]$IsDirectory)
 
     $acl = Get-Acl -LiteralPath $Path
     if (-not $acl.AreAccessRulesProtected) {
@@ -76,20 +81,12 @@ function Assert-FieldOpsAcl {
     }
 
     $localServiceRule = $rules | Where-Object { $_.IdentityReference.Value -eq 'S-1-5-19' }
-    if (($localServiceRule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) -ne
-        [Security.AccessControl.FileSystemRights]::ReadAndExecute) {
+    $requiredLocalServiceRights = if ($IsDirectory) { [Security.AccessControl.FileSystemRights]::ReadAndExecute } else { [Security.AccessControl.FileSystemRights]::Read }
+    if (($localServiceRule.FileSystemRights -band $requiredLocalServiceRights) -ne $requiredLocalServiceRights) {
         throw "LocalService cannot read '$Path'."
     }
 
-    $forbiddenLocalServiceRights =
-        [Security.AccessControl.FileSystemRights]::WriteData -bor
-        [Security.AccessControl.FileSystemRights]::AppendData -bor
-        [Security.AccessControl.FileSystemRights]::WriteAttributes -bor
-        [Security.AccessControl.FileSystemRights]::WriteExtendedAttributes -bor
-        [Security.AccessControl.FileSystemRights]::Delete -bor
-        [Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
-        [Security.AccessControl.FileSystemRights]::ChangePermissions -bor
-        [Security.AccessControl.FileSystemRights]::TakeOwnership
+    $forbiddenLocalServiceRights = Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $IsDirectory
     if (($localServiceRule.FileSystemRights -band $forbiddenLocalServiceRights) -ne 0) {
         throw "LocalService has excessive rights on '$Path'."
     }
@@ -114,10 +111,8 @@ if (-not (Test-Path -LiteralPath $sourceTrayExecutable -PathType Leaf)) {
 
 $existingService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 $upgrade = $null -ne $existingService
-if ($upgrade) {
-    Stop-Service -Name $serviceName -Force -ErrorAction Stop
-    $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
-}
+$serviceWasRunning = $upgrade -and
+    $existingService.Status -eq [ServiceProcess.ServiceControllerStatus]::Running
 
 if (-not $upgrade -and ((Test-Path -LiteralPath $installPath) -or (Test-Path -LiteralPath $dataPath))) {
     throw 'Existing FieldOps Agent files were found. Run the uninstaller before reinstalling.'
@@ -134,8 +129,16 @@ $serviceCreated = $false
 $serviceCreateAttempted = $false
 $credentialTempPath = $null
 $trayStartupRegistered = $false
+$operatorProvisioning = $null
+$operatorEnvironmentConfigured = $false
+$operatorEnvironmentSnapshot = $null
 
 try {
+    if ($upgrade) {
+        Stop-Service -Name $serviceName -Force -ErrorAction Stop
+        $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+    }
+
     New-Item -ItemType Directory -Path $installPath -Force | Out-Null
     $installCreated = -not $upgrade
     New-Item -ItemType Directory -Path $trayInstallPath -Force | Out-Null
@@ -143,7 +146,10 @@ try {
     New-Item -ItemType Directory -Path $dataPath -Force | Out-Null
     $dataCreated = -not $upgrade
     Set-FieldOpsAcl -Path $dataPath -IsDirectory $true
-    Assert-FieldOpsAcl -Path $dataPath
+    Assert-FieldOpsAcl -Path $dataPath -IsDirectory $true
+    $operatorProvisioning = New-FieldOpsOperatorProvisioning `
+        -OperatorAccount $OperatorAccount `
+        -StatePath $operatorStatePath
     Copy-Item -Path (Join-Path $resolvedPublishPath '*') -Destination $installPath -Recurse -Force
     Copy-Item -Path (Join-Path $resolvedTrayPublishPath '*') -Destination $trayInstallPath -Recurse -Force
     Register-FieldOpsTrayStartup -TrayPath (Join-Path $trayInstallPath 'FieldOps.Tray.exe') | Out-Null
@@ -176,10 +182,10 @@ try {
     try {
         [IO.File]::WriteAllBytes($credentialTempPath, $protectedToken)
         Set-FieldOpsAcl -Path $credentialTempPath -IsDirectory $false
-        Assert-FieldOpsAcl -Path $credentialTempPath
+        Assert-FieldOpsAcl -Path $credentialTempPath -IsDirectory $false
         Move-Item -LiteralPath $credentialTempPath -Destination $credentialPath
         $credentialTempPath = $null
-        Assert-FieldOpsAcl -Path $credentialPath
+        Assert-FieldOpsAcl -Path $credentialPath -IsDirectory $false
     } finally {
         [Array]::Clear($protectedToken, 0, $protectedToken.Length)
     }
@@ -212,6 +218,11 @@ try {
         'actions=', 'restart/5000/restart/15000/restart/30000'
     ) }
 
+    $operatorEnvironmentSnapshot = Get-FieldOpsServiceEnvironment -ServiceName $serviceName
+    Set-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName `
+        -GroupSid $operatorProvisioning.GroupSid
+    $operatorEnvironmentConfigured = $true
+
     Start-Service -Name $serviceName
     $service = Get-Service -Name $serviceName
     $service.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Running, [TimeSpan]::FromSeconds(30))
@@ -219,9 +230,20 @@ try {
     $operation = if ($upgrade) { 'upgraded' } else { 'installed' }
     Write-Host "FieldOps Local Agent $operation and running from '$installPath'."
     Write-Host "FieldOps tray startup registered for the current user at '$trayInstallPath\FieldOps.Tray.exe'."
+    Write-Host "The configured operator must sign out and sign in before native-health access if group membership was newly added."
 } catch {
     $failure = $_
     $rollbackFailures = @()
+    if ($operatorEnvironmentConfigured -and $operatorEnvironmentSnapshot) {
+        try {
+            Restore-FieldOpsServiceEnvironment -ServiceName $serviceName `
+                -Exists $operatorEnvironmentSnapshot.Exists `
+                -Entries $operatorEnvironmentSnapshot.Entries
+        } catch { $rollbackFailures += "Could not restore native-health operator service configuration: $($_.Exception.Message)" }
+    }
+    if ($operatorProvisioning) {
+        try { Undo-FieldOpsOperatorProvisioningAttempt -Provisioning $operatorProvisioning } catch { $rollbackFailures += "Could not roll back operator provisioning: $($_.Exception.Message)" }
+    }
     if ($trayStartupRegistered) {
         try { Remove-FieldOpsTrayStartup } catch { $rollbackFailures += "Could not remove tray startup registration: $($_.Exception.Message)" }
     }
@@ -236,6 +258,20 @@ try {
             } catch {
                 $rollbackFailures += "Could not delete service '$serviceName': $($_.Exception.Message)"
             }
+        }
+    }
+
+    if ($upgrade -and $serviceWasRunning -and -not $serviceCreateAttempted) {
+        try {
+            $rollbackService = Get-Service -Name $serviceName -ErrorAction Stop
+            if ($rollbackService.Status -ne [ServiceProcess.ServiceControllerStatus]::Running) {
+                Start-Service -Name $serviceName -ErrorAction Stop
+            }
+            $rollbackService.WaitForStatus(
+                [ServiceProcess.ServiceControllerStatus]::Running,
+                [TimeSpan]::FromSeconds(30))
+        } catch {
+            $rollbackFailures += "Could not restore the previously running FieldOps Agent service: $($_.Exception.Message)"
         }
     }
     if ($eventSourceCreated) {
@@ -270,18 +306,42 @@ try {
         try { Remove-Item -LiteralPath $trayInstallPath -Recurse -Force } catch { $rollbackFailures += "Could not remove tray install directory '$trayInstallPath': $($_.Exception.Message)" }
     }
 
-    for ($attempt = 0; $attempt -lt 20 -and
-        (Get-Service -Name $serviceName -ErrorAction SilentlyContinue); $attempt++) {
-        Start-Sleep -Milliseconds 250
-    }
-    if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
-        $rollbackFailures += "Service '$serviceName' still exists after rollback."
+    if (-not $upgrade -and $serviceCreateAttempted) {
+        for ($attempt = 0; $attempt -lt 20 -and
+            (Get-Service -Name $serviceName -ErrorAction SilentlyContinue); $attempt++) {
+            Start-Sleep -Milliseconds 250
+        }
+        if (Get-Service -Name $serviceName -ErrorAction SilentlyContinue) {
+            $rollbackFailures += "Service '$serviceName' still exists after rollback."
+        }
+    } elseif ($upgrade) {
+        $expectedServiceStatus = if ($serviceWasRunning) {
+            [ServiceProcess.ServiceControllerStatus]::Running
+        } else {
+            [ServiceProcess.ServiceControllerStatus]::Stopped
+        }
+        $rollbackService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
+        $expectedStatusText = $expectedServiceStatus.ToString()
+        if (-not $rollbackService) {
+            $rollbackFailures += "Pre-existing service '$serviceName' is missing after rollback; expected status '$expectedStatusText'."
+        } else {
+            try {
+                $rollbackService.WaitForStatus($expectedServiceStatus, [TimeSpan]::FromSeconds(30))
+            } catch {
+                $rollbackFailures += "Pre-existing service '$serviceName' did not return to '$expectedStatusText' after rollback: $($_.Exception.Message)"
+            }
+        }
     }
     if ($eventSourceCreated -and [Diagnostics.EventLog]::SourceExists($serviceName)) {
         $rollbackFailures += "Event Log source '$serviceName' still exists after rollback."
     }
-    foreach ($remainingPath in @($credentialTempPath, $dataPath, $installPath, $trayInstallPath)) {
-        if ($remainingPath -and (Test-Path -LiteralPath $remainingPath)) {
+    $pathsExpectedToBeRemoved = @()
+    if ($dataCreated) { $pathsExpectedToBeRemoved += $dataPath }
+    if ($installCreated) { $pathsExpectedToBeRemoved += $installPath }
+    if ($trayInstallCreated) { $pathsExpectedToBeRemoved += $trayInstallPath }
+    if ($credentialTempPath) { $pathsExpectedToBeRemoved += $credentialTempPath }
+    foreach ($remainingPath in $pathsExpectedToBeRemoved) {
+        if (Test-Path -LiteralPath $remainingPath) {
             $rollbackFailures += "Path '$remainingPath' still exists after rollback."
         }
     }

@@ -188,7 +188,7 @@ The repository contains an offline deployment guide and transactional updater:
 After deploying the dashboard package, install the Windows agent from an elevated PowerShell session:
 
 ```powershell
-.\agent\scripts\Install-FieldOpsAgent.ps1
+.\agent\scripts\Install-FieldOpsAgent.ps1 -OperatorAccount '.\FieldOperator'
 ```
 
 Verify the service:

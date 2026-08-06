@@ -24,10 +24,10 @@ The production-named `FieldOps.Tray.exe` and `FieldOps.ServiceControl.exe` outpu
 After running `UpdateDashboard.ps1`, open PowerShell as Administrator in the deployed dashboard directory and run:
 
 ```powershell
-.\agent\scripts\Install-FieldOpsAgent.ps1
+.\agent\scripts\Install-FieldOpsAgent.ps1 -OperatorAccount '.\FieldOperator'
 ```
 
-The installer registers `FieldOpsAgent` with automatic startup, configures restart-on-failure, creates a random health credential protected with Windows DPAPI, and starts the service.
+The installer registers `FieldOpsAgent` with automatic startup, configures restart-on-failure, creates a random health credential protected with Windows DPAPI, and starts the service. It also creates or safely adopts the local `FieldOps Operators` group, enrolls the explicitly named normal operator, and persists the resolved group SID in the SCM service environment as `Agent__NativeHealth__OperatorSid`. A newly enrolled operator must sign out and sign in once so the unelevated tray token contains the group SID.
 
 Windows service lifecycle commands remain standard:
 
@@ -63,7 +63,7 @@ Task 2.3-03 is represented by two disposable projects:
 
 The Tray prototype also contains an isolated Named Pipe authorization probe with an explicit Windows ACL. The probe does not restart the agent and is not registered in production.
 
-The installed health-token ACL remains limited to SYSTEM, local Administrators, and LocalService. The agent-hosted native health gateway provides a separate fixed-purpose, sanitized, read-only path without exposing or broadening that credential. Its optional `Agent:NativeHealth:OperatorSid` setting is evaluated once during agent startup; changing the configured operator-group SID requires an agent restart. The tray consumes this shared native client; group creation and membership provisioning remain separate reviewed work.
+The installed health-token ACL remains limited to SYSTEM, local Administrators, and LocalService. The agent-hosted native health gateway provides a separate fixed-purpose, sanitized, read-only path without exposing or broadening that credential. Its `Agent:NativeHealth:OperatorSid` setting is reconstructed from the persisted SCM service environment at every service start, so every replacement pipe grants the same narrow client rights to the provisioned operator group. Changing group membership requires a fresh operator logon token; changing the configured group SID requires an agent restart. The tray consumes this shared native client and never receives the HTTP credential.
 
 The tray lifecycle is production-grade within this otherwise unpackaged prototype. Before creating `NotifyIcon`, SCM, native-health, refresh, or restart objects, the process atomically acquires `Local\FieldOps.Tray.Instance.v1`. This provides one primary tray per Windows session, with access restricted to the creating user and LocalSystem. The same identity in the same session receives duplicate exit code `10`; the same identity in another session uses a separate `Local\` object and can run an independent primary. A different identity in the same session normally cannot access the protected object and receives lifecycle failure `20`, not duplicate status or an independent primary. A different identity in another session can run an independent primary. LocalSystem in the same session/object namespace is authorized and contends for that session's mutex. Fast User Switching and RDP normally use distinct session-local namespaces and therefore allow one primary per session.
 
@@ -124,13 +124,14 @@ dotnet test .\agent\tests\FieldOps.TrayPrototype.Tests\FieldOps.TrayPrototype.Te
 
 Current-user allow/deny behavior, framing, size, timeout, concurrency, unsupported command, malformed correlation, and pipe-squatting behavior run on Windows without elevation. Tests using genuinely distinct administrator, alternate-user, LocalService, anonymous, or network tokens require the documented field procedure in `docs/validation/Tray-Companion-Windows-Identity-Validation.md`.
 
-ADR-003 documents the architecture decision and field-validation requirements. The spike does not change installers, packaging, startup registration, credential provisioning, product metadata, or dormant telemetry delivery.
+ADR-003 documents the architecture decision and field-validation requirements. The production installer now provisions only the supported single operator for native-health access; it does not change the protected HTTP credential, protocol, product metadata, or dormant telemetry delivery.
 ## Operator updater
 
 Developers build the native bundle with `powershell -ExecutionPolicy Bypass -File .\agent\scripts\Build-FieldOpsNativePackage.ps1`. This writes `agent\artifacts\packages\fieldops-native-win-x64.zip`; upload it to the configured `mvp-native` release asset. The ToughBook updater downloads it automatically and does not require the .NET SDK.
 
 The repository-root `UpdateDashboard.bat` is the supported single-operator entry point. Copy
-`UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; future runs update
+`UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; when prompted for
+`OperatorAccount`, enter the normal Windows account that runs the tray (for example, `.\FieldOperator`). Future runs update
 `C:\FieldOpsDashboard`, publish the agent and tray, delegate installation/startup registration to
 the existing installer, provision the protected dashboard telemetry credential, and launch the
 production server with `npm start`. Do not use `npm run dev` for an installed deployment.
