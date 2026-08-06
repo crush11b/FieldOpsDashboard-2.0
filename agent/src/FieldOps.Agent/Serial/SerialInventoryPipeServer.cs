@@ -11,6 +11,7 @@ internal sealed class SerialInventoryPipeServer(
     ILogger<SerialInventoryPipeServer> logger)
 {
     internal const string PipeName = "FieldOps.SerialInventory.v1";
+    private static readonly TimeSpan ClientTimeout = TimeSpan.FromSeconds(5);
     internal async Task RunAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -18,7 +19,12 @@ internal sealed class SerialInventoryPipeServer(
             try
             {
                 using var pipe = NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, authorizationPolicy.CreateSecurity());
-                await pipe.WaitForConnectionAsync(cancellationToken); var request = await NativeHealthMessageFraming.ReadAsync<SerialInventoryRequest>(pipe, cancellationToken); if (request.Command != "GetSerialPortInventory") throw new InvalidDataException("Unsupported serial inventory request."); await NativeHealthMessageFraming.WriteAsync(pipe, enumerator.Enumerate(cancellationToken), cancellationToken);
+                await pipe.WaitForConnectionAsync(cancellationToken);
+                using var clientTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                clientTimeout.CancelAfter(ClientTimeout);
+                var request = await NativeHealthMessageFraming.ReadAsync<SerialInventoryRequest>(pipe, clientTimeout.Token);
+                if (request.Command != "GetSerialPortInventory") throw new InvalidDataException("Unsupported serial inventory request.");
+                await NativeHealthMessageFraming.WriteAsync(pipe, enumerator.Enumerate(clientTimeout.Token), clientTimeout.Token);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (Exception exception) when (exception is IOException or InvalidDataException or UnauthorizedAccessException) { logger.LogWarning("Serial inventory pipe request or ownership failed safely: {Message}", exception.Message); await Task.Delay(250, cancellationToken); }
