@@ -27,6 +27,7 @@ import { getIonosondeApiResponse } from './server/propagation';
 import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coordinates';
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
+import { readSerialInventoryPipe } from './server/serialInventoryPipe';
 
 async function startServer() {
   const app = express();
@@ -67,13 +68,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true }));
 
   app.get('/api/serial-ports', (_req, res) => {
-    const token = process.env.FIELDOPS_AGENT_HEALTH_TOKEN;
-    if (!token) return res.status(503).json({ observedAtUtc: new Date().toISOString(), status: 'Unavailable', ports: [], error: 'Local Agent authentication is unavailable.' });
-    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 5000);
-    fetch('http://127.0.0.1:43120/api/v1/serial-ports', { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
-      .then(async response => { if (response.status === 401 || response.status === 403) return res.status(502).json({ observedAtUtc: new Date().toISOString(), status: 'Error', ports: [], error: 'Local Agent authentication was rejected.' }); if (!response.ok) return res.status(503).json({ observedAtUtc: new Date().toISOString(), status: 'Unavailable', ports: [], error: 'Local Agent is unavailable.' }); const body = await response.json(); if (!body || typeof body.observedAtUtc !== 'string' || !['Ok','Unavailable','Error'].includes(body.status) || !Array.isArray(body.ports)) return res.status(502).json({ observedAtUtc: new Date().toISOString(), status: 'Error', ports: [], error: 'Local Agent returned malformed inventory.' }); return res.json(body); })
-      .catch(error => res.status(503).json({ observedAtUtc: new Date().toISOString(), status: 'Unavailable', ports: [], error: error?.name === 'AbortError' ? 'Local Agent request timed out.' : 'Local Agent is unavailable.' }))
-      .finally(() => clearTimeout(timer));
+    readSerialInventoryPipe().then(body => res.json(body));
   });
 
   // Server-side Gemini AI setup

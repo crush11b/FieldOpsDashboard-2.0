@@ -32,6 +32,7 @@ builder.Services.AddSingleton<ServiceIdentity>();
 builder.Services.AddSingleton<AgentCredentialProvider>();
 builder.Services.AddSingleton<ISerialMetadataProvider, WmiSerialMetadataProvider>();
 builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
+builder.Services.AddSingleton<SerialInventoryPipeServer>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
@@ -45,6 +46,7 @@ builder.Services.AddSingleton(sp => new NativeHealthGatewayServer(
 builder.Services.AddTelemetryTransportFoundation();
 builder.Services.AddHostedService<AgentLifecycleService>();
 builder.Services.AddHostedService<NativeHealthGatewayService>();
+builder.Services.AddHostedService<SerialInventoryPipeService>();
 
 var app = builder.Build();
 var credentialProvider = app.Services.GetRequiredService<AgentCredentialProvider>();
