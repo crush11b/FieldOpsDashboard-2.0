@@ -4,6 +4,7 @@ using FieldOps.Agent.Health;
 using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
 using FieldOps.Agent.Serial;
+using System.Text.Json.Serialization;
 using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.EventLog;
 
@@ -29,7 +30,9 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ServiceIdentity>();
 builder.Services.AddSingleton<AgentCredentialProvider>();
+builder.Services.AddSingleton<ISerialMetadataProvider, WmiSerialMetadataProvider>();
 builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
     builder.Configuration["Agent:NativeHealth:OperatorSid"],

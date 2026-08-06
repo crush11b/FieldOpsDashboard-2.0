@@ -1,7 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { execSync, execFileSync } from "child_process";
+import { execSync } from "child_process";
 import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -67,15 +67,13 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true }));
 
   app.get('/api/serial-ports', (_req, res) => {
-    const observedAtUtc = new Date().toISOString();
-    if (process.platform !== 'win32') return res.json({ observedAtUtc, status: 'Unavailable', ports: [], error: 'Windows serial-port enumeration is unavailable on this platform.' });
-    try {
-      const script = "$items=@(Get-CimInstance Win32_PnPEntity | Where-Object {$_.Name -match '\\(COM[0-9]+\\)'} | ForEach-Object {[pscustomobject]@{portName=([regex]::Match($_.Name,'COM[0-9]+')).Value;friendlyName=$_.Name;description=$_.Description;manufacturer=$_.Manufacturer;deviceId=$_.DeviceID;pnpDeviceId=$_.PNPDeviceID;present=([bool]$_.Status -and $_.Status -eq 'OK')}}); $items | ConvertTo-Json -Compress";
-      const output = execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { encoding: 'utf8', timeout: 5000 }).trim();
-      const parsed = output ? JSON.parse(output) : [];
-      const ports = (Array.isArray(parsed) ? parsed : [parsed]).filter((p) => p?.portName).sort((a, b) => a.portName.localeCompare(b.portName, undefined, { numeric: true }));
-      return res.json({ observedAtUtc, status: 'Ok', ports, error: null });
-    } catch { return res.json({ observedAtUtc, status: 'Error', ports: [], error: 'Serial-port enumeration failed.' }); }
+    const token = process.env.FIELDOPS_AGENT_HEALTH_TOKEN;
+    if (!token) return res.status(503).json({ observedAtUtc: new Date().toISOString(), status: 'Unavailable', ports: [], error: 'Local Agent authentication is unavailable.' });
+    const controller = new AbortController(); const timer = setTimeout(() => controller.abort(), 5000);
+    fetch('http://127.0.0.1:43120/api/v1/serial-ports', { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
+      .then(async response => { if (response.status === 401 || response.status === 403) return res.status(502).json({ observedAtUtc: new Date().toISOString(), status: 'Error', ports: [], error: 'Local Agent authentication was rejected.' }); if (!response.ok) return res.status(503).json({ observedAtUtc: new Date().toISOString(), status: 'Unavailable', ports: [], error: 'Local Agent is unavailable.' }); const body = await response.json(); if (!body || typeof body.observedAtUtc !== 'string' || !['Ok','Unavailable','Error'].includes(body.status) || !Array.isArray(body.ports)) return res.status(502).json({ observedAtUtc: new Date().toISOString(), status: 'Error', ports: [], error: 'Local Agent returned malformed inventory.' }); return res.json(body); })
+      .catch(error => res.status(503).json({ observedAtUtc: new Date().toISOString(), status: 'Unavailable', ports: [], error: error?.name === 'AbortError' ? 'Local Agent request timed out.' : 'Local Agent is unavailable.' }))
+      .finally(() => clearTimeout(timer));
   });
 
   // Server-side Gemini AI setup
