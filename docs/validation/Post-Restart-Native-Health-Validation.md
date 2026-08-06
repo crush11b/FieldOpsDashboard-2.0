@@ -23,6 +23,10 @@ Validated on the primary ToughBook using the normal local operator account `stic
 - After restart, the tray returned to `Running` / `Healthy` without relaunch.
 - The persistent post-restart `Access Denied` condition did not recur.
 
+The successful hardware path used the direct corrected `Install-FieldOpsAgent.ps1` path with existing compiled artifacts. Operator provisioning, Agent upgrade, reboot/login behavior, tray startup, initial native health, tray-triggered restart, and post-restart authorization were validated.
+
+The complete transactional `UpdateDashboard.ps1` activation and rollback path was **not** validated end-to-end on the ToughBook. Source download and staging succeeded, but activation repeatedly encountered a lock on `C:\FieldOpsDashboard`; one later Agent-install attempt also encountered folder locking during rollback. This unresolved installation-directory lock remains deferred updater hardening.
+
 ## Windows-specific defects corrected during validation
 
 - GitHub ZIP extraction failure in the PowerShell updater; replaced with `.tar.gz` and `tar.exe`.
@@ -33,7 +37,7 @@ Validated on the primary ToughBook using the normal local operator account `stic
 
 This records single-operator hardware acceptance only; it does not claim broad installer hardening or multi-user validation.
 
-<!-- Historical validation procedure retained below for reference. -->
+<!-- Historical validation procedure retained below for reference; it is not evidence of end-to-end updater validation. -->
 
 Run this only on the primary supported ToughBook after code review:
 

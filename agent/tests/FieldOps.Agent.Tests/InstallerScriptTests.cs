@@ -99,7 +99,8 @@ public sealed class InstallerScriptTests
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
         Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
-        Assert.Contains("$Branch = 'fix-2.3-mvp-03-post-restart-native-health'", updater);
+        Assert.Contains("$Branch = 'feature/2.3-mvp-02-tray-usability'", updater);
+        Assert.DoesNotContain("$Branch = 'fix-2.3-mvp-03-post-restart-native-health'", updater);
         Assert.Contains("$Repository = 'crush11b/FieldOpsDashboard-2.0'", updater);
         Assert.Contains(".tar.gz", updater);
         Assert.DoesNotContain("Expand-Archive", updater);

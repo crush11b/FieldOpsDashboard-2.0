@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory = $true)][string]$OperatorAccount,
     [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
     # Development default; change to main after this feature branch merges.
-    [string]$Branch = 'fix-2.3-mvp-03-post-restart-native-health',
+    [string]$Branch = 'feature/2.3-mvp-02-tray-usability',
     [switch]$SkipLaunch,
     [string]$NativeArtifactPath,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
