@@ -254,6 +254,16 @@ This project is under active development. It is suitable for controlled developm
 
 Do not interpret unavailable, stale, cached, manual, or modeled values as live measurements.
 
+## Development deployment
+
+For controlled MVP development deployment on the primary ToughBook, run from an elevated PowerShell window at the repository root:
+
+```powershell
+.\Deploy-ToughBook.ps1
+```
+
+The helper publishes fresh Agent/Tray artifacts, overlays source files without renaming or mirroring `C:\FieldOpsDashboard`, installs the Agent for the normal `stick` account, and builds the dashboard. It does not launch the server, roll back, or delete user files; it prints `npm start` when ready. Use `-Force` only for controlled development when the machine-model check cannot identify the ToughBook. Production updating remains a separate workflow while updater hardening is deferred.
+
 ## License
 
 Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
