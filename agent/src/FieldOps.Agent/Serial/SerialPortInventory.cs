@@ -1,12 +1,23 @@
 using System.IO.Ports;
 using System.Management;
 using System.Text.RegularExpressions;
+using System.Text.Json.Serialization;
 
 namespace FieldOps.Agent.Serial;
 
 public enum SerialInventoryStatus { Ok, Unavailable, Error }
 
-public sealed record SerialPortInfo(string PortName, string? FriendlyName, string? Description, string? Manufacturer, string? DeviceId, string? PnpDeviceId, string? Vid, string? Pid, string? SerialNumber, bool Present);
+public sealed record SerialPortInfo(
+    [property: JsonPropertyName("portName")] string PortName,
+    [property: JsonPropertyName("friendlyName")] string? FriendlyName,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("manufacturer")] string? Manufacturer,
+    [property: JsonPropertyName("deviceId")] string? DeviceId,
+    [property: JsonPropertyName("pnpDeviceId")] string? PnpDeviceId,
+    [property: JsonPropertyName("vid")] string? Vid,
+    [property: JsonPropertyName("pid")] string? Pid,
+    [property: JsonPropertyName("serialNumber")] string? SerialNumber,
+    [property: JsonPropertyName("present")] bool Present);
 public sealed record SerialPortInventory(DateTimeOffset ObservedAtUtc, SerialInventoryStatus Status, IReadOnlyList<SerialPortInfo> Ports, string? Error);
 
 public interface ISerialPortEnumerator { SerialPortInventory Enumerate(CancellationToken cancellationToken); }

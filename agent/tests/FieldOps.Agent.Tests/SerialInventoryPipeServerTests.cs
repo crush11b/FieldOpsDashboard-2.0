@@ -5,6 +5,9 @@ using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Security.AccessControl;
 using System.Security.Principal;
+using System.Buffers.Binary;
+using System.Text;
+using System.Text.Json;
 
 namespace FieldOps.Agent.Tests;
 
@@ -20,10 +23,11 @@ public sealed class SerialInventoryPipeServerTests
         var run = server.RunAsync(stop.Token);
         using var client = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(1000);
-        await NativeHealthMessageFraming.WriteAsync(client, new SerialInventoryRequest("GetSerialPortInventory"), stop.Token);
-        var actual = await NativeHealthMessageFraming.ReadAsync<SerialPortInventory>(client, stop.Token);
-        Assert.Equal(SerialInventoryStatus.Ok, actual.Status);
-        Assert.Empty(actual.Ports);
+        await WriteLiteralAsync(client, "{\"command\":\"GetSerialPortInventory\"}", stop.Token);
+        var actual = await NativeHealthMessageFraming.ReadAsync<JsonDocument>(client, stop.Token);
+        Assert.Equal("Ok", actual.RootElement.GetProperty("status").GetString());
+        Assert.Empty(actual.RootElement.GetProperty("ports").EnumerateArray());
+        Assert.True(actual.RootElement.TryGetProperty("observedAtUtc", out _));
         stop.Cancel();
         await run;
     }
@@ -43,9 +47,9 @@ public sealed class SerialInventoryPipeServerTests
         }
         using var client = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(1000);
-        await NativeHealthMessageFraming.WriteAsync(client, new SerialInventoryRequest("GetSerialPortInventory"), stop.Token);
-        var actual = await NativeHealthMessageFraming.ReadAsync<SerialPortInventory>(client, stop.Token);
-        Assert.Equal(SerialInventoryStatus.Ok, actual.Status);
+        await WriteLiteralAsync(client, "{\"command\":\"GetSerialPortInventory\"}", stop.Token);
+        var actual = await NativeHealthMessageFraming.ReadAsync<JsonDocument>(client, stop.Token);
+        Assert.Equal("Ok", actual.RootElement.GetProperty("status").GetString());
         stop.Cancel();
         await run;
     }
@@ -53,6 +57,16 @@ public sealed class SerialInventoryPipeServerTests
     private sealed class FakeEnumerator(SerialPortInventory result) : ISerialPortEnumerator
     {
         public SerialPortInventory Enumerate(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return result; }
+    }
+
+    private static async Task WriteLiteralAsync(Stream stream, string json, CancellationToken cancellationToken)
+    {
+        var payload = Encoding.UTF8.GetBytes(json);
+        var length = new byte[4];
+        BinaryPrimitives.WriteInt32LittleEndian(length, payload.Length);
+        await stream.WriteAsync(length, cancellationToken);
+        await stream.WriteAsync(payload, cancellationToken);
+        await stream.FlushAsync(cancellationToken);
     }
 
     private static PipeSecurity TestSecurity()
