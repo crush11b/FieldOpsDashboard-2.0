@@ -1,4 +1,5 @@
 using System.IO.Pipes;
+using System.Security.AccessControl;
 using FieldOps.Agent.Health;
 using FieldOps.NativeHealth;
 
@@ -11,7 +12,8 @@ internal sealed class SerialInventoryPipeServer(
     ILogger<SerialInventoryPipeServer> logger,
     string pipeName = "FieldOps.SerialInventory.v1",
     TimeSpan? clientTimeout = null,
-    TimeSpan? retryDelay = null)
+    TimeSpan? retryDelay = null,
+    Func<PipeSecurity>? securityFactory = null)
 {
     internal const string PipeName = "FieldOps.SerialInventory.v1";
     private readonly TimeSpan effectiveClientTimeout = clientTimeout ?? TimeSpan.FromSeconds(5);
@@ -22,7 +24,7 @@ internal sealed class SerialInventoryPipeServer(
         {
             try
             {
-                using var pipe = NamedPipeServerStreamAcl.Create(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, authorizationPolicy.CreateSecurity());
+                using var pipe = NamedPipeServerStreamAcl.Create(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, securityFactory?.Invoke() ?? authorizationPolicy.CreateSecurity());
                 await pipe.WaitForConnectionAsync(cancellationToken);
                 using var clientTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 clientTimeout.CancelAfter(effectiveClientTimeout);
