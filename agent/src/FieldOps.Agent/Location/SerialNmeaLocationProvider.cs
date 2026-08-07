@@ -21,13 +21,17 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider
         try
         {
             using var port = readerFactory(); port.Open(); logger.LogInformation("NMEA port opened: {PortName}", portName);
-            var end = DateTime.UtcNow + timeout; NmeaFix? latest = null;
+            var end = DateTime.UtcNow + timeout; DateTime? complementEnd = null; NmeaFix? latest = null; var sawGga = false; var sawRmc = false;
             while (DateTime.UtcNow < end)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var line = await port.ReadLineAsync(cancellationToken); if (line is null) continue;
                 if (!NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
                 latest = Merge(latest, parsed);
+                sawGga |= parsed.IsGga && parsed.HasFix; sawRmc |= parsed.IsRmc && parsed.HasFix;
+                if (parsed.HasFix && complementEnd is null) complementEnd = DateTime.UtcNow + TimeSpan.FromMilliseconds(750);
+                if (sawGga && sawRmc) return ToObservation(latest);
+                if (latest.HasFix && complementEnd <= DateTime.UtcNow) return ToObservation(latest);
             }
             if (latest is not null && latest.HasFix) return ToObservation(latest);
             logger.LogInformation("NMEA acquisition timeout");
