@@ -26,6 +26,7 @@ internal sealed class TrayApplicationContext(
     };
     private bool started;
     private bool shutdownStarted;
+    private bool locationPermissionRequestInProgress;
 
     public void Start()
     {
@@ -141,22 +142,32 @@ internal sealed class TrayApplicationContext(
 
     private async Task RequestLocationPermissionAsync()
     {
-        enableLocationItem.Enabled = false;
-        var permission = await locationBroker.RequestPermissionAsync(lifetimeCancellation.Token);
-        if (shutdownStarted)
+        if (locationPermissionRequestInProgress)
         {
             return;
         }
 
-        enableLocationItem.Enabled = permission != WindowsLocationPermission.Allowed;
-        var allowed = permission == WindowsLocationPermission.Allowed;
-        MessageBox.Show(
-            allowed
-                ? "Windows location is enabled for the FieldOps tray."
-                : "Windows location permission was not granted. Review Windows Location privacy settings and try again.",
-            allowed ? "Windows location enabled" : "Windows location unavailable",
-            MessageBoxButtons.OK,
-            allowed ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        locationPermissionRequestInProgress = true;
+        try
+        {
+            var report = await locationBroker.RequestPermissionAsync(lifetimeCancellation.Token);
+            if (shutdownStarted)
+            {
+                return;
+            }
+
+            var presentation = LocationPermissionPresenter.Present(report);
+            enableLocationItem.Enabled = presentation.MenuEnabled;
+            MessageBox.Show(
+                presentation.Message,
+                presentation.Caption,
+                MessageBoxButtons.OK,
+                presentation.IsInformation ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
+        }
+        finally
+        {
+            locationPermissionRequestInProgress = false;
+        }
     }
 
     private void Shutdown()

@@ -34,9 +34,10 @@ public sealed class WindowsLocationBrokerTests
         var api = new FakeLocationApi { Permission = WindowsLocationPermission.Allowed };
         var broker = new WindowsLocationBroker(api);
 
-        var permission = await broker.RequestPermissionAsync(CancellationToken.None);
+        var report = await broker.RequestPermissionAsync(CancellationToken.None);
 
-        Assert.Equal(WindowsLocationPermission.Allowed, permission);
+        Assert.Equal(WindowsLocationPermission.Allowed, report.Permission);
+        Assert.Equal(WindowsLocationAcquisitionStatus.NoFix, report.AcquisitionStatus);
         Assert.Equal(WindowsLocationPermission.Allowed, broker.Permission);
     }
 
@@ -58,8 +59,9 @@ public sealed class WindowsLocationBrokerTests
     [Theory]
     [InlineData((int)WindowsLocationPlatformStatus.Disabled, LocationBrokerStatus.Disabled)]
     [InlineData((int)WindowsLocationPlatformStatus.Initializing, LocationBrokerStatus.Initializing)]
-    [InlineData((int)WindowsLocationPlatformStatus.NoFix, LocationBrokerStatus.NoFix)]
-    [InlineData((int)WindowsLocationPlatformStatus.Unavailable, LocationBrokerStatus.Unavailable)]
+    [InlineData((int)WindowsLocationPlatformStatus.NoData, LocationBrokerStatus.NoFix)]
+    [InlineData((int)WindowsLocationPlatformStatus.NotInitialized, LocationBrokerStatus.Initializing)]
+    [InlineData((int)WindowsLocationPlatformStatus.NotAvailable, LocationBrokerStatus.Unavailable)]
     public async Task PlatformStateMapsHonestly(
         int platformStatusValue,
         LocationBrokerStatus expected)
@@ -76,7 +78,6 @@ public sealed class WindowsLocationBrokerTests
         var result = await broker.GetLocationAsync(CancellationToken.None);
 
         Assert.Equal(expected, result.Status);
-        Assert.False(api.ReadCalled);
         AssertNullTelemetry(result);
     }
 
@@ -150,16 +151,18 @@ public sealed class WindowsLocationBrokerTests
 
     internal sealed class FakeLocationApi : IWindowsLocationApi
     {
+        public bool GeolocatorCreated { get; init; } = true;
         public WindowsLocationPermission Permission { get; init; } = WindowsLocationPermission.Unspecified;
         public WindowsLocationPlatformStatus Status { get; init; } = WindowsLocationPlatformStatus.Ready;
         public WindowsLocationReading? Reading { get; init; }
+        public Func<CancellationToken, Task<WindowsLocationPermission>>? Request { get; init; }
         public Func<CancellationToken, Task<WindowsLocationReading?>>? Read { get; init; }
         public bool ReadCalled { get; private set; }
 
         public Task<WindowsLocationPermission> RequestPermissionAsync(CancellationToken cancellationToken)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            return Task.FromResult(Permission);
+            return Request?.Invoke(cancellationToken) ?? Task.FromResult(Permission);
         }
 
         public Task<WindowsLocationReading?> ReadAsync(CancellationToken cancellationToken)

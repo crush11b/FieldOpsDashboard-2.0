@@ -86,7 +86,9 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
         var refreshCoordinator = new TrayRefreshCoordinator(
             new WindowsServiceStatusReader(serviceName),
             new NativeAgentHealthClient(new SharedNativeHealthReader(new NativeHealthClient())));
-        var locationBroker = new WindowsLocationBroker(new WindowsLocationApi());
+        var locationBroker = new WindowsLocationBroker(
+            new WindowsLocationApi(),
+            new TraceWindowsLocationDiagnostics());
         var operatorSid = WindowsIdentity.GetCurrent().User
             ?? throw new InvalidOperationException("The tray operator SID is unavailable.");
         var locationPipeServer = new LocationBrokerPipeServer(

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Windows.Devices.Geolocation;
 using FieldOps.NativeHealth;
 
@@ -14,11 +15,21 @@ internal enum WindowsLocationPermission
 internal enum WindowsLocationPlatformStatus
 {
     Ready,
-    Disabled,
     Initializing,
-    NoFix,
-    Unavailable,
+    NoData,
+    Disabled,
+    NotInitialized,
+    NotAvailable,
 }
+
+internal enum WindowsLocationAcquisitionStatus { NotAttempted, Available, NoFix, Failed }
+
+internal sealed record WindowsLocationPermissionReport(
+    WindowsLocationPermission Permission,
+    WindowsLocationPlatformStatus PositionStatus,
+    WindowsLocationAcquisitionStatus AcquisitionStatus,
+    bool GeolocatorCreated,
+    bool RequestFailed);
 
 internal sealed record WindowsLocationReading(
     double Latitude,
@@ -31,6 +42,7 @@ internal sealed record WindowsLocationReading(
 
 internal interface IWindowsLocationApi
 {
+    bool GeolocatorCreated { get; }
     WindowsLocationPlatformStatus Status { get; }
     Task<WindowsLocationPermission> RequestPermissionAsync(CancellationToken cancellationToken);
     Task<WindowsLocationReading?> ReadAsync(CancellationToken cancellationToken);
@@ -45,13 +57,17 @@ internal sealed class WindowsLocationApi : IWindowsLocationApi
         DesiredAccuracy = PositionAccuracy.High,
     };
 
+    public bool GeolocatorCreated => geolocator is not null;
+
     public WindowsLocationPlatformStatus Status => Locator.LocationStatus switch
     {
         PositionStatus.Ready => WindowsLocationPlatformStatus.Ready,
-        PositionStatus.Disabled => WindowsLocationPlatformStatus.Disabled,
         PositionStatus.Initializing => WindowsLocationPlatformStatus.Initializing,
-        PositionStatus.NoData => WindowsLocationPlatformStatus.NoFix,
-        _ => WindowsLocationPlatformStatus.Unavailable,
+        PositionStatus.NoData => WindowsLocationPlatformStatus.NoData,
+        PositionStatus.Disabled => WindowsLocationPlatformStatus.Disabled,
+        PositionStatus.NotInitialized => WindowsLocationPlatformStatus.NotInitialized,
+        PositionStatus.NotAvailable => WindowsLocationPlatformStatus.NotAvailable,
+        _ => throw new InvalidOperationException("Windows returned an unknown location position status."),
     };
 
     public async Task<WindowsLocationPermission> RequestPermissionAsync(
@@ -87,33 +103,137 @@ internal sealed class WindowsLocationApi : IWindowsLocationApi
     }
 }
 
-internal sealed class WindowsLocationBroker(IWindowsLocationApi api)
+internal interface IWindowsLocationDiagnostics
+{
+    void PermissionRequestInvoked();
+    void AccessStatusReturned(WindowsLocationPermission status);
+    void PositionStatusObserved(WindowsLocationPlatformStatus status);
+    void GeolocatorCreationObserved(bool created);
+    void PermissionRequestFailed();
+}
+
+internal sealed class TraceWindowsLocationDiagnostics : IWindowsLocationDiagnostics
+{
+    public void PermissionRequestInvoked() =>
+        Trace.TraceInformation("Windows location RequestAccessAsync invoked.");
+    public void AccessStatusReturned(WindowsLocationPermission status) =>
+        Trace.TraceInformation("Windows location access status returned: {0}.", status);
+    public void PositionStatusObserved(WindowsLocationPlatformStatus status) =>
+        Trace.TraceInformation("Windows location PositionStatus after access: {0}.", status);
+    public void GeolocatorCreationObserved(bool created) =>
+        Trace.TraceInformation("Windows location Geolocator instance created: {0}.", created);
+    public void PermissionRequestFailed() =>
+        Trace.TraceInformation("Windows location RequestAccessAsync failed safely.");
+}
+
+internal sealed class NullWindowsLocationDiagnostics : IWindowsLocationDiagnostics
+{
+    public static NullWindowsLocationDiagnostics Instance { get; } = new();
+    public void PermissionRequestInvoked() { }
+    public void AccessStatusReturned(WindowsLocationPermission status) { }
+    public void PositionStatusObserved(WindowsLocationPlatformStatus status) { }
+    public void GeolocatorCreationObserved(bool created) { }
+    public void PermissionRequestFailed() { }
+}
+
+internal sealed class WindowsLocationBroker(
+    IWindowsLocationApi api,
+    IWindowsLocationDiagnostics? diagnostics = null)
 {
     private WindowsLocationPermission permission = WindowsLocationPermission.NotRequested;
+    private readonly IWindowsLocationDiagnostics diagnostics =
+        diagnostics ?? NullWindowsLocationDiagnostics.Instance;
 
     public WindowsLocationPermission Permission => permission;
 
-    public async Task<WindowsLocationPermission> RequestPermissionAsync(
+    public async Task<WindowsLocationPermissionReport> RequestPermissionAsync(
         CancellationToken cancellationToken)
     {
+        diagnostics.PermissionRequestInvoked();
         try
         {
             permission = await api.RequestPermissionAsync(cancellationToken);
+            diagnostics.AccessStatusReturned(permission);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
         }
-        catch (UnauthorizedAccessException)
-        {
-            permission = WindowsLocationPermission.Denied;
-        }
         catch (Exception)
         {
             permission = WindowsLocationPermission.Unspecified;
+            diagnostics.PermissionRequestFailed();
+            return new(
+                permission,
+                WindowsLocationPlatformStatus.NotAvailable,
+                WindowsLocationAcquisitionStatus.NotAttempted,
+                api.GeolocatorCreated,
+                RequestFailed: true);
         }
 
-        return permission;
+        WindowsLocationPlatformStatus positionStatus;
+        try
+        {
+            positionStatus = api.Status;
+        }
+        catch (Exception)
+        {
+            diagnostics.PermissionRequestFailed();
+            diagnostics.GeolocatorCreationObserved(api.GeolocatorCreated);
+            return new(
+                permission,
+                WindowsLocationPlatformStatus.NotAvailable,
+                WindowsLocationAcquisitionStatus.NotAttempted,
+                api.GeolocatorCreated,
+                RequestFailed: true);
+        }
+        diagnostics.PositionStatusObserved(positionStatus);
+        diagnostics.GeolocatorCreationObserved(api.GeolocatorCreated);
+        if (permission != WindowsLocationPermission.Allowed
+            || positionStatus == WindowsLocationPlatformStatus.Disabled)
+        {
+            return new(
+                permission,
+                positionStatus,
+                WindowsLocationAcquisitionStatus.NotAttempted,
+                api.GeolocatorCreated,
+                RequestFailed: false);
+        }
+
+        var acquisition = WindowsLocationAcquisitionStatus.NoFix;
+        using var acquisitionTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        acquisitionTimeout.CancelAfter(LocationBrokerProtocol.OperationTimeout);
+        try
+        {
+            acquisition = await api.ReadAsync(acquisitionTimeout.Token) is null
+                ? WindowsLocationAcquisitionStatus.NoFix
+                : WindowsLocationAcquisitionStatus.Available;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception)
+        {
+            acquisition = WindowsLocationAcquisitionStatus.Failed;
+        }
+
+        try
+        {
+            positionStatus = api.Status;
+        }
+        catch (Exception)
+        {
+            positionStatus = WindowsLocationPlatformStatus.NotAvailable;
+        }
+        diagnostics.PositionStatusObserved(positionStatus);
+        diagnostics.GeolocatorCreationObserved(api.GeolocatorCreated);
+        return new(
+            permission,
+            positionStatus,
+            acquisition,
+            api.GeolocatorCreated,
+            RequestFailed: false);
     }
 
     public async Task<LocationBrokerResponse> GetLocationAsync(CancellationToken cancellationToken)
@@ -131,8 +251,9 @@ internal sealed class WindowsLocationBroker(IWindowsLocationApi api)
         var status = api.Status switch
         {
             WindowsLocationPlatformStatus.Initializing => LocationBrokerStatus.Initializing,
-            WindowsLocationPlatformStatus.NoFix => LocationBrokerStatus.NoFix,
-            WindowsLocationPlatformStatus.Unavailable => LocationBrokerStatus.Unavailable,
+            WindowsLocationPlatformStatus.NoData => LocationBrokerStatus.NoFix,
+            WindowsLocationPlatformStatus.NotInitialized => LocationBrokerStatus.Initializing,
+            WindowsLocationPlatformStatus.NotAvailable => LocationBrokerStatus.Unavailable,
             _ => LocationBrokerStatus.Available,
         };
         if (status != LocationBrokerStatus.Available)
