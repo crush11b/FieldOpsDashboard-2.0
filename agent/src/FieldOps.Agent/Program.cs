@@ -4,6 +4,7 @@ using FieldOps.Agent.Health;
 using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
 using FieldOps.Agent.Serial;
+using FieldOps.Agent.Location;
 using System.Text.Json.Serialization;
 using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.EventLog;
@@ -33,6 +34,10 @@ builder.Services.AddSingleton<AgentCredentialProvider>();
 builder.Services.AddSingleton<ISerialMetadataProvider, WmiSerialMetadataProvider>();
 builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
 builder.Services.AddSingleton<SerialInventoryPipeServer>();
+builder.Services.AddSingleton<IWindowsLocationClient, WindowsLocationClient>();
+builder.Services.AddSingleton<ILocationProvider>(sp => new WindowsSensorLocationProvider(
+    sp.GetRequiredService<IWindowsLocationClient>(),
+    sp.GetRequiredService<ILogger<WindowsSensorLocationProvider>>()));
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
@@ -69,6 +74,9 @@ app.MapGet("/api/v1/health", (ServiceIdentity identity, TimeProvider timeProvide
 
 app.MapGet("/api/v1/serial-ports", (ISerialPortEnumerator enumerator, CancellationToken cancellationToken) =>
     Results.Ok(enumerator.Enumerate(cancellationToken)));
+
+app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationToken cancellationToken) =>
+    Results.Ok(await provider.GetLocationAsync(cancellationToken)));
 
 await app.RunAsync();
 
