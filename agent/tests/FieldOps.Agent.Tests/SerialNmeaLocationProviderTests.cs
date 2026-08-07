@@ -21,6 +21,9 @@ public sealed class SerialNmeaLocationProviderTests
     [Fact] public async Task EmptyOrMalformedStreamReturnsNoFix() { var result = await Provider(new FakeReader("garbage", "$GPGGA,1,2,3")).GetLocationAsync(CancellationToken.None); Assert.Equal(LocationStatus.NoFix, result.Status); }
     [Fact] public async Task PortFailureIsUnavailable() { var result = await Provider(new FakeReader(openError: new UnauthorizedAccessException())).GetLocationAsync(CancellationToken.None); Assert.Equal(LocationStatus.Unavailable, result.Status); }
     [Fact] public async Task CancellationPropagates() { using var cts = new CancellationTokenSource(); var fake = new FakeReader(delay: true); cts.Cancel(); await Assert.ThrowsAsync<OperationCanceledException>(() => Provider(fake).GetLocationAsync(cts.Token)); Assert.True(fake.Disposed); }
+    [Fact] public async Task LaterInvalidRmcMakesGgaCycleNoFix() { var r = await Provider(new FakeReader(Gga, "$GPRMC,123519.00,V,4807.038,N,01131.000,E,0,0,230394,,,A")).GetLocationAsync(CancellationToken.None); Assert.Equal(LocationStatus.NoFix, r.Status); }
+    [Fact] public async Task LaterInvalidGgaMakesRmcCycleNoFix() { var r = await Provider(new FakeReader(Rmc, Gga.Replace(",1,08,", ",0,08,"))).GetLocationAsync(CancellationToken.None); Assert.Equal(LocationStatus.NoFix, r.Status); }
+    [Fact] public async Task InvalidThenValidProducesAvailable() { var r = await Provider(new FakeReader("$GPRMC,123519.00,V,4807.038,N,01131.000,E,0,0,230394,,,A", Gga)).GetLocationAsync(CancellationToken.None); Assert.Equal(LocationStatus.Available, r.Status); }
 
     private static SerialNmeaLocationProvider Provider(FakeReader fake) => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(80), () => fake);
 

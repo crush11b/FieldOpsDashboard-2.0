@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace FieldOps.Agent.Location;
 
@@ -21,17 +22,20 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider
         try
         {
             using var port = readerFactory(); port.Open(); logger.LogInformation("NMEA port opened: {PortName}", portName);
-            var end = DateTime.UtcNow + timeout; DateTime? complementEnd = null; NmeaFix? latest = null; var sawGga = false; var sawRmc = false;
-            while (DateTime.UtcNow < end)
+            var clock = Stopwatch.StartNew(); TimeSpan? complementEnd = null; NmeaFix? latest = null; var sawGga = false; var sawRmc = false;
+            while (clock.Elapsed < timeout)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                var line = await port.ReadLineAsync(cancellationToken); if (line is null) continue;
-                if (!NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
-                latest = Merge(latest, parsed);
-                sawGga |= parsed.IsGga && parsed.HasFix; sawRmc |= parsed.IsRmc && parsed.HasFix;
-                if (parsed.HasFix && complementEnd is null) complementEnd = DateTime.UtcNow + TimeSpan.FromMilliseconds(750);
-                if (sawGga && sawRmc) return ToObservation(latest);
-                if (latest.HasFix && complementEnd <= DateTime.UtcNow) return ToObservation(latest);
+                var line = await port.ReadLineAsync(cancellationToken);
+                if (line is not null && NmeaParser.TryParse(line.Trim(), out var parsed))
+                {
+                    latest = Merge(latest, parsed);
+                    sawGga |= parsed.IsGga && parsed.HasFix; sawRmc |= parsed.IsRmc && parsed.HasFix;
+                    if (parsed.HasFix && complementEnd is null) complementEnd = clock.Elapsed + TimeSpan.FromMilliseconds(750);
+                    if (sawGga && sawRmc) return ToObservation(latest);
+                }
+                // Check the complementary deadline even when the reader timed out or data was malformed.
+                if (latest is { HasFix: true } && complementEnd is not null && clock.Elapsed >= complementEnd) return ToObservation(latest);
             }
             if (latest is not null && latest.HasFix) return ToObservation(latest);
             logger.LogInformation("NMEA acquisition timeout");
@@ -42,6 +46,8 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider
         catch (Exception ex) { logger.LogInformation(ex, "Unexpected NMEA reader failure"); return LocationObservation.WithoutTelemetry(LocationStatus.Error) with { Source = "SerialNmea" }; }
     }
 
+    // Each supported sentence is authoritative for fix validity; fields absent from it are retained
+    // from the same acquisition cycle. This makes contradictory streams deterministic and honest.
     private static NmeaFix Merge(NmeaFix? old, NmeaFix n) => old is null ? n : n with {
         Latitude = n.Latitude ?? old.Latitude, Longitude = n.Longitude ?? old.Longitude, Altitude = n.Altitude ?? old.Altitude,
         Speed = n.Speed ?? old.Speed, Heading = n.Heading ?? old.Heading, TimestampUtc = n.TimestampUtc ?? old.TimestampUtc,
