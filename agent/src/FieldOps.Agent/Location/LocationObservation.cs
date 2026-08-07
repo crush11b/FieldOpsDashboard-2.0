@@ -21,7 +21,11 @@ public sealed record LocationObservation(
     [property: JsonPropertyName("speed")] double? Speed,
     [property: JsonPropertyName("heading")] double? Heading,
     [property: JsonPropertyName("timestampUtc")] DateTimeOffset? TimestampUtc,
-    [property: JsonPropertyName("status")] LocationStatus Status)
+    [property: JsonPropertyName("status")] LocationStatus Status,
+    [property: JsonPropertyName("satellites")] int? Satellites = null,
+    [property: JsonPropertyName("hdop")] double? Hdop = null,
+    [property: JsonPropertyName("fixQuality")] int? FixQuality = null,
+    [property: JsonPropertyName("source")] string? Source = null)
 {
     public static LocationObservation WithoutTelemetry(LocationStatus status) =>
         new(null, null, null, null, null, null, null, status);

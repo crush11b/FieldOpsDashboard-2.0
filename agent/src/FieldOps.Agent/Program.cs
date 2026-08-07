@@ -35,6 +35,7 @@ builder.Services.AddSingleton<ISerialMetadataProvider, WmiSerialMetadataProvider
 builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
 builder.Services.AddSingleton<SerialInventoryPipeServer>();
 builder.Services.AddSingleton<ILocationProvider, WindowsSensorLocationProvider>();
+builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
@@ -73,6 +74,9 @@ app.MapGet("/api/v1/serial-ports", (ISerialPortEnumerator enumerator, Cancellati
     Results.Ok(enumerator.Enumerate(cancellationToken)));
 
 app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationToken cancellationToken) =>
+    Results.Ok(await provider.GetLocationAsync(cancellationToken)));
+
+app.MapGet("/api/v1/location/nmea", async (SerialNmeaLocationProvider provider, CancellationToken cancellationToken) =>
     Results.Ok(await provider.GetLocationAsync(cancellationToken)));
 
 await app.RunAsync();
