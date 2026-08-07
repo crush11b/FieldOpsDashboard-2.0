@@ -32,7 +32,7 @@ internal static class NmeaParser
         fix = default!;
         if (f.Length < 10 || !TryCoordinate(f[2], f[3], f[4], f[5], out var lat, out var lon)) return false;
         int? quality = Int(f[6]); var hasFix = quality is > 0;
-        fix = new(lat, lon, Double(f[9]), null, null, ParseTime(f[1]), Int(f[7]), Double(f[8]), quality, hasFix);
+        fix = new(lat, lon, Double(f[9]), null, null, null, Int(f[7]), Double(f[8]), quality, hasFix);
         return true;
     }
 
@@ -54,11 +54,13 @@ internal static class NmeaParser
     private static bool TryCoord(string value, string hemi, out double result)
     {
         result = 0; if (string.IsNullOrWhiteSpace(value) || value.Length < 4 || !double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var raw)) return false;
-        var deg = Math.Floor(raw / 100); var minutes = raw - deg * 100; if (minutes >= 60) return false;
-        result = (deg + minutes / 60) * (hemi is "S" or "W" ? -1 : hemi is "N" or "E" ? 1 : 0); return hemi is "N" or "S" or "E" or "W";
+        var isLatitude = hemi is "N" or "S"; var isLongitude = hemi is "E" or "W";
+        var deg = Math.Floor(raw / 100); var minutes = raw - deg * 100;
+        if ((!isLatitude && !isLongitude) || minutes is < 0 or >= 60 || (isLatitude && deg > 90) || (isLongitude && deg > 180)) return false;
+        if ((isLatitude && deg == 90 && minutes != 0) || (isLongitude && deg == 180 && minutes != 0)) return false;
+        result = (deg + minutes / 60) * (hemi is "S" or "W" ? -1 : 1); return true;
     }
     private static double? Double(string value) => double.TryParse(value, NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && double.IsFinite(v) ? v : null;
     private static int? Int(string value) => int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var v) ? v : null;
-    private static DateTimeOffset? ParseTime(string value) => DateTimeOffset.TryParseExact(value, "HHmmss.FFF", CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var t) ? t : null;
     private static DateTimeOffset? ParseDateTime(string date, string time) => DateTimeOffset.TryParseExact(date + time, new[] { "ddMMyyHHmmss.FFF", "ddMMyyHHmmss" }, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out var t) ? t : null;
 }
