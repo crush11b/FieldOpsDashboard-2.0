@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk.Web">
 
   <PropertyGroup>
-    <TargetFramework>net8.0-windows10.0.19041.0</TargetFramework>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <RootNamespace>FieldOps.Agent</RootNamespace>
@@ -25,6 +25,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="FieldOps.Agent.Tests" />
+    <InternalsVisibleTo Include="FieldOps.TrayPrototype.Tests" />
   </ItemGroup>
 
 </Project>

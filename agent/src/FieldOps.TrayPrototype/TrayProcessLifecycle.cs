@@ -1,5 +1,7 @@
 using System.Diagnostics;
 using FieldOps.NativeHealth;
+using FieldOps.TrayPrototype.Location;
+using System.Security.Principal;
 
 namespace FieldOps.TrayPrototype;
 
@@ -84,11 +86,20 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
         var refreshCoordinator = new TrayRefreshCoordinator(
             new WindowsServiceStatusReader(serviceName),
             new NativeAgentHealthClient(new SharedNativeHealthReader(new NativeHealthClient())));
+        var locationBroker = new WindowsLocationBroker(new WindowsLocationApi());
+        var operatorSid = WindowsIdentity.GetCurrent().User
+            ?? throw new InvalidOperationException("The tray operator SID is unavailable.");
+        var locationPipeServer = new LocationBrokerPipeServer(
+            locationBroker,
+            new LocationBrokerAuthorizationPolicy(operatorSid),
+            new TraceLocationBrokerDiagnostics());
         var context = new TrayApplicationContext(
             refreshCoordinator,
             new ElevatedRestartCoordinator(
                 CoLocatedPaths.GetRestartHelperPath(),
-                TimeSpan.FromSeconds(75)));
+                TimeSpan.FromSeconds(75)),
+            locationBroker,
+            locationPipeServer);
         return new WindowsFormsTrayApplicationHost(context);
     }
 }

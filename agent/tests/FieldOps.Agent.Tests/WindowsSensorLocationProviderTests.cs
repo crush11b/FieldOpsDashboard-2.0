@@ -1,4 +1,8 @@
+using System.Buffers.Binary;
+using System.IO.Pipes;
+using System.Text;
 using FieldOps.Agent.Location;
+using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldOps.Agent.Tests;
@@ -6,111 +10,110 @@ namespace FieldOps.Agent.Tests;
 public sealed class WindowsSensorLocationProviderTests
 {
     [Fact]
-    public async Task SuccessfulProviderReturnsNativeReading()
+    public void SuccessfulBrokerResponseIsNormalized()
     {
         var timestamp = new DateTimeOffset(2026, 8, 6, 12, 34, 56, TimeSpan.Zero);
-        var client = new FakeWindowsLocationClient
-        {
-            Reading = new(37.5407, -77.4360, 52.4, 6.5, 1.25, 184.0, timestamp),
-        };
-
-        var result = await CreateProvider(client).GetLocationAsync(CancellationToken.None);
+        var result = WindowsSensorLocationProvider.Normalize(new(
+            37.5407, -77.4360, null, 6.5, null, 184.0, timestamp,
+            LocationBrokerStatus.Available));
 
         Assert.Equal(LocationStatus.Available, result.Status);
         Assert.Equal(37.5407, result.Latitude);
         Assert.Equal(-77.4360, result.Longitude);
-        Assert.Equal(52.4, result.Altitude);
+        Assert.Null(result.Altitude);
         Assert.Equal(6.5, result.HorizontalAccuracy);
-        Assert.Equal(1.25, result.Speed);
+        Assert.Null(result.Speed);
         Assert.Equal(184.0, result.Heading);
         Assert.Equal(timestamp, result.TimestampUtc);
     }
 
-    [Fact]
-    public async Task UnavailableProviderReturnsOnlyUnavailableStatus()
+    [Theory]
+    [InlineData(LocationBrokerStatus.Unavailable, LocationStatus.Unavailable)]
+    [InlineData(LocationBrokerStatus.PermissionDenied, LocationStatus.PermissionDenied)]
+    [InlineData(LocationBrokerStatus.Disabled, LocationStatus.Disabled)]
+    [InlineData(LocationBrokerStatus.Initializing, LocationStatus.Initializing)]
+    [InlineData(LocationBrokerStatus.NoFix, LocationStatus.NoFix)]
+    [InlineData(LocationBrokerStatus.Error, LocationStatus.Error)]
+    public void NonAvailableResponseNeverLeaksOrFabricatesTelemetry(
+        LocationBrokerStatus brokerStatus,
+        LocationStatus expected)
     {
-        var result = await CreateProvider(new FakeWindowsLocationClient
-        {
-            State = WindowsLocationState.Unavailable,
-        }).GetLocationAsync(CancellationToken.None);
+        var result = WindowsSensorLocationProvider.Normalize(new(
+            1, 2, 3, 4, 5, 6, DateTimeOffset.UtcNow, brokerStatus));
+
+        AssertEmpty(result, expected);
+    }
+
+    [Fact]
+    public void AvailableWithoutCoordinatesBecomesNoFix()
+    {
+        var result = WindowsSensorLocationProvider.Normalize(
+            LocationBrokerResponse.WithoutTelemetry(LocationBrokerStatus.Available));
+
+        AssertEmpty(result, LocationStatus.NoFix);
+    }
+
+    [Fact]
+    public async Task TrayAbsentReturnsUnavailable()
+    {
+        var provider = new WindowsSensorLocationProvider(
+            NullLogger<WindowsSensorLocationProvider>.Instance,
+            $"FieldOps.LocationBroker.Missing.{Guid.NewGuid():N}",
+            TimeSpan.FromMilliseconds(50));
+
+        var result = await provider.GetLocationAsync(CancellationToken.None);
 
         AssertEmpty(result, LocationStatus.Unavailable);
     }
 
     [Fact]
-    public async Task PermissionDeniedReturnsOnlyPermissionStatus()
+    public async Task ServiceCancellationIsPropagated()
     {
-        var result = await CreateProvider(new FakeWindowsLocationClient
-        {
-            GetReading = _ => throw new UnauthorizedAccessException(),
-        }).GetLocationAsync(CancellationToken.None);
+        var provider = new WindowsSensorLocationProvider(
+            NullLogger<WindowsSensorLocationProvider>.Instance,
+            $"FieldOps.LocationBroker.Cancel.{Guid.NewGuid():N}",
+            TimeSpan.FromSeconds(5));
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(25));
 
-        AssertEmpty(result, LocationStatus.PermissionDenied);
+        await Assert.ThrowsAnyAsync<OperationCanceledException>(
+            () => provider.GetLocationAsync(cancellation.Token));
     }
 
     [Fact]
-    public async Task TimeoutReturnsNoFixWithoutFabricatedTelemetry()
+    public async Task MalformedBrokerResponseFailsSafely()
     {
-        var client = new FakeWindowsLocationClient
+        var pipeName = $"FieldOps.LocationBroker.Malformed.{Guid.NewGuid():N}";
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        await using var server = new NamedPipeServerStream(
+            pipeName,
+            PipeDirection.InOut,
+            1,
+            PipeTransmissionMode.Message,
+            PipeOptions.Asynchronous);
+        var serverTask = Task.Run(async () =>
         {
-            GetReading = cancellationToken => Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken)
-                .ContinueWith<WindowsLocationReading?>(_ => null, cancellationToken),
-        };
+            await server.WaitForConnectionAsync(timeout.Token);
+            var request = await NativeHealthMessageFraming.ReadAsync<LocationBrokerRequest>(
+                server,
+                timeout.Token);
+            Assert.Equal(LocationBrokerProtocol.GetLocationCommand, request.Command);
+            var invalidPayload = Encoding.UTF8.GetBytes("not-json");
+            var length = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(length, invalidPayload.Length);
+            await server.WriteAsync(length, timeout.Token);
+            await server.WriteAsync(invalidPayload, timeout.Token);
+            await server.FlushAsync(timeout.Token);
+        }, timeout.Token);
+        var provider = new WindowsSensorLocationProvider(
+            NullLogger<WindowsSensorLocationProvider>.Instance,
+            pipeName,
+            TimeSpan.FromSeconds(1));
 
-        var result = await CreateProvider(client, TimeSpan.FromMilliseconds(25))
-            .GetLocationAsync(CancellationToken.None);
+        var result = await provider.GetLocationAsync(timeout.Token);
+        await serverTask;
 
-        AssertEmpty(result, LocationStatus.NoFix);
+        AssertEmpty(result, LocationStatus.Unavailable);
     }
-
-    [Fact]
-    public async Task NoFixReturnsNullTelemetry()
-    {
-        var result = await CreateProvider(new FakeWindowsLocationClient
-        {
-            State = WindowsLocationState.NoFix,
-        }).GetLocationAsync(CancellationToken.None);
-
-        AssertEmpty(result, LocationStatus.NoFix);
-    }
-
-    [Fact]
-    public async Task CallerCancellationIsPropagated()
-    {
-        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var client = new FakeWindowsLocationClient
-        {
-            GetReading = async cancellationToken =>
-            {
-                started.SetResult();
-                await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken);
-                return null;
-            },
-        };
-        using var cancellation = new CancellationTokenSource();
-        var pending = CreateProvider(client).GetLocationAsync(cancellation.Token);
-        await started.Task.WaitAsync(TimeSpan.FromSeconds(5));
-
-        cancellation.Cancel();
-
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(() => pending);
-    }
-
-    [Fact]
-    public async Task DisabledPlatformReturnsDisabledWithoutAcquiringReading()
-    {
-        var client = new FakeWindowsLocationClient { State = WindowsLocationState.Disabled };
-
-        var result = await CreateProvider(client).GetLocationAsync(CancellationToken.None);
-
-        AssertEmpty(result, LocationStatus.Disabled);
-        Assert.False(client.ReadingRequested);
-    }
-
-    private static WindowsSensorLocationProvider CreateProvider(
-        IWindowsLocationClient client,
-        TimeSpan? timeout = null) =>
-        new(client, NullLogger<WindowsSensorLocationProvider>.Instance, timeout);
 
     private static void AssertEmpty(LocationObservation observation, LocationStatus status)
     {
@@ -122,19 +125,5 @@ public sealed class WindowsSensorLocationProviderTests
         Assert.Null(observation.Speed);
         Assert.Null(observation.Heading);
         Assert.Null(observation.TimestampUtc);
-    }
-
-    private sealed class FakeWindowsLocationClient : IWindowsLocationClient
-    {
-        public WindowsLocationState State { get; init; } = WindowsLocationState.Ready;
-        public WindowsLocationReading? Reading { get; init; }
-        public Func<CancellationToken, Task<WindowsLocationReading?>>? GetReading { get; init; }
-        public bool ReadingRequested { get; private set; }
-
-        public Task<WindowsLocationReading?> GetReadingAsync(CancellationToken cancellationToken)
-        {
-            ReadingRequested = true;
-            return GetReading?.Invoke(cancellationToken) ?? Task.FromResult(Reading);
-        }
     }
 }

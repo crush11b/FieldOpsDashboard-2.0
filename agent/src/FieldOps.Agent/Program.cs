@@ -34,10 +34,7 @@ builder.Services.AddSingleton<AgentCredentialProvider>();
 builder.Services.AddSingleton<ISerialMetadataProvider, WmiSerialMetadataProvider>();
 builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
 builder.Services.AddSingleton<SerialInventoryPipeServer>();
-builder.Services.AddSingleton<IWindowsLocationClient, WindowsLocationClient>();
-builder.Services.AddSingleton<ILocationProvider>(sp => new WindowsSensorLocationProvider(
-    sp.GetRequiredService<IWindowsLocationClient>(),
-    sp.GetRequiredService<ILogger<WindowsSensorLocationProvider>>()));
+builder.Services.AddSingleton<ILocationProvider, WindowsSensorLocationProvider>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(

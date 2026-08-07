@@ -2,17 +2,21 @@ using System.Diagnostics;
 using System.Drawing;
 using System.ServiceProcess;
 using System.Windows.Forms;
+using FieldOps.TrayPrototype.Location;
 
 namespace FieldOps.TrayPrototype;
 
 internal sealed class TrayApplicationContext(
     TrayRefreshCoordinator refreshCoordinator,
-    IRestartCoordinator restartCoordinator) : ApplicationContext
+    IRestartCoordinator restartCoordinator,
+    WindowsLocationBroker locationBroker,
+    LocationBrokerPipeServer locationPipeServer) : ApplicationContext
 {
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly ToolStripMenuItem statusItem = new("Status: checking...") { Enabled = false };
     private readonly ToolStripMenuItem healthItem = new("Health: checking...") { Enabled = false };
     private readonly ToolStripMenuItem restartItem = new("Restart FieldOps Agent");
+    private readonly ToolStripMenuItem enableLocationItem = new("Enable Windows Location");
     private readonly System.Windows.Forms.Timer refreshTimer = new() { Interval = 5000 };
     private readonly NotifyIcon notifyIcon = new()
     {
@@ -47,6 +51,13 @@ internal sealed class TrayApplicationContext(
                 await RefreshAsync();
             }
         };
+        enableLocationItem.Click += async (_, _) =>
+        {
+            if (!shutdownStarted)
+            {
+                await RequestLocationPermissionAsync();
+            }
+        };
         var dashboardItem = new ToolStripMenuItem("Open Dashboard");
         dashboardItem.Click += (_, _) => OpenDashboard();
         var exitItem = new ToolStripMenuItem("Exit");
@@ -60,12 +71,14 @@ internal sealed class TrayApplicationContext(
             new ToolStripSeparator(),
             refreshItem,
             restartItem,
+            enableLocationItem,
             new ToolStripSeparator(),
             exitItem,
         ]);
 
         notifyIcon.Visible = true;
         refreshTimer.Start();
+        _ = locationPipeServer.RunAsync(lifetimeCancellation.Token);
         _ = RefreshAsync();
     }
 
@@ -124,6 +137,26 @@ internal sealed class TrayApplicationContext(
         // Access Denied state cannot remain visible.
         await Task.Delay(TimeSpan.FromMilliseconds(250), lifetimeCancellation.Token);
         await RefreshAsync();
+    }
+
+    private async Task RequestLocationPermissionAsync()
+    {
+        enableLocationItem.Enabled = false;
+        var permission = await locationBroker.RequestPermissionAsync(lifetimeCancellation.Token);
+        if (shutdownStarted)
+        {
+            return;
+        }
+
+        enableLocationItem.Enabled = permission != WindowsLocationPermission.Allowed;
+        var allowed = permission == WindowsLocationPermission.Allowed;
+        MessageBox.Show(
+            allowed
+                ? "Windows location is enabled for the FieldOps tray."
+                : "Windows location permission was not granted. Review Windows Location privacy settings and try again.",
+            allowed ? "Windows location enabled" : "Windows location unavailable",
+            MessageBoxButtons.OK,
+            allowed ? MessageBoxIcon.Information : MessageBoxIcon.Warning);
     }
 
     private void Shutdown()
