@@ -4,8 +4,8 @@ param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
     [Parameter(Mandatory = $true)][string]$OperatorAccount,
     [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
-    # Development default; change to main after this feature branch merges.
-    [string]$Branch = 'feature/2.3-mvp-02-tray-usability',
+    [string]$Branch = 'main',
+    [ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision,
     [switch]$SkipLaunch,
     [string]$NativeArtifactPath,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
@@ -41,9 +41,18 @@ function Assert-NativeArtifact {
     if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace([string]$manifest.sourceRevision)) { throw 'Native artifact manifest has no source revision.' }
-    if ($manifest.sourceRevision -ne $ExpectedRevision) { Write-Warning "Exact dashboard revision is unavailable from the source archive; native artifact revision is '$($manifest.sourceRevision)'." }
+    if ($manifest.sourceRevision -ne $ExpectedRevision) { throw "Native artifact revision '$($manifest.sourceRevision)' does not match requested source revision '$ExpectedRevision'. Deployment was not activated." }
     foreach ($relative in @('agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe')) { if (-not (Test-Path (Join-Path $root $relative))) { throw "Native artifact is missing '$relative'." } }
     return $root
+}
+
+function Resolve-DeploymentRevision {
+    param([string]$Repository, [string]$Branch, [string]$Revision)
+    if (-not [string]::IsNullOrWhiteSpace($Revision)) { return $Revision.ToLowerInvariant() }
+    $apiUrl = "https://api.github.com/repos/$Repository/commits/$Branch"
+    $response = Invoke-RestMethod -Uri $apiUrl -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'FieldOpsDashboard-Updater' } -UseBasicParsing
+    if ([string]::IsNullOrWhiteSpace([string]$response.sha) -or $response.sha -notmatch '^[0-9a-fA-F]{40}$') { throw "GitHub did not return a valid commit revision for branch '$Branch'." }
+    return ([string]$response.sha).ToLowerInvariant()
 }
 
 function Get-PackageRoot {
@@ -139,7 +148,8 @@ try {
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
 
     Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
-    $url = "https://github.com/$Repository/archive/refs/heads/$Branch.tar.gz"
+    $deploymentRevision = Resolve-DeploymentRevision -Repository $Repository -Branch $Branch -Revision $Revision
+    $url = "https://github.com/$Repository/archive/$deploymentRevision.tar.gz"
     for ($index = 0; $index -lt 1; $index++) {
         $archivePath = Join-Path $downloadRoot "candidate-$index.tar.gz"
         $extractPath = Join-Path $downloadRoot "candidate-$index"
@@ -174,7 +184,7 @@ try {
         $NativeArtifactPath = Join-Path $downloadRoot 'fieldops-native-win-x64.zip'
         try { Invoke-WebRequest -Uri $NativeArtifactUrl -OutFile $NativeArtifactPath -UseBasicParsing } catch { throw "Native artifact download failed from '$NativeArtifactUrl': $($_.Exception.Message)" }
     }
-    $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision 'source-archive'
+    $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision $deploymentRevision
 
     Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
     Copy-PackageTree -Source $packageRoot -Destination $stagePath
@@ -204,6 +214,15 @@ try {
     }
 
     Assert-RequiredFiles -Root $resolvedInstallPath -RequiredFiles $requiredDeploymentFiles -Description 'Deployed installation'
+    $deploymentManifest = [ordered]@{
+        sourceRevision = $deploymentRevision
+        nativeRevision = $deploymentRevision
+        informationalVersion = $null
+        deployedAtUtc = [DateTime]::UtcNow.ToString('O')
+    }
+    $nativeManifest = Get-Content -LiteralPath (Join-Path $nativeRoot 'artifact-manifest.json') -Raw | ConvertFrom-Json
+    $deploymentManifest.informationalVersion = [string]$nativeManifest.informationalVersion
+    $deploymentManifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $resolvedInstallPath 'deployment-manifest.json') -Encoding UTF8
     Write-Host '[5/7] Restoring dependencies and building production dashboard...' -ForegroundColor Yellow
     Set-Location -LiteralPath $resolvedInstallPath
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is required for the production dashboard build.' }

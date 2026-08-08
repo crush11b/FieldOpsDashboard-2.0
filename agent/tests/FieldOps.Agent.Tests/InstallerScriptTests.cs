@@ -99,7 +99,12 @@ public sealed class InstallerScriptTests
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
         Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
-        Assert.Contains("$Branch = 'feature/2.3-mvp-02-tray-usability'", updater);
+        Assert.Contains("[ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision", updater);
+        Assert.Contains("Resolve-DeploymentRevision", updater);
+        Assert.Contains("archive/$deploymentRevision.tar.gz", updater);
+        Assert.Contains("Deployment was not activated", updater);
+        Assert.Contains("deployment-manifest.json", updater);
+        Assert.Contains("$Branch = 'main'", updater);
         Assert.DoesNotContain("$Branch = 'fix-2.3-mvp-03-post-restart-native-health'", updater);
         Assert.Contains("$Repository = 'crush11b/FieldOpsDashboard-2.0'", updater);
         Assert.Contains(".tar.gz", updater);
@@ -117,6 +122,27 @@ public sealed class InstallerScriptTests
         Assert.Contains("UpdateDashboard.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
         Assert.Contains("Set-Location -LiteralPath $installParent", updater);
+    }
+
+    [Fact]
+    public void UpdaterExposesRevisionIdentityEndpointContract()
+    {
+        var server = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "server.ts"));
+        Assert.Contains("app.get('/api/version'", server);
+        Assert.Contains("sourceRevision", server);
+        Assert.Contains("nativeRevision", server);
+    }
+
+    [Fact]
+    public void UpdaterWritesNonSensitiveAtomicDeploymentIdentity()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        Assert.Contains("sourceRevision = $deploymentRevision", updater);
+        Assert.Contains("nativeRevision = $deploymentRevision", updater);
+        Assert.Contains("deployedAtUtc", updater);
+        Assert.Contains("Set-Content -LiteralPath (Join-Path $resolvedInstallPath 'deployment-manifest.json')", updater);
+        Assert.DoesNotContain("latitude", updater, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("longitude", updater, StringComparison.OrdinalIgnoreCase);
     }
 
     [Fact]

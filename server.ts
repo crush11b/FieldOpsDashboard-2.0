@@ -72,6 +72,15 @@ async function startServer() {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
+  app.get('/api/version', (_req, res) => {
+    const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      res.json({ sourceRevision: manifest.sourceRevision, nativeRevision: manifest.nativeRevision, informationalVersion: manifest.informationalVersion });
+    } catch {
+      res.status(503).json({ error: 'Deployment identity is unavailable.' });
+    }
+  });
 
   // Server-side Gemini AI setup
   const getAiClient = () => {
