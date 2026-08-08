@@ -6,7 +6,7 @@ const base = { latitude: 1, longitude: 2, altitude: null, horizontalAccuracy: nu
 describe('location telemetry pipe validation', () => {
   it('accepts valid framed observations', () => expect(parseLocationTelemetryFrame(frame(base)).status).toBe('Available'));
   it.each([{ status: 'NoFix' }, { status: 'Unavailable' }])('accepts $status without coordinates', value => expect(parseLocationTelemetryFrame(frame({ ...base, ...value, latitude: null, longitude: null })).status).toBe(value.status));
-  it.each([{ latitude: 91 }, { longitude: 181 }, { speed: 'NaN' }, { timestampUtc: 'bad' }, { status: 'Bogus' }])('rejects malformed response', value => expect(parseLocationTelemetryFrame(frame({ ...base, ...value })).status).toBe('Error'));
+  it.each([{ latitude: 91 }, { longitude: 181 }, { speed: 'NaN' }, { timestampUtc: 'bad' }, { status: 'Bogus' }, { status: 4 }])('rejects malformed response', value => expect(parseLocationTelemetryFrame(frame({ ...base, ...value })).status).toBe('Error'));
   it('rejects invalid framing', () => { for (const n of [-1, 0, 300000]) { const b = Buffer.alloc(4); b.writeInt32LE(n); expect(parseLocationTelemetryFrame(b).status).toBe('Error'); } });
   it('does not expose raw NMEA', () => expect(JSON.stringify(parseLocationTelemetryFrame(frame(base)))).not.toContain('$GPGGA'));
 });

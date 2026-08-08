@@ -2,6 +2,7 @@ using System.Text.Json.Serialization;
 
 namespace FieldOps.Agent.Location;
 
+[JsonConverter(typeof(JsonStringEnumConverter))]
 public enum LocationStatus
 {
     Available,
