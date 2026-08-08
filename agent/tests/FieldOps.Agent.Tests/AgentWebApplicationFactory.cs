@@ -3,6 +3,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using FieldOps.Agent;
+using FieldOps.Agent.Health;
+using FieldOps.Agent.Serial;
+using FieldOps.Agent.Location;
 
 namespace FieldOps.Agent.Tests;
 
@@ -33,6 +41,15 @@ public sealed class AgentWebApplicationFactory : WebApplicationFactory<Program>
             });
         });
         builder.ConfigureLogging(logging => logging.ClearProviders());
+        builder.ConfigureTestServices(services =>
+        {
+            // HTTP endpoint tests must not start machine-bound named-pipe listeners.
+            var excluded = new[] { typeof(LocationTelemetryPipeService), typeof(SerialInventoryPipeService), typeof(NativeHealthGatewayService) };
+            foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IHostedService) && excluded.Contains(d.ImplementationType)).ToArray())
+            {
+                services.Remove(descriptor);
+            }
+        });
     }
 
     protected override void Dispose(bool disposing)
