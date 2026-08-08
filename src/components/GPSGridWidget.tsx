@@ -30,6 +30,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const [inputLon, setInputLon] = useState(Number.isFinite(gps.lon) ? gps.lon.toString() : '');
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
   const gpsUpdateSequence = useRef(0);
+  const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
   const manualLocationActive = useRef(
     provenance.source.type === 'manual_location' || provenance.source.type === 'preset_location',
   );
@@ -70,14 +71,17 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         const data = await res.json();
         if (manualLocationActive.current || isEditing) return;
         const coordinates = parseCoordinates(data.latitude, data.longitude);
-        const observedAt = data.timestampUtc ?? new Date().toISOString();
+        const observedAt = data.timestampUtc;
         const status = data.status === 'Available' ? 'ok' : data.status === 'NoFix' ? 'connecting' : data.status === 'Initializing' ? 'connecting' : data.status === 'Unavailable' ? 'unavailable' : 'error';
-        if (!coordinates) { onUpdateGPS({ mode: 'auto' }, { status, source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' }, timestamps: { receivedAt: new Date().toISOString(), observedAt } }); return; }
+        if (data.status === 'Available' && !coordinates) { onUpdateGPS({ mode: 'auto' }, { status: 'error', source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' }, timestamps: { receivedAt: new Date().toISOString() } }); return; }
+        if (!coordinates) { onUpdateGPS({ mode: 'auto' }, { status, source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' }, timestamps: { receivedAt: new Date().toISOString(), ...(observedAt ? { observedAt } : {}) } }); return; }
         const grid = latLonToGridSquare(coordinates.lat, coordinates.lon);
         gpsUpdateSequence.current += 1;
         onUpdateGPS({ lat: coordinates.lat, lon: coordinates.lon, gridSquare: grid, ...(data.altitude === null ? {} : { altitudeM: data.altitude }), ...(data.speed === null ? {} : { speedKmh: data.speed * 3.6 }), ...(data.satellites === null ? {} : { satCount: data.satellites }), fixType: data.fixQuality === null ? undefined : `Fix quality ${data.fixQuality}`, mode: 'auto', lockTime: data.timestampUtc ?? undefined }, { status, source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' }, timestamps: { receivedAt: new Date().toISOString(), observedAt } });
       } catch { /* native location is unavailable; preserve manual state */ }
+      return null;
     };
+    nativeLocationRequest.current = requestNativeLocation;
     requestNativeLocation();
     const interval = setInterval(requestNativeLocation, 10000);
     return () => { cancelled = true; clearInterval(interval); };
@@ -85,7 +89,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
   const requestNativeFix = async () => {
     manualLocationActive.current = false;
-    await fetch('/api/location').catch(() => {});
+    await nativeLocationRequest.current();
   };
 /*
     Legacy browser telemetry intentionally removed. The compatibility route remains
@@ -302,7 +306,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     setInputGrid(grid);
   };
 
-  const handleTriggerBrowserGeolocation = () => {
+  const handleRequestNativeGpsFix = () => {
     playTacticalClick(audioEnabled);
     manualLocationActive.current = false;
     setIsEditing(false);
@@ -324,7 +328,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
           <button
             id="btn-trigger-gps-refresh"
             aria-label="Request native GPS fix"
-            onClick={handleTriggerBrowserGeolocation}
+            onClick={handleRequestNativeGpsFix}
             className={`p-1 rounded border text-[10px] font-bold flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed ${
               isNight ? 'border-red-900 bg-red-950 text-red-400' : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
             }`}
