@@ -13,7 +13,7 @@ describe('GPS source guardrail presentation', () => {
     expect(markup).not.toContain('37.5407');
     expect(markup).not.toContain('FM17hd');
     expect(markup).toMatch(/id="btn-trigger-gps-refresh"[^>]*disabled/);
-    expect(markup).toContain('aria-label="Browser geolocation unavailable"');
+    expect(markup).toContain('aria-label="Request native GPS fix"');
   });
 
   it('keeps valid zero-valued cached coordinates visible as last-known data', () => {

@@ -28,6 +28,7 @@ import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coo
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
+import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 
 async function startServer() {
   const app = express();
@@ -70,6 +71,7 @@ async function startServer() {
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
   });
+  app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
 
   // Server-side Gemini AI setup
   const getAiClient = () => {

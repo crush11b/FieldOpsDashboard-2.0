@@ -43,6 +43,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider
         }
         catch (OperationCanceledException) { throw; }
         catch (UnauthorizedAccessException ex) { logger.LogInformation(ex, "NMEA port unavailable or in use"); return LocationObservation.WithoutTelemetry(LocationStatus.Unavailable) with { Source = "SerialNmea" }; }
+        catch (IOException ex) { logger.LogInformation(ex, "NMEA port unavailable or in use"); return LocationObservation.WithoutTelemetry(LocationStatus.Unavailable) with { Source = "SerialNmea" }; }
         catch (Exception ex) { logger.LogInformation(ex, "Unexpected NMEA reader failure"); return LocationObservation.WithoutTelemetry(LocationStatus.Error) with { Source = "SerialNmea" }; }
     }
 
