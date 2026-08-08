@@ -13,6 +13,9 @@ internal sealed class LocationTelemetryPipeServer(
     ILogger<LocationTelemetryPipeServer> logger)
 {
     internal const string PipeName = "FieldOps.LocationTelemetry.v1";
+    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan AcquisitionTimeout = TimeSpan.FromSeconds(12);
+    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(2);
     internal async Task RunAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -21,10 +24,13 @@ internal sealed class LocationTelemetryPipeServer(
             {
                 using var pipe = NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, authorizationPolicy.CreateSecurity());
                 await pipe.WaitForConnectionAsync(stoppingToken);
-                using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); timeout.CancelAfter(TimeSpan.FromSeconds(5));
-                var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, timeout.Token);
+                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); requestTimeout.CancelAfter(RequestTimeout);
+                var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, requestTimeout.Token);
                 if (request.Command != "GetLocation") throw new InvalidDataException("Unsupported location request.");
-                await NativeHealthMessageFraming.WriteAsync(pipe, await service.AcquireAsync(timeout.Token), timeout.Token);
+                using var acquisitionTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); acquisitionTimeout.CancelAfter(AcquisitionTimeout);
+                var observation = await service.AcquireAsync(acquisitionTimeout.Token);
+                using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); responseTimeout.CancelAfter(ResponseTimeout);
+                await NativeHealthMessageFraming.WriteAsync(pipe, observation, responseTimeout.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogInformation(ex, "Location telemetry pipe client failed."); }

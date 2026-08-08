@@ -31,6 +31,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
   const gpsUpdateSequence = useRef(0);
   const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
+  const nativeRequestInFlight = useRef<Promise<void> | null>(null);
   const manualLocationActive = useRef(
     provenance.source.type === 'manual_location' || provenance.source.type === 'preset_location',
   );
@@ -82,14 +83,16 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       return null;
     };
     nativeLocationRequest.current = requestNativeLocation;
-    requestNativeLocation();
-    const interval = setInterval(requestNativeLocation, 10000);
+    const runRequest = () => { if (!nativeRequestInFlight.current) nativeRequestInFlight.current = requestNativeLocation().then(() => undefined).finally(() => { nativeRequestInFlight.current = null; }); return nativeRequestInFlight.current; };
+    runRequest();
+    const interval = setInterval(runRequest, 10000);
     return () => { cancelled = true; clearInterval(interval); };
   }, [isEditing]);
 
   const requestNativeFix = async () => {
     manualLocationActive.current = false;
-    await nativeLocationRequest.current();
+    if (!nativeRequestInFlight.current) nativeRequestInFlight.current = nativeLocationRequest.current().then(() => undefined).finally(() => { nativeRequestInFlight.current = null; });
+    await nativeRequestInFlight.current;
   };
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
