@@ -9,7 +9,7 @@ namespace FieldOps.Agent.Location;
 internal sealed record LocationTelemetryRequest([property: JsonPropertyName("command")] string Command);
 internal sealed class LocationTelemetryPipeServer(
     NativeHealthAuthorizationPolicy authorizationPolicy,
-    SerialNmeaLocationProvider provider,
+    ISerialNmeaLocationService service,
     ILogger<LocationTelemetryPipeServer> logger)
 {
     internal const string PipeName = "FieldOps.LocationTelemetry.v1";
@@ -24,7 +24,7 @@ internal sealed class LocationTelemetryPipeServer(
                 using var timeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); timeout.CancelAfter(TimeSpan.FromSeconds(5));
                 var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, timeout.Token);
                 if (request.Command != "GetLocation") throw new InvalidDataException("Unsupported location request.");
-                await NativeHealthMessageFraming.WriteAsync(pipe, await provider.GetLocationAsync(timeout.Token), timeout.Token);
+                await NativeHealthMessageFraming.WriteAsync(pipe, await service.AcquireAsync(timeout.Token), timeout.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogInformation(ex, "Location telemetry pipe client failed."); }
