@@ -140,16 +140,22 @@ public sealed class TelemetrySenderServiceTests
         await transport.EnqueueAsync(Envelope("second-source", new { value = 2 }));
         var expected = new InvalidOperationException("Destination unavailable.");
         var calls = 0;
+        var deliveryStarted = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseFailure = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var destination = new DelegateDestination(async (_, _) =>
         {
             Interlocked.Increment(ref calls);
-            await Task.Yield();
+            deliveryStarted.SetResult(null);
+            await releaseFailure.Task;
             throw expected;
         });
         var logger = new RecordingLogger<TelemetrySenderService>();
         var service = CreateService(transport, destination, logger);
 
         await service.StartAsync(CancellationToken.None).WaitAsync(TestTimeout);
+        await deliveryStarted.Task.WaitAsync(TestTimeout);
+        Assert.Equal(1, Volatile.Read(ref calls));
+        releaseFailure.SetResult(null);
         var actual = await Assert.ThrowsAsync<InvalidOperationException>(
             async () => await service.ExecuteTask!.WaitAsync(TestTimeout));
 
