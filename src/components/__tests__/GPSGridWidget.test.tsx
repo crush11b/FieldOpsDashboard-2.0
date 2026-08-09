@@ -5,6 +5,22 @@ import { GPSGridWidget } from '../GPSGridWidget';
 import type { GPSProvenance, GPSStatus } from '../../types';
 
 describe('GPS source guardrail presentation', () => {
+  it('treats the real native SerialNmea observation as current GPS', () => {
+    const markup = render(provenance('ok', 'serial_nmea'), {
+      lat: 37.4078745833333,
+      lon: -77.4590382833333,
+      altitudeM: 73.1,
+      satCount: 3,
+      fixType: 'Fix quality 1',
+      lockTime: '2026-08-09T02:28:34Z',
+      gridSquare: 'FM17ma',
+    });
+    expect(markup).toContain('SATELLITE AUTO-FIX');
+    expect(markup).toContain('37.4079');
+    expect(markup).toContain('73.1 meters');
+    expect(markup).toContain('3 SATS');
+    expect(markup).toContain('FM17ma');
+  });
   it('shows a waiting state without assumed coordinates before a source is available', () => {
     const markup = render(provenance('connecting', 'gps_acquisition'), { lat: Number.NaN, lon: Number.NaN, gridSquare: '' });
 

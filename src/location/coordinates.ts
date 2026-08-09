@@ -43,6 +43,7 @@ export function classifyCoordinateProvenance(provenance: GPSProvenance): Coordin
   }
   if (provenance.status === 'ok') {
     return provenance.source.type === 'browser_geolocation'
+      || provenance.source.type === 'serial_nmea'
       || provenance.source.type === 'local_telemetry_agent'
       ? 'current'
       : 'unavailable';

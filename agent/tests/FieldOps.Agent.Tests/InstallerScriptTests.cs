@@ -140,7 +140,7 @@ public sealed class InstallerScriptTests
         Assert.Contains("sourceRevision = $deploymentRevision", updater);
         Assert.Contains("nativeRevision = $deploymentRevision", updater);
         Assert.Contains("deployedAtUtc", updater);
-        Assert.Contains("Set-Content -LiteralPath (Join-Path $resolvedInstallPath 'deployment-manifest.json')", updater);
+        Assert.Contains("deployment-manifest.json", updater);
         Assert.DoesNotContain("latitude", updater, StringComparison.OrdinalIgnoreCase);
         Assert.DoesNotContain("longitude", updater, StringComparison.OrdinalIgnoreCase);
     }
@@ -174,6 +174,15 @@ public sealed class InstallerScriptTests
         Assert.Contains("[switch]$ValidateOnly", provisioning);
         Assert.Contains("Assert-CredentialPair", provisioning);
         Assert.Contains("Telemetry credential pair is incomplete", provisioning);
+    }
+
+    [Fact]
+    public void DeploymentManifestIsWrittenWithoutBomAndVersionEndpointStripsBom()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var server = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "server.ts"));
+        Assert.Contains("UTF8Encoding($false)", updater);
+        Assert.Contains("replace(/^\\uFEFF/, '')", server);
     }
 
     [Fact]

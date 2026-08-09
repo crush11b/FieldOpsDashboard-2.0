@@ -260,7 +260,8 @@ try {
     }
     $nativeManifest = Get-Content -LiteralPath (Join-Path $nativeRoot 'artifact-manifest.json') -Raw | ConvertFrom-Json
     $deploymentManifest.informationalVersion = [string]$nativeManifest.informationalVersion
-    $deploymentManifest | ConvertTo-Json -Depth 3 | Set-Content -LiteralPath (Join-Path $resolvedInstallPath 'deployment-manifest.json') -Encoding UTF8
+    $manifestJson = $deploymentManifest | ConvertTo-Json -Depth 3
+    [IO.File]::WriteAllText((Join-Path $resolvedInstallPath 'deployment-manifest.json'), $manifestJson, (New-Object Text.UTF8Encoding($false)))
     Write-Host '[5/7] Restoring dependencies and building production dashboard...' -ForegroundColor Yellow
     Set-Location -LiteralPath $resolvedInstallPath
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is required for the production dashboard build.' }

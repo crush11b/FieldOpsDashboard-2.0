@@ -75,7 +75,7 @@ async function startServer() {
   app.get('/api/version', (_req, res) => {
     const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
     try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8'));
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, ''));
       res.json({ sourceRevision: manifest.sourceRevision, nativeRevision: manifest.nativeRevision, informationalVersion: manifest.informationalVersion });
     } catch {
       res.status(503).json({ error: 'Deployment identity is unavailable.' });
