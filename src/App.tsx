@@ -8,6 +8,7 @@ import { AppLauncherGrid } from './components/AppLauncherGrid';
 import { ConfigModal } from './components/ConfigModal';
 import { RoadmapToolsModal } from './components/RoadmapToolsModal';
 import { TouchMenuDrawer } from './components/TouchMenuDrawer';
+import { SerialPortInventoryWidget } from './components/SerialPortInventoryWidget';
 
 import { 
   AppLauncherItem, 
@@ -352,6 +353,7 @@ export default function App() {
         
         {/* System Status Bento Grid (Battery, GPS, Weather, Regional HF Band Guidance) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <SerialPortInventoryWidget />
           {/* Dual Battery Status */}
           <BatteryStatusWidget
             battery={battery}

@@ -78,6 +78,20 @@ public sealed class TrayRefreshCoordinatorTests
     }
 
     [Fact]
+    public async Task Running_service_preserves_authenticated_degraded_presentation()
+    {
+        using var coordinator = CreateCoordinator(
+            Service(ServiceObservationState.Available, ServiceControllerStatus.Running),
+            Health(AgentHealthState.Degraded));
+
+        var result = await coordinator.RefreshAsync(CancellationToken.None);
+
+        Assert.NotNull(result);
+        Assert.Equal("Health: Degraded", result.HealthText);
+        Assert.Equal(AgentHealthState.Degraded, result.Health.State);
+    }
+
+    [Fact]
     public async Task Unavailable_scm_does_not_discard_healthy_native_observation()
     {
         using var coordinator = CreateCoordinator(

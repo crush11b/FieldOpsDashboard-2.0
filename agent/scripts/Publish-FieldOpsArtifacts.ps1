@@ -155,33 +155,29 @@ $resolvedOutputRoot = Get-CanonicalPath $OutputRoot
 Assert-SafeOutputRoot $resolvedOutputRoot
 Assert-OwnedPriorOutput $resolvedOutputRoot
 
-$headRevision = Resolve-GitCommit 'HEAD'
-if ([string]::IsNullOrWhiteSpace($SourceRevision)) {
-    $SourceRevision = $headRevision
-} else {
-    if ($SourceRevision -notmatch '^[0-9a-fA-F]{40}$') {
-        throw 'Source revision must be a full 40-character Git commit SHA.'
-    }
-
-    $SourceRevision = Resolve-GitCommit ($SourceRevision.ToLowerInvariant())
-    if (-not $SourceRevision.Equals($headRevision, [StringComparison]::Ordinal)) {
-        throw "Source revision '$SourceRevision' does not match checked-out HEAD '$headRevision'."
-    }
-}
-
-$dirtyPaths = @(& git -C $repositoryRoot status --porcelain=v1 --untracked-files=all)
-if ($LASTEXITCODE -ne 0) {
-    throw 'Could not inspect the Git worktree.'
-}
-$isDirty = $dirtyPaths.Count -gt 0
-if ($isDirty -and -not $AllowDirty) {
-    throw 'Release-style publishing requires a clean worktree. Use -AllowDirty only for explicitly non-release development output.'
-}
-
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
 $productVersion = [string]$metadata.version
-if ($productVersion -notmatch '^\d+\.\d+\.\d+$') {
-    throw "Canonical product version '$productVersion' is not numeric major.minor.patch metadata."
+if ($productVersion -notmatch '^\d+\.\d+\.\d+$') { throw "Canonical product version '$productVersion' is not numeric major.minor.patch metadata." }
+$gitDirectory = Join-Path $repositoryRoot '.git'
+$hasGitMetadata = Test-Path -LiteralPath $gitDirectory
+$isDirty = $false
+if ($hasGitMetadata) {
+    $headRevision = Resolve-GitCommit 'HEAD'
+    if ([string]::IsNullOrWhiteSpace($SourceRevision)) {
+        $SourceRevision = $headRevision
+    } else {
+        if ($SourceRevision -notmatch '^[0-9a-fA-F]{40}$') { throw 'Source revision must be a full 40-character Git commit SHA.' }
+        $SourceRevision = Resolve-GitCommit ($SourceRevision.ToLowerInvariant())
+        if (-not $SourceRevision.Equals($headRevision, [StringComparison]::Ordinal)) { throw "Source revision '$SourceRevision' does not match checked-out HEAD '$headRevision'." }
+    }
+    $dirtyPaths = @(& git -C $repositoryRoot status --porcelain=v1 --untracked-files=all)
+    if ($LASTEXITCODE -ne 0) { throw 'Could not inspect the Git worktree.' }
+    $isDirty = $dirtyPaths.Count -gt 0
+    if ($isDirty -and -not $AllowDirty) { throw 'Release-style publishing requires a clean worktree. Use -AllowDirty only for explicitly non-release development output.' }
+
+} else {
+    if (-not [string]::IsNullOrWhiteSpace($SourceRevision)) { throw 'SourceRevision is supported only for Git checkouts.' }
+    $SourceRevision = 'source-archive'
 }
 $numericVersion = "$productVersion.0"
 $informationalVersion = if ($isDirty) {
@@ -209,7 +205,8 @@ try {
     [IO.Directory]::CreateDirectory($agentOutput) | Out-Null
     [IO.Directory]::CreateDirectory($trayOutput) | Out-Null
 
-    Invoke-DotNet @('restore', $solutionPath, '--locked-mode')
+    # Restore the target RID so self-contained publish has the required runtime packs.
+    Invoke-DotNet @('restore', $solutionPath, '--locked-mode', '-r', 'win-x64')
     $versionProperties = @(
         "-p:Version=$productVersion",
         "-p:AssemblyVersion=$numericVersion",

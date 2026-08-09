@@ -188,7 +188,7 @@ The repository contains an offline deployment guide and transactional updater:
 After deploying the dashboard package, install the Windows agent from an elevated PowerShell session:
 
 ```powershell
-.\agent\scripts\Install-FieldOpsAgent.ps1
+.\agent\scripts\Install-FieldOpsAgent.ps1 -OperatorAccount '.\FieldOperator'
 ```
 
 Verify the service:
@@ -253,6 +253,16 @@ Project architecture and roadmap documents are available under [`docs/`](docs/RE
 This project is under active development. It is suitable for controlled development and field evaluation, but individual integrations may still be incomplete or intentionally disabled.
 
 Do not interpret unavailable, stale, cached, manual, or modeled values as live measurements.
+
+## Development deployment
+
+For controlled MVP development deployment on the primary ToughBook, run from an elevated PowerShell window at the repository root:
+
+```powershell
+.\Deploy-ToughBook.ps1
+```
+
+The helper publishes fresh Agent/Tray artifacts, overlays source files without renaming or mirroring `C:\FieldOpsDashboard`, installs the Agent for the normal `stick` account, and builds the dashboard. It does not launch the server, roll back, or delete user files; it prints `npm start` when ready. Use `-Force` only for controlled development when the machine-model check cannot identify the ToughBook. Production updating remains a separate workflow while updater hardening is deferred.
 
 ## License
 

@@ -3,6 +3,9 @@ using FieldOps.Agent;
 using FieldOps.Agent.Health;
 using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
+using FieldOps.Agent.Serial;
+using FieldOps.Agent.Location;
+using System.Text.Json.Serialization;
 using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.EventLog;
 
@@ -28,6 +31,14 @@ builder.WebHost.ConfigureKestrel(options =>
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<ServiceIdentity>();
 builder.Services.AddSingleton<AgentCredentialProvider>();
+builder.Services.AddSingleton<ISerialMetadataProvider, WmiSerialMetadataProvider>();
+builder.Services.AddSingleton<ISerialPortEnumerator, WindowsSerialPortEnumerator>();
+builder.Services.AddSingleton<SerialInventoryPipeServer>();
+builder.Services.AddSingleton<ILocationProvider, WindowsSensorLocationProvider>();
+builder.Services.AddSingleton<SerialNmeaLocationProvider>();
+builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
+builder.Services.AddSingleton<LocationTelemetryPipeServer>();
+builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
     builder.Configuration["Agent:NativeHealth:OperatorSid"],
@@ -40,6 +51,8 @@ builder.Services.AddSingleton(sp => new NativeHealthGatewayServer(
 builder.Services.AddTelemetryTransportFoundation();
 builder.Services.AddHostedService<AgentLifecycleService>();
 builder.Services.AddHostedService<NativeHealthGatewayService>();
+builder.Services.AddHostedService<SerialInventoryPipeService>();
+builder.Services.AddHostedService<LocationTelemetryPipeService>();
 
 var app = builder.Build();
 var credentialProvider = app.Services.GetRequiredService<AgentCredentialProvider>();
@@ -59,6 +72,15 @@ app.MapGet("/api/v1/health", (ServiceIdentity identity, TimeProvider timeProvide
         CheckedAt: checkedAt,
         UptimeSeconds: Math.Max(0, (long)(checkedAt - identity.StartedAt).TotalSeconds)));
 });
+
+app.MapGet("/api/v1/serial-ports", (ISerialPortEnumerator enumerator, CancellationToken cancellationToken) =>
+    Results.Ok(enumerator.Enumerate(cancellationToken)));
+
+app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationToken cancellationToken) =>
+    Results.Ok(await provider.GetLocationAsync(cancellationToken)));
+
+app.MapGet("/api/v1/location/nmea", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
+    Results.Ok(await service.AcquireAsync(cancellationToken)));
 
 await app.RunAsync();
 

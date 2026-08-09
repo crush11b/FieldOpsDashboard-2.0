@@ -10,6 +10,7 @@ public interface IAgentHealthClient
 public enum AgentHealthState
 {
     Healthy,
+    Degraded,
     Unhealthy,
     Unavailable,
     ProtocolMismatch,
@@ -55,9 +56,12 @@ internal sealed class NativeAgentHealthClient(INativeHealthReader reader) : IAge
                 return new(AgentHealthState.Unavailable, "Native health is unavailable.");
             }
 
-            return string.Equals(response.Health.Status, "ok", StringComparison.OrdinalIgnoreCase)
-                ? new(AgentHealthState.Healthy, "Native health reports healthy.")
-                : new(AgentHealthState.Unhealthy, "Native health did not report healthy.");
+            return response.Health.Status.ToLowerInvariant() switch
+            {
+                "ok" => new(AgentHealthState.Healthy, "Native health reports healthy."),
+                "degraded" => new(AgentHealthState.Degraded, "Native health reports degraded."),
+                _ => new(AgentHealthState.Unhealthy, "Native health did not report healthy."),
+            };
         }
         catch (NativeHealthProtocolMismatchException)
         {

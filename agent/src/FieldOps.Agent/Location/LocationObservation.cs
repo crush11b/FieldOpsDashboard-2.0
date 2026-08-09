@@ -1,0 +1,38 @@
+using System.Text.Json.Serialization;
+
+namespace FieldOps.Agent.Location;
+
+[JsonConverter(typeof(JsonStringEnumConverter))]
+public enum LocationStatus
+{
+    Available,
+    Disabled,
+    PermissionDenied,
+    Initializing,
+    NoFix,
+    Unavailable,
+    Error,
+}
+
+public sealed record LocationObservation(
+    [property: JsonPropertyName("latitude")] double? Latitude,
+    [property: JsonPropertyName("longitude")] double? Longitude,
+    [property: JsonPropertyName("altitude")] double? Altitude,
+    [property: JsonPropertyName("horizontalAccuracy")] double? HorizontalAccuracy,
+    [property: JsonPropertyName("speed")] double? Speed,
+    [property: JsonPropertyName("heading")] double? Heading,
+    [property: JsonPropertyName("timestampUtc")] DateTimeOffset? TimestampUtc,
+    [property: JsonPropertyName("status")] LocationStatus Status,
+    [property: JsonPropertyName("satellites")] int? Satellites = null,
+    [property: JsonPropertyName("hdop")] double? Hdop = null,
+    [property: JsonPropertyName("fixQuality")] int? FixQuality = null,
+    [property: JsonPropertyName("source")] string? Source = null)
+{
+    public static LocationObservation WithoutTelemetry(LocationStatus status) =>
+        new(null, null, null, null, null, null, null, status);
+}
+
+public interface ILocationProvider
+{
+    Task<LocationObservation> GetLocationAsync(CancellationToken cancellationToken);
+}

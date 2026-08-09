@@ -1,7 +1,7 @@
 {
   "version": 1,
   "dependencies": {
-    "net8.0-windows7.0": {
+    "net8.0-windows10.0.19041": {
       "System.IO.Pipes.AccessControl": {
         "type": "Direct",
         "requested": "[5.0.0, )",
@@ -72,7 +72,7 @@
         }
       }
     },
-    "net8.0-windows7.0/win-x64": {
+    "net8.0-windows10.0.19041/win-x64": {
       "System.IO.Pipes.AccessControl": {
         "type": "Direct",
         "requested": "[5.0.0, )",

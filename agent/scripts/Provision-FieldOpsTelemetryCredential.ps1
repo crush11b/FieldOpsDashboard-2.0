@@ -2,6 +2,7 @@
 param(
     [string]$AgentId,
     [switch]$Rotate,
+    [switch]$ValidateOnly,
     [string]$DashboardIdentity,
     [string]$ReceiverCredentialPath = (Join-Path $env:ProgramData 'FieldOpsDashboard\Dashboard\telemetry-credentials.json'),
     [string]$AgentCredentialPath = (Join-Path $env:ProgramData 'FieldOpsDashboard\Agent\telemetry-write-token.dat')
@@ -140,6 +141,12 @@ $localServiceSid = [Security.Principal.SecurityIdentifier]::new('S-1-5-19')
 
 $receiverExists = Test-Path -LiteralPath $ReceiverCredentialPath -PathType Leaf
 $agentExists = Test-Path -LiteralPath $AgentCredentialPath -PathType Leaf
+if ($ValidateOnly) {
+    if (-not $receiverExists -or -not $agentExists) { throw 'Telemetry credential pair is incomplete.' }
+    Assert-CredentialPair -ReceiverPath $ReceiverCredentialPath -AgentPath $AgentCredentialPath -ExpectedAgentId $(if ($AgentId) { $AgentId } else { (Read-ReceiverRecord -Path $ReceiverCredentialPath).agentId })
+    Write-Host 'Telemetry credential pair is valid.'
+    exit 0
+}
 if (($receiverExists -or $agentExists) -and -not $Rotate) {
     throw 'Telemetry credentials already exist. Use -Rotate to replace them explicitly.'
 }

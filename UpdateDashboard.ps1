@@ -1,11 +1,14 @@
 # FieldOps Dashboard - validated transactional updater
 [CmdletBinding()]
 param(
-    [string]$InstallPath = $PSScriptRoot,
-    [string[]]$PackageUrls = @(
-        'https://github.com/crush11b/FieldOpsDashboard-2.0/archive/refs/heads/feature/E1-telemetry-foundation.zip'
-    ),
+    [string]$InstallPath = 'C:\FieldOpsDashboard',
+    [Parameter(Mandatory = $true)][string]$OperatorAccount,
+    [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
+    [string]$Branch = 'main',
+    [ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision,
     [switch]$SkipLaunch,
+    [string]$NativeArtifactPath,
+    [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
     [switch]$SkipProcessStop,
     [switch]$SimulateCopyFailure
 )
@@ -17,13 +20,40 @@ $ProgressPreference = 'SilentlyContinue'
 
 $requiredPackageFiles = @(
     'package.json',
-    'agent\publish\win-x64\FieldOps.Agent.exe'
+    'agent\scripts\Publish-FieldOpsArtifacts.ps1',
+    'agent\scripts\Install-FieldOpsAgent.ps1',
+    'agent\scripts\FieldOps.OperatorProvisioning.psm1',
+    'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1'
 )
 $requiredDeploymentFiles = @(
     'package.json',
-    'server.ts',
-    'agent\publish\win-x64\FieldOps.Agent.exe'
+    'server.ts'
 )
+
+function Assert-NativeArtifact {
+    param([Parameter(Mandatory=$true)][string]$Path, [Parameter(Mandatory=$true)][string]$ExpectedRevision)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required native artifact '$Path' is unavailable for revision '$ExpectedRevision'." }
+    $root = Join-Path $downloadRoot 'native'
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    [System.IO.Compression.ZipFile]::ExtractToDirectory($Path, $root)
+    $manifestPath = Join-Path $root 'artifact-manifest.json'
+    if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
+    $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    if ([string]::IsNullOrWhiteSpace([string]$manifest.sourceRevision)) { throw 'Native artifact manifest has no source revision.' }
+    if ($manifest.sourceRevision -ne $ExpectedRevision) { throw "Native artifact revision '$($manifest.sourceRevision)' does not match requested source revision '$ExpectedRevision'. Deployment was not activated." }
+    foreach ($relative in @('agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe')) { if (-not (Test-Path (Join-Path $root $relative))) { throw "Native artifact is missing '$relative'." } }
+    return $root
+}
+
+function Resolve-DeploymentRevision {
+    param([string]$Repository, [string]$Branch, [string]$Revision)
+    if (-not [string]::IsNullOrWhiteSpace($Revision)) { return $Revision.ToLowerInvariant() }
+    $apiUrl = "https://api.github.com/repos/$Repository/commits/$Branch"
+    $response = Invoke-RestMethod -Uri $apiUrl -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'FieldOpsDashboard-Updater' } -UseBasicParsing
+    if ([string]::IsNullOrWhiteSpace([string]$response.sha) -or $response.sha -notmatch '^[0-9a-fA-F]{40}$') { throw "GitHub did not return a valid commit revision for branch '$Branch'." }
+    return ([string]$response.sha).ToLowerInvariant()
+}
 
 function Get-PackageRoot {
     param([Parameter(Mandatory = $true)][string]$ExtractPath)
@@ -38,7 +68,16 @@ function Get-PackageRoot {
         return $children[0].FullName
     }
 
-    return $ExtractPath
+    throw 'Downloaded package did not contain exactly one repository root with package.json.'
+}
+
+function Expand-GitHubTarGz {
+    param([Parameter(Mandatory = $true)][string]$ArchivePath, [Parameter(Mandatory = $true)][string]$DestinationPath)
+    $tar = Get-Command tar.exe -ErrorAction SilentlyContinue
+    if (-not $tar) { throw 'Windows tar.exe is required to extract the dashboard package.' }
+    New-Item -ItemType Directory -Path $DestinationPath -Force | Out-Null
+    & $tar.Source @('-xzf', $ArchivePath, '-C', $DestinationPath)
+    if ($LASTEXITCODE -ne 0) { throw "tar.exe failed with exit code $LASTEXITCODE while extracting the dashboard package." }
 }
 
 function Assert-RequiredFiles {
@@ -83,6 +122,43 @@ function Write-UpdateError {
     Write-Host $ErrorRecord.Exception.ToString() -ForegroundColor DarkRed
 }
 
+function Stop-FieldOpsLauncherWrappers {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+    $normalizedRoot = ([IO.Path]::GetFullPath($InstallRoot)).TrimEnd('\').ToLowerInvariant()
+    $wrappers = @(Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $commandLine = [string]$_.CommandLine
+        $commandLine -and $commandLine.ToLowerInvariant().Contains($normalizedRoot)
+    })
+    foreach ($wrapper in $wrappers) {
+        Stop-Process -Id ([int]$wrapper.ProcessId) -Force -ErrorAction Stop
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            ([string]$_.CommandLine).ToLowerInvariant().Contains($normalizedRoot)
+        })
+        if ($remaining.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "FieldOps launcher process still owns '$InstallRoot' after bounded shutdown."
+}
+
+function Ensure-FieldOpsTelemetryCredentials {
+    $receiverPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Dashboard\telemetry-credentials.json'
+    $agentPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Agent\telemetry-write-token.dat'
+    $receiverExists = Test-Path -LiteralPath $receiverPath -PathType Leaf
+    $agentExists = Test-Path -LiteralPath $agentPath -PathType Leaf
+    if ($receiverExists -and $agentExists) {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard' -ValidateOnly
+        if ($LASTEXITCODE -ne 0) { throw 'Existing telemetry credentials are invalid or corrupt; repair is required.' }
+        Write-Host '[OK] Existing telemetry credentials preserved.' -ForegroundColor Green
+        return
+    }
+    if ($receiverExists -or $agentExists) { throw 'Telemetry credential state is incomplete; repair is required.' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
+    if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
+}
+
 Write-Host '=======================================================' -ForegroundColor Cyan
 Write-Host ' FieldOps Dashboard - Validated Auto-Update Utility ' -ForegroundColor Cyan
 Write-Host '=======================================================' -ForegroundColor Cyan
@@ -97,14 +173,22 @@ $backupPath = Join-Path $installParent ".$installName-backup-$transactionId"
 $failedPath = Join-Path $installParent ".$installName-failed-$transactionId"
 $packageRoot = $null
 $deploymentStarted = $false
+$safeWorkingDirectory = $installParent
 
 try {
+    $staleArtifacts = @(Get-ChildItem -LiteralPath $installParent -Force -ErrorAction SilentlyContinue | Where-Object {
+        $_.Name -like ".$installName-backup-*" -or $_.Name -like ".$installName-stage-*" -or $_.Name -like ".$installName-failed-*"
+    })
+    if ($staleArtifacts.Count -gt 0) {
+        Write-Warning "Previous update recovery folders were found and will be preserved: $($staleArtifacts.Name -join ', ')"
+    }
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
 
     Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
-    for ($index = 0; $index -lt $PackageUrls.Count; $index++) {
-        $url = $PackageUrls[$index]
-        $archivePath = Join-Path $downloadRoot "candidate-$index.zip"
+    $deploymentRevision = Resolve-DeploymentRevision -Repository $Repository -Branch $Branch -Revision $Revision
+    $url = "https://github.com/$Repository/archive/$deploymentRevision.tar.gz"
+    for ($index = 0; $index -lt 1; $index++) {
+        $archivePath = Join-Path $downloadRoot "candidate-$index.tar.gz"
         $extractPath = Join-Path $downloadRoot "candidate-$index"
 
         try {
@@ -115,7 +199,7 @@ try {
                 Invoke-WebRequest -Uri $url -OutFile $archivePath -UseBasicParsing
             }
 
-            Expand-Archive -LiteralPath $archivePath -DestinationPath $extractPath -Force
+            Expand-GitHubTarGz -ArchivePath $archivePath -DestinationPath $extractPath
             $candidateRoot = Get-PackageRoot -ExtractPath $extractPath
             Assert-RequiredFiles -Root $candidateRoot -RequiredFiles $requiredPackageFiles -Description 'Downloaded package'
             $packageRoot = $candidateRoot
@@ -133,6 +217,12 @@ try {
         throw 'No download candidate contained a valid FieldOps Dashboard deployment package.'
     }
 
+    if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) {
+        $NativeArtifactPath = Join-Path $downloadRoot 'fieldops-native-win-x64.zip'
+        try { Invoke-WebRequest -Uri $NativeArtifactUrl -OutFile $NativeArtifactPath -UseBasicParsing } catch { throw "Native artifact download failed from '$NativeArtifactUrl': $($_.Exception.Message)" }
+    }
+    $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision $deploymentRevision
+
     Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
     Copy-PackageTree -Source $packageRoot -Destination $stagePath
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
@@ -141,9 +231,11 @@ try {
     if (-not $SkipProcessStop) {
         Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction Stop
+        Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
     }
 
     Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
+    # Ensure the updater is not running from the directory it is about to move.
     Set-Location -LiteralPath $installParent
     Move-Item -LiteralPath $resolvedInstallPath -Destination $backupPath
     $deploymentStarted = $true
@@ -160,15 +252,41 @@ try {
     }
 
     Assert-RequiredFiles -Root $resolvedInstallPath -RequiredFiles $requiredDeploymentFiles -Description 'Deployed installation'
+    $deploymentManifest = [ordered]@{
+        sourceRevision = $deploymentRevision
+        nativeRevision = $deploymentRevision
+        informationalVersion = $null
+        deployedAtUtc = [DateTime]::UtcNow.ToString('O')
+    }
+    $nativeManifest = Get-Content -LiteralPath (Join-Path $nativeRoot 'artifact-manifest.json') -Raw | ConvertFrom-Json
+    $deploymentManifest.informationalVersion = [string]$nativeManifest.informationalVersion
+    $manifestJson = $deploymentManifest | ConvertTo-Json -Depth 3
+    [IO.File]::WriteAllText((Join-Path $resolvedInstallPath 'deployment-manifest.json'), $manifestJson, (New-Object Text.UTF8Encoding($false)))
+    Write-Host '[5/7] Restoring dependencies and building production dashboard...' -ForegroundColor Yellow
+    Set-Location -LiteralPath $resolvedInstallPath
+    if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is required for the production dashboard build.' }
+    & npm install --no-audit --no-fund
+    if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE." }
+    & npm run build
+    if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE." }
+
+    Write-Host '[6/7] Publishing and installing the Local Agent and tray...' -ForegroundColor Yellow
+    $artifactRoot = Join-Path $resolvedInstallPath 'agent\artifacts\publish\win-x64'
+    New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
+    Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
+    Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
+    if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
+    Ensure-FieldOpsTelemetryCredentials
     Write-Host '[OK] Deployment verified.' -ForegroundColor Green
 
     $deploymentStarted = $false
     Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
 
     if (-not $SkipLaunch) {
-        Write-Host '[5/5] Starting Dashboard Server...' -ForegroundColor Green
+        Write-Host '[7/7] Starting production Dashboard Server...' -ForegroundColor Green
         Set-Location -LiteralPath $resolvedInstallPath
-        npm run dev
+        Start-Process -FilePath 'npm.cmd' -ArgumentList 'start' -WorkingDirectory $resolvedInstallPath
     } else {
         Write-Host '[5/5] Dashboard launch skipped.' -ForegroundColor Gray
     }
@@ -177,6 +295,7 @@ try {
 
     if ($deploymentStarted -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
         try {
+            Set-Location -LiteralPath $safeWorkingDirectory
             $newNodeModules = Join-Path $resolvedInstallPath 'node_modules'
             if ((Test-Path -LiteralPath $newNodeModules -PathType Container) -and
                 -not (Test-Path -LiteralPath (Join-Path $backupPath 'node_modules'))) {
@@ -188,14 +307,18 @@ try {
             Move-Item -LiteralPath $backupPath -Destination $resolvedInstallPath
             Write-Host '[OK] Previous installation restored.' -ForegroundColor Yellow
         } catch {
-            Write-Host "[X] Rollback failed: $($_.Exception.ToString())" -ForegroundColor Red
+            $lockedPath = if (Test-Path -LiteralPath $resolvedInstallPath) { $resolvedInstallPath } else { $backupPath }
+            $lockingProcesses = @(Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique)
+            $lockHint = if ($lockingProcesses.Count -gt 0) { $lockingProcesses -join ', ' } else { 'undetermined' }
+            Write-Host "[X] Rollback failed while handling '$lockedPath'. Likely locking process: $lockHint. Partial state: dashboard activation may remain at '$resolvedInstallPath' and backup may remain at '$backupPath'." -ForegroundColor Red
+            Write-Host "[X] Rollback error: $($_.Exception.Message)" -ForegroundColor Red
         }
     }
 
     Write-UpdateError -ErrorRecord $updateError
     exit 1
 } finally {
-    Set-Location -LiteralPath $installParent
+    Set-Location -LiteralPath $safeWorkingDirectory
     foreach ($path in @($downloadRoot, $stagePath, $failedPath)) {
         if (Test-Path -LiteralPath $path) {
             Remove-Item -LiteralPath $path -Recurse -Force -ErrorAction SilentlyContinue

@@ -27,6 +27,8 @@ import { getIonosondeApiResponse } from './server/propagation';
 import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coordinates';
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
+import { readSerialInventoryPipe } from './server/serialInventoryPipe';
+import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 
 async function startServer() {
   const app = express();
@@ -65,6 +67,20 @@ async function startServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+
+  app.get('/api/serial-ports', (_req, res) => {
+    readSerialInventoryPipe().then(body => res.json(body));
+  });
+  app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
+  app.get('/api/version', (_req, res) => {
+    const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
+    try {
+      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, ''));
+      res.json({ sourceRevision: manifest.sourceRevision, nativeRevision: manifest.nativeRevision, informationalVersion: manifest.informationalVersion });
+    } catch {
+      res.status(503).json({ error: 'Deployment identity is unavailable.' });
+    }
+  });
 
   // Server-side Gemini AI setup
   const getAiClient = () => {

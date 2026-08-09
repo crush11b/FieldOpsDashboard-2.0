@@ -1,4 +1,5 @@
 using System.Text.RegularExpressions;
+using System.Diagnostics;
 
 namespace FieldOps.Agent.Tests;
 
@@ -62,6 +63,147 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void TrayStartupIsPerUserQuotedAndIntegratedWithInstall()
+    {
+        Assert.Contains("TrayPublishPath", InstallerScript);
+        Assert.Contains("FieldOps.Tray.exe", InstallerScript);
+        Assert.Contains("Register-FieldOpsTrayStartup", InstallerScript);
+        Assert.Contains("FieldOps.TrayStartup.psm1", InstallerScript);
+        Assert.Contains("$trayInstallPath", InstallerScript);
+        Assert.Contains("FieldOps tray startup registered for the current user", InstallerScript);
+    }
+
+    [Fact]
+    public void TrayStartupRemovalIsIntegratedWithUninstall()
+    {
+        var uninstaller = File.ReadAllText(FindScript("Uninstall-FieldOpsAgent.ps1"));
+        Assert.Contains("FieldOps.TrayStartup.psm1", uninstaller);
+        Assert.Contains("Remove-FieldOpsTrayStartup", uninstaller);
+        Assert.Contains("$trayInstallPath", uninstaller);
+    }
+
+    [Fact]
+    public void TrayStartupModuleUsesCurrentUserRunKeyAndQuotedExecutable()
+    {
+        var module = File.ReadAllText(FindScript("FieldOps.TrayStartup.psm1"));
+        Assert.Contains("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", module);
+        Assert.Contains("FieldOpsDashboardTray", module);
+        Assert.Contains("Resolve-Path -LiteralPath $TrayPath", module);
+        Assert.Contains("$command = '\"{0}\"' -f $resolved", module);
+        Assert.Contains("Remove-ItemProperty", module);
+    }
+
+    [Fact]
+    public void DesktopUpdaterUsesCurrentPublishAndProductionInstallPath()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
+        Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("[ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision", updater);
+        Assert.Contains("Resolve-DeploymentRevision", updater);
+        Assert.Contains("archive/$deploymentRevision.tar.gz", updater);
+        Assert.Contains("Deployment was not activated", updater);
+        Assert.Contains("deployment-manifest.json", updater);
+        Assert.Contains("$Branch = 'main'", updater);
+        Assert.DoesNotContain("$Branch = 'fix-2.3-mvp-03-post-restart-native-health'", updater);
+        Assert.Contains("$Repository = 'crush11b/FieldOpsDashboard-2.0'", updater);
+        Assert.Contains(".tar.gz", updater);
+        Assert.DoesNotContain("Expand-Archive", updater);
+        Assert.Contains("tar.exe", updater);
+        Assert.Contains("-OperatorAccount $OperatorAccount", updater);
+        Assert.DoesNotContain("agent\\publish\\win-x64", updater);
+        Assert.Contains("Publish-FieldOpsArtifacts.ps1", updater);
+        Assert.Contains("Install-FieldOpsAgent.ps1", updater);
+        Assert.Contains("Provision-FieldOpsTelemetryCredential.ps1", updater);
+        Assert.Contains("npm run build", updater);
+        Assert.Contains("ArgumentList 'start'", updater);
+        Assert.DoesNotContain("npm run dev", updater);
+        var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
+        Assert.Contains("UpdateDashboard.ps1", batch);
+        Assert.Contains("C:\\FieldOpsDashboard", updater);
+        Assert.Contains("Set-Location -LiteralPath $installParent", updater);
+    }
+
+    [Fact]
+    public void UpdaterExposesRevisionIdentityEndpointContract()
+    {
+        var server = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "server.ts"));
+        Assert.Contains("app.get('/api/version'", server);
+        Assert.Contains("sourceRevision", server);
+        Assert.Contains("nativeRevision", server);
+    }
+
+    [Fact]
+    public void UpdaterWritesNonSensitiveAtomicDeploymentIdentity()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        Assert.Contains("sourceRevision = $deploymentRevision", updater);
+        Assert.Contains("nativeRevision = $deploymentRevision", updater);
+        Assert.Contains("deployedAtUtc", updater);
+        Assert.Contains("deployment-manifest.json", updater);
+        Assert.DoesNotContain("latitude", updater, StringComparison.OrdinalIgnoreCase);
+        Assert.DoesNotContain("longitude", updater, StringComparison.OrdinalIgnoreCase);
+    }
+
+    [Fact]
+    public void UpgradeStopsOnlyFieldOpsLauncherAndTrayProcessesBeforeCopy()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var installer = File.ReadAllText(FindScript("Install-FieldOpsAgent.ps1"));
+        Assert.Contains("Get-CimInstance Win32_Process -Filter \"Name = 'cmd.exe'\"", updater);
+        Assert.Contains("Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath", updater);
+        Assert.Contains("CommandLine", updater);
+        Assert.Contains("Get-CimInstance Win32_Process -Filter \"Name = 'FieldOps.Tray.exe'\"", installer);
+        Assert.Contains("ExecutablePath", installer);
+        Assert.Contains("Stop-FieldOpsTrayForUpgrade", installer);
+        Assert.Contains("did not exit within the bounded upgrade window", installer);
+        Assert.Contains("Copy-Item -Path (Join-Path $resolvedTrayPublishPath '*')", installer);
+    }
+
+    [Fact]
+    public void UpdaterPreservesValidTelemetryCredentialsAndRejectsUnsafeStates()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var provisioning = File.ReadAllText(FindScript("Provision-FieldOpsTelemetryCredential.ps1"));
+        Assert.Contains("Ensure-FieldOpsTelemetryCredentials", updater);
+        Assert.Contains("-ValidateOnly", updater);
+        Assert.Contains("Existing telemetry credentials preserved", updater);
+        Assert.Contains("$receiverExists -or $agentExists", updater);
+        Assert.Contains("repair is required", updater);
+        Assert.DoesNotContain("-Rotate", updater);
+        Assert.Contains("[switch]$ValidateOnly", provisioning);
+        Assert.Contains("Assert-CredentialPair", provisioning);
+        Assert.Contains("Telemetry credential pair is incomplete", provisioning);
+    }
+
+    [Fact]
+    public void DeploymentManifestIsWrittenWithoutBomAndVersionEndpointStripsBom()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var server = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "server.ts"));
+        Assert.Contains("UTF8Encoding($false)", updater);
+        Assert.Contains("replace(/^\\uFEFF/, '')", server);
+    }
+
+    [Fact]
+    public void AclRightsCalculationRunsUnderWindowsPowerShellSemantics()
+    {
+        var module = Path.Combine(GetRepositoryRoot(), "agent", "scripts", "FieldOps.Acl.psm1");
+        var command = $"Import-Module -Force '{module}'; $d=Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $true; $f=Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $false; if (($d -band [Security.AccessControl.FileSystemRights]::ExecuteFile) -ne 0) {{ exit 1 }}; if (($f -band [Security.AccessControl.FileSystemRights]::ExecuteFile) -eq 0) {{ exit 2 }}; if (($f -band [Security.AccessControl.FileSystemRights]::WriteData) -eq 0) {{ exit 3 }}";
+        using var process = Process.Start(new ProcessStartInfo("powershell.exe", $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command \"{command.Replace("\"", "\\\"")}\"") { UseShellExecute = false, RedirectStandardError = true });
+        Assert.NotNull(process);
+        process!.WaitForExit();
+        Assert.True(process.ExitCode == 0, process.StandardError.ReadToEnd());
+    }
+
+    [Fact]
+    public void NativePublishRestoresTheWinX64RuntimePacks()
+    {
+        var publish = File.ReadAllText(FindScript("Publish-FieldOpsArtifacts.ps1"));
+        Assert.Contains("'restore', $solutionPath, '--locked-mode', '-r', 'win-x64'", publish);
+    }
+
+    [Fact]
     public void NoServiceControlOptionContainsAnEmbeddedValue()
     {
         Assert.DoesNotMatch(new Regex("['\\\"](?:binPath|start|obj|DisplayName|reset|actions)=\\s+[^'\\\"]+['\\\"]"), InstallerScript);
@@ -101,5 +243,32 @@ public sealed class InstallerScriptTests
         }
 
         throw new FileNotFoundException("Could not locate agent/scripts/Install-FieldOpsAgent.ps1.");
+    }
+
+    private static string FindScript(string name)
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            var candidate = Path.Combine(directory.FullName, "scripts", name);
+            if (File.Exists(candidate))
+            {
+                return candidate;
+            }
+            directory = directory.Parent;
+        }
+
+        throw new FileNotFoundException($"Could not locate agent/scripts/{name}.");
+    }
+
+    private static string GetRepositoryRoot()
+    {
+        var directory = new DirectoryInfo(AppContext.BaseDirectory);
+        while (directory is not null)
+        {
+            if (File.Exists(Path.Combine(directory.FullName, "UpdateDashboard.ps1"))) return directory.FullName;
+            directory = directory.Parent;
+        }
+        throw new DirectoryNotFoundException("Could not locate repository root.");
     }
 }
