@@ -161,6 +161,22 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void UpdaterPreservesValidTelemetryCredentialsAndRejectsUnsafeStates()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var provisioning = File.ReadAllText(FindScript("Provision-FieldOpsTelemetryCredential.ps1"));
+        Assert.Contains("Ensure-FieldOpsTelemetryCredentials", updater);
+        Assert.Contains("-ValidateOnly", updater);
+        Assert.Contains("Existing telemetry credentials preserved", updater);
+        Assert.Contains("$receiverExists -or $agentExists", updater);
+        Assert.Contains("repair is required", updater);
+        Assert.DoesNotContain("-Rotate", updater);
+        Assert.Contains("[switch]$ValidateOnly", provisioning);
+        Assert.Contains("Assert-CredentialPair", provisioning);
+        Assert.Contains("Telemetry credential pair is incomplete", provisioning);
+    }
+
+    [Fact]
     public void AclRightsCalculationRunsUnderWindowsPowerShellSemantics()
     {
         var module = Path.Combine(GetRepositoryRoot(), "agent", "scripts", "FieldOps.Acl.psm1");

@@ -143,6 +143,22 @@ function Stop-FieldOpsLauncherWrappers {
     throw "FieldOps launcher process still owns '$InstallRoot' after bounded shutdown."
 }
 
+function Ensure-FieldOpsTelemetryCredentials {
+    $receiverPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Dashboard\telemetry-credentials.json'
+    $agentPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Agent\telemetry-write-token.dat'
+    $receiverExists = Test-Path -LiteralPath $receiverPath -PathType Leaf
+    $agentExists = Test-Path -LiteralPath $agentPath -PathType Leaf
+    if ($receiverExists -and $agentExists) {
+        & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard' -ValidateOnly
+        if ($LASTEXITCODE -ne 0) { throw 'Existing telemetry credentials are invalid or corrupt; repair is required.' }
+        Write-Host '[OK] Existing telemetry credentials preserved.' -ForegroundColor Green
+        return
+    }
+    if ($receiverExists -or $agentExists) { throw 'Telemetry credential state is incomplete; repair is required.' }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
+    if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
+}
+
 Write-Host '=======================================================' -ForegroundColor Cyan
 Write-Host ' FieldOps Dashboard - Validated Auto-Update Utility ' -ForegroundColor Cyan
 Write-Host '=======================================================' -ForegroundColor Cyan
@@ -260,8 +276,7 @@ try {
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1') -AgentId 'FieldOpsDashboard'
-    if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
+    Ensure-FieldOpsTelemetryCredentials
     Write-Host '[OK] Deployment verified.' -ForegroundColor Green
 
     $deploymentStarted = $false
