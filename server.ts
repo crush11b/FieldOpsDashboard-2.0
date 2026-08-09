@@ -29,6 +29,7 @@ import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
 import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { readSystemTelemetry } from './server/systemTelemetryPipe';
 
 async function startServer() {
   const app = express();
@@ -72,6 +73,7 @@ async function startServer() {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
+  app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
   app.get('/api/version', (_req, res) => {
     const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
     try {

@@ -46,6 +46,22 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
   const fetchHardwareBattery = async () => {
     setIsPolling(true);
 
+    // Native Agent telemetry is authoritative in production. Browser battery
+    // data is intentionally not used as a silent fallback.
+    try {
+      const response = await fetch('/api/system');
+      const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null };
+      if (system.status === 'Available') {
+        onUpdateBattery?.({
+          powerSource: system.powerSource === 'AC' ? 'AC External' : system.powerSource === 'Battery' ? 'Battery' : 'Battery',
+          mainTablet: { ...battery.mainTablet, percent: system.chargePercent ?? battery.mainTablet.percent, charging: system.charging ?? battery.mainTablet.charging, timeRemainingMins: system.remainingRuntimeSeconds === null ? 0 : Math.floor(system.remainingRuntimeSeconds / 60) },
+        });
+        setPollSource('Windows Agent'); setLastPolledTime(new Date().toLocaleTimeString());
+      } else setPollSource('Windows telemetry unavailable');
+    } catch { setPollSource('Windows telemetry unavailable'); }
+    setIsPolling(false);
+    return;
+
     // 1. Primary Priority: Query Backend Telemetry / WMI API for Dual-Battery details
     try {
       const res = await fetch('/api/telemetry/battery');

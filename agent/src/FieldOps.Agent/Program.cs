@@ -5,6 +5,7 @@ using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
 using FieldOps.Agent.Serial;
 using FieldOps.Agent.Location;
+using FieldOps.Agent.SystemTelemetry;
 using System.Text.Json.Serialization;
 using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.EventLog;
@@ -38,6 +39,8 @@ builder.Services.AddSingleton<ILocationProvider, WindowsSensorLocationProvider>(
 builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
 builder.Services.AddSingleton<LocationTelemetryPipeServer>();
+builder.Services.AddSingleton<WindowsSystemTelemetryProvider>(_ => new WindowsSystemTelemetryProvider(new WindowsPowerStatus()));
+builder.Services.AddSingleton<SystemTelemetryPipeServer>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();
 builder.Services.AddSingleton(sp => NativeHealthAuthorizationPolicy.FromConfiguration(
@@ -53,6 +56,7 @@ builder.Services.AddHostedService<AgentLifecycleService>();
 builder.Services.AddHostedService<NativeHealthGatewayService>();
 builder.Services.AddHostedService<SerialInventoryPipeService>();
 builder.Services.AddHostedService<LocationTelemetryPipeService>();
+builder.Services.AddHostedService<SystemTelemetryPipeService>();
 
 var app = builder.Build();
 var credentialProvider = app.Services.GetRequiredService<AgentCredentialProvider>();
@@ -81,6 +85,8 @@ app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationTo
 
 app.MapGet("/api/v1/location/nmea", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireAsync(cancellationToken)));
+
+app.MapGet("/api/v1/system", (WindowsSystemTelemetryProvider provider) => Results.Ok(provider.GetObservation()));
 
 await app.RunAsync();
 
