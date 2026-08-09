@@ -146,6 +146,21 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void UpgradeStopsOnlyFieldOpsLauncherAndTrayProcessesBeforeCopy()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var installer = File.ReadAllText(FindScript("Install-FieldOpsAgent.ps1"));
+        Assert.Contains("Get-CimInstance Win32_Process -Filter \"Name = 'cmd.exe'\"", updater);
+        Assert.Contains("Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath", updater);
+        Assert.Contains("CommandLine", updater);
+        Assert.Contains("Get-CimInstance Win32_Process -Filter \"Name = 'FieldOps.Tray.exe'\"", installer);
+        Assert.Contains("ExecutablePath", installer);
+        Assert.Contains("Stop-FieldOpsTrayForUpgrade", installer);
+        Assert.Contains("did not exit within the bounded upgrade window", installer);
+        Assert.Contains("Copy-Item -Path (Join-Path $resolvedTrayPublishPath '*')", installer);
+    }
+
+    [Fact]
     public void AclRightsCalculationRunsUnderWindowsPowerShellSemantics()
     {
         var module = Path.Combine(GetRepositoryRoot(), "agent", "scripts", "FieldOps.Acl.psm1");

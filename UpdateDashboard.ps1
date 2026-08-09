@@ -122,6 +122,27 @@ function Write-UpdateError {
     Write-Host $ErrorRecord.Exception.ToString() -ForegroundColor DarkRed
 }
 
+function Stop-FieldOpsLauncherWrappers {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+    $normalizedRoot = ([IO.Path]::GetFullPath($InstallRoot)).TrimEnd('\').ToLowerInvariant()
+    $wrappers = @(Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        $commandLine = [string]$_.CommandLine
+        $commandLine -and $commandLine.ToLowerInvariant().Contains($normalizedRoot)
+    })
+    foreach ($wrapper in $wrappers) {
+        Stop-Process -Id ([int]$wrapper.ProcessId) -Force -ErrorAction Stop
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            ([string]$_.CommandLine).ToLowerInvariant().Contains($normalizedRoot)
+        })
+        if ($remaining.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "FieldOps launcher process still owns '$InstallRoot' after bounded shutdown."
+}
+
 Write-Host '=======================================================' -ForegroundColor Cyan
 Write-Host ' FieldOps Dashboard - Validated Auto-Update Utility ' -ForegroundColor Cyan
 Write-Host '=======================================================' -ForegroundColor Cyan
@@ -194,6 +215,7 @@ try {
     if (-not $SkipProcessStop) {
         Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue |
             Stop-Process -Force -ErrorAction Stop
+        Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
     }
 
     Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow

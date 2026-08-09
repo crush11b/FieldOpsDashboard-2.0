@@ -36,6 +36,26 @@ function Invoke-ServiceControl {
     }
 }
 
+function Stop-FieldOpsTrayForUpgrade {
+    param([Parameter(Mandatory = $true)][string]$ExpectedExecutable)
+    $expected = ([IO.Path]::GetFullPath($ExpectedExecutable)).ToLowerInvariant()
+    $processes = @(Get-CimInstance Win32_Process -Filter "Name = 'FieldOps.Tray.exe'" -ErrorAction SilentlyContinue | Where-Object {
+        ([string]$_.ExecutablePath).ToLowerInvariant() -eq $expected
+    })
+    foreach ($process in $processes) {
+        Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction Stop
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(10)
+    while ([DateTime]::UtcNow -lt $deadline) {
+        $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'FieldOps.Tray.exe'" -ErrorAction SilentlyContinue | Where-Object {
+            ([string]$_.ExecutablePath).ToLowerInvariant() -eq $expected
+        })
+        if ($remaining.Count -eq 0) { return }
+        Start-Sleep -Milliseconds 100
+    }
+    throw "FieldOps tray process '$ExpectedExecutable' did not exit within the bounded upgrade window."
+}
+
 function Set-FieldOpsAcl {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
@@ -137,6 +157,7 @@ try {
     if ($upgrade) {
         Stop-Service -Name $serviceName -Force -ErrorAction Stop
         $existingService.WaitForStatus([ServiceProcess.ServiceControllerStatus]::Stopped, [TimeSpan]::FromSeconds(30))
+        Stop-FieldOpsTrayForUpgrade -ExpectedExecutable (Join-Path $trayInstallPath 'FieldOps.Tray.exe')
     }
 
     New-Item -ItemType Directory -Path $installPath -Force | Out-Null
