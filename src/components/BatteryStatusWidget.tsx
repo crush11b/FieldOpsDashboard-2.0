@@ -53,12 +53,18 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
       const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null };
       if (system.status === 'Available') {
         onUpdateBattery?.({
-          powerSource: system.powerSource === 'AC' ? 'AC External' : system.powerSource === 'Battery' ? 'Battery' : 'Battery',
-          mainTablet: { ...battery.mainTablet, percent: system.chargePercent ?? battery.mainTablet.percent, charging: system.charging ?? battery.mainTablet.charging, timeRemainingMins: system.remainingRuntimeSeconds === null ? 0 : Math.floor(system.remainingRuntimeSeconds / 60) },
+          powerSource: system.powerSource === 'AC' ? 'AC External' : system.powerSource === 'Battery' ? 'Battery' : 'Unknown',
+          mainTablet: { ...battery.mainTablet, percent: system.chargePercent, charging: system.charging, timeRemainingMins: system.remainingRuntimeSeconds === null ? null : Math.floor(system.remainingRuntimeSeconds / 60) },
         });
         setPollSource('Windows Agent'); setLastPolledTime(new Date().toLocaleTimeString());
-      } else setPollSource('Windows telemetry unavailable');
-    } catch { setPollSource('Windows telemetry unavailable'); }
+      } else {
+        onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null } });
+        setPollSource('Windows telemetry unavailable');
+      }
+    } catch {
+      onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null } });
+      setPollSource('Windows telemetry unavailable');
+    }
     setIsPolling(false);
     return;
 
@@ -120,7 +126,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
         if (onUpdateBattery) {
           onUpdateBattery({
-            powerSource: charging ? 'AC External' : 'Battery',
+              powerSource: charging ? 'AC External' : 'Battery',
             mainTablet: {
               ...battery.mainTablet,
               percent: pct,
@@ -160,8 +166,8 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     ? 'bg-white border-amber-400 text-slate-900 shadow-sm rounded-2xl p-4 sm:p-5'
     : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg rounded-2xl p-4 sm:p-5';
 
-  const mainPct = battery.mainTablet.percent;
-  const kbPct = battery.keyboardDock.percent;
+  const mainPct = battery.mainTablet.percent ?? 0;
+  const kbPct = battery.keyboardDock.percent ?? 0;
   const mainLow = mainPct <= 20;
   const kbLow = battery.keyboardDock.attached && kbPct <= 20;
 
@@ -590,7 +596,7 @@ while ($true) {
 
           <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
             <span>{battery.mainTablet.voltage}V | {battery.mainTablet.tempC}°C</span>
-            <span className="text-zinc-300 font-semibold">{battery.mainTablet.timeRemainingMins}m REMAINING</span>
+            <span className="text-zinc-300 font-semibold">{battery.mainTablet.timeRemainingMins === null ? 'UNKNOWN' : `${battery.mainTablet.timeRemainingMins}m REMAINING`}</span>
           </div>
         </div>
 

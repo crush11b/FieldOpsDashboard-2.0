@@ -30,19 +30,19 @@ export interface AppLauncherItem {
 }
 
 export interface BatteryInfo {
-  percent: number;
-  charging: boolean;
+  percent: number | null;
+  charging: boolean | null;
   voltage: number;
   health: 'Good' | 'Fair' | 'Service Needed';
   tempC: number;
-  timeRemainingMins: number;
+  timeRemainingMins: number | null;
   attached?: boolean;
 }
 
 export interface DualBatteryStatus {
   mainTablet: BatteryInfo;
   keyboardDock: BatteryInfo;
-  powerSource: 'Battery' | 'AC External' | 'Solar Auxiliary';
+  powerSource: 'Battery' | 'AC External' | 'Unknown' | 'Solar Auxiliary';
 }
 
 export interface NetworkStatus {

@@ -29,7 +29,7 @@ public sealed class WindowsSystemTelemetryProviderTests
     public void FailedNativeCallIsUnavailable()
     {
         var result = new WindowsSystemTelemetryProvider(new Fake(null)).GetObservation();
-        Assert.Equal(SystemTelemetryStatus.Unavailable, result.Status);
+        Assert.Equal(SystemTelemetryStatus.Error, result.Status);
     }
 
     private sealed class Fake(NativePowerStatus? value) : IWindowsPowerStatus

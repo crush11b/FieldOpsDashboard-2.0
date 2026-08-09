@@ -1,3 +1,4 @@
+using System.ComponentModel;
 using System.Runtime.InteropServices;
 
 namespace FieldOps.Agent.SystemTelemetry;
@@ -10,12 +11,13 @@ public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStat
     {
         try
         {
-            if (!powerStatus.TryGet(out var value)) return SystemTelemetryObservation.Unavailable();
+            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.");
             var present = (value.BatteryFlag & 128) == 0;
             var source = value.ACLineStatus switch { 1 => SystemPowerSource.AC, 0 => SystemPowerSource.Battery, _ => SystemPowerSource.Unknown };
             var charge = present && value.BatteryLifePercent <= 100 ? (int?)value.BatteryLifePercent : null;
             var runtime = present && value.BatteryLifeTime != uint.MaxValue ? (int?)Math.Min((ulong)value.BatteryLifeTime, (ulong)int.MaxValue) : null;
-            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, source == SystemPowerSource.AC || (value.BatteryFlag & 8) != 0, source, runtime, null);
+            bool? charging = !present || value.BatteryFlag == 255 ? null : (value.BatteryFlag & 8) != 0;
+            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null);
         }
         catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message); }
     }
