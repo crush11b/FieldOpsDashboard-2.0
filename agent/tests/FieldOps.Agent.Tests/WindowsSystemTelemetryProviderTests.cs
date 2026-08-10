@@ -46,6 +46,20 @@ public sealed class WindowsSystemTelemetryProviderTests
     }
 
     [Fact]
+    public void PreservesEnumeratedPhysicalBatteriesWithoutUsingAggregatePercentage()
+    {
+        var physical = new[]
+        {
+            new PhysicalBatteryObservation("BAT-B", "Keyboard", true, 89, false, "OK", "test", DateTimeOffset.UtcNow),
+            new PhysicalBatteryObservation("BAT-A", "Tablet", true, 100, false, "OK", "test", DateTimeOffset.UtcNow),
+        };
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(0, 1, 94, 11700)), new FakeBatteries(physical)).GetObservation();
+        Assert.Equal(94, result.ChargePercent);
+        Assert.Equal(new[] { "BAT-B", "BAT-A" }, result.PhysicalBatteries.Select(b => b.DeviceId));
+        Assert.Equal(new int?[] { 89, 100 }, result.PhysicalBatteries.Select(b => b.Percentage));
+    }
+
+    [Fact]
     public void FailedNativeCallIsUnavailable()
     {
         var result = new WindowsSystemTelemetryProvider(new Fake(null)).GetObservation();
@@ -55,5 +69,10 @@ public sealed class WindowsSystemTelemetryProviderTests
     private sealed class Fake(NativePowerStatus? value) : IWindowsPowerStatus
     {
         public bool TryGet(out NativePowerStatus status) { status = value ?? default; return value.HasValue; }
+    }
+
+    private sealed class FakeBatteries(IReadOnlyList<PhysicalBatteryObservation> values) : IPhysicalBatteryEnumerator
+    {
+        public IReadOnlyList<PhysicalBatteryObservation> Enumerate(CancellationToken cancellationToken) => values;
     }
 }

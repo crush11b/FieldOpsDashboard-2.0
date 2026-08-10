@@ -50,11 +50,15 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     // data is intentionally not used as a silent fallback.
     try {
       const response = await fetch('/api/system');
-      const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null };
+      const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null; physicalBatteries?: Array<{ deviceId:string; name:string|null; present:boolean|null; percentage:number|null; charging:boolean|null }> };
       if (system.status === 'Available') {
+        const physical = (system.physicalBatteries ?? []).filter(b => b.present !== false);
+        const main = physical[0];
+        const dock = physical[1];
         onUpdateBattery?.({
           powerSource: system.powerSource === 'AC' ? 'AC External' : system.powerSource === 'Battery' ? 'Battery' : 'Unknown',
-          mainTablet: { ...battery.mainTablet, percent: system.chargePercent, charging: system.charging, timeRemainingMins: system.remainingRuntimeSeconds === null ? null : Math.floor(system.remainingRuntimeSeconds / 60) },
+          mainTablet: { ...battery.mainTablet, percent: main?.percentage ?? null, charging: main?.charging ?? null, timeRemainingMins: null },
+          keyboardDock: { ...battery.keyboardDock, percent: dock?.percentage ?? null, charging: dock?.charging ?? null, attached: dock !== undefined, timeRemainingMins: null },
         });
         setPollSource('Windows Agent'); setLastPolledTime(new Date().toLocaleTimeString());
       } else {

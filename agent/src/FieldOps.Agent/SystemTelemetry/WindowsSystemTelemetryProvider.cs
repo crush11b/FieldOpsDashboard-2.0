@@ -5,22 +5,25 @@ namespace FieldOps.Agent.SystemTelemetry;
 
 public interface IWindowsPowerStatus { bool TryGet(out NativePowerStatus status); }
 
-public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStatus)
+public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStatus, IPhysicalBatteryEnumerator? batteryEnumerator = null)
 {
     public SystemTelemetryObservation GetObservation()
     {
         try
         {
-            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.");
+            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.", Array.Empty<PhysicalBatteryObservation>());
             var unknownBattery = value.BatteryFlag == 255;
             var present = unknownBattery ? (bool?)null : (value.BatteryFlag & 128) == 0;
             var source = value.ACLineStatus switch { 1 => SystemPowerSource.AC, 0 => SystemPowerSource.Battery, _ => SystemPowerSource.Unknown };
             var charge = value.BatteryLifePercent <= 100 ? (int?)value.BatteryLifePercent : null;
             var runtime = value.BatteryLifeTime != uint.MaxValue ? (int?)Math.Min((ulong)value.BatteryLifeTime, (ulong)int.MaxValue) : null;
             bool? charging = unknownBattery || present == false ? null : (value.BatteryFlag & 8) != 0;
-            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null);
+            IReadOnlyList<PhysicalBatteryObservation> batteries;
+            try { batteries = batteryEnumerator?.Enumerate(CancellationToken.None) ?? Array.Empty<PhysicalBatteryObservation>(); }
+            catch (Exception) { batteries = Array.Empty<PhysicalBatteryObservation>(); }
+            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null, batteries);
         }
-        catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message); }
+        catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message, Array.Empty<PhysicalBatteryObservation>()); }
     }
 }
 
