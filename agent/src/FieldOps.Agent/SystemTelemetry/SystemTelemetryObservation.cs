@@ -4,6 +4,7 @@ namespace FieldOps.Agent.SystemTelemetry;
 
 public enum SystemTelemetryStatus { Available, Unavailable, Error }
 public enum SystemPowerSource { AC, Battery, Unknown }
+public enum PhysicalBatteryCollectionStatus { Available, Unavailable, Error }
 
 public sealed record PhysicalBatteryObservation(
     [property: JsonPropertyName("deviceId")] string DeviceId,
@@ -25,8 +26,10 @@ public sealed record SystemTelemetryObservation(
     [property: JsonPropertyName("powerSource")] SystemPowerSource PowerSource,
     [property: JsonPropertyName("remainingRuntimeSeconds")] int? RemainingRuntimeSeconds,
     [property: JsonPropertyName("error")] string? Error,
+    [property: JsonPropertyName("physicalBatteryStatus")] PhysicalBatteryCollectionStatus PhysicalBatteryStatus,
+    [property: JsonPropertyName("physicalBatteryError")] string? PhysicalBatteryError,
     [property: JsonPropertyName("physicalBatteries")] IReadOnlyList<PhysicalBatteryObservation> PhysicalBatteries)
 {
     public static SystemTelemetryObservation Unavailable(string? error = null) =>
-        new(SystemTelemetryStatus.Unavailable, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, error, Array.Empty<PhysicalBatteryObservation>());
+        new(SystemTelemetryStatus.Unavailable, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, error, PhysicalBatteryCollectionStatus.Unavailable, error, Array.Empty<PhysicalBatteryObservation>());
 }

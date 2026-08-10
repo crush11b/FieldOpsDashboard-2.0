@@ -50,9 +50,9 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     // data is intentionally not used as a silent fallback.
     try {
       const response = await fetch('/api/system');
-      const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null; physicalBatteries?: Array<{ deviceId:string; name:string|null; present:boolean|null; percentage:number|null; charging:boolean|null }> };
+      const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null; physicalBatteryStatus?: 'Available'|'Unavailable'|'Error'; physicalBatteries?: Array<{ deviceId:string; name:string|null; present:boolean|null; percentage:number|null; charging:boolean|null }> };
       if (system.status === 'Available') {
-        const physical = (system.physicalBatteries ?? []).filter(b => b.present !== false);
+        const physical = system.physicalBatteryStatus === 'Available' ? (system.physicalBatteries ?? []).filter(b => b.present !== false) : [];
         const main = physical[0];
         const dock = physical[1];
         onUpdateBattery?.({
@@ -62,11 +62,11 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
         });
         setPollSource('Windows Agent'); setLastPolledTime(new Date().toLocaleTimeString());
       } else {
-        onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null } });
+        onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null }, keyboardDock: { ...battery.keyboardDock, percent: null, charging: null, attached: false, timeRemainingMins: null } });
         setPollSource('Windows telemetry unavailable');
       }
     } catch {
-      onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null } });
+      onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null }, keyboardDock: { ...battery.keyboardDock, percent: null, charging: null, attached: false, timeRemainingMins: null } });
       setPollSource('Windows telemetry unavailable');
     }
     setIsPolling(false);

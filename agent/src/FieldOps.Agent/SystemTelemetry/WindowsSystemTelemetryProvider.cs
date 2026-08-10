@@ -11,19 +11,19 @@ public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStat
     {
         try
         {
-            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.", Array.Empty<PhysicalBatteryObservation>());
+            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.", PhysicalBatteryCollectionStatus.Unavailable, null, Array.Empty<PhysicalBatteryObservation>());
             var unknownBattery = value.BatteryFlag == 255;
             var present = unknownBattery ? (bool?)null : (value.BatteryFlag & 128) == 0;
             var source = value.ACLineStatus switch { 1 => SystemPowerSource.AC, 0 => SystemPowerSource.Battery, _ => SystemPowerSource.Unknown };
             var charge = value.BatteryLifePercent <= 100 ? (int?)value.BatteryLifePercent : null;
             var runtime = value.BatteryLifeTime != uint.MaxValue ? (int?)Math.Min((ulong)value.BatteryLifeTime, (ulong)int.MaxValue) : null;
             bool? charging = unknownBattery || present == false ? null : (value.BatteryFlag & 8) != 0;
-            IReadOnlyList<PhysicalBatteryObservation> batteries;
-            try { batteries = batteryEnumerator?.Enumerate(CancellationToken.None) ?? Array.Empty<PhysicalBatteryObservation>(); }
-            catch (Exception) { batteries = Array.Empty<PhysicalBatteryObservation>(); }
-            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null, batteries);
+            PhysicalBatteryCollection physical;
+            try { physical = batteryEnumerator?.Enumerate(CancellationToken.None) ?? new(PhysicalBatteryCollectionStatus.Unavailable, Array.Empty<PhysicalBatteryObservation>(), null); }
+            catch (Exception) { physical = new(PhysicalBatteryCollectionStatus.Error, Array.Empty<PhysicalBatteryObservation>(), "Physical battery enumeration failed."); }
+            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null, physical.Status, physical.Error, physical.Batteries);
         }
-        catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message, Array.Empty<PhysicalBatteryObservation>()); }
+        catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message, PhysicalBatteryCollectionStatus.Unavailable, null, Array.Empty<PhysicalBatteryObservation>()); }
     }
 }
 

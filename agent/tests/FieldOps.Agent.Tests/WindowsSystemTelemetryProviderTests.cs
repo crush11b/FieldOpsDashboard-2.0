@@ -53,10 +53,23 @@ public sealed class WindowsSystemTelemetryProviderTests
             new PhysicalBatteryObservation("BAT-B", "Keyboard", true, 89, false, "OK", "test", DateTimeOffset.UtcNow),
             new PhysicalBatteryObservation("BAT-A", "Tablet", true, 100, false, "OK", "test", DateTimeOffset.UtcNow),
         };
-        var result = new WindowsSystemTelemetryProvider(new Fake(new(0, 1, 94, 11700)), new FakeBatteries(physical)).GetObservation();
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(0, 1, 94, 11700)), new FakeBatteries(new(PhysicalBatteryCollectionStatus.Available, physical, null))).GetObservation();
         Assert.Equal(94, result.ChargePercent);
         Assert.Equal(new[] { "BAT-B", "BAT-A" }, result.PhysicalBatteries.Select(b => b.DeviceId));
         Assert.Equal(new int?[] { 89, 100 }, result.PhysicalBatteries.Select(b => b.Percentage));
+    }
+
+    [Theory]
+    [InlineData(2, null)] [InlineData(3, false)] [InlineData(6, true)] [InlineData(7, true)] [InlineData(11, false)] [InlineData(42, null)]
+    public void MapsWin32BatteryStatusHonestly(int code, bool? expected) => Assert.Equal(expected, WindowsPhysicalBatteryEnumerator.InterpretCharging(code));
+
+    [Fact]
+    public void AggregateRemainsAvailableWhenPhysicalEnumerationFails()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(0, 1, 94, 100)), new ThrowingBatteries()).GetObservation();
+        Assert.Equal(SystemTelemetryStatus.Available, result.Status);
+        Assert.Equal(PhysicalBatteryCollectionStatus.Error, result.PhysicalBatteryStatus);
+        Assert.Empty(result.PhysicalBatteries);
     }
 
     [Fact]
@@ -71,8 +84,12 @@ public sealed class WindowsSystemTelemetryProviderTests
         public bool TryGet(out NativePowerStatus status) { status = value ?? default; return value.HasValue; }
     }
 
-    private sealed class FakeBatteries(IReadOnlyList<PhysicalBatteryObservation> values) : IPhysicalBatteryEnumerator
+    private sealed class FakeBatteries(PhysicalBatteryCollection result) : IPhysicalBatteryEnumerator
     {
-        public IReadOnlyList<PhysicalBatteryObservation> Enumerate(CancellationToken cancellationToken) => values;
+        public PhysicalBatteryCollection Enumerate(CancellationToken cancellationToken) => result;
+    }
+    private sealed class ThrowingBatteries : IPhysicalBatteryEnumerator
+    {
+        public PhysicalBatteryCollection Enumerate(CancellationToken cancellationToken) => throw new InvalidOperationException();
     }
 }
