@@ -99,6 +99,24 @@ describe('misleading action guardrails', () => {
     expect(markup).toContain('HARDWARE DETECTION REQUIRED');
     expect(markup).not.toContain('+ COUPLE DOCK');
   });
+
+  it('renders a real low battery percentage as low', () => {
+    const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: 15 } }} theme="dark_tactical" />);
+    expect(markup).toContain('15%');
+    expect(markup).toContain('bg-red-500');
+  });
+
+  it('preserves zero percent as a valid low battery value', () => {
+    const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: 0 } }} theme="dark_tactical" />);
+    expect(markup).toContain('0%');
+    expect(markup).toContain('bg-red-500');
+  });
+
+  it('renders null percentage as unavailable without low-battery styling', () => {
+    const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: null } }} theme="dark_tactical" />);
+    expect(markup).toContain('UNAVAILABLE');
+    expect(markup).not.toContain('bg-red-500');
+  });
 });
 
 const app: AppLauncherItem = {

@@ -12,11 +12,12 @@ public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStat
         try
         {
             if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.");
-            var present = (value.BatteryFlag & 128) == 0;
+            var unknownBattery = value.BatteryFlag == 255;
+            var present = unknownBattery ? (bool?)null : (value.BatteryFlag & 128) == 0;
             var source = value.ACLineStatus switch { 1 => SystemPowerSource.AC, 0 => SystemPowerSource.Battery, _ => SystemPowerSource.Unknown };
-            var charge = present && value.BatteryLifePercent <= 100 ? (int?)value.BatteryLifePercent : null;
-            var runtime = present && value.BatteryLifeTime != uint.MaxValue ? (int?)Math.Min((ulong)value.BatteryLifeTime, (ulong)int.MaxValue) : null;
-            bool? charging = !present || value.BatteryFlag == 255 ? null : (value.BatteryFlag & 8) != 0;
+            var charge = value.BatteryLifePercent <= 100 ? (int?)value.BatteryLifePercent : null;
+            var runtime = value.BatteryLifeTime != uint.MaxValue ? (int?)Math.Min((ulong)value.BatteryLifeTime, (ulong)int.MaxValue) : null;
+            bool? charging = unknownBattery || present == false ? null : (value.BatteryFlag & 8) != 0;
             return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null);
         }
         catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message); }

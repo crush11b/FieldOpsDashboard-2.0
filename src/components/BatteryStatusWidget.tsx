@@ -166,10 +166,10 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     ? 'bg-white border-amber-400 text-slate-900 shadow-sm rounded-2xl p-4 sm:p-5'
     : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg rounded-2xl p-4 sm:p-5';
 
-  const mainPct = battery.mainTablet.percent ?? 0;
-  const kbPct = battery.keyboardDock.percent ?? 0;
-  const mainLow = mainPct <= 20;
-  const kbLow = battery.keyboardDock.attached && kbPct <= 20;
+  const mainPct = battery.mainTablet.percent;
+  const kbPct = battery.keyboardDock.percent;
+  const mainLow = mainPct !== null && mainPct <= 20;
+  const kbLow = battery.keyboardDock.attached === true && kbPct !== null && kbPct <= 20;
 
   return (
     <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
@@ -346,7 +346,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   type="number"
                   min="0"
                   max="100"
-                  value={mainPct}
+                  value={mainPct ?? ''}
                   onChange={(e) => {
                     const parsed = toFiniteNumber(e.target.value);
                     if (parsed === null) return;
@@ -366,7 +366,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 type="range"
                 min="0"
                 max="100"
-                value={mainPct}
+                value={mainPct ?? 0}
                 onChange={(e) => {
                   const val = Number(e.target.value);
                   applyBatteryUpdate({
@@ -409,7 +409,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   min="0"
                   max="100"
                   disabled={!battery.keyboardDock.attached}
-                  value={kbPct}
+                  value={kbPct ?? ''}
                   onChange={(e) => {
                     const parsed = toFiniteNumber(e.target.value);
                     if (parsed === null) return;
@@ -430,7 +430,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 min="0"
                 max="100"
                 disabled={!battery.keyboardDock.attached}
-                value={kbPct}
+                value={kbPct ?? 0}
                 onChange={(e) => {
                   const val = Number(e.target.value);
                   applyBatteryUpdate({
@@ -576,7 +576,7 @@ while ($true) {
               <Battery className="w-4 h-4 text-amber-400" /> BATT 1 (TABLET MAIN)
             </span>
             <span className={`font-black text-sm ${mainLow ? 'text-red-400' : 'text-emerald-400'}`}>
-              {mainPct}%
+              {mainPct === null ? 'UNAVAILABLE' : `${mainPct}%`}
             </span>
           </div>
 
@@ -586,11 +586,13 @@ while ($true) {
               className={`h-full transition-all duration-500 ${
                 mainLow
                   ? 'bg-red-500'
+                  : mainPct === null
+                  ? 'bg-zinc-700'
                   : mainPct < 50
                   ? 'bg-amber-400'
                   : 'bg-emerald-400'
               }`}
-              style={{ width: `${mainPct}%` }}
+              style={{ width: mainPct === null ? '0%' : `${mainPct}%` }}
             />
           </div>
 
@@ -617,7 +619,7 @@ while ($true) {
                 ? 'text-zinc-500 font-mono text-xs'
                 : kbLow ? 'text-red-400' : 'text-emerald-400'
             }`}>
-              {battery.keyboardDock.attached ? `${kbPct}%` : 'UNCOUPLED'}
+              {!battery.keyboardDock.attached ? 'UNCOUPLED' : kbPct === null ? 'UNAVAILABLE' : `${kbPct}%`}
             </span>
           </div>
 
@@ -629,11 +631,13 @@ while ($true) {
                   ? 'bg-zinc-800'
                   : kbLow
                   ? 'bg-red-500'
+                  : kbPct === null
+                  ? 'bg-zinc-700'
                   : kbPct < 50
                   ? 'bg-amber-400'
                   : 'bg-emerald-400'
               }`}
-              style={{ width: battery.keyboardDock.attached ? `${kbPct}%` : '0%' }}
+              style={{ width: battery.keyboardDock.attached && kbPct !== null ? `${kbPct}%` : '0%' }}
             />
           </div>
 

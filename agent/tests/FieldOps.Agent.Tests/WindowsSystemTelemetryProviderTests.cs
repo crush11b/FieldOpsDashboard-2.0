@@ -16,13 +16,33 @@ public sealed class WindowsSystemTelemetryProviderTests
     }
 
     [Fact]
-    public void UnknownRuntimeAndNoBatteryRemainNullable()
+    public void UnknownBatteryFlagRemainsUnknownWhileIndependentTelemetryIsPreserved()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 255, 55, 123))).GetObservation();
+        Assert.Null(result.BatteryPresent);
+        Assert.Null(result.Charging);
+        Assert.Equal(55, result.ChargePercent);
+        Assert.Equal(123, result.RemainingRuntimeSeconds);
+        Assert.Equal(SystemPowerSource.AC, result.PowerSource);
+    }
+
+    [Fact]
+    public void ExplicitNoBatteryFlagReportsAbsentAndUnknownCharging()
     {
         var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 128, 255, uint.MaxValue))).GetObservation();
+        Assert.False(result.BatteryPresent);
+        Assert.Null(result.Charging);
         Assert.Null(result.ChargePercent);
         Assert.Null(result.RemainingRuntimeSeconds);
-        Assert.False(result.BatteryPresent);
-        Assert.Equal(SystemPowerSource.AC, result.PowerSource);
+    }
+
+    [Fact]
+    public void NormalBatteryFlagReportsPresent()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(0, 1, 0, 0))).GetObservation();
+        Assert.True(result.BatteryPresent);
+        Assert.False(result.Charging);
+        Assert.Equal(0, result.ChargePercent);
     }
 
     [Fact]
