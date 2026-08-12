@@ -16,6 +16,17 @@ public sealed record PhysicalBatteryObservation(
     [property: JsonPropertyName("source")] string Source,
     [property: JsonPropertyName("observedAtUtc")] DateTimeOffset ObservedAtUtc);
 
+public sealed record CpuObservation(
+    [property: JsonPropertyName("usagePercent")] double UsagePercent,
+    [property: JsonPropertyName("logicalProcessorCount")] int LogicalProcessorCount,
+    [property: JsonPropertyName("model")] string? Model);
+
+public sealed record MemoryObservation(
+    [property: JsonPropertyName("totalBytes")] ulong TotalBytes,
+    [property: JsonPropertyName("availableBytes")] ulong AvailableBytes,
+    [property: JsonPropertyName("usedBytes")] ulong UsedBytes,
+    [property: JsonPropertyName("usedPercent")] double UsedPercent);
+
 public sealed record SystemTelemetryObservation(
     [property: JsonPropertyName("status")] SystemTelemetryStatus Status,
     [property: JsonPropertyName("observedAtUtc")] DateTimeOffset ObservedAtUtc,
@@ -28,8 +39,10 @@ public sealed record SystemTelemetryObservation(
     [property: JsonPropertyName("error")] string? Error,
     [property: JsonPropertyName("physicalBatteryStatus")] PhysicalBatteryCollectionStatus PhysicalBatteryStatus,
     [property: JsonPropertyName("physicalBatteryError")] string? PhysicalBatteryError,
-    [property: JsonPropertyName("physicalBatteries")] IReadOnlyList<PhysicalBatteryObservation> PhysicalBatteries)
+    [property: JsonPropertyName("physicalBatteries")] IReadOnlyList<PhysicalBatteryObservation> PhysicalBatteries,
+    [property: JsonPropertyName("cpu")] CpuObservation? Cpu,
+    [property: JsonPropertyName("memory")] MemoryObservation? Memory)
 {
     public static SystemTelemetryObservation Unavailable(string? error = null) =>
-        new(SystemTelemetryStatus.Unavailable, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, error, PhysicalBatteryCollectionStatus.Unavailable, error, Array.Empty<PhysicalBatteryObservation>());
+        new(SystemTelemetryStatus.Unavailable, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, error, PhysicalBatteryCollectionStatus.Unavailable, error, Array.Empty<PhysicalBatteryObservation>(), null, null);
 }

@@ -22,7 +22,8 @@ import {
   SolarData, 
   UIThemeMode, 
   WeatherData,
-  latLonToGridSquare 
+  latLonToGridSquare,
+  SystemTelemetry
 } from './types';
 import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
@@ -143,6 +144,7 @@ export default function App() {
     },
     powerSource: 'Battery',
   });
+  const [systemTelemetry, setSystemTelemetry] = useState<SystemTelemetry | null>(null);
 
   // 3. GPS & Maidenhead Grid Square (Saved to LocalStorage)
   const [initialGpsState] = useState(loadInitialGpsState);
@@ -359,6 +361,7 @@ export default function App() {
             battery={battery}
             theme={config.theme}
             onUpdateBattery={(updated) => setBattery((prev) => ({ ...prev, ...updated }))}
+            onSystemTelemetry={setSystemTelemetry}
           />
 
           {/* GPS & Maidenhead Grid Badge */}
@@ -431,11 +434,11 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
               <span className="text-[10px] text-zinc-500 font-bold uppercase">CPU</span>
-              <span className="text-[11px] font-mono text-emerald-400">14%</span>
+              <span className="text-[11px] font-mono text-emerald-400">{systemTelemetry?.cpu?.usagePercent != null ? `${systemTelemetry.cpu.usagePercent}%` : 'Unavailable'}</span>
             </div>
             <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
               <span className="text-[10px] text-zinc-500 font-bold uppercase">MEM</span>
-              <span className="text-[11px] font-mono text-cyan-400">2.4 GB</span>
+              <span className="text-[11px] font-mono text-cyan-400">{systemTelemetry?.memory != null ? `${(systemTelemetry.memory.usedBytes / 1024 ** 3).toFixed(1)} GB (${systemTelemetry.memory.usedPercent}%)` : 'Unavailable'}</span>
             </div>
           </div>
 

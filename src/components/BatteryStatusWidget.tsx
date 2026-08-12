@@ -4,14 +4,16 @@ import { DualBatteryStatus, UIThemeMode } from '../types';
 import type { TelemetryEnvelope } from '../telemetry';
 import { toFiniteNumber } from '../utils/numbers';
 import { getVersionedDownloadFilename } from '../productMetadata';
+import type { SystemTelemetry } from '../types';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
   theme: UIThemeMode;
   onUpdateBattery?: (updated: Partial<DualBatteryStatus>) => void;
+  onSystemTelemetry?: (telemetry: SystemTelemetry | null) => void;
 }
 
-export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme, onUpdateBattery }) => {
+export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme, onUpdateBattery, onSystemTelemetry }) => {
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
 
@@ -50,7 +52,8 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     // data is intentionally not used as a silent fallback.
     try {
       const response = await fetch('/api/system');
-      const system = await response.json() as { status: 'Available'|'Unavailable'|'Error'; chargePercent: number|null; charging: boolean|null; powerSource: 'AC'|'Battery'|'Unknown'; remainingRuntimeSeconds: number|null; physicalBatteryStatus?: 'Available'|'Unavailable'|'Error'; physicalBatteries?: Array<{ deviceId:string; name:string|null; present:boolean|null; percentage:number|null; charging:boolean|null }> };
+      const system = await response.json() as SystemTelemetry;
+      onSystemTelemetry?.(system);
       if (system.status === 'Available') {
         const physical = system.physicalBatteryStatus === 'Available' ? (system.physicalBatteries ?? []).filter(b => b.present !== false) : [];
         const main = physical[0];
@@ -66,6 +69,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
         setPollSource('Windows telemetry unavailable');
       }
     } catch {
+      onSystemTelemetry?.(null);
       onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null }, keyboardDock: { ...battery.keyboardDock, percent: null, charging: null, attached: false, timeRemainingMins: null } });
       setPollSource('Windows telemetry unavailable');
     }

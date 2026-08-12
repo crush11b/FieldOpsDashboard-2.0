@@ -40,7 +40,7 @@ builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
 builder.Services.AddSingleton<LocationTelemetryPipeServer>();
 builder.Services.AddSingleton<IPhysicalBatteryEnumerator, WindowsPhysicalBatteryEnumerator>();
-builder.Services.AddSingleton<WindowsSystemTelemetryProvider>(sp => new WindowsSystemTelemetryProvider(new WindowsPowerStatus(), sp.GetRequiredService<IPhysicalBatteryEnumerator>()));
+builder.Services.AddSingleton<WindowsSystemTelemetryProvider>(sp => new WindowsSystemTelemetryProvider(new WindowsPowerStatus(), sp.GetRequiredService<IPhysicalBatteryEnumerator>(), new WindowsSystemMetrics()));
 builder.Services.AddSingleton<SystemTelemetryPipeServer>();
 builder.Services.ConfigureHttpJsonOptions(options => options.SerializerOptions.Converters.Add(new JsonStringEnumConverter()));
 builder.Services.AddSingleton<INativeHealthSnapshotProvider, NativeHealthSnapshotProvider>();

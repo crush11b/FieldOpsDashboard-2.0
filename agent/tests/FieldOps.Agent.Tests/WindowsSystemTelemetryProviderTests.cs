@@ -79,6 +79,57 @@ public sealed class WindowsSystemTelemetryProviderTests
         Assert.Equal(SystemTelemetryStatus.Error, result.Status);
     }
 
+    [Fact]
+    public void PreservesNativeCpuAndMemoryValuesIncludingZero()
+    {
+        var metrics = new FakeMetrics(
+            new CpuObservation(0, 8, "Test CPU"),
+            new MemoryObservation(16UL * 1024 * 1024 * 1024, 4UL * 1024 * 1024 * 1024, 12UL * 1024 * 1024 * 1024, 75));
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: metrics).GetObservation();
+        Assert.Equal(0, result.Cpu?.UsagePercent);
+        Assert.Equal(8, result.Cpu?.LogicalProcessorCount);
+        Assert.Equal("Test CPU", result.Cpu?.Model);
+        Assert.Equal(12UL * 1024 * 1024 * 1024, result.Memory?.UsedBytes);
+        Assert.Equal(75, result.Memory?.UsedPercent);
+    }
+
+    [Fact]
+    public void PreservesZeroAvailableMemoryAndCalculatesFullUtilization()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new FakeMetrics(null, new MemoryObservation(100, 0, 100, 100))).GetObservation();
+        Assert.Equal(100UL, result.Memory?.TotalBytes);
+        Assert.Equal(0UL, result.Memory?.AvailableBytes);
+        Assert.Equal(100UL, result.Memory?.UsedBytes);
+        Assert.Equal(100, result.Memory?.UsedPercent);
+    }
+
+    [Fact]
+    public void CalculatesMemoryArithmeticAndUtilizationFromNativeValues()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new MemoryMetrics(159000, 81500)).GetObservation();
+        Assert.Equal(77500UL, result.Memory?.UsedBytes);
+        Assert.Equal(48.7, result.Memory?.UsedPercent);
+    }
+
+    [Fact]
+    public void MemoryFailureLeavesCpuBatteryAndAvailableStatusIntact()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new ThrowingMemoryMetrics(new CpuObservation(12.5, 4, "Test CPU"))).GetObservation();
+        Assert.Equal(SystemTelemetryStatus.Available, result.Status);
+        Assert.NotNull(result.Cpu);
+        Assert.Null(result.Memory);
+        Assert.True(result.BatteryPresent);
+    }
+
+    [Fact]
+    public void LeavesCpuAndMemoryNullWhenNativeMetricsAreUnavailable()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new FakeMetrics(null, null)).GetObservation();
+        Assert.Equal(SystemTelemetryStatus.Available, result.Status);
+        Assert.Null(result.Cpu);
+        Assert.Null(result.Memory);
+    }
+
     private sealed class Fake(NativePowerStatus? value) : IWindowsPowerStatus
     {
         public bool TryGet(out NativePowerStatus status) { status = value ?? default; return value.HasValue; }
@@ -91,5 +142,28 @@ public sealed class WindowsSystemTelemetryProviderTests
     private sealed class ThrowingBatteries : IPhysicalBatteryEnumerator
     {
         public PhysicalBatteryCollection Enumerate(CancellationToken cancellationToken) => throw new InvalidOperationException();
+    }
+
+    private sealed class FakeMetrics(CpuObservation? cpu, MemoryObservation? memory) : IWindowsSystemMetrics
+    {
+        public bool TryGetCpu(out CpuObservation value) { value = cpu!; return cpu is not null; }
+        public bool TryGetMemory(out MemoryObservation value) { value = memory!; return memory is not null; }
+    }
+
+    private sealed class MemoryMetrics(ulong total, ulong available) : IWindowsSystemMetrics
+    {
+        public bool TryGetCpu(out CpuObservation value) { value = default!; return false; }
+        public bool TryGetMemory(out MemoryObservation value)
+        {
+            var used = total >= available ? total - available : 0;
+            value = new MemoryObservation(total, available, used, Math.Round((double)used / total * 100, 1));
+            return true;
+        }
+    }
+
+    private sealed class ThrowingMemoryMetrics(CpuObservation cpu) : IWindowsSystemMetrics
+    {
+        public bool TryGetCpu(out CpuObservation value) { value = cpu; return true; }
+        public bool TryGetMemory(out MemoryObservation value) => throw new InvalidOperationException();
     }
 }
