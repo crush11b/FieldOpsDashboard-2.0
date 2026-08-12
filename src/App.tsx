@@ -29,6 +29,7 @@ import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/d
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
 import { toFiniteNumber } from './utils/numbers';
+import { formatNetworkDisplay, formatStorageDisplay } from './utils/systemTelemetryDisplay';
 
 const STORAGE_KEY = 'fieldops_dashboard_config_v115';
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
@@ -439,6 +440,14 @@ export default function App() {
             <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
               <span className="text-[10px] text-zinc-500 font-bold uppercase">MEM</span>
               <span className="text-[11px] font-mono text-cyan-400">{systemTelemetry?.memory != null ? `${(systemTelemetry.memory.usedBytes / 1024 ** 3).toFixed(1)} GB (${systemTelemetry.memory.usedPercent}%)` : 'Unavailable'}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase">DISK</span>
+              <span className="text-[11px] font-mono text-amber-400">{formatStorageDisplay(systemTelemetry?.storage ?? null)}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase">NET</span>
+              <span className="text-[11px] font-mono text-sky-400">{formatNetworkDisplay(systemTelemetry?.network ?? null)}</span>
             </div>
           </div>
 

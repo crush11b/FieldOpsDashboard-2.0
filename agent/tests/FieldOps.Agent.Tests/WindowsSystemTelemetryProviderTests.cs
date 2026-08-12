@@ -122,6 +122,37 @@ public sealed class WindowsSystemTelemetryProviderTests
     }
 
     [Fact]
+    public void PreservesStorageAndNetworkValuesIncludingZeroFreeSpace()
+    {
+        var storage = new StorageObservation("C:\\", 1000, 0, 1000, 100);
+        var network = new NetworkObservation(true, new[] { new NetworkInterfaceObservation("Wi-Fi", "Field Wi-Fi", "Wireless80211", "192.168.1.20", 54_000_000) });
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new FakeMetrics(null, null, storage, network)).GetObservation();
+        Assert.Equal(storage, result.Storage);
+        Assert.Equal(network, result.Network);
+        Assert.Equal(SystemTelemetryStatus.Available, result.Status);
+    }
+
+    [Fact]
+    public void RepresentsNoUsableNetworkWithoutFabricatingAnInterface()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new FakeMetrics(null, null, null, new NetworkObservation(false, Array.Empty<NetworkInterfaceObservation>()))).GetObservation();
+        Assert.False(result.Network?.Available);
+        Assert.Empty(result.Network?.Interfaces ?? Array.Empty<NetworkInterfaceObservation>());
+    }
+
+    [Fact]
+    public void StorageAndNetworkFailuresAreIsolatedFromExistingTelemetry()
+    {
+        var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new ThrowingStorageAndNetworkMetrics(new CpuObservation(12.5, 4, "Test CPU"), new MemoryObservation(100, 40, 60, 60))).GetObservation();
+        Assert.Equal(SystemTelemetryStatus.Available, result.Status);
+        Assert.NotNull(result.Cpu);
+        Assert.NotNull(result.Memory);
+        Assert.Null(result.Storage);
+        Assert.Null(result.Network);
+        Assert.True(result.BatteryPresent);
+    }
+
+    [Fact]
     public void LeavesCpuAndMemoryNullWhenNativeMetricsAreUnavailable()
     {
         var result = new WindowsSystemTelemetryProvider(new Fake(new(1, 1, 50, 10)), systemMetrics: new FakeMetrics(null, null)).GetObservation();
@@ -144,10 +175,12 @@ public sealed class WindowsSystemTelemetryProviderTests
         public PhysicalBatteryCollection Enumerate(CancellationToken cancellationToken) => throw new InvalidOperationException();
     }
 
-    private sealed class FakeMetrics(CpuObservation? cpu, MemoryObservation? memory) : IWindowsSystemMetrics
+    private sealed class FakeMetrics(CpuObservation? cpu, MemoryObservation? memory, StorageObservation? storage = null, NetworkObservation? network = null) : IWindowsSystemMetrics
     {
         public bool TryGetCpu(out CpuObservation value) { value = cpu!; return cpu is not null; }
         public bool TryGetMemory(out MemoryObservation value) { value = memory!; return memory is not null; }
+        public bool TryGetStorage(out StorageObservation value) { value = storage!; return storage is not null; }
+        public bool TryGetNetwork(out NetworkObservation value) { value = network!; return network is not null; }
     }
 
     private sealed class MemoryMetrics(ulong total, ulong available) : IWindowsSystemMetrics
@@ -159,11 +192,23 @@ public sealed class WindowsSystemTelemetryProviderTests
             value = new MemoryObservation(total, available, used, Math.Round((double)used / total * 100, 1));
             return true;
         }
+        public bool TryGetStorage(out StorageObservation value) { value = default!; return false; }
+        public bool TryGetNetwork(out NetworkObservation value) { value = default!; return false; }
     }
 
     private sealed class ThrowingMemoryMetrics(CpuObservation cpu) : IWindowsSystemMetrics
     {
         public bool TryGetCpu(out CpuObservation value) { value = cpu; return true; }
         public bool TryGetMemory(out MemoryObservation value) => throw new InvalidOperationException();
+        public bool TryGetStorage(out StorageObservation value) { value = default!; return false; }
+        public bool TryGetNetwork(out NetworkObservation value) { value = default!; return false; }
+    }
+
+    private sealed class ThrowingStorageAndNetworkMetrics(CpuObservation cpu, MemoryObservation memory) : IWindowsSystemMetrics
+    {
+        public bool TryGetCpu(out CpuObservation value) { value = cpu; return true; }
+        public bool TryGetMemory(out MemoryObservation value) { value = memory; return true; }
+        public bool TryGetStorage(out StorageObservation value) => throw new InvalidOperationException();
+        public bool TryGetNetwork(out NetworkObservation value) => throw new InvalidOperationException();
     }
 }

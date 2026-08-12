@@ -27,6 +27,24 @@ public sealed record MemoryObservation(
     [property: JsonPropertyName("usedBytes")] ulong UsedBytes,
     [property: JsonPropertyName("usedPercent")] double UsedPercent);
 
+public sealed record StorageObservation(
+    [property: JsonPropertyName("volume")] string Volume,
+    [property: JsonPropertyName("totalBytes")] ulong TotalBytes,
+    [property: JsonPropertyName("availableBytes")] ulong AvailableBytes,
+    [property: JsonPropertyName("usedBytes")] ulong UsedBytes,
+    [property: JsonPropertyName("usedPercent")] double UsedPercent);
+
+public sealed record NetworkInterfaceObservation(
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("ipv4Address")] string? Ipv4Address,
+    [property: JsonPropertyName("linkSpeedBitsPerSecond")] long? LinkSpeedBitsPerSecond);
+
+public sealed record NetworkObservation(
+    [property: JsonPropertyName("available")] bool Available,
+    [property: JsonPropertyName("interfaces")] IReadOnlyList<NetworkInterfaceObservation> Interfaces);
+
 public sealed record SystemTelemetryObservation(
     [property: JsonPropertyName("status")] SystemTelemetryStatus Status,
     [property: JsonPropertyName("observedAtUtc")] DateTimeOffset ObservedAtUtc,
@@ -41,8 +59,10 @@ public sealed record SystemTelemetryObservation(
     [property: JsonPropertyName("physicalBatteryError")] string? PhysicalBatteryError,
     [property: JsonPropertyName("physicalBatteries")] IReadOnlyList<PhysicalBatteryObservation> PhysicalBatteries,
     [property: JsonPropertyName("cpu")] CpuObservation? Cpu,
-    [property: JsonPropertyName("memory")] MemoryObservation? Memory)
+        [property: JsonPropertyName("memory")] MemoryObservation? Memory,
+        [property: JsonPropertyName("storage")] StorageObservation? Storage,
+        [property: JsonPropertyName("network")] NetworkObservation? Network)
 {
     public static SystemTelemetryObservation Unavailable(string? error = null) =>
-        new(SystemTelemetryStatus.Unavailable, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, error, PhysicalBatteryCollectionStatus.Unavailable, error, Array.Empty<PhysicalBatteryObservation>(), null, null);
+            new(SystemTelemetryStatus.Unavailable, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, error, PhysicalBatteryCollectionStatus.Unavailable, error, Array.Empty<PhysicalBatteryObservation>(), null, null, null, null);
 }

@@ -1,10 +1,18 @@
 using System.ComponentModel;
+using System.Net.NetworkInformation;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 
 namespace FieldOps.Agent.SystemTelemetry;
 
 public interface IWindowsPowerStatus { bool TryGet(out NativePowerStatus status); }
-public interface IWindowsSystemMetrics { bool TryGetCpu(out CpuObservation cpu); bool TryGetMemory(out MemoryObservation memory); }
+public interface IWindowsSystemMetrics
+{
+    bool TryGetCpu(out CpuObservation cpu);
+    bool TryGetMemory(out MemoryObservation memory);
+    bool TryGetStorage(out StorageObservation storage);
+    bool TryGetNetwork(out NetworkObservation network);
+}
 
 public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStatus, IPhysicalBatteryEnumerator? batteryEnumerator = null, IWindowsSystemMetrics? systemMetrics = null)
 {
@@ -12,7 +20,7 @@ public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStat
     {
         try
         {
-            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.", PhysicalBatteryCollectionStatus.Unavailable, null, Array.Empty<PhysicalBatteryObservation>(), null, null);
+            if (!powerStatus.TryGet(out var value)) return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, "Windows power status acquisition failed.", PhysicalBatteryCollectionStatus.Unavailable, null, Array.Empty<PhysicalBatteryObservation>(), null, null, null, null);
             var unknownBattery = value.BatteryFlag == 255;
             var present = unknownBattery ? (bool?)null : (value.BatteryFlag & 128) == 0;
             var source = value.ACLineStatus switch { 1 => SystemPowerSource.AC, 0 => SystemPowerSource.Battery, _ => SystemPowerSource.Unknown };
@@ -26,9 +34,13 @@ public sealed class WindowsSystemTelemetryProvider(IWindowsPowerStatus powerStat
             MemoryObservation? memory = null;
             try { if (systemMetrics?.TryGetCpu(out var cpuValue) == true) cpu = cpuValue; } catch { }
             try { if (systemMetrics?.TryGetMemory(out var memoryValue) == true) memory = memoryValue; } catch { }
-            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null, physical.Status, physical.Error, physical.Batteries, cpu, memory);
+            StorageObservation? storage = null;
+            try { if (systemMetrics?.TryGetStorage(out var storageValue) == true) storage = storageValue; } catch { }
+            NetworkObservation? network = null;
+            try { if (systemMetrics?.TryGetNetwork(out var networkValue) == true) network = networkValue; } catch { }
+            return new(SystemTelemetryStatus.Available, DateTimeOffset.UtcNow, "WindowsPowerStatus", present, charge, charging, source, runtime, null, physical.Status, physical.Error, physical.Batteries, cpu, memory, storage, network);
         }
-        catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message, PhysicalBatteryCollectionStatus.Unavailable, null, Array.Empty<PhysicalBatteryObservation>(), null, null); }
+        catch (Exception ex) { return new(SystemTelemetryStatus.Error, DateTimeOffset.UtcNow, "WindowsPowerStatus", null, null, null, SystemPowerSource.Unknown, null, ex.Message, PhysicalBatteryCollectionStatus.Unavailable, null, Array.Empty<PhysicalBatteryObservation>(), null, null, null, null); }
     }
 }
 
@@ -71,6 +83,38 @@ public sealed class WindowsSystemMetrics : IWindowsSystemMetrics
         var used = status.Total >= status.Available ? status.Total - status.Available : 0;
         var usedPercent = (double)used / status.Total * 100;
         memory = new MemoryObservation(status.Total, status.Available, used, Math.Round(usedPercent, 1));
+        return true;
+    }
+
+    public bool TryGetStorage(out StorageObservation storage)
+    {
+        storage = default!;
+        var volume = Path.GetPathRoot(Environment.SystemDirectory);
+        if (string.IsNullOrWhiteSpace(volume)) return false;
+        var drive = new DriveInfo(volume);
+        if (!drive.IsReady || drive.TotalSize == 0) return false;
+        var total = (ulong)drive.TotalSize;
+        var available = (ulong)Math.Max(0, drive.AvailableFreeSpace);
+        var used = total >= available ? total - available : 0;
+        storage = new StorageObservation(volume, total, available, used, Math.Round((double)used / total * 100, 1));
+        return true;
+    }
+
+    public bool TryGetNetwork(out NetworkObservation network)
+    {
+        var interfaces = NetworkInterface.GetAllNetworkInterfaces()
+            .Where(adapter => adapter.NetworkInterfaceType != NetworkInterfaceType.Loopback
+                && adapter.NetworkInterfaceType != NetworkInterfaceType.Tunnel
+                && adapter.OperationalStatus == OperationalStatus.Up)
+            .Select(adapter =>
+            {
+                var ipv4 = adapter.GetIPProperties().UnicastAddresses
+                    .FirstOrDefault(address => address.Address.AddressFamily == AddressFamily.InterNetwork)?.Address.ToString();
+                long? speed = adapter.Speed >= 0 ? adapter.Speed : null;
+                return new NetworkInterfaceObservation(adapter.Name, adapter.Description, adapter.NetworkInterfaceType.ToString(), ipv4, speed);
+            })
+            .ToArray();
+        network = new NetworkObservation(interfaces.Length > 0, interfaces);
         return true;
     }
 
