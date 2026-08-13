@@ -38,6 +38,7 @@ builder.Services.AddSingleton<SerialInventoryPipeServer>();
 builder.Services.AddSingleton<ILocationProvider, WindowsSensorLocationProvider>();
 builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
+builder.Services.AddHostedService<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<LocationTelemetryPipeServer>();
 builder.Services.AddSingleton<IPhysicalBatteryEnumerator, WindowsPhysicalBatteryEnumerator>();
 builder.Services.AddSingleton<WindowsSystemTelemetryProvider>(sp => new WindowsSystemTelemetryProvider(new WindowsPowerStatus(), sp.GetRequiredService<IPhysicalBatteryEnumerator>(), new WindowsSystemMetrics()));

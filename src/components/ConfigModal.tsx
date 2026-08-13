@@ -301,7 +301,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         }}
                         className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded font-bold text-xs text-amber-300 font-mono"
                       >
-                        <option value="COM6 (GPS Receiver)">COM6 (Active GNSS Receiver)</option>
+                        <option value="COM6 (GPS Receiver)">COM6 (Configured GNSS Port)</option>
                         <option value="COM6">COM6 (Standard Serial)</option>
                         <option value="COM1">COM1 (Standard System Serial)</option>
                         <option value="COM2">COM2 (Serial Port 2)</option>

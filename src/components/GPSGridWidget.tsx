@@ -418,7 +418,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             }}
             className="px-2 py-0.5 bg-slate-950 border border-cyan-500/40 rounded font-bold text-[11px] text-amber-300"
           >
-            <option value="COM6 (GPS Receiver)">COM6 (Active GNSS Receiver)</option>
+            <option value="COM6 (GPS Receiver)">COM6 (Configured GNSS Port)</option>
             <option value="COM6">COM6 (Standard Serial)</option>
             <option value="COM1">COM1 (Standard System Serial)</option>
             <option value="COM2">COM2 (Serial Port 2)</option>

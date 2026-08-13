@@ -44,7 +44,7 @@ public sealed class AgentWebApplicationFactory : WebApplicationFactory<Program>
         builder.ConfigureTestServices(services =>
         {
             // HTTP endpoint tests must not start machine-bound named-pipe listeners.
-            var excluded = new[] { typeof(LocationTelemetryPipeService), typeof(SerialInventoryPipeService), typeof(NativeHealthGatewayService) };
+            var excluded = new[] { typeof(SerialNmeaLocationProvider), typeof(LocationTelemetryPipeService), typeof(SerialInventoryPipeService), typeof(NativeHealthGatewayService) };
             foreach (var descriptor in services.Where(d => d.ServiceType == typeof(IHostedService) && excluded.Contains(d.ImplementationType)).ToArray())
             {
                 services.Remove(descriptor);
