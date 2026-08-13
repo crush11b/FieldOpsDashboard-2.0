@@ -2,6 +2,7 @@ using System.Diagnostics;
 using FieldOps.NativeHealth;
 using FieldOps.TrayPrototype.Location;
 using System.Security.Principal;
+using FieldOps.TrayPrototype.Launcher;
 
 namespace FieldOps.TrayPrototype;
 
@@ -95,13 +96,17 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
             locationBroker,
             new LocationBrokerAuthorizationPolicy(operatorSid),
             new TraceLocationBrokerDiagnostics());
+        var launcherPipeServer = new LauncherPipeServer(
+            new ApplicationLauncher(new ProcessApplicationExecutor()),
+            new LauncherAuthorizationPolicy(operatorSid));
         var context = new TrayApplicationContext(
             refreshCoordinator,
             new ElevatedRestartCoordinator(
                 CoLocatedPaths.GetRestartHelperPath(),
                 TimeSpan.FromSeconds(75)),
             locationBroker,
-            locationPipeServer);
+            locationPipeServer,
+            launcherPipeServer);
         return new WindowsFormsTrayApplicationHost(context);
     }
 }

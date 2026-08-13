@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Drawing;
 using System.ServiceProcess;
 using System.Windows.Forms;
+using FieldOps.TrayPrototype.Launcher;
 using FieldOps.TrayPrototype.Location;
 
 namespace FieldOps.TrayPrototype;
@@ -10,7 +11,8 @@ internal sealed class TrayApplicationContext(
     TrayRefreshCoordinator refreshCoordinator,
     IRestartCoordinator restartCoordinator,
     WindowsLocationBroker locationBroker,
-    LocationBrokerPipeServer locationPipeServer) : ApplicationContext
+    LocationBrokerPipeServer locationPipeServer,
+    LauncherPipeServer launcherPipeServer) : ApplicationContext
 {
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly ToolStripMenuItem statusItem = new("Status: checking...") { Enabled = false };
@@ -80,6 +82,7 @@ internal sealed class TrayApplicationContext(
         notifyIcon.Visible = true;
         refreshTimer.Start();
         _ = locationPipeServer.RunAsync(lifetimeCancellation.Token);
+        _ = launcherPipeServer.RunAsync(lifetimeCancellation.Token);
         _ = RefreshAsync();
     }
 
