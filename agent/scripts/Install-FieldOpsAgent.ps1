@@ -173,7 +173,11 @@ try {
         -StatePath $operatorStatePath
     Copy-Item -Path (Join-Path $resolvedPublishPath '*') -Destination $installPath -Recurse -Force
     Copy-Item -Path (Join-Path $resolvedTrayPublishPath '*') -Destination $trayInstallPath -Recurse -Force
-    Register-FieldOpsTrayStartup -TrayPath (Join-Path $trayInstallPath 'FieldOps.Tray.exe') | Out-Null
+    $trayStartup = Register-FieldOpsTrayStartup `
+        -TrayPath (Join-Path $trayInstallPath 'FieldOps.Tray.exe') `
+        -OperatorSid $operatorProvisioning.OperatorSid
+    $legacyShortcutRemoved = Remove-FieldOpsLegacyDashboardStartup `
+        -OperatorSid $operatorProvisioning.OperatorSid
     $trayStartupRegistered = $true
 
     $credentialPath = Join-Path $dataPath 'health-token.dat'
@@ -250,7 +254,10 @@ try {
 
     $operation = if ($upgrade) { 'upgraded' } else { 'installed' }
     Write-Host "FieldOps Local Agent $operation and running from '$installPath'."
-    Write-Host "FieldOps tray startup registered for the current user at '$trayInstallPath\FieldOps.Tray.exe'."
+    Write-Host "FieldOps tray startup registered for operator '$($operatorProvisioning.OperatorName)' (SID $($operatorProvisioning.OperatorSid)) at '$($trayInstallPath)\FieldOps.Tray.exe'."
+    if ($legacyShortcutRemoved) {
+        Write-Host 'Removed the obsolete FieldOpsDashboard Startup-folder shortcut for the enrolled operator.'
+    }
     Write-Host "The configured operator must sign out and sign in before native-health access if group membership was newly added."
 } catch {
     $failure = $_
@@ -266,7 +273,7 @@ try {
         try { Undo-FieldOpsOperatorProvisioningAttempt -Provisioning $operatorProvisioning } catch { $rollbackFailures += "Could not roll back operator provisioning: $($_.Exception.Message)" }
     }
     if ($trayStartupRegistered) {
-        try { Remove-FieldOpsTrayStartup } catch { $rollbackFailures += "Could not remove tray startup registration: $($_.Exception.Message)" }
+    try { Remove-FieldOpsTrayStartup -OperatorSid $operatorProvisioning.OperatorSid } catch { $rollbackFailures += "Could not remove tray startup registration: $($_.Exception.Message)" }
     }
     if ($serviceCreateAttempted) {
         $rollbackService = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
