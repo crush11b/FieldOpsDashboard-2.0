@@ -11,6 +11,10 @@ $installPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'FieldOpsDash
 $trayInstallPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray')).TrimEnd('\')
 $dataPath = [IO.Path]::GetFullPath((Join-Path $env:ProgramData 'FieldOpsDashboard\Agent')).TrimEnd('\')
 $operatorStatePath = Join-Path $dataPath 'operator-provisioning.json'
+$operatorState = Read-FieldOpsOperatorProvisioningState -StatePath $operatorStatePath
+if ($null -eq $operatorState) {
+    throw "FieldOps operator ownership state is required to remove the enrolled operator's startup registration."
+}
 
 function Assert-SafeRemovalPath {
     param(
@@ -44,7 +48,7 @@ Assert-SafeRemovalPath -Path $installPath -ExpectedRoot (Join-Path $env:ProgramF
 Assert-SafeRemovalPath -Path $trayInstallPath -ExpectedRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard')
 Assert-SafeRemovalPath -Path $dataPath -ExpectedRoot (Join-Path $env:ProgramData 'FieldOpsDashboard')
 
-Remove-FieldOpsTrayStartup
+Remove-FieldOpsTrayStartup -OperatorSid ([string]$operatorState.enrolledAccountSid)
 
 $service = Get-Service -Name $serviceName -ErrorAction SilentlyContinue
 if ($service) {

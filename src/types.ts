@@ -30,19 +30,37 @@ export interface AppLauncherItem {
 }
 
 export interface BatteryInfo {
-  percent: number;
-  charging: boolean;
+  percent: number | null;
+  charging: boolean | null;
   voltage: number;
   health: 'Good' | 'Fair' | 'Service Needed';
   tempC: number;
-  timeRemainingMins: number;
+  timeRemainingMins: number | null;
   attached?: boolean;
+}
+
+export interface SystemTelemetry {
+  status: 'Available' | 'Unavailable' | 'Error';
+  observedAtUtc: string;
+  source: string;
+  batteryPresent: boolean | null;
+  chargePercent: number | null;
+  charging: boolean | null;
+  powerSource: 'AC' | 'Battery' | 'Unknown';
+  remainingRuntimeSeconds: number | null;
+  error: string | null;
+  physicalBatteryStatus?: 'Available' | 'Unavailable' | 'Error';
+  physicalBatteries: Array<{ deviceId: string; name: string | null; present: boolean | null; percentage: number | null; charging: boolean | null }>;
+  cpu: { usagePercent: number; logicalProcessorCount: number; model: string | null } | null;
+  memory: { totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number } | null;
+  storage: { volume: string; totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number } | null;
+  network: { available: boolean; interfaces: Array<{ name: string; description: string | null; type: string; ipv4Address: string | null; linkSpeedBitsPerSecond: number | null }> } | null;
 }
 
 export interface DualBatteryStatus {
   mainTablet: BatteryInfo;
   keyboardDock: BatteryInfo;
-  powerSource: 'Battery' | 'AC External' | 'Solar Auxiliary';
+  powerSource: 'Battery' | 'AC External' | 'Unknown' | 'Solar Auxiliary';
 }
 
 export interface NetworkStatus {

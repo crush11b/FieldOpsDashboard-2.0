@@ -4,14 +4,16 @@ import { DualBatteryStatus, UIThemeMode } from '../types';
 import type { TelemetryEnvelope } from '../telemetry';
 import { toFiniteNumber } from '../utils/numbers';
 import { getVersionedDownloadFilename } from '../productMetadata';
+import type { SystemTelemetry } from '../types';
 
 interface BatteryStatusWidgetProps {
   battery: DualBatteryStatus;
   theme: UIThemeMode;
   onUpdateBattery?: (updated: Partial<DualBatteryStatus>) => void;
+  onSystemTelemetry?: (telemetry: SystemTelemetry | null) => void;
 }
 
-export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme, onUpdateBattery }) => {
+export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme, onUpdateBattery, onSystemTelemetry }) => {
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
 
@@ -45,6 +47,34 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
   // Main automatic hardware poll function
   const fetchHardwareBattery = async () => {
     setIsPolling(true);
+
+    // Native Agent telemetry is authoritative in production. Browser battery
+    // data is intentionally not used as a silent fallback.
+    try {
+      const response = await fetch('/api/system');
+      const system = await response.json() as SystemTelemetry;
+      onSystemTelemetry?.(system);
+      if (system.status === 'Available') {
+        const physical = system.physicalBatteryStatus === 'Available' ? (system.physicalBatteries ?? []).filter(b => b.present !== false) : [];
+        const main = physical[0];
+        const dock = physical[1];
+        onUpdateBattery?.({
+          powerSource: system.powerSource === 'AC' ? 'AC External' : system.powerSource === 'Battery' ? 'Battery' : 'Unknown',
+          mainTablet: { ...battery.mainTablet, percent: main?.percentage ?? null, charging: main?.charging ?? null, timeRemainingMins: null },
+          keyboardDock: { ...battery.keyboardDock, percent: dock?.percentage ?? null, charging: dock?.charging ?? null, attached: dock !== undefined, timeRemainingMins: null },
+        });
+        setPollSource('Windows Agent'); setLastPolledTime(new Date().toLocaleTimeString());
+      } else {
+        onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null }, keyboardDock: { ...battery.keyboardDock, percent: null, charging: null, attached: false, timeRemainingMins: null } });
+        setPollSource('Windows telemetry unavailable');
+      }
+    } catch {
+      onSystemTelemetry?.(null);
+      onUpdateBattery?.({ powerSource: 'Unknown', mainTablet: { ...battery.mainTablet, percent: null, charging: null, timeRemainingMins: null }, keyboardDock: { ...battery.keyboardDock, percent: null, charging: null, attached: false, timeRemainingMins: null } });
+      setPollSource('Windows telemetry unavailable');
+    }
+    setIsPolling(false);
+    return;
 
     // 1. Primary Priority: Query Backend Telemetry / WMI API for Dual-Battery details
     try {
@@ -104,7 +134,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
         if (onUpdateBattery) {
           onUpdateBattery({
-            powerSource: charging ? 'AC External' : 'Battery',
+              powerSource: charging ? 'AC External' : 'Battery',
             mainTablet: {
               ...battery.mainTablet,
               percent: pct,
@@ -146,8 +176,8 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
   const mainPct = battery.mainTablet.percent;
   const kbPct = battery.keyboardDock.percent;
-  const mainLow = mainPct <= 20;
-  const kbLow = battery.keyboardDock.attached && kbPct <= 20;
+  const mainLow = mainPct !== null && mainPct <= 20;
+  const kbLow = battery.keyboardDock.attached === true && kbPct !== null && kbPct <= 20;
 
   return (
     <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
@@ -324,7 +354,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   type="number"
                   min="0"
                   max="100"
-                  value={mainPct}
+                  value={mainPct ?? ''}
                   onChange={(e) => {
                     const parsed = toFiniteNumber(e.target.value);
                     if (parsed === null) return;
@@ -344,7 +374,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 type="range"
                 min="0"
                 max="100"
-                value={mainPct}
+                value={mainPct ?? 0}
                 onChange={(e) => {
                   const val = Number(e.target.value);
                   applyBatteryUpdate({
@@ -387,7 +417,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                   min="0"
                   max="100"
                   disabled={!battery.keyboardDock.attached}
-                  value={kbPct}
+                  value={kbPct ?? ''}
                   onChange={(e) => {
                     const parsed = toFiniteNumber(e.target.value);
                     if (parsed === null) return;
@@ -408,7 +438,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 min="0"
                 max="100"
                 disabled={!battery.keyboardDock.attached}
-                value={kbPct}
+                value={kbPct ?? 0}
                 onChange={(e) => {
                   const val = Number(e.target.value);
                   applyBatteryUpdate({
@@ -554,7 +584,7 @@ while ($true) {
               <Battery className="w-4 h-4 text-amber-400" /> BATT 1 (TABLET MAIN)
             </span>
             <span className={`font-black text-sm ${mainLow ? 'text-red-400' : 'text-emerald-400'}`}>
-              {mainPct}%
+              {mainPct === null ? 'UNAVAILABLE' : `${mainPct}%`}
             </span>
           </div>
 
@@ -564,17 +594,19 @@ while ($true) {
               className={`h-full transition-all duration-500 ${
                 mainLow
                   ? 'bg-red-500'
+                  : mainPct === null
+                  ? 'bg-zinc-700'
                   : mainPct < 50
                   ? 'bg-amber-400'
                   : 'bg-emerald-400'
               }`}
-              style={{ width: `${mainPct}%` }}
+              style={{ width: mainPct === null ? '0%' : `${mainPct}%` }}
             />
           </div>
 
           <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
             <span>{battery.mainTablet.voltage}V | {battery.mainTablet.tempC}°C</span>
-            <span className="text-zinc-300 font-semibold">{battery.mainTablet.timeRemainingMins}m REMAINING</span>
+            <span className="text-zinc-300 font-semibold">{battery.mainTablet.timeRemainingMins === null ? 'UNKNOWN' : `${battery.mainTablet.timeRemainingMins}m REMAINING`}</span>
           </div>
         </div>
 
@@ -595,7 +627,7 @@ while ($true) {
                 ? 'text-zinc-500 font-mono text-xs'
                 : kbLow ? 'text-red-400' : 'text-emerald-400'
             }`}>
-              {battery.keyboardDock.attached ? `${kbPct}%` : 'UNCOUPLED'}
+              {!battery.keyboardDock.attached ? 'UNCOUPLED' : kbPct === null ? 'UNAVAILABLE' : `${kbPct}%`}
             </span>
           </div>
 
@@ -607,11 +639,13 @@ while ($true) {
                   ? 'bg-zinc-800'
                   : kbLow
                   ? 'bg-red-500'
+                  : kbPct === null
+                  ? 'bg-zinc-700'
                   : kbPct < 50
                   ? 'bg-amber-400'
                   : 'bg-emerald-400'
               }`}
-              style={{ width: battery.keyboardDock.attached ? `${kbPct}%` : '0%' }}
+              style={{ width: battery.keyboardDock.attached && kbPct !== null ? `${kbPct}%` : '0%' }}
             />
           </div>
 

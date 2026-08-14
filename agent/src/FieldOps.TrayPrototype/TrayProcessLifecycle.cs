@@ -2,6 +2,7 @@ using System.Diagnostics;
 using FieldOps.NativeHealth;
 using FieldOps.TrayPrototype.Location;
 using System.Security.Principal;
+using FieldOps.TrayPrototype.Launcher;
 
 namespace FieldOps.TrayPrototype;
 
@@ -95,13 +96,32 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
             locationBroker,
             new LocationBrokerAuthorizationPolicy(operatorSid),
             new TraceLocationBrokerDiagnostics());
+        var launcherPipeServer = new LauncherPipeServer(
+            new ApplicationLauncher(new ProcessApplicationExecutor()),
+            new LauncherAuthorizationPolicy(operatorSid));
+        var dashboardRoot = @"C:\FieldOpsDashboard";
+        var nodePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "nodejs",
+            "node.exe");
+        var dashboardBackend = new DashboardBackendLifecycle(
+            new ProductionDashboardBackendProbe(new HttpClient { Timeout = TimeSpan.FromSeconds(1) }),
+            new ProductionDashboardBackendProcessFactory(),
+            new DashboardBackendStartInfo(
+                nodePath,
+                Path.Combine(dashboardRoot, "dist", "server.cjs"),
+                dashboardRoot),
+            new RealDashboardBackendDelay());
         var context = new TrayApplicationContext(
             refreshCoordinator,
             new ElevatedRestartCoordinator(
                 CoLocatedPaths.GetRestartHelperPath(),
                 TimeSpan.FromSeconds(75)),
             locationBroker,
-            locationPipeServer);
+            locationPipeServer,
+            launcherPipeServer,
+            dashboardBackend,
+            new DefaultDashboardBrowser());
         return new WindowsFormsTrayApplicationHost(context);
     }
 }

@@ -22,14 +22,16 @@ import {
   SolarData, 
   UIThemeMode, 
   WeatherData,
-  latLonToGridSquare 
+  latLonToGridSquare,
+  SystemTelemetry
 } from './types';
-import { DEFAULT_APPS, DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
+import { DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
 import { toFiniteNumber } from './utils/numbers';
+import { formatNetworkDisplay, formatStorageDisplay } from './utils/systemTelemetryDisplay';
+import { CONFIG_STORAGE_KEY, loadDashboardConfig, saveDashboardConfig } from './configPersistence';
 
-const STORAGE_KEY = 'fieldops_dashboard_config_v115';
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
 
 interface InitialGpsState {
@@ -94,33 +96,37 @@ const loadInitialGpsState = (): InitialGpsState => {
 
 export default function App() {
   // 1. Dashboard Persistent Config
-  const [config, setConfig] = useState<DashboardConfig>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved) {
-        try {
-          const parsed = JSON.parse(saved);
-          // Ensure all default catalog apps are present in the app launcher list
-          if (parsed && Array.isArray(parsed.apps)) {
-            const existingIds = new Set(parsed.apps.map((a: AppLauncherItem) => a.id));
-            const missingApps = DEFAULT_APPS.filter(a => !existingIds.has(a.id));
-            if (missingApps.length > 0) {
-              parsed.apps = [...parsed.apps, ...missingApps];
-            }
-          }
-          return parsed;
-        } catch (e) {
-          console.warn('Failed to parse saved config, using initial config');
-        }
-      }
-    }
-    return INITIAL_CONFIG;
-  });
+  const [config, setConfig] = useState<DashboardConfig>(INITIAL_CONFIG);
+  const [configReady, setConfigReady] = useState(false);
+  const [configPersistenceError, setConfigPersistenceError] = useState<string | null>(null);
 
-  // Save config changes to LocalStorage
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(config));
-  }, [config]);
+    let cancelled = false;
+    loadDashboardConfig().then(result => {
+      if (cancelled) return;
+      setConfig(result.config);
+      setConfigPersistenceError(result.persistenceError ?? null);
+      setConfigReady(true);
+    }).catch(error => {
+      if (cancelled) return;
+      console.warn('Dashboard configuration load failed', error);
+      setConfigPersistenceError('Dashboard configuration could not be loaded from the local backend.');
+      setConfigReady(true);
+    });
+    return () => { cancelled = true; };
+  }, []);
+
+  const updateConfig = (updated: DashboardConfig) => {
+    setConfig(updated);
+    setConfigPersistenceError(null);
+    saveDashboardConfig(updated).then(saved => {
+      setConfig(saved);
+    }).catch(error => {
+      console.warn('Dashboard configuration persistence failed', error);
+      try { localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(updated)); } catch { /* compatibility cache is best effort */ }
+      setConfigPersistenceError('Dashboard configuration is active but was not saved to the local backend.');
+    });
+  };
 
   // 2. Dual Battery Status
   const [battery, setBattery] = useState<DualBatteryStatus>({
@@ -143,6 +149,23 @@ export default function App() {
     },
     powerSource: 'Battery',
   });
+  const [systemTelemetry, setSystemTelemetry] = useState<SystemTelemetry | null>(null);
+  const [launchStates, setLaunchStates] = useState<Record<string, string>>({});
+
+  const handleLaunchApp = async (appId: string) => {
+    setLaunchStates(previous => ({ ...previous, [appId]: 'LAUNCHING' }));
+    try {
+      const response = await fetch('/api/apps/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId }),
+      });
+      const result = await response.json() as { status?: string };
+      setLaunchStates(previous => ({ ...previous, [appId]: result.status ?? 'LaunchFailed' }));
+    } catch {
+      setLaunchStates(previous => ({ ...previous, [appId]: 'LauncherUnavailable' }));
+    }
+  };
 
   // 3. GPS & Maidenhead Grid Square (Saved to LocalStorage)
   const [initialGpsState] = useState(loadInitialGpsState);
@@ -287,15 +310,15 @@ export default function App() {
 
   // Toggle Favorite App
   const handleToggleFavorite = (appId: string) => {
-    setConfig((prev) => ({
-      ...prev,
-      apps: prev.apps.map((a) => (a.id === appId ? { ...a, favorite: !a.favorite } : a)),
-    }));
+    updateConfig({
+      ...config,
+      apps: config.apps.map((a) => (a.id === appId ? { ...a, favorite: !a.favorite } : a)),
+    });
   };
 
   // Handle Theme Change
   const handleThemeChange = (newTheme: UIThemeMode) => {
-    setConfig((prev) => ({ ...prev, theme: newTheme }));
+    updateConfig({ ...config, theme: newTheme });
   };
 
   // Handle GPS Updates
@@ -317,6 +340,10 @@ export default function App() {
     });
   };
 
+  if (!configReady) {
+    return <div className="min-h-screen bg-[#0F1115] text-amber-400 flex items-center justify-center font-mono text-sm">LOADING DASHBOARD CONFIGURATION...</div>;
+  }
+
   // Root class for chosen Theme (Dark Tactical, Red Night Vision, Sunlight High-Contrast)
   const isNight = config.theme === 'night_vision';
   const isSunlight = config.theme === 'sunlight';
@@ -329,6 +356,11 @@ export default function App() {
 
   return (
     <div className={`min-h-screen ${rootBg} transition-colors flex flex-col selection:bg-amber-500 selection:text-black`}>
+      {configPersistenceError && (
+        <div role="alert" className="border-b border-red-700 bg-red-950 px-4 py-2 text-center text-xs font-mono text-red-300">
+          {configPersistenceError}
+        </div>
+      )}
       
       {/* 1. Top Header Bar */}
       <HeaderBar
@@ -338,7 +370,7 @@ export default function App() {
         gps={{ ...gps, gridSquare: operatingGridSquare }}
         battery={battery}
         audioEnabled={config.audioFeedback}
-        onToggleAudio={() => setConfig((prev) => ({ ...prev, audioFeedback: !prev.audioFeedback }))}
+        onToggleAudio={() => updateConfig({ ...config, audioFeedback: !config.audioFeedback })}
         onOpenConfig={() => setConfigModalOpen(true)}
         onOpenRoadmap={(tab) => {
           if (tab) setRoadmapActiveTab(tab);
@@ -359,6 +391,7 @@ export default function App() {
             battery={battery}
             theme={config.theme}
             onUpdateBattery={(updated) => setBattery((prev) => ({ ...prev, ...updated }))}
+            onSystemTelemetry={setSystemTelemetry}
           />
 
           {/* GPS & Maidenhead Grid Badge */}
@@ -371,7 +404,7 @@ export default function App() {
             comPort={config.gpsComPort}
             baudRate={config.gpsBaudRate}
             onSelectComPort={(port, baud) => {
-              setConfig((prev) => ({ ...prev, gpsComPort: port, gpsBaudRate: baud }));
+              updateConfig({ ...config, gpsComPort: port, gpsBaudRate: baud });
             }}
           />
 
@@ -409,6 +442,8 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             gridColumns={config.appGridColumns}
+            launchStates={launchStates}
+            onLaunchApp={handleLaunchApp}
             onToggleFavorite={handleToggleFavorite}
             onEditApp={(app) => {
               setEditingApp(app);
@@ -431,11 +466,19 @@ export default function App() {
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
               <span className="text-[10px] text-zinc-500 font-bold uppercase">CPU</span>
-              <span className="text-[11px] font-mono text-emerald-400">14%</span>
+              <span className="text-[11px] font-mono text-emerald-400">{systemTelemetry?.cpu?.usagePercent != null ? `${systemTelemetry.cpu.usagePercent}%` : 'Unavailable'}</span>
             </div>
             <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
               <span className="text-[10px] text-zinc-500 font-bold uppercase">MEM</span>
-              <span className="text-[11px] font-mono text-cyan-400">2.4 GB</span>
+              <span className="text-[11px] font-mono text-cyan-400">{systemTelemetry?.memory != null ? `${(systemTelemetry.memory.usedBytes / 1024 ** 3).toFixed(1)} GB (${systemTelemetry.memory.usedPercent}%)` : 'Unavailable'}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase">DISK</span>
+              <span className="text-[11px] font-mono text-amber-400">{formatStorageDisplay(systemTelemetry?.storage ?? null)}</span>
+            </div>
+            <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">
+              <span className="text-[10px] text-zinc-500 font-bold uppercase">NET</span>
+              <span className="text-[11px] font-mono text-sky-400">{formatNetworkDisplay(systemTelemetry?.network ?? null)}</span>
             </div>
           </div>
 
@@ -464,8 +507,8 @@ export default function App() {
           setConfigModalOpen(false);
           setEditingApp(null);
         }}
-        onSaveConfig={(updated) => setConfig(updated)}
-        onResetToDefaults={() => setConfig(INITIAL_CONFIG)}
+        onSaveConfig={updateConfig}
+        onResetToDefaults={() => updateConfig(INITIAL_CONFIG)}
         editingApp={editingApp}
       />
 

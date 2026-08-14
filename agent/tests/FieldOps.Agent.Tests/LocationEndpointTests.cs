@@ -73,7 +73,7 @@ public sealed class LocationEndpointTests : IClassFixture<AgentWebApplicationFac
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/location/nmea")).StatusCode);
         using var request = new HttpRequestMessage(HttpMethod.Get, "/api/v1/location/nmea"); request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", AgentWebApplicationFactory.Token);
         using var response = await client.SendAsync(request); var root = JsonDocument.Parse(await response.Content.ReadAsStringAsync()).RootElement;
-        Assert.Equal("NoFix", root.GetProperty("status").GetString()); Assert.Equal("SerialNmea", root.GetProperty("source").GetString()); Assert.Equal(JsonValueKind.Null, root.GetProperty("latitude").ValueKind); Assert.DoesNotContain("$GP", await response.Content.ReadAsStringAsync());
+        Assert.Equal("Initializing", root.GetProperty("status").GetString()); Assert.Equal("SerialNmea", root.GetProperty("source").GetString()); Assert.Equal(JsonValueKind.Null, root.GetProperty("latitude").ValueKind); Assert.DoesNotContain("$GP", await response.Content.ReadAsStringAsync());
     }
 
     private sealed class FakeLocationProvider(LocationObservation observation) : ILocationProvider

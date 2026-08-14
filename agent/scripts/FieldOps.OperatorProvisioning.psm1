@@ -464,6 +464,7 @@ function Remove-FieldOpsOperatorProvisioning {
 Export-ModuleMember -Function @(
     'Get-FieldOpsCanonicalOperatorGroupName',
     'Get-FieldOpsOperatorEnvironmentName',
+    'Read-FieldOpsOperatorProvisioningState',
     'Get-FieldOpsServiceEnvironment',
     'Restore-FieldOpsServiceEnvironment',
     'New-FieldOpsOperatorProvisioning',

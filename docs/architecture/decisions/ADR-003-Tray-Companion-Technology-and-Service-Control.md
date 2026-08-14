@@ -1,11 +1,16 @@
 # ADR-003: Tray Companion Technology and Service Control
 
-- Status: Proposed by architecture spike
+- Status: Accepted
+- Accepted: 2026-08-14
 - Date: 2026-07-29
 - Decision owners: FieldOps Dashboard maintainers
 - Related work: 2.3-03 Tray Companion
 - Supersedes: None
 - Superseded by: —
+
+## Implementation status - 2026-08-14
+
+The Windows Forms Tray decision is implemented for the Version 2.3 Single-Operator Field MVP. Normal operator startup, single-instance behavior, Tray-owned Dashboard lifecycle, bounded launcher behavior, and production ToughBook validation are complete. Deferred multi-session, alternate-user, signing, and enterprise installer work remains outside this acceptance.
 
 ## Context
 

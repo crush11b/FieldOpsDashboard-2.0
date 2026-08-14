@@ -29,6 +29,10 @@ import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
 import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { readSystemTelemetry } from './server/systemTelemetryPipe';
+import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
+import { DEFAULT_APPS } from './src/data/defaultConfig';
+import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
 
 async function startServer() {
   const app = express();
@@ -54,24 +58,16 @@ async function startServer() {
     store: new InMemoryLatestTelemetryStore(),
   }));
 
-  // CORS Middleware for external scripts, PowerShell, Electron, and local clients
-  app.use((req, res, next) => {
-    res.header("Access-Control-Allow-Origin", "*");
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept");
-    if (req.method === "OPTIONS") {
-      return res.sendStatus(200);
-    }
-    next();
-  });
-
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
+  app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
 
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
+  app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
   app.get('/api/version', (_req, res) => {
     const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
     try {
@@ -1074,7 +1070,7 @@ Context provided: ${JSON.stringify(context || {})}`;
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  app.listen(PORT, "127.0.0.1", () => {
     console.log(`${PRODUCT_METADATA.productName} ${PRODUCT_METADATA.version} server running on http://localhost:${PORT}`);
   });
 }

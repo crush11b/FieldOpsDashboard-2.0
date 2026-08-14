@@ -70,7 +70,10 @@ public sealed class InstallerScriptTests
         Assert.Contains("Register-FieldOpsTrayStartup", InstallerScript);
         Assert.Contains("FieldOps.TrayStartup.psm1", InstallerScript);
         Assert.Contains("$trayInstallPath", InstallerScript);
-        Assert.Contains("FieldOps tray startup registered for the current user", InstallerScript);
+        Assert.Contains("-OperatorSid $operatorProvisioning.OperatorSid", InstallerScript);
+        Assert.Contains("Remove-FieldOpsLegacyDashboardStartup", InstallerScript);
+        Assert.Contains("operator '$($operatorProvisioning.OperatorName)'", InstallerScript);
+        Assert.DoesNotContain("registered for the current user", InstallerScript);
     }
 
     [Fact]
@@ -86,11 +89,42 @@ public sealed class InstallerScriptTests
     public void TrayStartupModuleUsesCurrentUserRunKeyAndQuotedExecutable()
     {
         var module = File.ReadAllText(FindScript("FieldOps.TrayStartup.psm1"));
-        Assert.Contains("HKCU:\\Software\\Microsoft\\Windows\\CurrentVersion\\Run", module);
+        Assert.Contains("Software\\Microsoft\\Windows\\CurrentVersion\\Run", module);
+        Assert.DoesNotContain("HKCU:", module);
+        Assert.Contains("OperatorSid", module);
+        Assert.Contains("RegLoadKey", module);
+        Assert.Contains("RegUnLoadKey", module);
+        Assert.Contains("LoadedByProduct", module);
         Assert.Contains("FieldOpsDashboardTray", module);
         Assert.Contains("Resolve-Path -LiteralPath $TrayPath", module);
-        Assert.Contains("$command = '\"{0}\"' -f $resolved", module);
-        Assert.Contains("Remove-ItemProperty", module);
+        Assert.Contains("Command = '\"{0}\"' -f $resolved", module);
+        Assert.Contains("DeleteValue($script:StartupValueName", module);
+        Assert.Contains("FieldOpsDashboard.lnk", module);
+    }
+
+    [Fact]
+    public void StartupRegistrationIsNotRedirectableThroughAmbientInstallerIdentity()
+    {
+        var module = File.ReadAllText(FindScript("FieldOps.TrayStartup.psm1"));
+        Assert.DoesNotContain("$env:USERNAME", module);
+        Assert.DoesNotContain("[Environment]::UserName", module);
+        Assert.Contains("Open-FieldOpsOperatorHive -OperatorSid $OperatorSid", module);
+        Assert.Contains("$actual -ne $tray.Command", module);
+    }
+
+    [Fact]
+    public void ProductionInstallAndUpdateDoNotInvokeLegacyDashboardStartup()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var uninstaller = File.ReadAllText(FindScript("Uninstall-FieldOpsAgent.ps1"));
+        Assert.DoesNotContain("start_background.vbs", InstallerScript);
+        Assert.DoesNotContain("start.bat", InstallerScript);
+        Assert.DoesNotContain("npm run dev", InstallerScript);
+        Assert.DoesNotContain("start_background.vbs", updater);
+        Assert.DoesNotContain("start.bat", updater);
+        Assert.DoesNotContain("npm run dev", updater);
+        Assert.DoesNotContain("start_background.vbs", uninstaller);
+        Assert.DoesNotContain("start.bat", uninstaller);
     }
 
     [Fact]

@@ -1,50 +1,94 @@
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 
 namespace FieldOps.Agent.Location;
 
-public sealed class SerialNmeaLocationProvider : ILocationProvider
+public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedService, IDisposable
 {
     private readonly ILogger<SerialNmeaLocationProvider> logger;
     private readonly string portName;
     private readonly int baudRate;
-    private readonly TimeSpan timeout;
+    private readonly TimeSpan retryDelay;
+    private readonly Func<INmeaSerialReader> readerFactory;
+    private readonly object stateLock = new();
+    private LocationObservation latest = LocationObservation.WithoutTelemetry(LocationStatus.Initializing) with { Source = "SerialNmea" };
+    private CancellationTokenSource? sessionCancellation;
+    private Task? sessionTask;
+    private bool disposed;
 
     public SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, IConfiguration configuration)
-        : this(logger, configuration["Agent:Location:NmeaPort"] ?? "COM6", int.TryParse(configuration["Agent:Location:NmeaBaud"], out var baud) ? baud : 9600, TimeSpan.FromSeconds(5)) { }
+        : this(logger, configuration["Agent:Location:NmeaPort"] ?? "COM6", int.TryParse(configuration["Agent:Location:NmeaBaud"], out var baud) ? baud : 9600, TimeSpan.FromSeconds(2)) { }
 
-    internal SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, string portName, int baudRate, TimeSpan timeout, Func<INmeaSerialReader>? readerFactory = null)
-    { this.logger = logger; this.portName = portName; this.baudRate = baudRate; this.timeout = timeout; this.readerFactory = readerFactory ?? (() => new SerialPortNmeaReader(portName, baudRate)); }
-    private readonly Func<INmeaSerialReader> readerFactory;
+    internal SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, string portName, int baudRate, TimeSpan retryDelay, Func<INmeaSerialReader>? readerFactory = null)
+    { this.logger = logger; this.portName = portName; this.baudRate = baudRate; this.retryDelay = retryDelay; this.readerFactory = readerFactory ?? (() => new SerialPortNmeaReader(portName, baudRate)); }
 
-    public async Task<LocationObservation> GetLocationAsync(CancellationToken cancellationToken)
+    public Task StartAsync(CancellationToken cancellationToken)
     {
-        try
+        lock (stateLock)
         {
-            using var port = readerFactory(); port.Open(); logger.LogInformation("NMEA port opened: {PortName}", portName);
-            var clock = Stopwatch.StartNew(); TimeSpan? complementEnd = null; NmeaFix? latest = null; var sawGga = false; var sawRmc = false;
-            while (clock.Elapsed < timeout)
-            {
-                cancellationToken.ThrowIfCancellationRequested();
-                var line = await port.ReadLineAsync(cancellationToken);
-                if (line is not null && NmeaParser.TryParse(line.Trim(), out var parsed))
-                {
-                    latest = Merge(latest, parsed);
-                    sawGga |= parsed.IsGga && parsed.HasFix; sawRmc |= parsed.IsRmc && parsed.HasFix;
-                    if (parsed.HasFix && complementEnd is null) complementEnd = clock.Elapsed + TimeSpan.FromMilliseconds(750);
-                    if (sawGga && sawRmc) return ToObservation(latest);
-                }
-                // Check the complementary deadline even when the reader timed out or data was malformed.
-                if (latest is { HasFix: true } && complementEnd is not null && clock.Elapsed >= complementEnd) return ToObservation(latest);
-            }
-            if (latest is not null && latest.HasFix) return ToObservation(latest);
-            logger.LogInformation("NMEA acquisition timeout");
-            return LocationObservation.WithoutTelemetry(LocationStatus.NoFix) with { Source = "SerialNmea" };
+            if (sessionTask is not null) return Task.CompletedTask;
+            sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+            sessionTask = RunSessionAsync(sessionCancellation.Token);
         }
-        catch (OperationCanceledException) { throw; }
-        catch (UnauthorizedAccessException ex) { logger.LogInformation(ex, "NMEA port unavailable or in use"); return LocationObservation.WithoutTelemetry(LocationStatus.Unavailable) with { Source = "SerialNmea" }; }
-        catch (IOException ex) { logger.LogInformation(ex, "NMEA port unavailable or in use"); return LocationObservation.WithoutTelemetry(LocationStatus.Unavailable) with { Source = "SerialNmea" }; }
-        catch (Exception ex) { logger.LogInformation(ex, "Unexpected NMEA reader failure"); return LocationObservation.WithoutTelemetry(LocationStatus.Error) with { Source = "SerialNmea" }; }
+        return Task.CompletedTask;
+    }
+
+    public async Task StopAsync(CancellationToken cancellationToken)
+    {
+        Task? task;
+        lock (stateLock) { sessionCancellation?.Cancel(); task = sessionTask; }
+        if (task is not null) await task.WaitAsync(cancellationToken);
+    }
+
+    public Task<LocationObservation> GetLocationAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (stateLock) return Task.FromResult(latest);
+    }
+
+    private async Task RunSessionAsync(CancellationToken cancellationToken)
+    {
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            try
+            {
+                using var port = readerFactory();
+                port.Open();
+                SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
+                logger.LogInformation("NMEA port opened: {PortName}", portName);
+                NmeaFix? current = null;
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    var line = await port.ReadLineAsync(cancellationToken);
+                    if (line is null || !NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
+                    current = Merge(current, parsed);
+                    SetLatest(parsed.HasFix ? ToObservation(current) : LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+            catch (UnauthorizedAccessException ex) { SetUnavailable(); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
+            catch (IOException ex) { SetUnavailable(); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
+            catch (Exception ex) { SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Error)); logger.LogInformation(ex, "Unexpected NMEA reader failure"); }
+
+            if (!cancellationToken.IsCancellationRequested)
+            {
+                try { await Task.Delay(retryDelay, cancellationToken); }
+                catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
+            }
+        }
+    }
+
+    private void SetUnavailable() => SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Unavailable));
+    private void SetLatest(LocationObservation observation)
+    {
+        lock (stateLock) latest = observation with { Source = "SerialNmea" };
+    }
+
+    public void Dispose()
+    {
+        if (disposed) return;
+        disposed = true;
+        sessionCancellation?.Cancel();
+        sessionCancellation?.Dispose();
     }
 
     // Each supported sentence is authoritative for fix validity; fields absent from it are retained
