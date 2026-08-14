@@ -2,7 +2,7 @@
   "productName": "FieldOps Dashboard",
   "productId": "FieldOpsDashboard",
   "packageName": "fieldops-dashboard",
-  "version": "2.2.0",
-  "releaseName": "Trustworthy Dashboard",
+  "version": "2.3.0",
+  "releaseName": "Single-Operator Field MVP",
   "repository": "crush11b/FieldOpsDashboard-2.0"
 }

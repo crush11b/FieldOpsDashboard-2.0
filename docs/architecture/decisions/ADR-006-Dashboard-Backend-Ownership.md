@@ -1,11 +1,16 @@
 # ADR-006: Dashboard Backend Ownership
 
-- Status: Proposed
+- Status: Accepted
+- Accepted: 2026-08-14
 - Proposed: 2026-07-28
 - Supersedes: None
 - Superseded by: —
 - Decision owners: FieldOps Dashboard maintainers
 - Related work: E2-003 Telemetry Receiver, ADR-001 Windows Service Runtime, ADR-002 Agent Transport and Authentication
+
+## Implementation status - 2026-08-14
+
+The decision is implemented for the Version 2.3 Single-Operator Field MVP. Express remains the browser-facing backend and production binding is loopback-only. Wildcard CORS has been removed. The Tray owns or adopts the production Dashboard backend lifecycle, while `FieldOpsAgent` remains a separate `LocalService` boundary.
 
 ## Context
 

@@ -210,3 +210,18 @@ Before starting a major task, answer:
 ## Bottom line
 
 The foundation is sufficient to proceed. The project will preserve the framework already built, stop extending speculative platform capability on the active path, finish a usable single-operator product, and then invest primarily in Field Tools and iterative field refinement.
+
+## Version 2.3 Closure Note - 2026-08-14
+
+The approved Version 2.3 sequence is complete:
+
+1. Freeze and document this rebaseline. **Complete**.
+2. Finish only the tray behavior required for normal single-operator use. **Complete**.
+3. Confirm the minimal loopback integration path from dashboard/backend to agent. **Complete**.
+4. Implement serial-port enumeration. **Complete**.
+5. Implement the NMEA GNSS adapter. **Complete**.
+6. Implement Windows system telemetry. **Complete**.
+7. Consolidate startup, deployment, update, and uninstall. **Complete**.
+8. Perform operational ToughBook/ToughPad validation. **Complete**.
+
+Operational validation passed on the production Panasonic ToughBook CF-20. Version 2.3 is release-ready pending merge, tag, and release mechanics. Deferred enterprise and hardening work remains deferred under the approved rebaseline. The next planned product release is Version 2.4 - Field Tools.

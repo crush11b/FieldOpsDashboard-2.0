@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.3.0] - 2026-08-14
+
+### Added
+- **Single-Operator ToughBook MVP**: Reliable reboot/login startup with Tray-owned production Dashboard backend lifecycle.
+- **Native field telemetry**: SerialNmea GNSS, Maidenhead/grid, weather/location integration, Windows battery/power, and CPU/memory/storage/network telemetry.
+- **Application launching**: Bounded Tray launcher support for executables and HTTP/HTTPS URIs with truthful unavailable and `ExecutableNotFound` states.
+- **Persistent operator configuration**: Product-owned per-operator configuration survives reboot and browser-origin changes.
+
+### Changed
+- **Updater workflow**: Exact-revision deployment validation now supports practical release-style Agent and Tray artifact updates.
+- **Local telemetry security**: Corrected the system telemetry Node named-pipe ACL boundary.
+
+### Known limitations
+- WSJT-X has a local Hamlib DLL/install issue.
+- GridTracker is unavailable because its executable is missing or its configured path does not match the installation.
+- HF Band Guidance remains modeled guidance when live ionosonde data is unavailable.
+- Gemini advisor requires a configured API key.
+- Historical updater backup directories remain cleanup and hardening work.
+- Enterprise installer, signing, and multi-session work remain deferred.
+
+---
+
 ## [1.2.0] - 2026-07-22
 
 ### Added
