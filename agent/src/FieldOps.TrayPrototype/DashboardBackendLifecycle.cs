@@ -71,7 +71,9 @@ internal interface IDashboardBackendLifecycle : IAsyncDisposable
 
 internal sealed class DashboardBackendLifecycleOptions
 {
-    internal TimeSpan ReadinessTimeout { get; init; } = TimeSpan.FromSeconds(15);
+    internal static readonly TimeSpan DefaultReadinessTimeout = TimeSpan.FromSeconds(60);
+
+    internal TimeSpan ReadinessTimeout { get; init; } = DefaultReadinessTimeout;
 
     internal TimeSpan ProbeInterval { get; init; } = TimeSpan.FromMilliseconds(250);
 

@@ -3,6 +3,16 @@ namespace FieldOps.TrayPrototype.Tests;
 public sealed class DashboardBackendLifecycleTests
 {
     [Fact]
+    public void Production_default_readiness_timeout_is_sixty_seconds()
+    {
+        var options = new DashboardBackendLifecycleOptions();
+
+        Assert.Equal(TimeSpan.FromSeconds(60), options.ReadinessTimeout);
+        Assert.Equal(TimeSpan.FromMilliseconds(250), options.ProbeInterval);
+        Assert.Equal(1, options.MaximumRecoveryAttempts);
+    }
+
+    [Fact]
     public async Task No_backend_starts_exactly_one_process_and_reaches_ready()
     {
         var probe = new FakeProbe(DashboardBackendProbeState.NotListening, DashboardBackendProbeState.Compatible);
