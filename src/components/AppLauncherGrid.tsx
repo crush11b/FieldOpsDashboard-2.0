@@ -41,6 +41,8 @@ interface AppLauncherGridProps {
   onToggleFavorite: (appId: string) => void;
   onEditApp: (app: AppLauncherItem) => void;
   onAddNewApp: () => void;
+  launchStates: Record<string, string | undefined>;
+  onLaunchApp: (appId: string) => void;
 }
 
 // Icon mapper for Ham Radio apps
@@ -101,6 +103,8 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
   onToggleFavorite,
   onEditApp,
   onAddNewApp,
+  launchStates,
+  onLaunchApp,
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -151,6 +155,8 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
   });
 
   const renderAppCard = (app: AppLauncherItem) => {
+    const launchState = launchStates[app.id] ?? 'READY';
+    const launching = launchState === 'LAUNCHING';
     return (
       <div
         key={app.id}
@@ -231,13 +237,16 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
         <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">
           <button
             id={`btn-launch-${app.id}`}
-            disabled
-            aria-describedby={`launch-unavailable-${app.id}`}
-            title="App launching requires the local launcher agent and is not yet implemented"
-            className="flex-1 py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-70"
+            disabled={launching}
+            onClick={() => {
+              playTacticalClick(audioEnabled);
+              onLaunchApp(app.id);
+            }}
+            title="Launch through the FieldOps Tray"
+            className={`flex-1 py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${launching ? 'border-zinc-700 bg-zinc-900 text-zinc-500 cursor-wait' : 'border-emerald-700 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'}`}
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>LAUNCH UNAVAILABLE</span>
+            <span>{launching ? 'LAUNCHING...' : 'LAUNCH'}</span>
           </button>
 
           <button
@@ -254,8 +263,8 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             <Edit2 className="w-3.5 h-3.5" />
           </button>
         </div>
-        <p id={`launch-unavailable-${app.id}`} className="text-[9px] text-zinc-500">
-          Requires the local launcher agent. No process will be started from the browser.
+        <p id={`launch-status-${app.id}`} className={`text-[9px] ${launchState === 'Launched' || launchState === 'UriOpened' ? 'text-emerald-400' : launchState === 'READY' ? 'text-zinc-500' : 'text-amber-400'}`}>
+          {launchState === 'READY' ? 'Launch is handled by the local FieldOps Tray.' : launchState}
         </p>
       </div>
     );

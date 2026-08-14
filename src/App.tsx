@@ -146,6 +146,22 @@ export default function App() {
     powerSource: 'Battery',
   });
   const [systemTelemetry, setSystemTelemetry] = useState<SystemTelemetry | null>(null);
+  const [launchStates, setLaunchStates] = useState<Record<string, string>>({});
+
+  const handleLaunchApp = async (appId: string) => {
+    setLaunchStates(previous => ({ ...previous, [appId]: 'LAUNCHING' }));
+    try {
+      const response = await fetch('/api/apps/launch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ appId }),
+      });
+      const result = await response.json() as { status?: string };
+      setLaunchStates(previous => ({ ...previous, [appId]: result.status ?? 'LaunchFailed' }));
+    } catch {
+      setLaunchStates(previous => ({ ...previous, [appId]: 'LauncherUnavailable' }));
+    }
+  };
 
   // 3. GPS & Maidenhead Grid Square (Saved to LocalStorage)
   const [initialGpsState] = useState(loadInitialGpsState);
@@ -413,6 +429,8 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             gridColumns={config.appGridColumns}
+            launchStates={launchStates}
+            onLaunchApp={handleLaunchApp}
             onToggleFavorite={handleToggleFavorite}
             onEditApp={(app) => {
               setEditingApp(app);
