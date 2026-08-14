@@ -12,11 +12,15 @@ internal sealed class TrayApplicationContext(
     IRestartCoordinator restartCoordinator,
     WindowsLocationBroker locationBroker,
     LocationBrokerPipeServer locationPipeServer,
-    LauncherPipeServer launcherPipeServer) : ApplicationContext
+    LauncherPipeServer launcherPipeServer,
+    IDashboardBackendLifecycle dashboardBackend,
+    IDashboardBrowser dashboardBrowser) : ApplicationContext
 {
+    private readonly DashboardOpenCoordinator dashboardOpenCoordinator = new(dashboardBackend, dashboardBrowser);
     private readonly CancellationTokenSource lifetimeCancellation = new();
     private readonly ToolStripMenuItem statusItem = new("Status: checking...") { Enabled = false };
     private readonly ToolStripMenuItem healthItem = new("Health: checking...") { Enabled = false };
+    private readonly ToolStripMenuItem dashboardStatusItem = new("Dashboard: starting...") { Enabled = false };
     private readonly ToolStripMenuItem restartItem = new("Restart FieldOps Agent");
     private readonly ToolStripMenuItem enableLocationItem = new("Enable Windows Location");
     private readonly System.Windows.Forms.Timer refreshTimer = new() { Interval = 5000 };
@@ -62,13 +66,14 @@ internal sealed class TrayApplicationContext(
             }
         };
         var dashboardItem = new ToolStripMenuItem("Open Dashboard");
-        dashboardItem.Click += (_, _) => OpenDashboard();
+        dashboardItem.Click += async (_, _) => await OpenDashboardAsync();
         var exitItem = new ToolStripMenuItem("Exit");
         exitItem.Click += (_, _) => ExitThread();
 
         notifyIcon.ContextMenuStrip = new ContextMenuStrip();
         notifyIcon.ContextMenuStrip.Items.AddRange([
             dashboardItem,
+            dashboardStatusItem,
             statusItem,
             healthItem,
             new ToolStripSeparator(),
@@ -83,6 +88,7 @@ internal sealed class TrayApplicationContext(
         refreshTimer.Start();
         _ = locationPipeServer.RunAsync(lifetimeCancellation.Token);
         _ = launcherPipeServer.RunAsync(lifetimeCancellation.Token);
+        _ = EnsureDashboardAsync();
         _ = RefreshAsync();
     }
 
@@ -185,18 +191,62 @@ internal sealed class TrayApplicationContext(
         refreshTimer.Stop();
         refreshTimer.Dispose();
         refreshCoordinator.Dispose();
+        dashboardBackend.DisposeAsync().AsTask().GetAwaiter().GetResult();
         notifyIcon.Visible = false;
         notifyIcon.ContextMenuStrip?.Dispose();
         notifyIcon.Dispose();
         lifetimeCancellation.Dispose();
     }
 
-    private static void OpenDashboard()
+    private async Task EnsureDashboardAsync()
     {
-        Process.Start(new ProcessStartInfo
+        try
         {
-            FileName = "http://localhost:3000",
-            UseShellExecute = true,
-        });
+            var result = await dashboardBackend.EnsureReadyAsync(lifetimeCancellation.Token);
+            if (!shutdownStarted)
+            {
+                dashboardStatusItem.Text = $"Dashboard: {result.State} ({result.Detail})";
+            }
+        }
+        catch (OperationCanceledException) when (shutdownStarted)
+        {
+        }
+        catch (Exception exception)
+        {
+            dashboardStatusItem.Text = $"Dashboard: Unavailable ({exception.Message})";
+        }
+    }
+
+    private async Task OpenDashboardAsync()
+    {
+        try
+        {
+            var result = await dashboardOpenCoordinator.OpenAsync(lifetimeCancellation.Token);
+            if (shutdownStarted)
+            {
+                return;
+            }
+
+            dashboardStatusItem.Text = $"Dashboard: {result.State} ({result.Detail})";
+            if (result.State == DashboardBackendState.Ready) return;
+
+            MessageBox.Show(
+                result.Detail,
+                "FieldOps Dashboard unavailable",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
+        catch (OperationCanceledException) when (shutdownStarted)
+        {
+        }
+        catch (Exception exception)
+        {
+            dashboardStatusItem.Text = $"Dashboard: Unavailable ({exception.Message})";
+            MessageBox.Show(
+                exception.Message,
+                "FieldOps Dashboard unavailable",
+                MessageBoxButtons.OK,
+                MessageBoxIcon.Warning);
+        }
     }
 }

@@ -99,6 +99,19 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
         var launcherPipeServer = new LauncherPipeServer(
             new ApplicationLauncher(new ProcessApplicationExecutor()),
             new LauncherAuthorizationPolicy(operatorSid));
+        var dashboardRoot = @"C:\FieldOpsDashboard";
+        var nodePath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+            "nodejs",
+            "node.exe");
+        var dashboardBackend = new DashboardBackendLifecycle(
+            new ProductionDashboardBackendProbe(new HttpClient { Timeout = TimeSpan.FromSeconds(1) }),
+            new ProductionDashboardBackendProcessFactory(),
+            new DashboardBackendStartInfo(
+                nodePath,
+                Path.Combine(dashboardRoot, "dist", "server.cjs"),
+                dashboardRoot),
+            new RealDashboardBackendDelay());
         var context = new TrayApplicationContext(
             refreshCoordinator,
             new ElevatedRestartCoordinator(
@@ -106,7 +119,9 @@ internal sealed class DefaultTrayApplicationHostFactory : ITrayApplicationHostFa
                 TimeSpan.FromSeconds(75)),
             locationBroker,
             locationPipeServer,
-            launcherPipeServer);
+            launcherPipeServer,
+            dashboardBackend,
+            new DefaultDashboardBrowser());
         return new WindowsFormsTrayApplicationHost(context);
     }
 }
