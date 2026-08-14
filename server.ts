@@ -32,6 +32,7 @@ import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
+import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
 
 async function startServer() {
   const app = express();
@@ -59,6 +60,7 @@ async function startServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
 
   app.get('/api/serial-ports', (_req, res) => {
