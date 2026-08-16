@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Radio, 
   BatteryCharging, 
-  WifiOff, 
+  WifiOff,
   Navigation, 
   Sun, 
   Moon, 
@@ -17,9 +17,10 @@ import {
   Download,
   Clock
 } from 'lucide-react';
-import { DualBatteryStatus, GPSStatus, UIThemeMode } from '../types';
+import { DualBatteryStatus, GPSStatus, SystemTelemetry, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
 import { getVersionedDownloadFilename, PRODUCT_METADATA } from '../productMetadata';
+import { formatNetworkDisplay } from '../utils/systemTelemetryDisplay';
 
 interface HeaderBarProps {
   callsign: string;
@@ -27,6 +28,7 @@ interface HeaderBarProps {
   onThemeChange: (theme: UIThemeMode) => void;
   gps: GPSStatus;
   battery: DualBatteryStatus;
+  systemTelemetry: SystemTelemetry | null;
   audioEnabled: boolean;
   onToggleAudio: () => void;
   onOpenConfig: () => void;
@@ -41,6 +43,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   onThemeChange,
   gps,
   battery,
+  systemTelemetry,
   audioEnabled,
   onToggleAudio,
   onOpenConfig,
@@ -154,13 +157,11 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             </div>
           </div>
 
-          {/* Network control remains unavailable until a privileged local adapter exists. */}
-          <button
-            id="btn-header-network-toggle"
-            disabled
-            aria-describedby="network-control-unavailable"
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-70"
-            title="Network status and switching require a local network adapter"
+          <div
+            id="header-network-status"
+            role="status"
+            aria-label={`Network status: ${formatNetworkDisplay(systemTelemetry?.network ?? null)}`}
+            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-300"
           >
             <WifiOff className="w-4 h-4 text-zinc-500" />
             <div className="flex flex-col text-left">
@@ -168,13 +169,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 NETWORK
               </span>
               <span className="text-xs uppercase font-mono font-bold text-zinc-400">
-                STATUS UNAVAILABLE
+                {formatNetworkDisplay(systemTelemetry?.network ?? null)}
               </span>
             </div>
-          </button>
-          <span id="network-control-unavailable" className="sr-only">
-            Network status and interface switching are not available without a local network adapter.
-          </span>
+          </div>
         </div>
 
         {/* Right: Quick Action Controls & Theme Toggles */}

@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 import { RoadmapToolsModal } from '../RoadmapToolsModal';
+import { GPSGridWidget } from '../GPSGridWidget';
 import type { GPSProvenance, GPSStatus } from '../../types';
 
 const gps: GPSStatus = {
@@ -83,6 +84,32 @@ describe('Field Tools coordinate workspace', () => {
     expect(markup).toContain('FM17gj');
     expect(markup).toContain('Internal GNSS / NMEA');
     expect(markup).toContain('CURRENT GNSS LOCATION');
+  });
+
+  it('preserves the configurable GNSS serial-port selector', () => {
+    const onUpdateGPS = vi.fn();
+    const onSelectComPort = vi.fn();
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: false })));
+
+    const view = render(
+      <GPSGridWidget
+        gps={gps}
+        provenance={{ status: 'ok', source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' } }}
+        theme="dark_tactical"
+        audioEnabled={false}
+        onUpdateGPS={onUpdateGPS}
+        comPort="COM6"
+        baudRate={9600}
+        onSelectComPort={onSelectComPort}
+      />,
+    );
+
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'COM7' } });
+
+    expect(onSelectComPort).toHaveBeenCalledWith('COM7', 9600);
+    expect(onUpdateGPS).toHaveBeenCalledWith({ comPort: 'COM7', deviceName: 'GPS Receiver (COM7)' });
+    view.unmount();
+    vi.unstubAllGlobals();
   });
 
   it('labels manual coordinates and does not imply a GNSS fix', () => {

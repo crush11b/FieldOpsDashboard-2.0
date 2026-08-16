@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
 import { ExternalDataStatus, NOAAAlert, UIThemeMode, WeatherData } from '../types';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
@@ -24,6 +24,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   const effectiveAlertsStatus = alertsStatus === 'live' && alerts === null ? 'unavailable' : alertsStatus;
   const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
   const [isAcknowledged, setIsAcknowledged] = useState(false);
+  const announcedAlertIds = useRef<Set<string>>(new Set());
 
   // Check persisted acknowledged alert IDs from localStorage
   useEffect(() => {
@@ -39,8 +40,9 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
       } else if (alertItems.length > 0) {
         setIsAcknowledged(false);
         // Only announce if there is a NEW unacknowledged alert
-        const unackAlert = alertItems.find(a => !ackIds.includes(a.id));
+        const unackAlert = alertItems.find(a => !ackIds.includes(a.id) && !announcedAlertIds.current.has(a.id));
         if (unackAlert) {
+          announcedAlertIds.current.add(unackAlert.id);
           speakNOAAAlert(unackAlert.title, unackAlert.area, audioEnabled);
         }
       }

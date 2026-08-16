@@ -36,6 +36,7 @@ describe('misleading action guardrails', () => {
         onThemeChange={vi.fn()}
         gps={gps}
         battery={battery}
+        systemTelemetry={null}
         audioEnabled={false}
         onToggleAudio={vi.fn()}
         onOpenConfig={vi.fn()}
@@ -45,9 +46,10 @@ describe('misleading action guardrails', () => {
       />,
     );
 
-    expect(markup).toMatch(/id="btn-header-network-toggle"[^>]*disabled/);
-    expect(markup).toContain('STATUS UNAVAILABLE');
-    expect(markup).toContain('aria-describedby="network-control-unavailable"');
+    expect(markup).toContain('id="header-network-status"');
+    expect(markup).toContain('aria-label="Network status: Unavailable"');
+    expect(markup).toContain('Unavailable');
+    expect(markup).not.toContain('btn-header-network-toggle');
   });
 
   it('prevents keyboard activation of SOS and placeholder frequency guidance', () => {
