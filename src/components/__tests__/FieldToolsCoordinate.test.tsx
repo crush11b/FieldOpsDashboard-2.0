@@ -50,6 +50,22 @@ function renderDistance(gpsValue: GPSStatus, provenance: GPSProvenance) {
   );
 }
 
+function renderSun(gpsValue: GPSStatus, provenance: GPSProvenance) {
+  return render(
+    <RoadmapToolsModal
+      theme="dark_tactical"
+      audioEnabled={false}
+      isOpen
+      onClose={vi.fn()}
+      callsign="N0CALL"
+      gridSquare={gpsValue.gridSquare}
+      gps={gpsValue}
+      gpsProvenance={provenance}
+      initialTab="sun_twilight"
+    />,
+  );
+}
+
 describe('Field Tools coordinate workspace', () => {
   it('shows native coordinates, source, freshness, and Maidenhead', () => {
     const markup = renderLocation(gps, {
@@ -181,5 +197,64 @@ describe('Field Tools coordinate workspace', () => {
     });
 
     expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it('renders ordered solar events and explicit system timezone', () => {
+    renderSun(gps, {
+      status: 'ok',
+      source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+    });
+
+    for (const label of ['ASTRONOMICAL DAWN', 'NAUTICAL DAWN', 'CIVIL DAWN', 'SUNRISE', 'SUNSET', 'CIVIL DUSK', 'NAUTICAL DUSK', 'ASTRONOMICAL DUSK']) {
+      expect(screen.getByText(label)).toBeInTheDocument();
+    }
+    expect(screen.getByText(/DISPLAY TIMEZONE:/)).toBeInTheDocument();
+    expect(screen.getByText('CURRENT OPERATING LOCATION')).toBeInTheDocument();
+  });
+
+  it('updates solar results when the selected date changes', () => {
+    renderSun({ ...gps, lat: 40.7128, lon: -74.006 }, {
+      status: 'ok',
+      source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+    });
+
+    const dateInput = screen.getByLabelText('Selected date');
+    fireEvent.change(dateInput, { target: { value: '2024-06-21' } });
+    expect(dateInput).toHaveValue('2024-06-21');
+    const summerSunrise = screen.getByText('SUNRISE').parentElement?.textContent;
+    fireEvent.change(dateInput, { target: { value: '2024-12-21' } });
+    expect(dateInput).toHaveValue('2024-12-21');
+    expect(screen.getByText('SUNRISE').parentElement?.textContent).not.toBe(summerSunrise);
+  });
+
+  it.each([
+    ['MANUAL OPERATING LOCATION', 'degraded', 'manual_location'],
+    ['STALE OPERATING LOCATION', 'stale', 'serial_nmea'],
+  ])('preserves %s solar origin labeling', (label, status, type) => {
+    renderSun(gps, {
+      status: status as GPSProvenance['status'],
+      source: { id: `gps:${type}`, type, name: type },
+    });
+
+    expect(screen.getByText(label)).toBeInTheDocument();
+  });
+
+  it('does not calculate without an operating location', () => {
+    renderSun({ ...gps, lat: Number.NaN, lon: Number.NaN }, {
+      status: 'connecting',
+      source: { id: 'gps:startup', type: 'gps_acquisition', name: 'Waiting for GPS Location' },
+    });
+
+    expect(screen.getByText('SOLAR EVENTS UNAVAILABLE: NO VALID OPERATING LOCATION')).toBeInTheDocument();
+  });
+
+  it('shows honest no-event values for polar conditions', () => {
+    renderSun({ ...gps, lat: 89, lon: 0 }, {
+      status: 'ok',
+      source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+    });
+
+    fireEvent.change(screen.getByLabelText('Selected date'), { target: { value: '2024-06-21' } });
+    expect(screen.getAllByText('DOES NOT OCCUR').length).toBeGreaterThan(0);
   });
 });

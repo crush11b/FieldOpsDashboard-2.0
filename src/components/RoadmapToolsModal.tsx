@@ -9,6 +9,7 @@ import {
   Sparkles, 
   Calculator, 
   Compass, 
+  Sun,
   Send, 
   Download, 
   Plus, 
@@ -25,6 +26,7 @@ import { getTelemetryFreshness } from '../telemetry/TelemetryFreshness';
 import { resolveOperatingLocation, type OperatingLocation } from '../location/operatingLocation';
 import { parseCoordinates } from '../location/coordinates';
 import { calculateDistanceKm, calculateDistanceMiles, calculateInitialBearing, compassDirection } from '../location/geography';
+import { calculateSolarEvents, type SolarEventName } from '../location/solarEvents';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -222,6 +224,16 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           </button>
 
           <button
+            id="tab-field-sun-twilight"
+            onClick={() => setActiveTab('sun_twilight')}
+            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
+              activeTab === 'sun_twilight' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Sun className="w-4 h-4" /> SUN / TWILIGHT
+          </button>
+
+          <button
             id="tab-smart-deploy"
             onClick={() => setActiveTab('smart_deploy')}
             className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
@@ -272,6 +284,10 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
           {activeTab === 'distance_bearing' && (
             <DistanceBearingTool operatingLocation={operatingLocation} />
+          )}
+
+          {activeTab === 'sun_twilight' && (
+            <SunTwilightTool operatingLocation={operatingLocation} />
           )}
           
           {/* MODULE 1: SmartDeploy Antenna Calculator */}
@@ -598,6 +614,110 @@ interface CoordinateToolProps {
 interface DistanceBearingToolProps {
   operatingLocation: OperatingLocation;
 }
+
+interface SunTwilightToolProps {
+  operatingLocation: OperatingLocation;
+}
+
+const SOLAR_EVENT_LABELS: ReadonlyArray<readonly [SolarEventName, string]> = [
+  ['astronomicalDawn', 'ASTRONOMICAL DAWN'],
+  ['nauticalDawn', 'NAUTICAL DAWN'],
+  ['civilDawn', 'CIVIL DAWN'],
+  ['sunrise', 'SUNRISE'],
+  ['sunset', 'SUNSET'],
+  ['civilDusk', 'CIVIL DUSK'],
+  ['nauticalDusk', 'NAUTICAL DUSK'],
+  ['astronomicalDusk', 'ASTRONOMICAL DUSK'],
+];
+
+const getLocalDateValue = () => {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+};
+
+const SunTwilightTool: React.FC<SunTwilightToolProps> = ({ operatingLocation }) => {
+  const [selectedDate, setSelectedDate] = useState(getLocalDateValue);
+  const displayTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone || 'system local time';
+  const solarEvents = operatingLocation.coordinates
+    ? calculateSolarEvents(operatingLocation.coordinates, selectedDate)
+    : null;
+  const originLabel = operatingLocation.provenance === 'manual'
+    ? 'MANUAL OPERATING LOCATION'
+    : operatingLocation.provenance === 'stale'
+      ? 'STALE OPERATING LOCATION'
+      : operatingLocation.coordinates
+        ? 'CURRENT OPERATING LOCATION'
+        : 'OPERATING LOCATION UNAVAILABLE';
+  const formatEvent = (event: Date | null) => event
+    ? new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }).format(event)
+    : 'DOES NOT OCCUR';
+
+  return (
+    <div id="field-tools-sun-twilight" className="space-y-4">
+      <div className="p-4 rounded-xl border border-amber-700/70 bg-amber-950/20 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-sm uppercase text-amber-300 flex items-center gap-2">
+              <Sun className="w-4 h-4" /> SUN / TWILIGHT
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-1">Offline astronomical events for the operating location.</p>
+          </div>
+          <span className="px-2 py-1 rounded border border-amber-500/40 bg-amber-500/10 text-[10px] font-black text-amber-300 whitespace-nowrap">
+            OFFLINE READY
+          </span>
+        </div>
+
+        <div className="p-3 rounded-lg border border-slate-700 bg-slate-950/70">
+          <span className="block text-[10px] uppercase text-slate-400">ORIGIN</span>
+          <span className="block mt-1 font-black text-amber-300">{originLabel}</span>
+          {operatingLocation.coordinates ? (
+            <span className="block mt-1 font-mono text-slate-300">
+              {operatingLocation.coordinates.lat.toFixed(6)}°, {operatingLocation.coordinates.lon.toFixed(6)}°
+            </span>
+          ) : (
+            <span className="block mt-1 text-slate-500">No valid coordinates available.</span>
+          )}
+        </div>
+
+        <label className="block text-[10px] uppercase text-slate-400">
+          Selected date
+          <input
+            id="input-sun-twilight-date"
+            type="date"
+            value={selectedDate}
+            onChange={(event) => setSelectedDate(event.target.value)}
+            className="mt-1 w-full sm:w-auto min-w-52 px-3 py-2 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold font-mono"
+          />
+        </label>
+
+        <div className="rounded-lg border border-cyan-700/60 bg-cyan-950/20 p-3 text-[11px] text-cyan-200">
+          DISPLAY TIMEZONE: <strong>{displayTimeZone}</strong> (ToughBook system local time). Calculations use UTC internally; no geographic timezone lookup is performed.
+        </div>
+
+        {!operatingLocation.coordinates ? (
+          <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-5 text-center text-slate-300 font-bold uppercase">
+            SOLAR EVENTS UNAVAILABLE: NO VALID OPERATING LOCATION
+          </div>
+        ) : solarEvents ? (
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {SOLAR_EVENT_LABELS.map(([eventName, label]) => (
+              <div key={eventName} className="p-3 rounded-lg border border-slate-700 bg-slate-950/70 flex items-center justify-between gap-3 min-h-14">
+                <span className="text-[10px] uppercase text-slate-400">{label}</span>
+                <span className={`font-black text-sm text-right ${solarEvents.events[eventName] ? 'text-amber-200' : 'text-slate-500'}`}>
+                  {formatEvent(solarEvents.events[eventName])}
+                </span>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-lg border border-amber-700/60 bg-amber-950/30 p-4 text-center text-amber-200 font-bold uppercase">
+            SOLAR EVENTS UNAVAILABLE FOR SELECTED DATE
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const DistanceBearingTool: React.FC<DistanceBearingToolProps> = ({ operatingLocation }) => {
   const [destinationLatitude, setDestinationLatitude] = useState('');
