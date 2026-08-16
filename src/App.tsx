@@ -211,7 +211,7 @@ export default function App() {
   // Modal / Drawer UI States
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [roadmapModalOpen, setRoadmapModalOpen] = useState(false);
-  const [roadmapActiveTab, setRoadmapActiveTab] = useState('smart_deploy');
+  const [roadmapActiveTab, setRoadmapActiveTab] = useState('coordinate');
   const [touchMenuOpen, setTouchMenuOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<AppLauncherItem | null>(null);
 
@@ -519,6 +519,8 @@ export default function App() {
         onClose={() => setRoadmapModalOpen(false)}
         callsign={config.callsign}
         gridSquare={operatingGridSquare}
+        gps={gps}
+        gpsProvenance={gpsProvenance}
         initialTab={roadmapActiveTab}
       />
 

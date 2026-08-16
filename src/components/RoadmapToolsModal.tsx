@@ -20,6 +20,9 @@ import {
 } from 'lucide-react';
 import { LogEntry, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
+import type { GPSProvenance, GPSStatus } from '../types';
+import { getTelemetryFreshness } from '../telemetry/TelemetryFreshness';
+import { resolveOperatingLocation, type OperatingLocation } from '../location/operatingLocation';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -28,6 +31,8 @@ interface RoadmapToolsModalProps {
   onClose: () => void;
   callsign: string;
   gridSquare: string;
+  gps: GPSStatus;
+  gpsProvenance: GPSProvenance;
   initialTab?: string;
 }
 
@@ -38,9 +43,12 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   onClose,
   callsign,
   gridSquare,
-  initialTab = 'smart_deploy',
+  gps,
+  gpsProvenance,
+  initialTab = 'coordinate',
 }) => {
   const [activeTab, setActiveTab] = useState<string>(initialTab === 'smart_frequency' ? 'smart_deploy' : initialTab);
+  const operatingLocation = resolveOperatingLocation(gps, gpsProvenance);
 
   // 1. SmartDeploy State (Antenna Length & NVIS vs DX Calculator)
   const [freqMHz, setFreqMHz] = useState<number>(14.074);
@@ -192,6 +200,16 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         {/* Roadmap Module Tabs */}
         <div className="flex items-center border-b border-zinc-800 px-4 bg-zinc-950/60 overflow-x-auto">
           <button
+            id="tab-field-location"
+            onClick={() => setActiveTab('coordinate')}
+            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
+              activeTab === 'coordinate' ? 'border-cyan-400 text-cyan-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <MapPin className="w-4 h-4" /> LOCATION
+          </button>
+
+          <button
             id="tab-smart-deploy"
             onClick={() => setActiveTab('smart_deploy')}
             className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
@@ -236,6 +254,9 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
         {/* Modal Content */}
         <div className="p-4 flex-1 overflow-y-auto space-y-4 text-xs">
+          {activeTab === 'coordinate' && (
+            <CoordinateTool operatingLocation={operatingLocation} />
+          )}
           
           {/* MODULE 1: SmartDeploy Antenna Calculator */}
           {activeTab === 'smart_deploy' && (
@@ -549,6 +570,92 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           </button>
         </div>
 
+      </div>
+    </div>
+  );
+};
+
+interface CoordinateToolProps {
+  operatingLocation: OperatingLocation;
+}
+
+const CoordinateTool: React.FC<CoordinateToolProps> = ({ operatingLocation }) => {
+  const freshness = operatingLocation.timestamps
+    ? getTelemetryFreshness(operatingLocation.timestamps)
+    : null;
+  const sourceName = operatingLocation.source.name || operatingLocation.source.type;
+  const statusLabel = operatingLocation.coordinates
+    ? operatingLocation.provenance === 'manual'
+      ? 'MANUAL LOCATION'
+      : operatingLocation.status === 'stale' || operatingLocation.status === 'cached'
+        ? 'STALE LAST FIX'
+        : 'CURRENT GNSS LOCATION'
+    : operatingLocation.status === 'connecting'
+      ? 'ACQUIRING LOCATION'
+      : operatingLocation.status === 'error'
+        ? 'LOCATION ERROR'
+        : 'LOCATION UNAVAILABLE';
+  const statusDetail = operatingLocation.coordinates
+    ? operatingLocation.provenance === 'manual'
+      ? 'Operator-provided coordinates; not a satellite fix.'
+      : operatingLocation.status === 'stale' || operatingLocation.status === 'cached'
+        ? 'Last known coordinates retained; do not treat as current.'
+        : 'Coordinates are from the active local location source.'
+    : 'No valid coordinates are available from the selected local source.';
+
+  return (
+    <div id="field-tools-coordinate" className="space-y-4">
+      <div className="p-4 rounded-xl border border-cyan-700/70 bg-cyan-950/20 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-sm uppercase text-cyan-300 flex items-center gap-2">
+              <MapPin className="w-4 h-4" /> OPERATING LOCATION
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-1">Coordinates for Field Tools calculations and activation context.</p>
+          </div>
+          <span className="px-2 py-1 rounded border border-cyan-500/40 bg-cyan-500/10 text-[10px] font-black text-cyan-300 whitespace-nowrap">
+            {statusLabel}
+          </span>
+        </div>
+
+        {operatingLocation.coordinates ? (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 rounded-lg border border-slate-700 bg-slate-950/70">
+              <span className="block text-[10px] uppercase text-slate-400">LATITUDE</span>
+              <span className="block mt-1 text-lg font-black text-emerald-300">{operatingLocation.coordinates.lat.toFixed(6)}°</span>
+            </div>
+            <div className="p-3 rounded-lg border border-slate-700 bg-slate-950/70">
+              <span className="block text-[10px] uppercase text-slate-400">LONGITUDE</span>
+              <span className="block mt-1 text-lg font-black text-emerald-300">{operatingLocation.coordinates.lon.toFixed(6)}°</span>
+            </div>
+            <div className="p-3 rounded-lg border border-amber-600/60 bg-amber-950/30">
+              <span className="block text-[10px] uppercase text-amber-300">MAIDENHEAD GRID</span>
+              <span className="block mt-1 text-lg font-black tracking-widest text-amber-200">{operatingLocation.gridSquare || 'Unavailable'}</span>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-5 text-center">
+            <span className="block text-2xl font-black text-slate-500">--</span>
+            <span className="block mt-1 font-bold uppercase text-slate-300">NO VALID COORDINATES</span>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-[11px]">
+          <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/50">
+            <span className="block uppercase text-slate-500">SOURCE</span>
+            <span className="block mt-1 font-bold text-cyan-300">{sourceName}</span>
+            <span className="block mt-0.5 text-slate-400">{operatingLocation.source.type}</span>
+          </div>
+          <div className="p-3 rounded-lg border border-slate-800 bg-slate-950/50">
+            <span className="block uppercase text-slate-500">FRESHNESS</span>
+            <span className="block mt-1 font-bold text-amber-300">
+              {freshness ? freshness.relativeAge : operatingLocation.provenance === 'manual' ? 'Operator entered' : 'Time unavailable'}
+            </span>
+            {freshness?.observedAtLabel && <span className="block mt-0.5 text-slate-400">Observed {freshness.observedAtLabel}</span>}
+          </div>
+        </div>
+
+        <p className="border-t border-cyan-800/60 pt-3 text-[11px] text-slate-300">{statusDetail}</p>
       </div>
     </div>
   );

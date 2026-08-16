@@ -80,6 +80,8 @@ describe('misleading action guardrails', () => {
         onClose={vi.fn()}
         callsign="N0CALL"
         gridSquare=""
+        gps={gps}
+        gpsProvenance={{ status: 'connecting', source: { id: 'gps:test', type: 'gps_acquisition' } }}
         initialTab="smart_frequency"
       />,
     );
