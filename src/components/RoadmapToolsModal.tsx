@@ -23,6 +23,8 @@ import { playTacticalClick } from '../utils/audio';
 import type { GPSProvenance, GPSStatus } from '../types';
 import { getTelemetryFreshness } from '../telemetry/TelemetryFreshness';
 import { resolveOperatingLocation, type OperatingLocation } from '../location/operatingLocation';
+import { parseCoordinates } from '../location/coordinates';
+import { calculateDistanceKm, calculateDistanceMiles, calculateInitialBearing, compassDirection } from '../location/geography';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -210,6 +212,16 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           </button>
 
           <button
+            id="tab-field-distance-bearing"
+            onClick={() => setActiveTab('distance_bearing')}
+            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
+              activeTab === 'distance_bearing' ? 'border-emerald-400 text-emerald-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Compass className="w-4 h-4" /> DISTANCE / BEARING
+          </button>
+
+          <button
             id="tab-smart-deploy"
             onClick={() => setActiveTab('smart_deploy')}
             className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
@@ -256,6 +268,10 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         <div className="p-4 flex-1 overflow-y-auto space-y-4 text-xs">
           {activeTab === 'coordinate' && (
             <CoordinateTool operatingLocation={operatingLocation} />
+          )}
+
+          {activeTab === 'distance_bearing' && (
+            <DistanceBearingTool operatingLocation={operatingLocation} />
           )}
           
           {/* MODULE 1: SmartDeploy Antenna Calculator */}
@@ -578,6 +594,141 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 interface CoordinateToolProps {
   operatingLocation: OperatingLocation;
 }
+
+interface DistanceBearingToolProps {
+  operatingLocation: OperatingLocation;
+}
+
+const DistanceBearingTool: React.FC<DistanceBearingToolProps> = ({ operatingLocation }) => {
+  const [destinationLatitude, setDestinationLatitude] = useState('');
+  const [destinationLongitude, setDestinationLongitude] = useState('');
+  const [result, setResult] = useState<{
+    distanceKm: number;
+    distanceMiles: number;
+    bearing: number | null;
+  } | null>(null);
+  const [validationMessage, setValidationMessage] = useState<string | null>(null);
+
+  const calculate = () => {
+    setResult(null);
+    if (!operatingLocation.coordinates) {
+      setValidationMessage('DISTANCE UNAVAILABLE: OPERATING LOCATION HAS NO VALID FIX.');
+      return;
+    }
+
+    const destination = parseCoordinates(destinationLatitude, destinationLongitude);
+    if (!destination) {
+      setValidationMessage('ENTER A VALID DESTINATION LATITUDE AND LONGITUDE.');
+      return;
+    }
+
+    setValidationMessage(null);
+    setResult({
+      distanceKm: calculateDistanceKm(operatingLocation.coordinates, destination),
+      distanceMiles: calculateDistanceMiles(operatingLocation.coordinates, destination),
+      bearing: calculateInitialBearing(operatingLocation.coordinates, destination),
+    });
+  };
+
+  const originLabel = operatingLocation.provenance === 'manual'
+    ? 'MANUAL OPERATING LOCATION'
+    : operatingLocation.provenance === 'stale'
+      ? 'STALE OPERATING LOCATION'
+      : operatingLocation.coordinates
+        ? 'CURRENT OPERATING LOCATION'
+        : 'OPERATING LOCATION UNAVAILABLE';
+
+  return (
+    <div id="field-tools-distance-bearing" className="space-y-4">
+      <div className="p-4 rounded-xl border border-emerald-700/70 bg-emerald-950/20 space-y-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h3 className="font-black text-sm uppercase text-emerald-300 flex items-center gap-2">
+              <Compass className="w-4 h-4" /> DISTANCE / BEARING
+            </h3>
+            <p className="text-[11px] text-slate-400 mt-1">Great-circle distance from the current operating location.</p>
+          </div>
+          <span className="px-2 py-1 rounded border border-emerald-500/40 bg-emerald-500/10 text-[10px] font-black text-emerald-300 whitespace-nowrap">
+            OFFLINE READY
+          </span>
+        </div>
+
+        <div className="p-3 rounded-lg border border-slate-700 bg-slate-950/70">
+          <span className="block text-[10px] uppercase text-slate-400">ORIGIN</span>
+          <span className="block mt-1 font-black text-emerald-300">{originLabel}</span>
+          {operatingLocation.coordinates ? (
+            <span className="block mt-1 font-mono text-slate-300">
+              {operatingLocation.coordinates.lat.toFixed(6)}°, {operatingLocation.coordinates.lon.toFixed(6)}°
+            </span>
+          ) : (
+            <span className="block mt-1 text-slate-500">No valid coordinates available.</span>
+          )}
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <label className="block text-[10px] uppercase text-slate-400">
+            Destination latitude
+            <input
+              id="input-distance-destination-latitude"
+              type="text"
+              inputMode="decimal"
+              value={destinationLatitude}
+              onChange={(event) => setDestinationLatitude(event.target.value)}
+              className="mt-1 w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold font-mono"
+              placeholder="-90 to 90"
+            />
+          </label>
+          <label className="block text-[10px] uppercase text-slate-400">
+            Destination longitude
+            <input
+              id="input-distance-destination-longitude"
+              type="text"
+              inputMode="decimal"
+              value={destinationLongitude}
+              onChange={(event) => setDestinationLongitude(event.target.value)}
+              className="mt-1 w-full px-2.5 py-2 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold font-mono"
+              placeholder="-180 to 180"
+            />
+          </label>
+        </div>
+
+        <button
+          id="btn-calculate-distance-bearing"
+          onClick={calculate}
+          className="w-full py-2 rounded bg-emerald-600 hover:bg-emerald-500 text-slate-950 font-black text-xs active:scale-95"
+        >
+          CALCULATE DISTANCE / BEARING
+        </button>
+
+        {validationMessage && (
+          <div id="distance-bearing-validation" className="rounded-lg border border-amber-600/70 bg-amber-950/30 p-3 text-amber-200 font-bold text-[11px]">
+            {validationMessage}
+          </div>
+        )}
+
+        {result && (
+          <div id="distance-bearing-results" className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            <div className="p-3 rounded-lg border border-cyan-600/70 bg-cyan-950/30">
+              <span className="block text-[10px] uppercase text-cyan-300">DISTANCE</span>
+              <span className="block mt-1 font-black text-lg text-cyan-200">{result.distanceMiles.toFixed(2)} mi</span>
+              <span className="block text-[11px] text-slate-400">{result.distanceKm.toFixed(2)} km</span>
+            </div>
+            <div className="p-3 rounded-lg border border-amber-600/70 bg-amber-950/30">
+              <span className="block text-[10px] uppercase text-amber-300">INITIAL BEARING</span>
+              <span className="block mt-1 font-black text-lg text-amber-200">
+                {result.bearing === null ? 'N/A' : `${result.bearing.toFixed(1)}°`}
+              </span>
+            </div>
+            <div className="p-3 rounded-lg border border-emerald-600/70 bg-emerald-950/30">
+              <span className="block text-[10px] uppercase text-emerald-300">DIRECTION</span>
+              <span className="block mt-1 font-black text-lg text-emerald-200">{compassDirection(result.bearing)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+};
 
 const CoordinateTool: React.FC<CoordinateToolProps> = ({ operatingLocation }) => {
   const freshness = operatingLocation.timestamps

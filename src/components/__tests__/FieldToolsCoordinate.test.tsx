@@ -1,6 +1,8 @@
+/* @vitest-environment jsdom */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { RoadmapToolsModal } from '../RoadmapToolsModal';
 import type { GPSProvenance, GPSStatus } from '../../types';
 
@@ -28,6 +30,22 @@ function renderLocation(gpsValue: GPSStatus, provenance: GPSProvenance) {
       gridSquare={gpsValue.gridSquare}
       gps={gpsValue}
       gpsProvenance={provenance}
+    />,
+  );
+}
+
+function renderDistance(gpsValue: GPSStatus, provenance: GPSProvenance) {
+  return render(
+    <RoadmapToolsModal
+      theme="dark_tactical"
+      audioEnabled={false}
+      isOpen
+      onClose={vi.fn()}
+      callsign="N0CALL"
+      gridSquare={gpsValue.gridSquare}
+      gps={gpsValue}
+      gpsProvenance={provenance}
+      initialTab="distance_bearing"
     />,
   );
 }
@@ -97,5 +115,71 @@ describe('Field Tools coordinate workspace', () => {
 
     expect(markup).toContain('0.000000');
     expect(markup).toContain('JJ00aa');
+  });
+
+  it('calculates distance and bearing from the operating location', () => {
+    renderDistance({ ...gps, lat: 0, lon: 0 }, {
+      status: 'ok',
+      source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+    });
+
+    fireEvent.change(screen.getByLabelText('Destination latitude'), { target: { value: '1' } });
+    fireEvent.change(screen.getByLabelText('Destination longitude'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'CALCULATE DISTANCE / BEARING' }));
+
+    expect(screen.getByText('DISTANCE')).toBeInTheDocument();
+    expect(screen.getByText('0.0°')).toBeInTheDocument();
+    expect(screen.getByText('N', { selector: 'span' })).toBeInTheDocument();
+  });
+
+  it('shows a non-meaningful bearing for the same point', () => {
+    renderDistance({ ...gps, lat: 0, lon: 0 }, {
+      status: 'ok',
+      source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+    });
+
+    fireEvent.change(screen.getByLabelText('Destination latitude'), { target: { value: '0' } });
+    fireEvent.change(screen.getByLabelText('Destination longitude'), { target: { value: '0' } });
+    fireEvent.click(screen.getByRole('button', { name: 'CALCULATE DISTANCE / BEARING' }));
+
+    expect(screen.getByText('0.00 mi')).toBeInTheDocument();
+    expect(screen.getAllByText('N/A')).toHaveLength(2);
+  });
+
+  it('rejects malformed and out-of-range destinations without a result', () => {
+    renderDistance(gps, {
+      status: 'ok',
+      source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+    });
+
+    fireEvent.change(screen.getByLabelText('Destination latitude'), { target: { value: '91' } });
+    fireEvent.change(screen.getByLabelText('Destination longitude'), { target: { value: 'not-a-number' } });
+    fireEvent.click(screen.getByRole('button', { name: 'CALCULATE DISTANCE / BEARING' }));
+
+    expect(screen.getByText('ENTER A VALID DESTINATION LATITUDE AND LONGITUDE.')).toBeInTheDocument();
+    expect(screen.queryByText('DISTANCE', { selector: 'span' })).not.toBeInTheDocument();
+  });
+
+  it('rejects invalid destinations and unavailable origins', () => {
+    renderDistance({ ...gps, lat: Number.NaN, lon: Number.NaN }, {
+      status: 'connecting',
+      source: { id: 'gps:startup', type: 'gps_acquisition', name: 'Waiting for GPS Location' },
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'CALCULATE DISTANCE / BEARING' }));
+    expect(screen.getByText('DISTANCE UNAVAILABLE: OPERATING LOCATION HAS NO VALID FIX.')).toBeInTheDocument();
+    expect(screen.queryByText('DISTANCE', { selector: 'span' })).not.toBeInTheDocument();
+  });
+
+  it.each([
+    ['MANUAL OPERATING LOCATION', 'degraded', 'manual_location'],
+    ['STALE OPERATING LOCATION', 'stale', 'serial_nmea'],
+  ])('labels %s origin honestly', (label, status, type) => {
+    renderDistance(gps, {
+      status: status as GPSProvenance['status'],
+      source: { id: `gps:${type}`, type, name: type },
+    });
+
+    expect(screen.getByText(label)).toBeInTheDocument();
   });
 });
