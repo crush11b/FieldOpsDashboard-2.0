@@ -11,6 +11,24 @@ describe('geographic calculations', () => {
     expect(compassDirection(null)).toBe('N/A');
   });
 
+  it('treats tiny GPS jitter as co-located', () => {
+    const origin = point(37.4, -77.4);
+    const destination = point(37.400001, -77.400001);
+
+    expect(calculateDistanceKm(origin, destination)).toBeLessThan(0.005);
+    expect(calculateInitialBearing(origin, destination)).toBeNull();
+    expect(compassDirection(calculateInitialBearing(origin, destination))).toBe('N/A');
+  });
+
+  it('keeps a genuinely nearby destination directional', () => {
+    const origin = point(37.4, -77.4);
+    const destination = point(37.4001, -77.4);
+
+    expect(calculateDistanceKm(origin, destination)).toBeGreaterThan(0.005);
+    expect(calculateInitialBearing(origin, destination)).toBeCloseTo(0, 1);
+    expect(compassDirection(calculateInitialBearing(origin, destination))).toBe('N');
+  });
+
   it.each([
     [point(0, 0), point(1, 0), 0, 'N'],
     [point(0, 0), point(-1, 0), 180, 'S'],

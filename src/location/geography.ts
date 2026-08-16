@@ -2,6 +2,8 @@ import type { Coordinates } from './coordinates';
 
 const EARTH_RADIUS_KM = 6371;
 const MILES_PER_KILOMETER = 0.621371;
+// Five meters suppresses meaningless sub-meter GPS jitter without hiding nearby targets.
+const SAME_POINT_DISTANCE_THRESHOLD_KM = 0.005;
 
 export function calculateDistanceKm(origin: Coordinates, destination: Coordinates): number {
   const latitudeDelta = toRadians(destination.lat - origin.lat);
@@ -39,7 +41,7 @@ export function compassDirection(bearing: number | null): string {
 }
 
 export function areSamePoint(origin: Coordinates, destination: Coordinates): boolean {
-  return origin.lat === destination.lat && origin.lon === destination.lon;
+  return calculateDistanceKm(origin, destination) <= SAME_POINT_DISTANCE_THRESHOLD_KM;
 }
 
 function normalizeBearing(bearing: number): number {
