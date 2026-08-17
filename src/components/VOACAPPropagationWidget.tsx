@@ -4,7 +4,7 @@ import type { DashboardConfig, UIThemeMode } from '../types';
 import type { OperatingLocation } from '../location/operatingLocation';
 import { fetchPropagationGuidance, confidenceLabel, observedRfSummaryLabel } from '../propagation/guidanceClient';
 import type { PropagationGuidanceResponse } from '../../server/propagationGuidance';
-import { PROPAGATION_GUIDANCE_BANDS, type PropagationConfidence, type StationProfile } from '../propagation/domain';
+import { PROPAGATION_GUIDANCE_BANDS, type PropagationConfidence, type PropagationRating, type StationProfile } from '../propagation/domain';
 import { PROPAGATION_REGION_CATALOG, type PropagationRegionId } from '../propagation/regionalDestinations';
 import { ANTENNA_OPTIONS, getDeploymentOptionsForAntenna, getHeightOptionsForDeployment, MODE_OPTIONS, normalizeStationProfile, POWER_PRESET_OPTIONS } from '../propagation/stationProfileCatalog';
 
@@ -25,6 +25,36 @@ export const RATING_LABELS = { EXCELLENT: 'Excellent', GOOD: 'Good', FAIR: 'Fair
 export const CONFIDENCE_DISPLAY_LABELS: Record<PropagationConfidence, string> = {
   high: 'HIGH', medium: 'MEDIUM', low: 'LOW', modeled_only: 'MODELED', unavailable: 'UNAVAILABLE',
 };
+
+export function getBandRatingClasses(rating: PropagationRating, theme: UIThemeMode, selected: boolean): string {
+  const ratingClasses = theme === 'night_vision'
+    ? {
+      EXCELLENT: 'bg-red-950/70 border-red-500 text-red-100 font-bold',
+      GOOD: 'bg-red-950/45 border-red-700 text-red-200 font-semibold',
+      FAIR: 'bg-red-950/25 border-red-800 text-red-300 font-semibold',
+      POOR: 'bg-black border-red-950 text-red-400',
+      UNAVAILABLE: 'bg-black border-red-950/60 text-red-900',
+    }
+    : theme === 'sunlight'
+      ? {
+        EXCELLENT: 'bg-emerald-200 border-emerald-700 text-emerald-950 font-bold',
+        GOOD: 'bg-emerald-100 border-emerald-600 text-emerald-950 font-semibold',
+        FAIR: 'bg-amber-200 border-amber-700 text-amber-950 font-semibold',
+        POOR: 'bg-red-200 border-red-700 text-red-950',
+        UNAVAILABLE: 'bg-slate-200 border-slate-500 text-slate-700',
+      }
+      : {
+        EXCELLENT: 'bg-emerald-900/80 border-emerald-400 text-emerald-50 font-bold',
+        GOOD: 'bg-emerald-950/70 border-emerald-600 text-emerald-100 font-semibold',
+        FAIR: 'bg-amber-950/75 border-amber-500 text-amber-50 font-semibold',
+        POOR: 'bg-red-950/80 border-red-500 text-red-50',
+        UNAVAILABLE: 'bg-zinc-900/75 border-zinc-600 text-zinc-300',
+      };
+  const selectedClasses = selected
+    ? theme === 'night_vision' ? 'ring-2 ring-red-400 ring-offset-1 ring-offset-black' : 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-transparent'
+    : '';
+  return `${ratingClasses[rating]} ${selectedClasses}`.trim();
+}
 
 export function normalizedProfileUpdate(profile: StationProfile, patch: Partial<StationProfile>): StationProfile {
   return normalizeStationProfile({ ...profile, ...patch, antenna: patch.antenna ?? profile.antenna, deployment: patch.deployment ?? profile.deployment });
@@ -124,7 +154,7 @@ export const VOACAPPropagationWidget: React.FC<Props> = ({ config, operatingLoca
     </div>
     <div className="flex flex-wrap gap-2 text-[10px]"><span className="rounded border px-2 py-1">MODEL: {result?.model.status ?? 'pending'}</span><span className="rounded border px-2 py-1">NOAA: {weather?.status ?? 'pending'}</span><span className="rounded border px-2 py-1">PSK: {observedSummary ? observedRfSummaryLabel(observedSummary.sourceState, observedSummary.reportCount) : 'pending'}</span><span className="rounded border px-2 py-1">DESTINATION: {regionLabel}</span></div>
     {!result && loading && <p className="rounded border border-amber-500/30 p-3 text-xs">CALCULATING GUIDANCE...</p>}{result && loading && <p className="rounded border border-amber-500/30 p-3 text-xs">LAST RESULT - REFRESHING...</p>}{error && <p className="rounded border border-red-500/40 p-3 text-xs">{result && !loading ? 'UPDATE UNAVAILABLE - LAST RESULT RETAINED' : error}</p>}
-    {result && <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">{result.assessments.map(item => <button key={item.band} aria-pressed={selectedBand === item.band} onClick={() => setSelectedBand(item.band)} className={`min-h-[96px] rounded-xl border p-3 text-left touch-manipulation ${selectedBand === item.band ? 'ring-2 ring-cyan-400' : 'border-zinc-800'}`}><strong className="block text-sm">{item.band}</strong><span className="mt-2 block text-[10px] uppercase">{RATING_LABELS[item.rating]}</span><span className="mt-2 block text-[10px]">Confidence: {confidenceLabel(item.confidence)}</span></button>)}</div>}
+    {result && <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">{result.assessments.map(item => <button key={item.band} aria-pressed={selectedBand === item.band} onClick={() => setSelectedBand(item.band)} className={`min-h-[96px] rounded-xl border p-3 text-left touch-manipulation ${getBandRatingClasses(item.rating, theme, selectedBand === item.band)}`}><strong className="block text-sm">{item.band}</strong><span className="mt-2 block text-[10px] uppercase">{RATING_LABELS[item.rating]}</span><span className="mt-2 block text-[10px] font-normal">Confidence: {confidenceLabel(item.confidence)}</span></button>)}</div>}
     {!result && !loading && !error && <p className="rounded border border-zinc-700 p-3 text-xs">LOCATION REQUIRED</p>}
     {active && result && <div className="rounded-xl border border-cyan-800/80 bg-cyan-950/30 p-3 text-xs space-y-3"><div><strong className="text-base text-cyan-300">{active.band} BAND</strong><span className="ml-2 rounded bg-cyan-900 px-2 py-1">{RATING_LABELS[active.rating]} / {confidenceLabel(active.confidence)}</span><span className="ml-2 text-zinc-400">{OPERATING_MODE_LABELS[active.operatingMode]}</span></div><section><h4 className="font-bold text-cyan-200">WHY</h4><ul className="list-disc pl-5">{active.reasons.slice(0, 3).map(reason => <li key={reason.code}>{reason.text}</li>)}</ul></section>{active.cautions.length > 0 && <section><h4 className="font-bold text-amber-200">CAUTIONS</h4><ul className="list-disc pl-5 text-amber-100">{active.cautions.map(item => <li key={item.code}>{item.text}</li>)}</ul></section>}<section><h4 className="font-bold text-cyan-200">MODEL</h4><p>{active.band === '6m' ? 'Not supported by P.533.' : modelSummary ? `Median BCR ${modelSummary.medianBcrPercent ?? 'not available'}%; range ${modelSummary.minimumBcrPercent ?? 'not available'}-${modelSummary.maximumBcrPercent ?? 'not available'}%; ${modelSummary.successfulSampleCount}/${modelSummary.sampleCount} successful samples.` : 'P.533 model evidence unavailable.'}</p></section><section><h4 className="font-bold text-cyan-200">OBSERVED RF</h4><p>{observedSummary ? `${observedRfSummaryLabel(observedSummary.sourceState, observedSummary.reportCount)}. Reports: ${observedSummary.reportCount}; paths: ${observedSummary.uniquePathCount}; modes: ${labelModeCounts(observedSummary.modeCounts)}; newest: ${ageLabel(observedSummary.newestReportAt)}.` : 'OBSERVED RF UNAVAILABLE'}</p></section><section><h4 className="font-bold text-cyan-200">SPACE WEATHER</h4><p>Kp {weather?.products.kp.value ?? 'unavailable'} ({weather?.products.kp.state ?? 'unavailable'}); R-scale {weather?.products.rScale.value ?? 'unavailable'}; F10.7 {weather?.products.f107.value ?? 'unavailable'} SFU; CURRENT SSN: {weather?.products.ssn.value ?? 'unavailable'} ({weather?.products.ssn.state ?? 'unavailable'}).</p><p>P.533 MODEL SSN: {result.model.ssn.value ?? 'unavailable'} ({result.model.ssn.state}). Source: {weather?.products.kp.source.name ?? 'NOAA SWPC'}.</p></section><section><h4 className="font-bold text-cyan-200">PROFILE</h4><p>{profile.mode} / {profile.transmitPowerWatts} W / {profile.antenna.type} / {profile.deployment.geometry} / {profile.deployment.heightCategory}. Reference antenna limitation: P.533 uses its modeled reference antenna; this profile does not prove station-specific circuit success.</p></section><p className="text-[10px] text-zinc-500">Updated {new Date(result.evaluatedAtUtc).toLocaleTimeString()}</p></div>}
   </div>;
