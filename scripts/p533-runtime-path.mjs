@@ -1,8 +1,7 @@
 import path from 'node:path';
 import fs from 'node:fs';
-import {fileURLToPath} from 'node:url';
 
-const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const root = path.resolve(process.cwd());
 const sourceRuntimeRoot = path.join(root, 'p533-assets', 'runtime');
 const packagedRuntimeRoot = path.join(root, 'dist', 'p533');
 const runtimeRoot = fs.existsSync(path.join(sourceRuntimeRoot, 'p533.mjs')) ? sourceRuntimeRoot : packagedRuntimeRoot;

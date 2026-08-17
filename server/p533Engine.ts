@@ -1,6 +1,6 @@
 import {readFile} from 'node:fs/promises';
 import path from 'node:path';
-import {fileURLToPath, pathToFileURL} from 'node:url';
+import {pathToFileURL} from 'node:url';
 import {getP533RuntimePath} from '../scripts/p533-runtime-path.mjs';
 import {
   createP533Input,
@@ -124,8 +124,8 @@ async function populateDataFiles(module: P533Module, manifest: P533Manifest, mon
 }
 
 async function readManifest(): Promise<P533Manifest> {
-  const manifestPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'p533-assets', 'manifest.json');
   const runtimePath = getP533RuntimePath();
+  const manifestPath = path.resolve(runtimePath, '..', 'manifest.json');
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Omit<P533Manifest, 'installedFileSha256'>;
   const provenance = JSON.parse(await readFile(path.join(runtimePath, 'provenance.json'), 'utf8')) as { installedFiles?: Readonly<Record<string, string>> };
   return { ...manifest, installedFileSha256: provenance.installedFiles ?? {} };

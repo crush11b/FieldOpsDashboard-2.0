@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import {describe, expect, it} from 'vitest';
 import {assertSha256, requiredRuntimeFiles, validateManifest, verifyP533Assets} from '../p533-assets.mjs';
-import {getP533RuntimePath} from '../p533-runtime-path.mjs';
+import {getP533RuntimePath, runtimeRoot} from '../p533-runtime-path.mjs';
 
 describe('P.533 offline asset manifest', () => {
   it('pins the complete model identity, all months, static decile data, and both WASM hashes', async () => {
@@ -25,6 +25,7 @@ describe('P.533 offline asset manifest', () => {
   });
 
   it('resolves only a local runtime path and has no URL or fetch dependency', () => {
+    expect(runtimeRoot).toMatch(/[\\/]p533-assets[\\/]runtime$/);
     expect(getP533RuntimePath('p533.wasm')).toMatch(/[\\/]p533-assets[\\/]runtime[\\/]p533\.wasm$/);
     expect(() => getP533RuntimePath('../outside')).toThrow(/local basenames/);
   });
