@@ -170,23 +170,6 @@ export interface PropagationDecisionBasis {
   readonly cautions: readonly SynthesisMessage[];
 }
 
-export interface PropagationBandAssessmentContract {
-  readonly band: PropagationGuidanceBand;
-  readonly destinationRegion: PropagationRegionId;
-  readonly rating: PropagationRating | null;
-  readonly ratingStatus: 'deferred_to_5h_b';
-  readonly confidence: PropagationConfidence;
-  readonly decisionBasis: PropagationDecisionBasis;
-  readonly provenance: {
-    readonly modelRevision: string | null;
-    readonly modelProvenance: ModelEvidenceInput['provenance'] | null;
-    readonly environmentStatus: SpaceWeatherEvidenceInput['status'];
-    readonly observedSourceState: ObservedRfEvidenceInput['state'];
-    readonly observationWindow: ObservedRfEvidenceInput['observationWindow'];
-    readonly stationProfile: StationProfile;
-  };
-}
-
 export function interpretModelEvidence(input: ModelEvidenceInput): ModelInterpretation {
   const validSummary = Number.isFinite(input.medianBcrPercent) && input.medianBcrPercent !== null && input.medianBcrPercent >= 0 && input.medianBcrPercent <= 100
     && Number.isInteger(input.sampleCount) && input.sampleCount > 0
@@ -313,17 +296,4 @@ export function createPropagationDecisionBasis(input: EvidenceSynthesisInput): P
   if (input.destinationRegion === 'local_nvis') cautions.push({ code: 'local_mechanism_unknown', text: 'Local digital activity does not establish NVIS propagation.' });
   if (agreement === 'weakly_unconfirmed') cautions.push({ code: 'evidence_weakly_unconfirmed', text: 'The favorable model has no current matching observed activity and is not confirmed by observation.' });
   return { band: input.band, destinationRegion: input.destinationRegion, selectedTimeUtc: input.selectedTimeUtc, stationProfile: input.stationProfile, model, environment, observedRf, agreement, modeRelevance, sourceCoverage, evidenceFreshness: { modelAtUtc: input.model.modeledAtUtc, spaceWeatherFetchedAtUtc: input.environment.fetchedAtUtc, observedWindow: input.observedRf.observationWindow }, exceptionalConditions: { hfBlackoutSeverity: environment.hfBlackoutSeverity, sunlitPathApplicability: 'unknown', applicabilityUnknown: true }, limitations, reasons, cautions };
-}
-
-export function createPropagationBandAssessment(input: EvidenceSynthesisInput): PropagationBandAssessmentContract {
-  const decisionBasis = createPropagationDecisionBasis(input);
-  return {
-    band: input.band,
-    destinationRegion: input.destinationRegion,
-    rating: null,
-    ratingStatus: 'deferred_to_5h_b',
-    confidence: deriveConfidence(decisionBasis),
-    decisionBasis,
-    provenance: { modelRevision: input.model.modelRevision, modelProvenance: input.model.provenance, environmentStatus: input.environment.status, observedSourceState: input.observedRf.state, observationWindow: input.observedRf.observationWindow, stationProfile: input.stationProfile },
-  };
 }

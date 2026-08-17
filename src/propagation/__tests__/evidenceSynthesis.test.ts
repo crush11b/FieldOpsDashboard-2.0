@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { DEFAULT_STATION_PROFILE } from '../stationProfileCatalog';
 import {
-  createPropagationBandAssessment,
   createPropagationDecisionBasis,
   deriveEvidenceAgreement,
+  deriveConfidence,
   deriveModeRelevance,
   deriveOperatingMode,
   interpretEnvironment,
@@ -34,11 +34,10 @@ function input(overrides: { band?: EvidenceSynthesisInput['band']; destinationRe
 
 describe('Slice 5H-A evidence synthesis contracts', () => {
   it('keeps categorical rating separate from confidence and does not assign a final rating', () => {
-    const assessment = createPropagationBandAssessment(input());
-    expect(assessment).toMatchObject({ band: '20m', destinationRegion: 'western_europe', rating: null, ratingStatus: 'deferred_to_5h_b' });
-    expect(['high', 'medium', 'low', 'modeled_only', 'unavailable']).toContain(assessment.confidence);
-    expect(assessment.decisionBasis.sourceCoverage).toEqual({ model: 'available', spaceWeather: 'live', observedRf: 'live', ionosphere: 'future' });
-    expect(assessment.decisionBasis.limitations).toContain('reference_antenna_assumptions');
+    const basis = createPropagationDecisionBasis(input());
+    expect(basis).toMatchObject({ band: '20m', destinationRegion: 'western_europe' });
+    expect(basis.sourceCoverage).toEqual({ model: 'available', spaceWeather: 'live', observedRf: 'live', ionosphere: 'future' });
+    expect(basis.limitations).toContain('reference_antenna_assumptions');
   });
 
   it('interprets favorable, uneven, marginal, unfavorable, and unsupported model evidence without mutating BCR', () => {
@@ -105,11 +104,10 @@ describe('Slice 5H-A evidence synthesis contracts', () => {
   });
 
   it('supports 6m observed-only evidence without forcing it through P.533', () => {
-    const assessment = createPropagationBandAssessment(input({ band: '6m', model: { state: 'unsupported', medianBcrPercent: null }, environment: { status: 'unavailable', kp: product(null), rScale: product(null) } }));
-    expect(assessment.decisionBasis.model.state).toBe('unavailable');
-    expect(assessment.decisionBasis.sourceCoverage.model).toBe('unsupported');
-    expect(assessment.decisionBasis.limitations).toContain('model_unsupported');
-    expect(assessment.rating).toBeNull();
+    const basis = createPropagationDecisionBasis(input({ band: '6m', model: { state: 'unsupported', medianBcrPercent: null }, environment: { status: 'unavailable', kp: product(null), rScale: product(null) } }));
+    expect(basis.model.state).toBe('unavailable');
+    expect(basis.sourceCoverage.model).toBe('unsupported');
+    expect(basis.limitations).toContain('model_unsupported');
   });
 
   it('keeps local digital activity separate from NVIS claims', () => {
@@ -125,21 +123,20 @@ describe('Slice 5H-A evidence synthesis contracts', () => {
     const stale = createPropagationDecisionBasis(input({ observedRf: { state: 'stale' }, environment: { status: 'stale' } }));
     expect(stale.cautions.some(caution => caution.code === 'stale_observed_rf')).toBe(true);
     expect(stale.cautions.some(caution => caution.code === 'space_weather_stale')).toBe(true);
-    const offline = createPropagationBandAssessment(input({ observedRf: { state: 'unavailable' }, environment: { status: 'unavailable', kp: product(null), rScale: product(null) } }));
-    expect(offline.confidence).toBe('modeled_only');
-    expect(offline.decisionBasis.agreement).toBe('model_only');
-    const livePsksStaleNoaa = createPropagationBandAssessment(input({ environment: { status: 'stale', kp: product(1, 'stale'), rScale: product(0, 'stale') } }));
-    expect(livePsksStaleNoaa.confidence).not.toBe('high');
-    expect(deriveOperatingMode(livePsksStaleNoaa.decisionBasis.sourceCoverage, livePsksStaleNoaa.decisionBasis.observedRf)).toBe('online_partial');
-    const modeledWithStaleNoaa = createPropagationBandAssessment(input({ observedRf: { state: 'unavailable' }, environment: { status: 'stale', kp: product(1, 'stale'), rScale: product(0, 'stale') } }));
-    expect(modeledWithStaleNoaa.confidence).toBe('modeled_only');
-    expect(deriveOperatingMode(modeledWithStaleNoaa.decisionBasis.sourceCoverage, modeledWithStaleNoaa.decisionBasis.observedRf)).toBe('offline_cached_modeled');
-    expect(modeledWithStaleNoaa.decisionBasis.cautions.some(caution => caution.code === 'current_radio_blackout')).toBe(false);
+    const offlineBasis = createPropagationDecisionBasis(input({ observedRf: { state: 'unavailable' }, environment: { status: 'unavailable', kp: product(null), rScale: product(null) } }));
+    expect(offlineBasis.agreement).toBe('model_only');
+    const livePsksStaleNoaa = createPropagationDecisionBasis(input({ environment: { status: 'stale', kp: product(1, 'stale'), rScale: product(0, 'stale') } }));
+    expect(deriveConfidence(livePsksStaleNoaa)).not.toBe('high');
+    expect(deriveOperatingMode(livePsksStaleNoaa.sourceCoverage, livePsksStaleNoaa.observedRf)).toBe('online_partial');
+    const modeledWithStaleNoaa = createPropagationDecisionBasis(input({ observedRf: { state: 'unavailable' }, environment: { status: 'stale', kp: product(1, 'stale'), rScale: product(0, 'stale') } }));
+    expect(deriveConfidence(modeledWithStaleNoaa)).toBe('modeled_only');
+    expect(deriveOperatingMode(modeledWithStaleNoaa.sourceCoverage, modeledWithStaleNoaa.observedRf)).toBe('offline_cached_modeled');
+    expect(modeledWithStaleNoaa.cautions.some(caution => caution.code === 'current_radio_blackout')).toBe(false);
   });
 
   it('retains traceability for station profile, model, NOAA, PSK, and observation window', () => {
-    const assessment = createPropagationBandAssessment(input());
-    expect(assessment.provenance).toMatchObject({ modelRevision: 'P.533-14', modelProvenance: { model: 'ITU-R P.533' }, environmentStatus: 'live', observedSourceState: 'live', observationWindow: { startsAt: '2026-08-16T11:45:00.000Z' }, stationProfile: DEFAULT_STATION_PROFILE });
-    expect(assessment.decisionBasis.evidenceFreshness).toEqual({ modelAtUtc: NOW, spaceWeatherFetchedAtUtc: NOW, observedWindow: observedRf.observationWindow });
+    const basis = createPropagationDecisionBasis(input());
+    expect(basis.stationProfile).toEqual(DEFAULT_STATION_PROFILE);
+    expect(basis.evidenceFreshness).toEqual({ modelAtUtc: NOW, spaceWeatherFetchedAtUtc: NOW, observedWindow: observedRf.observationWindow });
   });
 });

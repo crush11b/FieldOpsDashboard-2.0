@@ -1,6 +1,6 @@
 # Propagation Evidence Synthesis
 
-Slice 5H-A defines the evidence-synthesis contract used by later propagation decision work. It is a domain contract and interpretation layer only. It does not add production UI, ionosonde integration, deployment behavior, or the final 5H-B rating evaluator.
+Slices 5H-A and 5H-B define the evidence-synthesis and explainable rating contracts used by propagation guidance. They are domain and interpretation layers only. They do not add production UI, ionosonde integration, or deployment behavior.
 
 ## Evidence channels
 
@@ -28,7 +28,7 @@ Source freshness governs whether environmental evidence is interpreted as curren
 - source coverage and freshness;
 - limitations, reasons, and cautions.
 
-The thresholds in `interpretModelEvidence` are explicitly versioned `preliminary_5h_a`. They are deterministic interpretation thresholds, not final product rating thresholds. `createPropagationBandAssessment` returns `rating: null` and `ratingStatus: deferred_to_5h_b` until the final rating architecture is agreed.
+The thresholds in `interpretModelEvidence` are explicitly versioned `preliminary_5h_a`. They are deterministic interpretation thresholds, not a redefinition of P.533 BCR. `evaluatePropagationBand` converts the decision basis into the first real product rating under `PROPAGATION_RATING_POLICY_VERSION = regional_guidance_v1`. The final assessment exposes the policy version and ordered `ratingDecisionSteps`; no weighted composite score is used.
 
 Confidence is separate from rating. It describes evidence completeness and agreement, not whether the band is good or bad. A modeled-only result can have a useful model interpretation while still being marked `modeled_only` confidence.
 
@@ -51,6 +51,37 @@ The observed opening state is intentionally distinct from model failure. It allo
 
 Environment interpretation preserves R-scale as HF radio-blackout semantics. R3 or greater produces a blackout caution, while sunlit-path applicability remains `unknown`; the synthesis does not infer path illumination from R-scale alone.
 
+## Rating policy v1
+
+The evaluator applies explicit ordered rules:
+
+1. Establish the model baseline from the 5H-A opportunity state: `very_favorable` -> `EXCELLENT`, `favorable` -> `GOOD`, `marginal` -> `FAIR`, and `unfavorable` -> `POOR`.
+2. Apply current, recent observed-RF confirmation or observed-opening rules. Strong direct live evidence can promote a favorable baseline one level when the current environment is favorable or quiet and there is no wide-spread or partial-model caution. An observed opening promotes at most one level: direct evidence may promote normally, adjacent evidence is capped at `GOOD`, and indirect evidence is capped at `FAIR`. Stale, cached, limited, and zero-report evidence cannot promote.
+3. Apply current environmental qualification. Disturbed conditions downgrade an unconfirmed rating by one level. Severe disturbance caps at `FAIR`, or `GOOD` when strong direct live RF is actually present. Current R3+ blackout evidence uses the same cap because sunlit-path applicability is unknown. Historical, cached, stale, partial, and unavailable environment states do not change the rating.
+4. Derive final confidence from source freshness, agreement, mode relevance, model completeness, and the resulting evidence path.
+
+The compact policy table is:
+
+| Evidence path | Rating behavior |
+| --- | --- |
+| Usable P.533 model | Use the model baseline mapping above |
+| Favorable model + strong direct live confirmation + favorable/quiet environment | Promote `GOOD` to `EXCELLENT`; otherwise retain baseline |
+| Observed opening, direct | One-step promotion |
+| Observed opening, adjacent | One-step promotion, maximum `GOOD` |
+| Observed opening, indirect | One-step promotion, maximum `FAIR` |
+| No model + strong direct observed-only | `GOOD` |
+| No model + observed/adjacent/indirect evidence | `FAIR` maximum |
+| No model + limited, zero, or unavailable observations | `UNAVAILABLE` |
+| `local_nvis` | `UNAVAILABLE`; separate local/NVIS evaluator required |
+
+The evaluator never guarantees a contact, treats FT8 as voice evidence, or converts report counts into a rating.
+
+## Decision trace and confidence
+
+Each final assessment contains `ratingDecisionSteps`. Stable rule IDs include `model_baseline_favorable`, `observed_confirmation`, `observed_opening_direct`, `observed_opening_adjacent`, `observed_opening_indirect_limit`, `observed_only_direct`, `environment_disturbed_qualification`, `environment_severe_cap`, `environment_blackout_cap`, `insufficient_evidence`, and `local_nvis_deferred`. Each step records its action, previous rating, resulting rating, and evidence basis.
+
+`HIGH` requires a usable model, live recent observed RF, confirmed agreement, direct mode relevance, live favorable or quiet environment, and no partial-model or wide-spread caution. Adjacent confirmation is capped at `MEDIUM`; indirect evidence cannot produce `HIGH`. Observed-only guidance is `LOW`. Usable model evidence without usable current external evidence is `MODELED_ONLY`. An unavailable final rating is `UNAVAILABLE` confidence. Absence of the optional ionosphere channel is a limitation, not an automatic v1 confidence penalty.
+
 ## Region, mode, and band limitations
 
 `local_nvis` preserves local observed digital activity but adds `local_mechanism_unknown`. It must not be presented as proof of NVIS.
@@ -58,6 +89,10 @@ Environment interpretation preserves R-scale as HF radio-blackout semantics. R3 
 For modes, an exact observed mode is `direct`. The explicit semantic relationship matrix classifies FT4, JS8, and RTTY evidence as adjacent to the FT8-family, while FT8 evidence is indirect for SSB and CW. This prevents FT8 evidence from being presented as direct SSB evidence and keeps `indirect` reachable. The source remains explicitly digital-only; no percentage advantage or mode equivalence is claimed.
 
 For 6m, P.533 can be `unsupported`. The assessment remains valid as an observed-only or unavailable evidence contract and does not fabricate a modeled opportunity state.
+
+The 6m evaluator path is observed-only: strong direct live activity is `GOOD`, modest direct activity is `FAIR`, strong indirect activity is `FAIR` maximum, and zero or unavailable PSK evidence is `UNAVAILABLE`. The `model_unsupported` limitation remains in the decision basis.
+
+`local_nvis` is always `UNAVAILABLE` under `regional_guidance_v1`. Local digital activity is preserved in the observed evidence and provenance, but the result explicitly records that a separate local/NVIS evaluator is required and that activity does not establish NVIS.
 
 ## Operating modes and offline behavior
 
