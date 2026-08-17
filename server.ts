@@ -33,6 +33,7 @@ import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
 import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
+import { getSpaceWeatherSnapshot } from './server/spaceWeather';
 
 async function startServer() {
   const app = express();
@@ -137,6 +138,14 @@ async function startServer() {
       res.json(solarData);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch solar data" });
+    }
+  });
+
+  app.get('/api/space-weather', async (_req, res) => {
+    try {
+      res.json(await getSpaceWeatherSnapshot());
+    } catch (error) {
+      res.status(503).json({ error: error instanceof Error ? error.message : 'NOAA space-weather evidence is unavailable.' });
     }
   });
 
