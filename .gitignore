@@ -5,6 +5,9 @@ coverage/
 **/bin/
 **/obj/
 agent/artifacts/
+p533-assets/runtime/
+p533-assets-*/
+public/p533/
 .DS_Store
 *.log
 telemetry-credentials.json

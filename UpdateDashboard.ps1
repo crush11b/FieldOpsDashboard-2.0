@@ -23,11 +23,15 @@ $requiredPackageFiles = @(
     'agent\scripts\Publish-FieldOpsArtifacts.ps1',
     'agent\scripts\Install-FieldOpsAgent.ps1',
     'agent\scripts\FieldOps.OperatorProvisioning.psm1',
-    'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1'
+    'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
+    'p533-assets\manifest.json',
+    'p533-assets\runtime\provenance.json'
 )
 $requiredDeploymentFiles = @(
     'package.json',
-    'server.ts'
+    'server.ts',
+    'p533-assets\manifest.json',
+    'p533-assets\runtime\provenance.json'
 )
 
 function Assert-NativeArtifact {
