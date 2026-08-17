@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardConfigStore, normalizeDashboardConfig } from '../dashboardConfig';
-import { parseGuidanceRequest, propagationGuidanceModelCacheKey, PropagationGuidanceService } from '../propagationGuidance';
+import { parseGuidanceRequest, propagationGuidanceModelCacheKey, PropagationGuidanceService, PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_ENTRIES, PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_AGE_MS } from '../propagationGuidance';
 import { latLonToGridSquare } from '../../src/types';
 import { parsePskPayload } from '../../src/propagation/observedRf';
 
@@ -26,7 +26,7 @@ const weather = {
 
 const profile = { mode: 'SSB' as const, transmitPowerWatts: 10, antenna: { type: 'EFHW' as const }, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } };
 const currentLocation = { coordinates: { lat: 37.54, lon: -77.43 }, gridSquare: null, provenance: 'current' as const, status: 'ok' as const, source: { id: 'gps:test', type: 'browser_geolocation' } };
-const observedRf = { setOperatingLocation: vi.fn(), getSnapshot: () => ({ kind: 'observed_rf', status: 'unavailable', operatingGrid4: null, observationWindow: { startsAt: '2026-08-17T02:45:00.000Z', endsAt: '2026-08-17T03:00:00.000Z' }, collectedAtUtc: '2026-08-17T03:00:00.000Z', reports: [], bandSummaries: [], provenance: { sourceId: 'test', sourceName: 'test', transport: 'mqtts-websocket', brokerHost: 'test', brokerPort: 1886, topicPatterns: [] } }) };
+const observedRf = { setOperatingLocation: vi.fn(), getSnapshot: () => ({ kind: 'observed_rf', status: 'unavailable', evidenceStatus: 'unavailable', operatingGrid4: null, observationWindow: { startsAt: '2026-08-17T02:45:00.000Z', endsAt: '2026-08-17T03:00:00.000Z' }, collectedAtUtc: '2026-08-17T03:00:00.000Z', reports: [], bandSummaries: [], provenance: { sourceId: 'test', sourceName: 'test', transport: 'mqtts-websocket', brokerHost: 'test', brokerPort: 1886, topicPatterns: [] } }) };
 const config = (stationProfile = profile) => ({ read: () => ({ kind: 'loaded' as const, config: { propagation: { stationProfile } } }) }) as unknown as DashboardConfigStore;
 
 function modelResult(request: any) {
@@ -34,12 +34,12 @@ function modelResult(request: any) {
   return { status: 'complete', regionId: request.regionId, regionLabel: request.regionId, operatingLocation: request.operatingLocation, stationProfile: request.stationProfile, assumptions: { antennaModel: 'ISOTROPIC', antennaGainOffsetDb: 0, bandwidthHz: 3000, requiredSnrDb: 15, requiredReliabilityPercent: 90, noiseEnvironment: 'RESIDENTIAL', modulation: 'ANALOG', pathDirection: 'SHORTPATH', modeInterpretation: 'test', antennaInterpretation: 'test' }, modeledAtUtc: request.modelDateTimeUtc, ssn: request.ssn, unsupportedBands: ['6m'], provenance: { sourceState: 'modeled', model: 'ITU-R P.533', recommendation: 'P.533-14', engine: 'ITU-R-HF v14.3', assetProvenance: null }, bandResults, sampleCount: 1, executionCount: 10, elapsedMs: 3 };
 }
 
-function createService(options: { stationProfile?: typeof profile; snapshot?: any; observedSnapshot?: any; clock?: string; configStore?: DashboardConfigStore } = {}) {
+function createService(options: { stationProfile?: typeof profile; snapshot?: any; observedSnapshot?: any; observedService?: any; clock?: string; now?: () => Date; configStore?: DashboardConfigStore } = {}) {
   return new PropagationGuidanceService(
     { getSnapshot: async () => options.snapshot ?? weather } as any,
-    options.observedSnapshot ? { setOperatingLocation: vi.fn(), getSnapshot: () => options.observedSnapshot } as any : observedRf as any,
+    options.observedService ?? (options.observedSnapshot ? { setOperatingLocation: vi.fn(), getSnapshot: () => options.observedSnapshot } as any : observedRf as any),
     options.configStore ?? config(options.stationProfile),
-    () => new Date(options.clock ?? '2026-08-17T03:00:00.000Z'),
+    options.now ?? (() => new Date(options.clock ?? '2026-08-17T03:00:00.000Z')),
   );
 }
 
@@ -106,6 +106,30 @@ describe('PropagationGuidanceService', () => {
     expect(result.assessments.find(item => item.band === '20m')?.rating).not.toBe('UNAVAILABLE');
   });
 
+  it('refreshes observed RF after an in-flight P.533 run', async () => {
+    let currentSnapshot = observedRf.getSnapshot();
+    const source = { setOperatingLocation: vi.fn(), getSnapshot: vi.fn(() => currentSnapshot) };
+    vi.mocked(executeRegionalP533).mockImplementation(async request => {
+      currentSnapshot = { ...currentSnapshot, status: 'live', evidenceStatus: 'live_observed_rf_source' };
+      return modelResult(request) as any;
+    });
+    const result = await createService({ observedService: source }).evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    const assessment = result.assessments.find(item => item.band === '20m');
+    expect(assessment?.provenance.observedSourceState).toBe('live');
+    expect(assessment?.decisionBasis.observedRf.state).toBe('none_observed');
+    expect(assessment?.operatingMode).toBe('online_partial');
+    expect(assessment?.rating).toBe('GOOD');
+  });
+
+  it('uses live zero-report evidence on a warm model-cache hit', async () => {
+    const liveZeroReports = { ...observedRf.getSnapshot(), status: 'live', evidenceStatus: 'live_observed_rf_source' };
+    const guidance = createService({ observedSnapshot: liveZeroReports });
+    await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    const warm = await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    expect(warm.model.cache).toBe('hit');
+    expect(warm.assessments.find(item => item.band === '20m')?.operatingMode).toBe('online_partial');
+  });
+
   it('uses GRID6 and invalidates only on model-key inputs', async () => {
     const sameGrid = { ...currentLocation, coordinates: { lat: 37.540001, lon: -77.430001 } };
     const differentGrid = { ...currentLocation, coordinates: { lat: 37.6, lon: -77.43 } };
@@ -138,5 +162,23 @@ describe('PropagationGuidanceService', () => {
     const [first, second] = await Promise.all([guidance.evaluateGuidance(request), guidance.evaluateGuidance(request)]);
     expect(executeRegionalP533).toHaveBeenCalledTimes(1);
     expect([first.model.cache, second.model.cache].sort()).toEqual(['miss', 'shared']);
+  });
+
+  it('prunes expired and oldest model entries without changing cached result semantics', async () => {
+    let currentTime = new Date('2026-08-17T03:00:00.000Z');
+    const guidance = createService({ now: () => currentTime });
+    await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    currentTime = new Date(currentTime.getTime() + PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_AGE_MS + 1);
+    await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: { ...currentLocation, coordinates: { lat: 37.6, lon: -77.43 } } });
+    currentTime = new Date('2026-08-17T03:00:00.000Z');
+    const expired = await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    expect(expired.model.cache).toBe('miss');
+
+    vi.mocked(executeRegionalP533).mockClear();
+    for (let index = 0; index <= PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_ENTRIES; index += 1) {
+      await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: { ...currentLocation, coordinates: { lat: 20 + index * 0.05, lon: -77.43 } } });
+    }
+    await guidance.evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    expect(executeRegionalP533).toHaveBeenCalledTimes(PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_ENTRIES + 2);
   });
 });

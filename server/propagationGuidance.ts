@@ -43,6 +43,9 @@ export interface PropagationGuidanceResponse {
 
 interface CachedModel { readonly result: RegionalP533Result; readonly storedAt: number }
 
+export const PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_AGE_MS = 3 * 60 * 60 * 1000;
+export const PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_ENTRIES = 24;
+
 export class PropagationGuidanceService {
   private readonly modelCache = new Map<string, CachedModel>();
   private readonly inFlight = new Map<string, Promise<RegionalP533Result>>();
@@ -63,7 +66,6 @@ export class PropagationGuidanceService {
     const stationProfile = config.propagation.stationProfile;
     const spaceWeather = await this.spaceWeather.getSnapshot();
     this.observedRf.setOperatingLocation(request.operatingLocation);
-    const regionalObservedRf = deriveRegionalObservedRf(this.observedRf.getSnapshot());
     const modelSsn = spaceWeather.modelSsn ?? unavailableModelSsn();
     const modelAvailable = typeof modelSsn.value === 'number' && Number.isFinite(modelSsn.value) && modelSsn.state !== 'unavailable';
 
@@ -79,6 +81,7 @@ export class PropagationGuidanceService {
       model = unavailableModel(request.operatingLocation, stationProfile, region.id, 'P.533 model SSN is unavailable; no model result was attempted.');
     } else {
       const key = propagationGuidanceModelCacheKey(request.operatingLocation.coordinates!, region.id, stationProfile, evaluatedAtUtc, modelSsn);
+      this.pruneModelCache(this.now().getTime());
       const cached = this.modelCache.get(key);
       if (cached) {
         model = cached.result;
@@ -92,13 +95,17 @@ export class PropagationGuidanceService {
         }
         try {
           model = await pending;
-          if (cache === 'miss') this.modelCache.set(key, { result: model, storedAt: this.now().getTime() });
+          if (cache === 'miss') {
+            this.modelCache.set(key, { result: model, storedAt: this.now().getTime() });
+            this.pruneModelCache(this.now().getTime());
+          }
         } finally {
           if (this.inFlight.get(key) === pending) this.inFlight.delete(key);
         }
       }
     }
 
+    const regionalObservedRf = deriveRegionalObservedRf(this.observedRf.getSnapshot());
     const assessments = evaluateRegionalBandAssessments({
       destinationRegion: region.id,
       selectedTimeUtc: evaluatedAtUtc,
@@ -130,6 +137,17 @@ export class PropagationGuidanceService {
 
   private defaultConfig(): DashboardConfig {
     return normalizeDashboardConfig({});
+  }
+
+  private pruneModelCache(nowMs: number): void {
+    for (const [key, entry] of this.modelCache) {
+      if (nowMs - entry.storedAt > PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_AGE_MS) this.modelCache.delete(key);
+    }
+    while (this.modelCache.size > PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_ENTRIES) {
+      const oldestKey = this.modelCache.keys().next().value;
+      if (oldestKey === undefined) break;
+      this.modelCache.delete(oldestKey);
+    }
   }
 }
 
