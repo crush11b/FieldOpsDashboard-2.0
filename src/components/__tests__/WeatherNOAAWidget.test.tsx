@@ -5,6 +5,7 @@ import { act, fireEvent, render, screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { WeatherNOAAWidget } from '../WeatherNOAAWidget';
+import type { WeatherData } from '../../types';
 
 const audioMocks = vi.hoisted(() => ({
   speakNOAAAlert: vi.fn(),
@@ -21,6 +22,7 @@ const alertOne = {
   area: 'Field Area', expires: '2026-08-16T10:00:00Z', issued: '2026-08-16T09:00:00Z',
 };
 const alertTwo = { ...alertOne, id: 'alert-2', title: 'Flood Warning' };
+const retainedWeather = { tempF: 78, tempC: 25.6, condition: 'Clear' } as WeatherData;
 
 async function flushEffects() {
   await act(async () => { await Promise.resolve(); });
@@ -34,6 +36,55 @@ beforeEach(() => {
 });
 
 describe('WeatherNOAAWidget truth states', () => {
+  it('labels live weather as live', () => {
+    const markup = renderToStaticMarkup(
+      <WeatherNOAAWidget
+        weather={retainedWeather}
+        weatherStatus="live"
+        alerts={[]}
+        alertsStatus="live"
+        theme="dark_tactical"
+        audioEnabled={false}
+      />,
+    );
+
+    expect(markup).toContain('data-testid="weather-freshness-status"');
+    expect(markup).toContain('>LIVE</span>');
+  });
+
+  it('keeps weather visible and marks it refreshing during a loading update', () => {
+    const markup = renderToStaticMarkup(
+      <WeatherNOAAWidget
+        weather={retainedWeather}
+        weatherStatus="loading"
+        alerts={[]}
+        alertsStatus="live"
+        theme="dark_tactical"
+        audioEnabled={false}
+      />,
+    );
+
+    expect(markup).toContain('78°F');
+    expect(markup).toContain('>REFRESHING</span>');
+  });
+
+  it('keeps last-known weather visible and marks an unavailable update honestly', () => {
+    const markup = renderToStaticMarkup(
+      <WeatherNOAAWidget
+        weather={retainedWeather}
+        weatherStatus="unavailable"
+        alerts={[]}
+        alertsStatus="live"
+        theme="dark_tactical"
+        audioEnabled={false}
+      />,
+    );
+
+    expect(markup).toContain('78°F');
+    expect(markup).toContain('>LAST KNOWN / UPDATE UNAVAILABLE</span>');
+    expect(markup).not.toContain('>LIVE</span>');
+  });
+
   it('shows unavailable weather without plausible measurements', () => {
     const markup = renderToStaticMarkup(
       <WeatherNOAAWidget
