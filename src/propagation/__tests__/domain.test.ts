@@ -59,12 +59,14 @@ describe('Slice 5A propagation domain', () => {
     expect(PROPAGATION_GUIDANCE_BANDS.filter(band => band !== '6m')).toEqual(P533_SUPPORTED_BANDS);
   });
 
-  it('exposes the four explicit online/offline operating modes', () => {
+  it('exposes explicit online, offline, observed-only, and unavailable operating modes', () => {
     expect(PROPAGATION_OPERATING_MODES).toEqual([
       'online_live_enhanced',
       'online_partial',
-      'offline_modeled',
       'offline_cached_modeled',
+      'offline_modeled',
+      'observed_only',
+      'unavailable',
     ]);
     expect(PROPAGATION_OPERATING_MODES.every(isPropagationOperatingMode)).toBe(true);
   });

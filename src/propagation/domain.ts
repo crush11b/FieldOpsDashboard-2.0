@@ -13,7 +13,7 @@ export type PropagationMode = (typeof PROPAGATION_MODES)[number];
 
 export const PROPAGATION_SOURCE_STATES = ['live', 'cached', 'stale', 'unavailable', 'modeled'] as const;
 export type PropagationSourceState = (typeof PROPAGATION_SOURCE_STATES)[number];
-export const PROPAGATION_OPERATING_MODES = ['online_live_enhanced', 'online_partial', 'offline_modeled', 'offline_cached_modeled'] as const;
+export const PROPAGATION_OPERATING_MODES = ['online_live_enhanced', 'online_partial', 'offline_cached_modeled', 'offline_modeled', 'observed_only', 'unavailable'] as const;
 export type PropagationOperatingMode = (typeof PROPAGATION_OPERATING_MODES)[number];
 export const PROPAGATION_RATINGS = ['EXCELLENT', 'GOOD', 'FAIR', 'POOR', 'UNAVAILABLE'] as const;
 export type PropagationRating = (typeof PROPAGATION_RATINGS)[number];
