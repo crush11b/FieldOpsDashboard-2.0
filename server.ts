@@ -34,6 +34,8 @@ import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/laun
 import { DEFAULT_APPS } from './src/data/defaultConfig';
 import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
 import { SpaceWeatherService } from './server/spaceWeather';
+import { ObservedRfService } from './server/observedRf';
+import type { OperatingLocation } from './src/location/operatingLocation';
 
 async function startServer() {
   const app = express();
@@ -64,12 +66,25 @@ async function startServer() {
   app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
   const spaceWeatherService = new SpaceWeatherService();
+  const observedRfService = new ObservedRfService();
 
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
   app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
+  app.get('/api/observed-rf', async (_req, res) => {
+    const location = await readLocationTelemetryPipe();
+    const coordinates = parseCoordinates(location.latitude, location.longitude);
+    observedRfService.setOperatingLocation(coordinates ? {
+      coordinates,
+      gridSquare: null,
+      provenance: 'current',
+      status: 'ok',
+      source: { type: 'local_telemetry_agent' },
+    } as OperatingLocation : null);
+    res.json(observedRfService.getSnapshot());
+  });
   app.get('/api/version', (_req, res) => {
     const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
     try {
