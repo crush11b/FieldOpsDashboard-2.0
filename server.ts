@@ -33,7 +33,7 @@ import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
 import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
-import { getSpaceWeatherSnapshot } from './server/spaceWeather';
+import { SpaceWeatherService } from './server/spaceWeather';
 
 async function startServer() {
   const app = express();
@@ -63,6 +63,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true }));
   app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
+  const spaceWeatherService = new SpaceWeatherService();
 
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
@@ -143,7 +144,7 @@ async function startServer() {
 
   app.get('/api/space-weather', async (_req, res) => {
     try {
-      res.json(await getSpaceWeatherSnapshot());
+      res.json(await spaceWeatherService.getSnapshot());
     } catch (error) {
       res.status(503).json({ error: error instanceof Error ? error.message : 'NOAA space-weather evidence is unavailable.' });
     }
