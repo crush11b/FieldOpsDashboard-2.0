@@ -12,6 +12,14 @@ verified runtime into `public/p533`, and verifies the resulting `dist/p533`
 bundle before completing. Runtime code has a local filesystem locator only; it
 does not download P.533 code or data.
 
+The Node executor loads `p533.mjs` through a local file URL and supplies the
+verified `p533.wasm` bytes as `wasmBinary`. It creates `/data` and `/tmp` in
+Emscripten MEMFS, copies only the requested month plus the P.1239 decile
+factors into `/data`, writes `/input.txt`, calls `callMain`, and parses the
+generated `/tmp/output.txt`. Calls are serialized because the engine reuses a
+single MEMFS instance. This boundary is server-only and has no runtime fetch,
+browser API, native executable, or heuristic fallback.
+
 The generated bundle is intentionally excluded from Git because the complete
 all-month model data is approximately 113,568,169 bytes compressed and
 137,270,856 bytes installed. A controlled publication job must provision the
