@@ -8,7 +8,7 @@ The request contains a canonical destination region and an operating location wi
 
 ## Source independence
 
-Current NOAA products remain current-condition evidence. The NOAA smoothed monthly sunspot number is returned separately as `snapshot.modelSsn` and is the only solar value supplied to regional P.533. It has a longer model-input freshness window than current SSN evidence. The service never fabricates a model SSN from a default, clock, or legacy solar endpoint.
+Current NOAA products remain current-condition evidence. The NOAA smoothed monthly sunspot number is returned separately as `snapshot.modelSsn` and is the only solar value supplied to regional P.533. The parser selects the newest row with a valid smoothed value, skipping NOAA's provisional `-1` rows, and prefers `smoothed_ssn` when present. It has a longer model-input freshness window than current SSN evidence. The service never fabricates a model SSN from a default, clock, or legacy solar endpoint.
 
 Observed RF and NOAA evidence remain independent of the modeled result. A model result may be complete, partial, unavailable, or not applicable while observed evidence still contributes according to the existing rating policy.
 

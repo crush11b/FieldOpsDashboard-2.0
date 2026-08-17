@@ -3,6 +3,7 @@ import type { ObservedRfService } from './observedRf';
 import type { DashboardConfig } from '../src/types';
 import type { OperatingLocation } from '../src/location/operatingLocation';
 import { parseCoordinates, type Coordinates } from '../src/location/coordinates';
+import { latLonToGridSquare } from '../src/types';
 import { deriveRegionalObservedRf } from '../src/propagation/regionalObservedRf';
 import { evaluateRegionalBandAssessments, PROPAGATION_RATING_POLICY_VERSION, type PropagationBandAssessment } from '../src/propagation/ratingEvaluator';
 import { PROPAGATION_GUIDANCE_BANDS, type StationProfile } from '../src/propagation/domain';
@@ -57,6 +58,7 @@ export class PropagationGuidanceService {
     const evaluatedAtUtc = this.now().toISOString();
     const region = resolveRegionalDestination(request.destinationRegion);
     const configResult = this.configStore.read();
+    if (configResult.kind === 'invalid') throw new GuidanceServiceError('Persisted dashboard configuration is unavailable.');
     const config = configResult.kind === 'loaded' ? configResult.config : this.defaultConfig();
     const stationProfile = config.propagation.stationProfile;
     const spaceWeather = await this.spaceWeather.getSnapshot();
@@ -76,7 +78,7 @@ export class PropagationGuidanceService {
     } else if (!modelAvailable) {
       model = unavailableModel(request.operatingLocation, stationProfile, region.id, 'P.533 model SSN is unavailable; no model result was attempted.');
     } else {
-      const key = modelCacheKey(request.operatingLocation.coordinates!, region.id, stationProfile, evaluatedAtUtc, modelSsn);
+      const key = propagationGuidanceModelCacheKey(request.operatingLocation.coordinates!, region.id, stationProfile, evaluatedAtUtc, modelSsn);
       const cached = this.modelCache.get(key);
       if (cached) {
         model = cached.result;
@@ -133,13 +135,16 @@ export class PropagationGuidanceService {
 
 export class GuidanceRequestError extends Error {}
 
+export class GuidanceServiceError extends Error {}
+
 function unavailableModelSsn(): NonNullable<SpaceWeatherSnapshot['modelSsn']> {
   return { product: 'ssn', state: 'unavailable', source: { id: 'noaa-swpc', type: 'noaa-swpc', name: 'NOAA SWPC' } };
 }
 
-function modelCacheKey(coordinates: Coordinates, region: PropagationRegionId, profile: StationProfile, evaluatedAtUtc: string, modelSsn: SpaceWeatherSnapshot['modelSsn']): string {
+export function propagationGuidanceModelCacheKey(coordinates: Coordinates, region: PropagationRegionId, profile: StationProfile, evaluatedAtUtc: string, modelSsn: NonNullable<SpaceWeatherSnapshot['modelSsn']>): string {
   const hour = evaluatedAtUtc.slice(0, 13);
-  return [Math.round(coordinates.lat * 4) / 4, Math.round(coordinates.lon * 4) / 4, region, profile.mode, profile.transmitPowerWatts, profile.antenna.type, profile.deployment.geometry, profile.deployment.heightCategory, hour, modelSsn.value, modelSsn.observedAt].join('|');
+  const originGrid6 = latLonToGridSquare(coordinates.lat, coordinates.lon).slice(0, 6);
+  return [originGrid6, region, profile.mode, profile.transmitPowerWatts, profile.antenna.type, profile.deployment.geometry, profile.deployment.heightCategory, hour, modelSsn.value, modelSsn.observedAt].join('|');
 }
 
 function unavailableModel(location: OperatingLocation, stationProfile: StationProfile, regionId: PropagationRegionId, reason: string): RegionalP533Result {
@@ -157,9 +162,60 @@ export function parseGuidanceRequest(body: unknown): PropagationGuidanceRequest 
   const location = value.operatingLocation;
   if (!region || !location || typeof location !== 'object' || Array.isArray(location)) return null;
   const raw = location as Record<string, unknown>;
-  const coordinates = parseCoordinates((raw.coordinates as Record<string, unknown> | undefined)?.lat, (raw.coordinates as Record<string, unknown> | undefined)?.lon);
-  if (!coordinates || !['current', 'manual', 'stale'].includes(String(raw.provenance))) return null;
-  return { destinationRegion: region.id, operatingLocation: { ...raw, coordinates, provenance: raw.provenance as OperatingLocation['provenance'] } as OperatingLocation };
+  const coordinatesValue = raw.coordinates;
+  if (!coordinatesValue || typeof coordinatesValue !== 'object' || Array.isArray(coordinatesValue)) return null;
+  const coordinates = parseCoordinates((coordinatesValue as Record<string, unknown>).lat, (coordinatesValue as Record<string, unknown>).lon);
+  const provenance = raw.provenance;
+  const status = raw.status;
+  const source = raw.source;
+  if (!coordinates || !isCoordinateProvenance(provenance) || !isTelemetryStatus(status) || !isValidLocationSource(source, provenance, status)) return null;
+  const timestamps = raw.timestamps;
+  if (timestamps !== undefined && !isValidLocationTimestamps(timestamps)) return null;
+  const validTimestamps = timestamps as NonNullable<OperatingLocation['timestamps']> | undefined;
+  const gridSquare = latLonToGridSquare(coordinates.lat, coordinates.lon);
+  if (!/^[A-R]{2}\d{2}[a-x]{2}$/.test(gridSquare)) return null;
+  return {
+    destinationRegion: region.id,
+    operatingLocation: {
+      coordinates,
+      gridSquare,
+      provenance,
+      status,
+      source,
+      ...(validTimestamps === undefined ? {} : { timestamps: validTimestamps }),
+    },
+  };
+}
+
+function isCoordinateProvenance(value: unknown): value is OperatingLocation['provenance'] {
+  return value === 'current' || value === 'manual' || value === 'stale';
+}
+
+function isTelemetryStatus(value: unknown): value is OperatingLocation['status'] {
+  return value === 'ok' || value === 'degraded' || value === 'stale' || value === 'cached';
+}
+
+function isValidLocationSource(value: unknown, provenance: OperatingLocation['provenance'], status: OperatingLocation['status']): value is OperatingLocation['source'] {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const source = value as Record<string, unknown>;
+  if (typeof source.id !== 'string' || source.id.trim() === '' || typeof source.type !== 'string' || source.type.trim() === '') return false;
+  const currentTypes = ['browser_geolocation', 'serial_nmea', 'local_telemetry_agent'];
+  const manualTypes = ['manual_location', 'preset_location', 'configured_station_location'];
+  const staleTypes = ['cached_local_storage', ...currentTypes];
+  if (provenance === 'current') return status === 'ok' && currentTypes.includes(source.type);
+  if (provenance === 'manual') return status === 'degraded' && manualTypes.includes(source.type);
+  return (status === 'stale' || status === 'cached') && staleTypes.includes(source.type);
+}
+
+function isValidLocationTimestamps(value: unknown): value is NonNullable<OperatingLocation['timestamps']> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const timestamps = value as Record<string, unknown>;
+  return isIsoTimestamp(timestamps.observedAt) && isIsoTimestamp(timestamps.receivedAt)
+    && (timestamps.expiresAt === undefined || isIsoTimestamp(timestamps.expiresAt));
+}
+
+function isIsoTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
 }
 
 export function guidanceBands(): readonly string[] { return PROPAGATION_GUIDANCE_BANDS; }

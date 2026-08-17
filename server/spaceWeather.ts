@@ -111,10 +111,17 @@ export function parseSsn(payload: unknown): CacheRecord | null {
 
 export function parseModelSsn(payload: unknown): CacheRecord | null {
   if (!Array.isArray(payload)) return null;
-  const item = newest(payload.filter(isRecord), row => timestamp(`${String(row['time-tag'] ?? '')}-01`));
+  const item = newest(payload.filter((row): row is Record<string, unknown> => isRecord(row) && modelSsnValue(row) !== null), row => timestamp(`${String(row['time-tag'] ?? '')}-01`));
   const observedAt = item && timestamp(`${String(item['time-tag'] ?? '')}-01`);
-  const value = item && finite(item.smoothed_swpc_ssn ?? item.smoothed_ssn);
+  const value = item && modelSsnValue(item);
   return observedAt && value !== null && value >= 0 && value <= 400 ? { value, observedAt, receivedAt: '' } : null;
+}
+
+function modelSsnValue(row: Record<string, unknown>): number | null {
+  const smoothedSsn = finite(row.smoothed_ssn);
+  if (smoothedSsn !== null && smoothedSsn >= 0) return smoothedSsn;
+  const smoothedSwpcSsn = finite(row.smoothed_swpc_ssn);
+  return smoothedSwpcSsn !== null && smoothedSwpcSsn >= 0 ? smoothedSwpcSsn : null;
 }
 
 export function parseKp(payload: unknown): CacheRecord | null {

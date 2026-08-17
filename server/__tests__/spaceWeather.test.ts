@@ -35,6 +35,7 @@ describe('NOAA space-weather evidence', () => {
     expect(parseF107([{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: 'bad', flux: 900 }])).toMatchObject({ value: 129 });
     expect(parseSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83 }])).toMatchObject({ value: 106.83 });
     expect(parseModelSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }])).toMatchObject({ value: 109.5 });
+    expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }, { 'time-tag': '2026-07', smoothed_ssn: -1 }])).toMatchObject({ value: 109.5, observedAt: '2026-06-01T00:00:00.000Z' });
     expect(parseKp([{ time_tag: '2026-08-17T00:00:00', Kp: 2.33 }])).toMatchObject({ value: 2.33 });
     expect(parseRScale({ '0': { DateStamp: '2026-08-17', TimeStamp: '02:24:00', R: { Scale: '1' } } })).toMatchObject({ value: 1 });
     expect(parseXray([{ time_tag: '2026-08-17T02:23:00Z', current_class: 'C2.1' }])).toMatchObject({ value: 'C2.1' });
