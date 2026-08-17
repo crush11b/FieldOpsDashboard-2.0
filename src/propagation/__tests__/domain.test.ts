@@ -1,13 +1,18 @@
 import { describe, expect, it } from 'vitest';
 import { resolveOperatingLocation } from '../../location/operatingLocation';
 import {
-  HF_BANDS,
+  ANTENNA_TYPES,
+  DEPLOYMENT_GEOMETRIES,
+  HEIGHT_CATEGORIES,
   isPropagationOperatingMode,
   isRegionalDestination,
   isSpecificDestination,
+  isP533SupportedBand,
   isValidObservedRfEvidence,
   isValidStationProfile,
   PROPAGATION_OPERATING_MODES,
+  PROPAGATION_GUIDANCE_BANDS,
+  P533_SUPPORTED_BANDS,
   PROPAGATION_MODES,
   type PropagationBandAssessment,
   type PropagationEvidence,
@@ -41,8 +46,17 @@ const location = resolveOperatingLocation(
 
 describe('Slice 5A propagation domain', () => {
   it('preserves the ten supported HF bands and intended modes', () => {
-    expect(HF_BANDS).toEqual(['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m']);
+    expect(PROPAGATION_GUIDANCE_BANDS).toEqual(['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m']);
+    expect(PROPAGATION_GUIDANCE_BANDS).toContain('6m');
+    expect(PROPAGATION_GUIDANCE_BANDS).not.toContain('60m');
     expect(PROPAGATION_MODES).toEqual(['SSB', 'CW', 'FT8', 'FT4', 'JS8', 'RTTY']);
+  });
+
+  it('keeps the P.533-supported subset explicit and outside the 6m boundary', () => {
+    expect(P533_SUPPORTED_BANDS).toEqual(['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m']);
+    expect(P533_SUPPORTED_BANDS).not.toContain('6m');
+    expect(P533_SUPPORTED_BANDS.every(isP533SupportedBand)).toBe(true);
+    expect(PROPAGATION_GUIDANCE_BANDS.filter(band => band !== '6m')).toEqual(P533_SUPPORTED_BANDS);
   });
 
   it('exposes the four explicit online/offline operating modes', () => {
@@ -98,6 +112,17 @@ describe('Slice 5A propagation domain', () => {
     expect(isSpecificDestination(specific)).toBe(true);
     expect(validatePropagationRequest(request)).toEqual([]);
     expect(isValidStationProfile(stationProfile)).toBe(true);
+  });
+
+  it('validates canonical antenna, deployment, and height vocabularies at runtime', () => {
+    expect(ANTENNA_TYPES).toContain('EFHW');
+    expect(DEPLOYMENT_GEOMETRIES).toContain('inverted_v');
+    expect(HEIGHT_CATEGORIES).toEqual(['ground_level', 'low', 'elevated', 'unknown']);
+    expect(isValidStationProfile({ ...stationProfile, antenna: { type: 'not-an-antenna' } })).toBe(false);
+    expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'not-a-geometry' } })).toBe(false);
+    expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'inverted_v', heightCategory: 'not-a-height' } })).toBe(false);
+    expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'other', heightCategory: 'unknown' } })).toBe(true);
+    expect(isValidStationProfile({ ...stationProfile, antenna: { type: 'custom' }, deployment: { geometry: 'other' } })).toBe(true);
   });
 
   it('represents rating and confidence independently and preserves zero RF reports', () => {

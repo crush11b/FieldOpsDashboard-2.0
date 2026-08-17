@@ -2,8 +2,11 @@ import type { Coordinates } from '../location/coordinates';
 import type { OperatingLocation } from '../location/operatingLocation';
 import type { TelemetrySource, TelemetryTimestamps } from '../telemetry';
 
-export const HF_BANDS = ['160m', '80m', '60m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'] as const;
-export type HfBand = (typeof HF_BANDS)[number];
+export const PROPAGATION_GUIDANCE_BANDS = ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m', '6m'] as const;
+export type PropagationGuidanceBand = (typeof PROPAGATION_GUIDANCE_BANDS)[number];
+export const P533_SUPPORTED_BANDS = ['160m', '80m', '40m', '30m', '20m', '17m', '15m', '12m', '10m'] as const;
+export type P533SupportedBand = (typeof P533_SUPPORTED_BANDS)[number];
+export type HfBand = PropagationGuidanceBand;
 
 export const PROPAGATION_MODES = ['SSB', 'CW', 'FT8', 'FT4', 'JS8', 'RTTY'] as const;
 export type PropagationMode = (typeof PROPAGATION_MODES)[number];
@@ -17,6 +20,13 @@ export type PropagationRating = (typeof PROPAGATION_RATINGS)[number];
 export const PROPAGATION_CONFIDENCE_LEVELS = ['high', 'medium', 'low', 'modeled_only', 'unavailable'] as const;
 export type PropagationConfidence = (typeof PROPAGATION_CONFIDENCE_LEVELS)[number];
 
+export const ANTENNA_TYPES = ['EFHW', 'EFRW', 'dipole', 'vertical', 'loaded_vertical', 'portable_whip', 'beam', 'unknown_random_wire', 'custom'] as const;
+export type AntennaType = (typeof ANTENNA_TYPES)[number];
+export const DEPLOYMENT_GEOMETRIES = ['inverted_v', 'sloper', 'vertical', 'low_horizontal', 'elevated_horizontal', 'other'] as const;
+export type DeploymentGeometry = (typeof DEPLOYMENT_GEOMETRIES)[number];
+export const HEIGHT_CATEGORIES = ['ground_level', 'low', 'elevated', 'unknown'] as const;
+export type HeightCategory = (typeof HEIGHT_CATEGORIES)[number];
+
 export interface PropagationSourceReference {
   readonly state: PropagationSourceState;
   readonly source: TelemetrySource;
@@ -24,14 +34,14 @@ export interface PropagationSourceReference {
 }
 
 export interface AntennaProfile {
-  readonly type: 'EFHW' | 'EFRW' | 'dipole' | 'vertical' | 'loaded_vertical' | 'portable_whip' | 'beam' | 'unknown_random_wire' | 'custom';
+  readonly type: AntennaType;
   readonly name?: string;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
 export interface DeploymentProfile {
-  readonly geometry: 'inverted_v' | 'sloper' | 'vertical' | 'low_horizontal' | 'elevated_horizontal' | 'other';
-  readonly heightCategory?: 'ground_level' | 'low' | 'elevated' | 'unknown';
+  readonly geometry: DeploymentGeometry;
+  readonly heightCategory?: HeightCategory;
   readonly metadata?: Readonly<Record<string, unknown>>;
 }
 
@@ -131,7 +141,11 @@ export interface PropagationBandAssessment {
 }
 
 export function isHfBand(value: unknown): value is HfBand {
-  return typeof value === 'string' && (HF_BANDS as readonly string[]).includes(value);
+  return typeof value === 'string' && (PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(value);
+}
+
+export function isP533SupportedBand(value: unknown): value is P533SupportedBand {
+  return typeof value === 'string' && (P533_SUPPORTED_BANDS as readonly string[]).includes(value);
 }
 
 export function isPropagationMode(value: unknown): value is PropagationMode {
@@ -144,6 +158,18 @@ export function isPropagationSourceState(value: unknown): value is PropagationSo
 
 export function isPropagationOperatingMode(value: unknown): value is PropagationOperatingMode {
   return typeof value === 'string' && (PROPAGATION_OPERATING_MODES as readonly string[]).includes(value);
+}
+
+export function isAntennaType(value: unknown): value is AntennaType {
+  return typeof value === 'string' && (ANTENNA_TYPES as readonly string[]).includes(value);
+}
+
+export function isDeploymentGeometry(value: unknown): value is DeploymentGeometry {
+  return typeof value === 'string' && (DEPLOYMENT_GEOMETRIES as readonly string[]).includes(value);
+}
+
+export function isHeightCategory(value: unknown): value is HeightCategory {
+  return typeof value === 'string' && (HEIGHT_CATEGORIES as readonly string[]).includes(value);
 }
 
 export function isValidCoordinates(value: unknown): value is Coordinates {
@@ -173,9 +199,10 @@ export function isValidStationProfile(value: unknown): value is StationProfile {
     && Number.isFinite(value.transmitPowerWatts)
     && value.transmitPowerWatts > 0
     && isRecord(value.antenna)
-    && typeof value.antenna.type === 'string'
+    && isAntennaType(value.antenna.type)
     && isRecord(value.deployment)
-    && typeof value.deployment.geometry === 'string';
+    && isDeploymentGeometry(value.deployment.geometry)
+    && (value.deployment.heightCategory === undefined || isHeightCategory(value.deployment.heightCategory));
 }
 
 export function validatePropagationRequest(request: PropagationRequest): readonly string[] {
