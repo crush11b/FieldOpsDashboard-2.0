@@ -48,6 +48,10 @@ describe('Slice 5H-A evidence synthesis contracts', () => {
     expect(interpretModelEvidence({ ...model, medianBcrPercent: 35, successfulSampleCount: 1 }).state).toBe('marginal');
     expect(interpretModelEvidence({ ...model, medianBcrPercent: 10, successfulSampleCount: 0 }).state).toBe('unfavorable');
     expect(interpretModelEvidence({ ...model, state: 'unsupported', medianBcrPercent: null }).state).toBe('unavailable');
+    expect(interpretModelEvidence({ ...model, medianBcrPercent: null }).state).toBe('unavailable');
+    expect(interpretModelEvidence({ ...model, medianBcrPercent: Number.NaN }).state).toBe('unavailable');
+    expect(interpretModelEvidence({ ...model, successfulSampleCount: 6 }).state).toBe('unavailable');
+    expect(interpretModelEvidence({ ...model, medianBcrPercent: 0, successfulSampleCount: 0 }).state).toBe('unfavorable');
     expect(model.medianBcrPercent).toBe(80);
   });
 
@@ -59,9 +63,14 @@ describe('Slice 5H-A evidence synthesis contracts', () => {
     expect(interpretObservedRfEvidence({ ...observedRf, state: 'unavailable', reportCount: 0 }, NOW).state).toBe('unavailable');
   });
 
-  it('preserves the distinction between direct FT8 relevance and adjacent SSB relevance', () => {
+  it('exports an explicit semantic mode-relevance policy with reachable indirect evidence', () => {
     expect(deriveModeRelevance('FT8', { FT8: 4 })).toBe('direct');
-    expect(deriveModeRelevance('SSB', { FT8: 4 })).toBe('adjacent');
+    expect(deriveModeRelevance('FT4', { FT8: 4 })).toBe('adjacent');
+    expect(deriveModeRelevance('JS8', { FT8: 4 })).toBe('adjacent');
+    expect(deriveModeRelevance('SSB', { FT8: 4 })).toBe('indirect');
+    expect(deriveModeRelevance('CW', { FT8: 4 })).toBe('indirect');
+    expect(deriveModeRelevance('RTTY', { FT8: 4 })).toBe('adjacent');
+    expect(deriveModeRelevance('SSB', { SSB: 1 })).toBe('direct');
     expect(deriveModeRelevance('SSB', {})).toBe('none');
   });
 
@@ -79,6 +88,10 @@ describe('Slice 5H-A evidence synthesis contracts', () => {
     expect(interpretEnvironment({ ...environment, kp: product(6) }).state).toBe('disturbed');
     expect(interpretEnvironment({ ...environment, kp: product(8) }).state).toBe('severely_disturbed');
     expect(interpretEnvironment({ ...environment, rScale: product(3) })).toMatchObject({ state: 'radio_blackout', hfBlackoutSeverity: 'R3', sunlitPathApplicability: 'unknown', applicabilityUnknown: true });
+    expect(interpretEnvironment({ ...environment, status: 'stale', rScale: product(3, 'stale'), kp: product(8, 'stale') })).toMatchObject({ state: 'stale', hfBlackoutSeverity: 'R3' });
+    expect(interpretEnvironment({ ...environment, status: 'cached', rScale: product(3, 'cached'), kp: product(1, 'cached') })).toMatchObject({ state: 'cached_context', hfBlackoutSeverity: 'R3' });
+    expect(interpretEnvironment({ ...environment, status: 'stale', rScale: product(0, 'stale'), kp: product(1, 'stale') }).state).toBe('stale');
+    expect(interpretEnvironment({ ...environment, status: 'partial', rScale: product(null, 'unavailable'), kp: product(8) }).state).toBe('partial');
     expect(interpretEnvironment({ ...environment, status: 'unavailable', kp: product(null), rScale: product(null) }).state).toBe('unavailable');
   });
 
@@ -115,6 +128,13 @@ describe('Slice 5H-A evidence synthesis contracts', () => {
     const offline = createPropagationBandAssessment(input({ observedRf: { state: 'unavailable' }, environment: { status: 'unavailable', kp: product(null), rScale: product(null) } }));
     expect(offline.confidence).toBe('modeled_only');
     expect(offline.decisionBasis.agreement).toBe('model_only');
+    const livePsksStaleNoaa = createPropagationBandAssessment(input({ environment: { status: 'stale', kp: product(1, 'stale'), rScale: product(0, 'stale') } }));
+    expect(livePsksStaleNoaa.confidence).not.toBe('high');
+    expect(deriveOperatingMode(livePsksStaleNoaa.decisionBasis.sourceCoverage, livePsksStaleNoaa.decisionBasis.observedRf)).toBe('online_partial');
+    const modeledWithStaleNoaa = createPropagationBandAssessment(input({ observedRf: { state: 'unavailable' }, environment: { status: 'stale', kp: product(1, 'stale'), rScale: product(0, 'stale') } }));
+    expect(modeledWithStaleNoaa.confidence).toBe('modeled_only');
+    expect(deriveOperatingMode(modeledWithStaleNoaa.decisionBasis.sourceCoverage, modeledWithStaleNoaa.decisionBasis.observedRf)).toBe('offline_cached_modeled');
+    expect(modeledWithStaleNoaa.decisionBasis.cautions.some(caution => caution.code === 'current_radio_blackout')).toBe(false);
   });
 
   it('retains traceability for station profile, model, NOAA, PSK, and observation window', () => {

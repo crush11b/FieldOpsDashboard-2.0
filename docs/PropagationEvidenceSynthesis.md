@@ -14,6 +14,8 @@ An optional ionosphere input is represented as a future contract only. No ionoso
 
 Raw source values remain available to callers. Interpretation adds categorical states, reason codes, caution codes, source coverage, freshness, and provenance. There is no weighted or opaque composite score.
 
+Source freshness governs whether environmental evidence is interpreted as current. Live Kp and live R-scale in a live snapshot may support current favorable, disturbed, or radio-blackout states. Partial snapshots remain qualified and use only the fresh products that are present. Cached and stale NOAA values are retained as provenance and historical context, but cannot create a current favorable, disturbed, or radio-blackout state. A retained stale or cached R3 may produce a historical-blackout caution, never a current-radio-blackout caution.
+
 ## Decision basis and rating boundary
 
 `PropagationDecisionBasis` is the explainable intermediate product. It contains:
@@ -53,7 +55,7 @@ Environment interpretation preserves R-scale as HF radio-blackout semantics. R3 
 
 `local_nvis` preserves local observed digital activity but adds `local_mechanism_unknown`. It must not be presented as proof of NVIS.
 
-For modes, an exact observed mode is `direct`; other digital activity can be `adjacent` or `indirect`. This prevents FT8 evidence from being presented as direct SSB evidence. The source remains explicitly digital-only.
+For modes, an exact observed mode is `direct`. The explicit semantic relationship matrix classifies FT4, JS8, and RTTY evidence as adjacent to the FT8-family, while FT8 evidence is indirect for SSB and CW. This prevents FT8 evidence from being presented as direct SSB evidence and keeps `indirect` reachable. The source remains explicitly digital-only; no percentage advantage or mode equivalence is claimed.
 
 For 6m, P.533 can be `unsupported`. The assessment remains valid as an observed-only or unavailable evidence contract and does not fabricate a modeled opportunity state.
 
@@ -69,6 +71,8 @@ The operating mode is derived from source coverage:
 - `unavailable`: no usable model or observations.
 
 Stale source states are retained rather than silently promoted to live. Freshness and source state remain in the contract so consumers can show the age and limitations of evidence.
+
+Missing or nonfinite model summaries are invalid at the interpretation boundary. In particular, an absent median BCR is not coerced to BCR 0 and cannot manufacture an unfavorable result. Sample counts, successful-count bounds, BCR bounds, and spread validity are checked before model opportunity states are produced. A valid zero BCR remains a genuine unfavorable model result.
 
 ## Provenance and test contract
 

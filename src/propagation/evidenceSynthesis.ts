@@ -6,13 +6,13 @@ import type {
   PropagationSourceState,
   StationProfile,
 } from './domain';
-import { PROPAGATION_MODES, type PropagationMode } from './domain';
+import type { PropagationMode } from './domain';
 import type { PropagationRegionId } from './regionalDestinations';
 
 export type ModelState = 'available' | 'partial' | 'unavailable' | 'unsupported';
 export type ModelOpportunityState = 'very_favorable' | 'favorable' | 'marginal' | 'unfavorable' | 'unavailable';
 export type ObservedRfActivityState = 'strongly_observed' | 'observed' | 'limited' | 'none_observed' | 'unavailable';
-export type EnvironmentState = 'favorable' | 'quiet' | 'disturbed' | 'severely_disturbed' | 'radio_blackout' | 'partial' | 'unavailable';
+export type EnvironmentState = 'favorable' | 'quiet' | 'disturbed' | 'severely_disturbed' | 'radio_blackout' | 'partial' | 'cached_context' | 'stale' | 'unavailable';
 export type EvidenceAgreementState = 'confirmed' | 'consistent' | 'model_only' | 'observed_opening' | 'contradictory' | 'weakly_unconfirmed' | 'insufficient';
 export type ModeRelevance = 'direct' | 'adjacent' | 'indirect' | 'none';
 export type SourceCoverageState = 'available' | 'partial' | 'unsupported' | 'live' | 'cached' | 'stale' | 'unavailable' | 'future';
@@ -28,7 +28,7 @@ export type CautionCode =
   | 'model_reference_antenna_assumptions' | 'model_regional_spread_wide' | 'partial_model_samples'
   | 'model_unsupported_band' | 'digital_only_observed_rf' | 'no_current_observation'
   | 'stale_observed_rf' | 'space_weather_stale' | 'space_weather_unavailable'
-  | 'current_radio_blackout' | 'current_conditions_disturbed' | 'evidence_weakly_unconfirmed'
+  | 'current_radio_blackout' | 'historical_radio_blackout_evidence' | 'current_conditions_disturbed' | 'evidence_weakly_unconfirmed'
   | 'evidence_contradictory' | 'mode_indirectly_supported' | 'local_mechanism_unknown';
 
 export type SynthesisLimitationCode = 'reference_antenna_assumptions' | 'digital_only' | 'no_ionosphere' | 'model_unsupported' | 'local_mechanism_unknown';
@@ -125,6 +125,15 @@ export interface EnvironmentInterpretation {
   readonly applicabilityUnknown: true;
 }
 
+const ADJACENT_MODE_RELATIONSHIPS: Readonly<Record<PropagationMode, readonly PropagationMode[]>> = {
+  SSB: [],
+  CW: [],
+  FT8: ['FT4', 'JS8', 'RTTY'],
+  FT4: ['FT8', 'JS8', 'RTTY'],
+  JS8: ['FT8', 'FT4', 'RTTY'],
+  RTTY: ['FT8', 'FT4', 'JS8'],
+};
+
 export interface SourceCoverage {
   readonly model: ModelState;
   readonly spaceWeather: SpaceWeatherEvidenceInput['status'];
@@ -179,9 +188,13 @@ export interface PropagationBandAssessmentContract {
 }
 
 export function interpretModelEvidence(input: ModelEvidenceInput): ModelInterpretation {
-  if (input.state === 'unavailable' || input.state === 'unsupported' || input.sampleCount <= 0) return { state: 'unavailable', thresholdVersion: 'preliminary_5h_a', successfulSampleRatio: null, regionalSpreadCaution: false };
+  const validSummary = Number.isFinite(input.medianBcrPercent) && input.medianBcrPercent !== null && input.medianBcrPercent >= 0 && input.medianBcrPercent <= 100
+    && Number.isInteger(input.sampleCount) && input.sampleCount > 0
+    && Number.isInteger(input.successfulSampleCount) && input.successfulSampleCount >= 0 && input.successfulSampleCount <= input.sampleCount
+    && (input.bcrSpreadPercent === null || (Number.isFinite(input.bcrSpreadPercent) && input.bcrSpreadPercent >= 0 && input.bcrSpreadPercent <= 100));
+  if (input.state === 'unavailable' || input.state === 'unsupported' || !validSummary) return { state: 'unavailable', thresholdVersion: 'preliminary_5h_a', successfulSampleRatio: null, regionalSpreadCaution: false };
   const ratio = input.successfulSampleCount / input.sampleCount;
-  const median = input.medianBcrPercent ?? 0;
+  const median = input.medianBcrPercent;
   const spread = input.bcrSpreadPercent ?? Number.POSITIVE_INFINITY;
   const state = median >= 75 && ratio >= 0.8 && spread <= 20
     ? 'very_favorable'
@@ -209,25 +222,33 @@ export function interpretEnvironment(input: SpaceWeatherEvidenceInput): Environm
   const rScale = input.rScale.value;
   const kp = input.kp.value;
   const hfBlackoutSeverity = Number.isInteger(rScale) && rScale !== null && rScale >= 0 && rScale <= 5 ? `R${rScale}` as HfBlackoutSeverity : null;
-  const state: EnvironmentState = hfBlackoutSeverity && Number(hfBlackoutSeverity.slice(1)) >= 3
-    ? 'radio_blackout'
-    : kp === null || rScale === null
-      ? 'partial'
-      : kp >= 7
-        ? 'severely_disturbed'
-        : kp >= 5 || rScale >= 1
-          ? 'disturbed'
-          : kp <= 2 && rScale === 0
-            ? 'favorable'
-            : 'quiet';
-  return { state: input.status === 'unavailable' ? 'unavailable' : state, hfBlackoutSeverity, sunlitPathApplicability: 'unknown', applicabilityUnknown: true };
+  const currentProducts = input.status === 'live' && input.kp.state === 'live' && input.rScale.state === 'live' && kp !== null && rScale !== null;
+  const hasHistoricalValues = kp !== null || rScale !== null;
+  const state: EnvironmentState = input.status === 'unavailable'
+    ? 'unavailable'
+    : currentProducts
+      ? hfBlackoutSeverity && Number(hfBlackoutSeverity.slice(1)) >= 3
+        ? 'radio_blackout'
+        : kp >= 7
+          ? 'severely_disturbed'
+          : kp >= 5 || rScale >= 1
+            ? 'disturbed'
+            : kp <= 2 && rScale === 0
+              ? 'favorable'
+              : 'quiet'
+      : input.status === 'stale' || input.kp.state === 'stale' || input.rScale.state === 'stale'
+        ? 'stale'
+        : input.status === 'cached' || input.kp.state === 'cached' || input.rScale.state === 'cached'
+          ? 'cached_context'
+          : hasHistoricalValues ? 'partial' : 'unavailable';
+  return { state, hfBlackoutSeverity, sunlitPathApplicability: 'unknown', applicabilityUnknown: true };
 }
 
 export function deriveModeRelevance(selectedMode: PropagationMode, modeCounts: Readonly<Record<string, number>>): ModeRelevance {
   const observedModes = Object.keys(modeCounts).filter(mode => modeCounts[mode] > 0);
   if (observedModes.length === 0) return 'none';
   if (observedModes.includes(selectedMode)) return 'direct';
-  if (selectedMode === 'SSB' || PROPAGATION_MODES.includes(selectedMode)) return 'adjacent';
+  if (observedModes.some(mode => ADJACENT_MODE_RELATIONSHIPS[selectedMode].includes(mode as PropagationMode))) return 'adjacent';
   return 'indirect';
 }
 
@@ -258,9 +279,9 @@ export function deriveOperatingMode(coverage: SourceCoverage, observed: Observed
 
 export function deriveConfidence(basis: Pick<PropagationDecisionBasis, 'model' | 'environment' | 'observedRf' | 'agreement' | 'sourceCoverage'>): PropagationConfidence {
   if (basis.model.state === 'unavailable' && basis.observedRf.state === 'unavailable' && basis.environment.state === 'unavailable') return 'unavailable';
-  if (basis.model.state !== 'unavailable' && basis.observedRf.state === 'unavailable' && basis.environment.state === 'unavailable') return 'modeled_only';
-  if (basis.agreement === 'confirmed' && basis.environment.state !== 'radio_blackout' && basis.sourceCoverage.observedRf === 'live') return 'high';
-  if (basis.agreement === 'observed_opening' || basis.agreement === 'weakly_unconfirmed' || basis.environment.state === 'radio_blackout' || basis.environment.state === 'severely_disturbed') return 'low';
+  if (basis.model.state !== 'unavailable' && basis.observedRf.state === 'unavailable' && (basis.environment.state === 'unavailable' || basis.environment.state === 'stale' || basis.environment.state === 'cached_context')) return 'modeled_only';
+  if (basis.agreement === 'confirmed' && basis.environment.state !== 'radio_blackout' && basis.environment.state !== 'stale' && basis.environment.state !== 'cached_context' && basis.environment.state !== 'partial' && basis.sourceCoverage.observedRf === 'live' && basis.sourceCoverage.spaceWeather === 'live') return 'high';
+  if (basis.agreement === 'observed_opening' || basis.agreement === 'weakly_unconfirmed' || basis.environment.state === 'radio_blackout' || basis.environment.state === 'severely_disturbed' || basis.environment.state === 'stale' || basis.environment.state === 'cached_context') return 'low';
   return 'medium';
 }
 
@@ -283,8 +304,9 @@ export function createPropagationDecisionBasis(input: EvidenceSynthesisInput): P
   const cautions: SynthesisMessage[] = [{ code: 'model_reference_antenna_assumptions', text: 'P.533 currently uses reference antenna assumptions rather than fully modeling the selected antenna and deployment.' }, { code: 'digital_only_observed_rf', text: 'PSKReporter evidence is observed digital reception activity and does not prove SSB usability.' }];
   if (observedRf.state === 'unavailable' || observedRf.state === 'none_observed') cautions.push({ code: 'no_current_observation', text: 'No current matching observed-RF activity is available; this does not prove the band is closed.' });
   if (input.observedRf.state === 'stale') cautions.push({ code: 'stale_observed_rf', text: 'Observed-RF evidence is stale.' });
-  if (input.environment.status === 'stale') cautions.push({ code: 'space_weather_stale', text: 'NOAA space-weather evidence is stale.' });
+  if (environment.state === 'stale' || input.environment.status === 'stale' || input.environment.kp.state === 'stale' || input.environment.rScale.state === 'stale') cautions.push({ code: 'space_weather_stale', text: 'NOAA space-weather evidence is stale and is not interpreted as current conditions.' });
   if (environment.state === 'radio_blackout') cautions.push({ code: 'current_radio_blackout', text: 'NOAA R-scale indicates current HF radio-blackout conditions; sunlit-path applicability is unknown.' });
+  if ((environment.state === 'stale' || environment.state === 'cached_context') && environment.hfBlackoutSeverity && Number(environment.hfBlackoutSeverity.slice(1)) >= 3) cautions.push({ code: 'historical_radio_blackout_evidence', text: 'Retained NOAA R-scale evidence indicates a historical HF radio blackout; it is not a current condition.' });
   if (model.regionalSpreadCaution) cautions.push({ code: 'model_regional_spread_wide', text: 'Modeled regional sample results have a wide BCR spread.' });
   if (input.model.state === 'partial') cautions.push({ code: 'partial_model_samples', text: 'Some P.533 regional samples failed or are unavailable.' });
   if (modeRelevance === 'adjacent') cautions.push({ code: 'mode_indirectly_supported', text: 'Observed digital modes provide propagation evidence but only indirect relevance to the selected station mode.' });
