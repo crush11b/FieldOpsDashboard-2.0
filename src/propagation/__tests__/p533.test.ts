@@ -44,6 +44,11 @@ describe('Slice 5D-B P.533 boundary', () => {
     expect(parsed).toMatchObject({ modelEngineVersion: '14.2', noiseModelVersion: '14.3', frequencies: [{ frequencyMHz: 14.1, basicMufMHz: 27.87, receivedPowerDb: -114.53, snrDb: 13.01, basicCircuitReliabilityPercent: 36.01 }] });
   });
 
+  it('parses the compact repeated-call report without accepting arbitrary rows', () => {
+    expect(parseP533Report('01, 17, 14.100, 25.77, -107.70, 20.31, 70.63\n************************ End Calculated Parameters ************************')).toMatchObject({ frequencies: [{ frequencyMHz: 14.1, basicMufMHz: 25.77, receivedPowerDb: -107.7, snrDb: 20.31, basicCircuitReliabilityPercent: 70.63 }] });
+    expect(parseP533Report('01, 17, 14.100, 25.77, -107.70, 20.31, 70.63')).toBeNull();
+  });
+
   it('executes the provisioned WASM engine for the real Virginia-to-Madrid circuit', async () => {
     const execution = await executeP533Circuit(request);
     expect(execution.ok).toBe(true);
@@ -51,6 +56,16 @@ describe('Slice 5D-B P.533 boundary', () => {
     expect(execution.result.sourceState).toBe('modeled');
     expect(execution.result.frequency.frequencyMHz).toBe(14.1);
     expect(execution.result.reportBytes).toBeGreaterThan(1000);
+    expect(execution.result.rawReport).toContain('Calculated Parameters');
+    expect(execution.result.assetProvenance.p533WasmSha256).toBe('2adc1694b5c6554d3965d791641fc6b93647b721d7b64f7bc77eae9324e709e6');
+    expect(execution.result.assetProvenance.installedFileSha256['ionos01.bin']).toHaveLength(64);
     expect(execution.result.assetProvenance.runtimeNetworkRequired).toBe(false);
+  }, 30_000);
+
+  it('keeps identical serialized calls numerically deterministic', async () => {
+    const first = await executeP533Circuit(request);
+    const second = await executeP533Circuit(request);
+    expect(first.ok && second.ok).toBe(true);
+    if (first.ok && second.ok) expect(second.result.frequency).toEqual(first.result.frequency);
   }, 30_000);
 });

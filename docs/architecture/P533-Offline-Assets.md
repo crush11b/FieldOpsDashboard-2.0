@@ -20,6 +20,23 @@ generated `/tmp/output.txt`. Calls are serialized because the engine reuses a
 single MEMFS instance. This boundary is server-only and has no runtime fetch,
 browser API, native executable, or heuristic fallback.
 
+Slice 5E evaluates every Slice 5C representative sample against all nine
+`P533_SUPPORTED_BANDS` sequentially. The regional runner preserves each raw
+report and normalized per-sample result, then computes minimum, maximum, and
+median numeric summaries from successful samples only. It consumes the
+persisted `DashboardConfig.propagation.stationProfile`; the selected mode,
+antenna, and deployment remain metadata while this slice uses an explicit
+provisional isotropic reference antenna, 3000 Hz bandwidth, 15 dB required
+SNR, 90% required reliability, residential noise, and analog modulation.
+No antenna gain adjustment or final mode-specific claim is made. `6m` is
+explicitly unsupported by P.533, and `local_nvis` returns
+`separate_evaluator_required` semantics rather than fabricated endpoints.
+
+When a reused Emscripten module emits only the calculated row and terminator
+after its first call, the parser uses the fixed requested report column order
+and retains that compact raw report. Partial and unavailable regional results
+retain every failed sample and never replace failures with zeroes or ratings.
+
 The generated bundle is intentionally excluded from Git because the complete
 all-month model data is approximately 113,568,169 bytes compressed and
 137,270,856 bytes installed. A controlled publication job must provision the

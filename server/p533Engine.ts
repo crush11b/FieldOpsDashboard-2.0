@@ -30,11 +30,14 @@ interface P533Manifest {
   readonly modelName: string;
   readonly recommendation: string;
   readonly modelVersion: string;
+  readonly p533MjsSha256: string;
+  readonly p533WasmSha256: string;
   readonly wasmReleaseId: number;
   readonly dataReleaseId: number;
   readonly wasmSourceRevision: string;
   readonly dataVersion: string;
   readonly dataFiles: readonly { readonly runtimeName: string }[];
+  readonly installedFileSha256: Readonly<Record<string, string>>;
 }
 
 let executionQueue = Promise.resolve();
@@ -77,6 +80,7 @@ async function executeSerialized(request: P533CircuitRequest): Promise<P533Circu
       frequency,
       elapsedMs: Date.now() - started,
       reportBytes: rawReport.length,
+      rawReport,
       assetProvenance: toAssetProvenance(manifest),
     };
     return { ok: true, result };
@@ -121,7 +125,10 @@ async function populateDataFiles(module: P533Module, manifest: P533Manifest, mon
 
 async function readManifest(): Promise<P533Manifest> {
   const manifestPath = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'p533-assets', 'manifest.json');
-  return JSON.parse(await readFile(manifestPath, 'utf8')) as P533Manifest;
+  const runtimePath = getP533RuntimePath();
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Omit<P533Manifest, 'installedFileSha256'>;
+  const provenance = JSON.parse(await readFile(path.join(runtimePath, 'provenance.json'), 'utf8')) as { installedFiles?: Readonly<Record<string, string>> };
+  return { ...manifest, installedFileSha256: provenance.installedFiles ?? {} };
 }
 
 function toAssetProvenance(manifest: P533Manifest): P533AssetProvenance {
@@ -133,6 +140,9 @@ function toAssetProvenance(manifest: P533Manifest): P533AssetProvenance {
     wasmReleaseId: manifest.wasmReleaseId,
     dataReleaseId: manifest.dataReleaseId,
     wasmSourceRevision: manifest.wasmSourceRevision,
+    p533MjsSha256: manifest.p533MjsSha256,
+    p533WasmSha256: manifest.p533WasmSha256,
+    installedFileSha256: manifest.installedFileSha256,
     runtimeNetworkRequired: false,
   };
 }

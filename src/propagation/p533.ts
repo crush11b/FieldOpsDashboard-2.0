@@ -59,6 +59,9 @@ export interface P533AssetProvenance {
   readonly wasmReleaseId: number;
   readonly dataReleaseId: number;
   readonly wasmSourceRevision: string;
+  readonly p533MjsSha256: string;
+  readonly p533WasmSha256: string;
+  readonly installedFileSha256: Readonly<Record<string, string>>;
   readonly runtimeNetworkRequired: false;
 }
 
@@ -72,6 +75,7 @@ export interface P533CircuitResult {
   readonly frequency: P533ReportFrequency;
   readonly elapsedMs: number;
   readonly reportBytes: number;
+  readonly rawReport: string;
   readonly assetProvenance: P533AssetProvenance;
 }
 
@@ -163,9 +167,14 @@ export function parseP533Report(report: string): P533ParsedReport | null {
     const match = line.match(/^Column\s+(\d+):\s+([A-Za-z]+)/);
     if (match) columns[match[2]] = Number(match[1]) - 1;
   }
+  const hasCalculatedParameters = report.includes('End Calculated Parameters');
+  if (columns.Frequency === undefined && hasCalculatedParameters) {
+    // Reused Emscripten instances emit only the calculated row after the first call.
+    Object.assign(columns, { Month: 0, Hour: 1, Frequency: 2, BMUF: 3, Pr: 4, SNR: 5, BCR: 6 });
+  }
   if (columns.Frequency === undefined || columns.BMUF === undefined || columns.Pr === undefined || columns.SNR === undefined || columns.BCR === undefined) return null;
   const frequencies: P533ReportFrequency[] = [];
-  let inCalculatedParameters = false;
+  let inCalculatedParameters = hasCalculatedParameters && !report.includes('************************ Calculated Parameters');
   for (const rawLine of report.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (line.includes('Calculated Parameters') && !line.includes('End')) { inCalculatedParameters = true; continue; }
