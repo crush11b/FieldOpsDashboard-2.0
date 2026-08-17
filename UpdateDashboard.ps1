@@ -112,7 +112,9 @@ function Assert-P533RuntimeArtifact {
     $runtimeRoot = Join-Path $NativeRoot 'p533-assets\runtime'
     $sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw | ConvertFrom-Json
     $artifactManifest = Get-Content -LiteralPath $artifactManifestPath -Raw | ConvertFrom-Json
-    if ((Get-FileHash -LiteralPath $sourceManifestPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $artifactManifestPath -Algorithm SHA256).Hash) {
+    $sourceManifestIdentity = $sourceManifest | ConvertTo-Json -Depth 10 -Compress
+    $artifactManifestIdentity = $artifactManifest | ConvertTo-Json -Depth 10 -Compress
+    if ($sourceManifestIdentity -ne $artifactManifestIdentity) {
         throw "P.533 artifact manifest does not match source revision '$ExpectedRevision'. Deployment was not activated."
     }
     $provenance = Get-Content -LiteralPath (Join-Path $runtimeRoot 'provenance.json') -Raw | ConvertFrom-Json
