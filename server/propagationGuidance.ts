@@ -157,7 +157,7 @@ export class PropagationGuidanceService {
         successfulSampleCount: item.summary.successfulSampleCount,
         sampleCount: item.summary.sampleCount,
       })),
-      observedBandSummaries: regionalObservedRf.regionBandSummaries.map(item => ({
+      observedBandSummaries: regionalObservedRf.regionBandSummaries.filter(item => item.regionId === region.id).map(item => ({
         band: item.band,
         sourceState: regionalObservedRf.sourceStatus === 'live' || regionalObservedRf.sourceStatus === 'cached' || regionalObservedRf.sourceStatus === 'stale'
           ? regionalObservedRf.sourceStatus

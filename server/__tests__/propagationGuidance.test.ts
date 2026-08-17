@@ -106,6 +106,13 @@ describe('PropagationGuidanceService', () => {
     expect(result.assessments.find(item => item.band === '20m')?.rating).not.toBe('UNAVAILABLE');
   });
 
+  it('serializes observed summaries for the selected destination only', async () => {
+    const report = parsePskPayload('pskr/filter/v2/20m/FT8/K1ABC/REMOTE/FM17gm/IO91wm/291/291', JSON.stringify({ seq: 'destination-filter', sc: 'K1ABC', rc: 'REMOTE', sl: 'FM17gm', rl: 'IO91wm', f: 14_074_000, md: 'FT8', rp: -12, t: Math.floor(Date.parse('2026-08-17T02:55:00.000Z') / 1000), b: '20m' }), 'FM17', new Date('2026-08-17T03:00:00.000Z'));
+    const result = await createService({ observedSnapshot: { ...observedRf.getSnapshot(), status: 'live', evidenceStatus: 'live_observed_rf_source', reports: report ? [report] : [] } }).evaluateGuidance({ destinationRegion: 'western_europe', operatingLocation: currentLocation });
+    expect(result.observedBandSummaries).toHaveLength(10);
+    expect(result.observedBandSummaries.find(summary => summary.band === '20m')).toMatchObject({ reportCount: 1, uniqueRemoteCallsignCount: 1, modeCounts: { FT8: 1 } });
+  });
+
   it('refreshes observed RF after an in-flight P.533 run', async () => {
     let currentSnapshot = observedRf.getSnapshot();
     const source = { setOperatingLocation: vi.fn(), getSnapshot: vi.fn(() => currentSnapshot) };
