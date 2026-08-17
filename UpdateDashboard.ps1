@@ -290,8 +290,9 @@ try {
 
     Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
     Copy-PackageTree -Source $packageRoot -Destination $stagePath
-    New-Item -ItemType Directory -Path (Join-Path $stagePath 'p533-assets') -Force | Out-Null
-    Copy-Item -Path (Join-Path $p533RuntimeRoot '*') -Destination (Join-Path $stagePath 'p533-assets\runtime') -Recurse -Force
+    $stagedRuntimeRoot = Join-Path $stagePath 'p533-assets\runtime'
+    New-Item -ItemType Directory -Path $stagedRuntimeRoot -Force | Out-Null
+    Copy-Item -Path (Join-Path $p533RuntimeRoot '*') -Destination $stagedRuntimeRoot -Recurse -Force
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
 
     Write-Host '[3/5] Stopping dashboard processes...' -ForegroundColor Yellow
