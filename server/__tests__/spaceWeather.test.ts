@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getProductUserAgent } from '../../src/productMetadata';
-import { getSpaceWeatherSnapshot, parseF107, parseKp, parseRScale, parseSsn, parseXray, SpaceWeatherService } from '../spaceWeather';
+import { getSpaceWeatherSnapshot, parseF107, parseKp, parseModelSsn, parseRScale, parseSsn, parseXray, SpaceWeatherService } from '../spaceWeather';
 
 const NOW = new Date('2026-08-17T03:00:00.000Z');
 const temporaryDirectories: string[] = [];
@@ -20,7 +20,7 @@ function jsonResponse(body: unknown, ok = true): Response {
 
 function payloadFor(url: string): unknown {
   if (url.includes('f107')) return [{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: '2026-08-16T22:00:00', flux: 122 }];
-  if (url.includes('solar-cycle')) return [{ 'time-tag': '2026-08', ssn: 114, observed_swpc_ssn: 106.83 }];
+  if (url.includes('solar-cycle')) return [{ 'time-tag': '2026-08', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }];
   if (url.includes('planetary')) return [{ time_tag: '2026-08-17T00:00:00', Kp: 2.33, a_running: 8, station_count: 8 }];
   if (url.includes('scales')) return { '0': { DateStamp: '2026-08-17', TimeStamp: '02:24:00', R: { Scale: '1' } } };
   return [{ time_tag: '2026-08-17T02:23:00Z', current_class: 'C2.1' }];
@@ -34,6 +34,7 @@ describe('NOAA space-weather evidence', () => {
   it('selects the newest valid observation and rejects malformed products', () => {
     expect(parseF107([{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: 'bad', flux: 900 }])).toMatchObject({ value: 129 });
     expect(parseSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83 }])).toMatchObject({ value: 106.83 });
+    expect(parseModelSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }])).toMatchObject({ value: 109.5 });
     expect(parseKp([{ time_tag: '2026-08-17T00:00:00', Kp: 2.33 }])).toMatchObject({ value: 2.33 });
     expect(parseRScale({ '0': { DateStamp: '2026-08-17', TimeStamp: '02:24:00', R: { Scale: '1' } } })).toMatchObject({ value: 1 });
     expect(parseXray([{ time_tag: '2026-08-17T02:23:00Z', current_class: 'C2.1' }])).toMatchObject({ value: 'C2.1' });
@@ -97,9 +98,10 @@ describe('NOAA space-weather evidence', () => {
       requests.push({ url: String(input), userAgent: new Headers(init?.headers).get('User-Agent') ?? undefined });
       return jsonResponse(payloadFor(String(input)));
     } });
-    expect(requests).toHaveLength(5);
+    expect(requests).toHaveLength(6);
     expect(requests.every(request => request.userAgent === getProductUserAgent('NOAA SWPC'))).toBe(true);
     expect(result.products.xray).toMatchObject({ value: 'C2.1', evidenceType: 'latest_goes_xray_flare_class' });
+    expect(result.modelSsn).toMatchObject({ value: 109.5, state: 'live', modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn' } });
   });
 
   it('bounds refreshes and shares concurrent in-flight work', async () => {
@@ -112,12 +114,12 @@ describe('NOAA space-weather evidence', () => {
     } }, 15 * 60 * 1000);
     const [first, second] = await Promise.all([service.getSnapshot(), service.getSnapshot()]);
     expect(first).toBe(second);
-    expect(calls).toBe(5);
+    expect(calls).toBe(6);
     await service.getSnapshot();
-    expect(calls).toBe(5);
+    expect(calls).toBe(6);
     now = new Date(now.getTime() + 15 * 60 * 1000 + 1);
     await service.getSnapshot();
-    expect(calls).toBe(10);
+    expect(calls).toBe(12);
   });
 
   it('rejects malformed cache timestamps and value shapes without crashing', async () => {

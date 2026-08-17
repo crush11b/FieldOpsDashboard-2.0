@@ -19,6 +19,10 @@ export interface SpaceWeatherEvidenceItem {
   readonly receivedAt?: string;
   readonly source: { readonly id: string; readonly type: 'noaa-swpc'; readonly name: 'NOAA SWPC' };
   readonly error?: string;
+  readonly modelInput?: {
+    readonly semanticBasis: 'noaa_smoothed_monthly_ssn';
+    readonly validity: 'long_lived_model_input';
+  };
 }
 
 export interface SpaceWeatherSnapshot {
@@ -26,6 +30,7 @@ export interface SpaceWeatherSnapshot {
   readonly status: SpaceWeatherSnapshotStatus;
   readonly fetchedAt: string;
   readonly products: Readonly<Record<SpaceWeatherProduct, SpaceWeatherEvidenceItem>>;
+  readonly modelSsn?: SpaceWeatherEvidenceItem;
 }
 
 interface CacheRecord {
@@ -35,7 +40,7 @@ interface CacheRecord {
   readonly receivedAt: string;
 }
 
-type CacheFile = Partial<Record<SpaceWeatherProduct, CacheRecord>>;
+type CacheFile = Partial<Record<SpaceWeatherProduct | 'modelSsn', CacheRecord>>;
 type Fetcher = (input: string, init?: RequestInit) => Promise<Response>;
 export const SPACE_WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
@@ -46,6 +51,8 @@ const PRODUCT_CONFIG: Readonly<Record<SpaceWeatherProduct, { path: string; maxAg
   rScale: { path: '/products/noaa-scales.json', maxAgeMs: 36 * 60 * 60 * 1000 },
   xray: { path: '/json/goes/primary/xray-flares-latest.json', maxAgeMs: 3 * 60 * 60 * 1000 },
 };
+
+const MODEL_SSN_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
 
 const SOURCE = { id: 'noaa-swpc', type: 'noaa-swpc' as const, name: 'NOAA SWPC' as const };
 
@@ -100,6 +107,14 @@ export function parseSsn(payload: unknown): CacheRecord | null {
   const observedAt = item && timestamp(`${String(item['time-tag'] ?? '')}-01`);
   const value = item && finite(item.observed_swpc_ssn ?? item.ssn);
   return observedAt && value !== null && value >= 0 ? { value, observedAt, receivedAt: '' } : null;
+}
+
+export function parseModelSsn(payload: unknown): CacheRecord | null {
+  if (!Array.isArray(payload)) return null;
+  const item = newest(payload.filter(isRecord), row => timestamp(`${String(row['time-tag'] ?? '')}-01`));
+  const observedAt = item && timestamp(`${String(item['time-tag'] ?? '')}-01`);
+  const value = item && finite(item.smoothed_swpc_ssn ?? item.smoothed_ssn);
+  return observedAt && value !== null && value >= 0 && value <= 400 ? { value, observedAt, receivedAt: '' } : null;
 }
 
 export function parseKp(payload: unknown): CacheRecord | null {
@@ -157,17 +172,21 @@ function writeCache(filePath: string, cache: CacheFile): void {
   }
 }
 
-function itemFromRecord(product: SpaceWeatherProduct, record: CacheRecord, state: PropagationSourceState): SpaceWeatherEvidenceItem {
+function itemFromRecord(product: SpaceWeatherProduct | 'modelSsn', record: CacheRecord, state: PropagationSourceState): SpaceWeatherEvidenceItem {
   return {
-    product,
+    product: product === 'modelSsn' ? 'ssn' : product,
     ...(product === 'xray' ? { evidenceType: 'latest_goes_xray_flare_class' as const } : {}),
     state,
     value: record.value,
-    unit: record.unit ?? PRODUCT_CONFIG[product].unit,
+    unit: record.unit ?? (product === 'modelSsn' ? undefined : PRODUCT_CONFIG[product].unit),
     observedAt: record.observedAt,
     receivedAt: record.receivedAt,
     source: SOURCE,
   };
+}
+
+function modelSsnItemFromRecord(record: CacheRecord, state: PropagationSourceState): SpaceWeatherEvidenceItem {
+  return { ...itemFromRecord('modelSsn', record, state), evidenceType: undefined, modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn', validity: 'long_lived_model_input' } };
 }
 
 function snapshotStatus(products: Readonly<Record<SpaceWeatherProduct, SpaceWeatherEvidenceItem>>): SpaceWeatherSnapshotStatus {
@@ -191,6 +210,7 @@ export async function getSpaceWeatherSnapshot(options: {
   const receivedAt = now().toISOString();
   const cache = readCache(cachePath);
   const products = {} as Record<SpaceWeatherProduct, SpaceWeatherEvidenceItem>;
+  let modelSsn: SpaceWeatherEvidenceItem;
   const parsers: Readonly<Record<SpaceWeatherProduct, (payload: unknown) => CacheRecord | null>> = { f107: parseF107, ssn: parseSsn, kp: parseKp, rScale: parseRScale, xray: parseXray };
 
   await Promise.all((Object.keys(PRODUCT_CONFIG) as SpaceWeatherProduct[]).map(async product => {
@@ -225,8 +245,34 @@ export async function getSpaceWeatherSnapshot(options: {
     }
   }));
 
+  const modelConfig = { path: '/json/solar-cycle/observed-solar-cycle-indices.json', maxAgeMs: MODEL_SSN_MAX_AGE_MS };
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
+    let response: Response;
+    try {
+      response = await fetcher(`${NOAA_SPACE_WEATHER_HOST}${modelConfig.path}`, {
+        headers: { Accept: 'application/json', 'User-Agent': getProductUserAgent('NOAA SWPC') },
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timeout);
+    }
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    const live = parseModelSsn(await response.json());
+    if (!live) throw new Error('NOAA payload did not contain a valid smoothed SSN model input');
+    const record = { ...live, receivedAt };
+    cache.modelSsn = record;
+    modelSsn = modelSsnItemFromRecord(record, observationState(record.observedAt, now(), modelConfig.maxAgeMs, false));
+  } catch (error) {
+    const retained = isCacheRecord(cache.modelSsn) ? cache.modelSsn : null;
+    modelSsn = retained
+      ? modelSsnItemFromRecord(retained, observationState(retained.observedAt, now(), modelConfig.maxAgeMs, true))
+      : { product: 'ssn', state: 'unavailable', source: SOURCE, error: error instanceof Error ? error.message : 'NOAA model input unavailable' };
+  }
+
   writeCache(cachePath, cache);
-  return { kind: 'noaa_space_weather', status: snapshotStatus(products), fetchedAt: receivedAt, products };
+  return { kind: 'noaa_space_weather', status: snapshotStatus(products), fetchedAt: receivedAt, products, modelSsn };
 }
 
 export class SpaceWeatherService {

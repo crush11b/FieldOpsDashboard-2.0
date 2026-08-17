@@ -36,6 +36,7 @@ import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardC
 import { SpaceWeatherService } from './server/spaceWeather';
 import { ObservedRfService } from './server/observedRf';
 import type { OperatingLocation } from './src/location/operatingLocation';
+import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
 
 async function startServer() {
   const app = express();
@@ -67,6 +68,28 @@ async function startServer() {
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
+  const propagationGuidanceService = new PropagationGuidanceService(
+    spaceWeatherService,
+    observedRfService,
+    new DashboardConfigStore(getDefaultDashboardConfigPath()),
+  );
+
+  app.post('/api/propagation-guidance', async (req, res) => {
+    const request = parseGuidanceRequest(req.body);
+    if (!request) {
+      res.status(400).json({ error: 'A valid destination region and operating location coordinates are required.' });
+      return;
+    }
+    try {
+      res.json(await propagationGuidanceService.evaluateGuidance(request));
+    } catch (error) {
+      if (error instanceof GuidanceRequestError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      res.status(503).json({ error: 'Propagation guidance is temporarily unavailable.' });
+    }
+  });
 
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
