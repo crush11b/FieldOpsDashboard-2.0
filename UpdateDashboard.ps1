@@ -109,9 +109,11 @@ function Assert-P533RuntimeArtifact {
 
     $sourceManifestPath = Join-Path $PackageRoot 'p533-assets\manifest.json'
     $artifactManifestPath = Join-Path $NativeRoot 'p533-assets\manifest.json'
+    $artifactContractManifestPath = Join-Path $NativeRoot 'artifact-manifest.json'
     $runtimeRoot = Join-Path $NativeRoot 'p533-assets\runtime'
     $sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw | ConvertFrom-Json
     $artifactManifest = Get-Content -LiteralPath $artifactManifestPath -Raw | ConvertFrom-Json
+    $artifactContractManifest = Get-Content -LiteralPath $artifactContractManifestPath -Raw | ConvertFrom-Json
     $sourceManifestIdentity = $sourceManifest | ConvertTo-Json -Depth 10 -Compress
     $artifactManifestIdentity = $artifactManifest | ConvertTo-Json -Depth 10 -Compress
     if ($sourceManifestIdentity -ne $artifactManifestIdentity) {
@@ -130,7 +132,7 @@ function Assert-P533RuntimeArtifact {
             throw "P.533 runtime artifact hash mismatch for '$fileName'. Deployment was not activated."
         }
     }
-    $p533Bundle = @($artifactManifest.bundles | Where-Object name -eq 'p533')
+    $p533Bundle = @($artifactContractManifest.bundles | Where-Object name -eq 'p533')
     if ($p533Bundle.Count -ne 1) { throw 'Native artifact manifest does not contain exactly one P.533 bundle. Deployment was not activated.' }
     return $runtimeRoot
 }
