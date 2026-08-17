@@ -12,6 +12,8 @@ $repositoryRoot = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot '..\..')).Trim
 $workspaceRoot = [IO.Path]::GetFullPath((Split-Path $repositoryRoot -Parent)).TrimEnd('\', '/')
 $defaultOutputRoot = Join-Path $repositoryRoot 'agent\artifacts\publish\win-x64'
 $metadataPath = Join-Path $repositoryRoot 'product-metadata.json'
+$p533Root = Join-Path $repositoryRoot 'p533-assets'
+$p533RuntimeRoot = Join-Path $p533Root 'runtime'
 $solutionPath = Join-Path $repositoryRoot 'agent\FieldOps.Agent.sln'
 $agentProject = Join-Path $repositoryRoot 'agent\src\FieldOps.Agent\FieldOps.Agent.csproj'
 $trayProject = Join-Path $repositoryRoot 'agent\src\FieldOps.TrayPrototype\FieldOps.TrayPrototype.csproj'
@@ -128,9 +130,10 @@ function Assert-OwnedPriorOutput {
         throw "Existing output '$Path' is not a safe FieldOps artifact directory."
     }
 
-    $expectedNames = @('agent', 'artifact-manifest.json', 'tray')
+    $expectedNames = @('agent', 'artifact-manifest.json', 'p533-assets', 'tray')
+    $legacyNames = @('agent', 'artifact-manifest.json', 'tray')
     $actualNames = @(Get-ChildItem -LiteralPath $Path -Force | ForEach-Object Name | Sort-Object)
-    if (Compare-Object $expectedNames $actualNames) {
+    if ((Compare-Object $expectedNames $actualNames) -and (Compare-Object $legacyNames $actualNames)) {
         throw "Existing output '$Path' contains stale or unexpected content."
     }
 
@@ -145,6 +148,15 @@ function Assert-OwnedPriorOutput {
     }
 }
 
+function Assert-P533Runtime {
+    if (-not (Get-Command node.exe -ErrorAction SilentlyContinue)) { throw 'node.exe is required to verify the P.533 runtime before publication.' }
+    & node.exe (Join-Path $repositoryRoot 'scripts\p533-assets.mjs') --verify-only
+    if ($LASTEXITCODE -ne 0) { throw "P.533 runtime verification failed with exit code $LASTEXITCODE." }
+    foreach ($relative in @('manifest.json', 'NOTICE.txt', 'runtime\provenance.json')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $p533Root $relative) -PathType Leaf)) { throw "P.533 publication input is missing '$relative'." }
+    }
+}
+
 if ($outputRootSupplied -and [string]::IsNullOrWhiteSpace($OutputRoot)) {
     throw 'A supplied output root must not be empty.'
 }
@@ -154,6 +166,7 @@ if (-not $outputRootSupplied) {
 $resolvedOutputRoot = Get-CanonicalPath $OutputRoot
 Assert-SafeOutputRoot $resolvedOutputRoot
 Assert-OwnedPriorOutput $resolvedOutputRoot
+Assert-P533Runtime
 
 $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
 $productVersion = [string]$metadata.version
@@ -202,8 +215,11 @@ try {
     [IO.Directory]::CreateDirectory($stagingRoot) | Out-Null
     $agentOutput = Join-Path $stagingRoot 'agent'
     $trayOutput = Join-Path $stagingRoot 'tray'
+    $p533Output = Join-Path $stagingRoot 'p533-assets'
     [IO.Directory]::CreateDirectory($agentOutput) | Out-Null
     [IO.Directory]::CreateDirectory($trayOutput) | Out-Null
+    [IO.Directory]::CreateDirectory($p533Output) | Out-Null
+    Copy-Item -Path (Join-Path $p533Root '*') -Destination $p533Output -Recurse -Force
 
     # Restore the target RID so self-contained publish has the required runtime packs.
     Invoke-DotNet @('restore', $solutionPath, '--locked-mode', '-r', 'win-x64')
@@ -274,6 +290,11 @@ try {
                 name = 'tray'
                 entryPoint = 'FieldOps.Tray.exe'
                 files = Get-RelativeFileInventory $trayOutput
+            },
+            [ordered]@{
+                name = 'p533'
+                entryPoint = 'runtime/provenance.json'
+                files = Get-RelativeFileInventory $p533Output
             }
         )
     }

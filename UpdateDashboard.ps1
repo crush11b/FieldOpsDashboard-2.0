@@ -24,8 +24,7 @@ $requiredPackageFiles = @(
     'agent\scripts\Install-FieldOpsAgent.ps1',
     'agent\scripts\FieldOps.OperatorProvisioning.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
-    'p533-assets\manifest.json',
-    'p533-assets\runtime\provenance.json'
+    'p533-assets\manifest.json'
 )
 $requiredDeploymentFiles = @(
     'package.json',
@@ -39,14 +38,16 @@ function Assert-NativeArtifact {
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required native artifact '$Path' is unavailable for revision '$ExpectedRevision'." }
     $root = Join-Path $downloadRoot 'native'
     Add-Type -AssemblyName System.IO.Compression.FileSystem
-    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force }
+    if (Test-Path -LiteralPath $root) { Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction Stop }
     [System.IO.Compression.ZipFile]::ExtractToDirectory($Path, $root)
     $manifestPath = Join-Path $root 'artifact-manifest.json'
     if (-not (Test-Path $manifestPath)) { throw "Native artifact '$Path' has no artifact-manifest.json." }
     $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
     if ([string]::IsNullOrWhiteSpace([string]$manifest.sourceRevision)) { throw 'Native artifact manifest has no source revision.' }
     if ($manifest.sourceRevision -ne $ExpectedRevision) { throw "Native artifact revision '$($manifest.sourceRevision)' does not match requested source revision '$ExpectedRevision'. Deployment was not activated." }
-    foreach ($relative in @('agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe')) { if (-not (Test-Path (Join-Path $root $relative))) { throw "Native artifact is missing '$relative'." } }
+    foreach ($relative in @('agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe','p533-assets\manifest.json','p533-assets\runtime\provenance.json')) { if (-not (Test-Path (Join-Path $root $relative))) { throw "Native artifact is missing '$relative'." } }
+    $prototypeExecutables = @(Get-ChildItem -LiteralPath $root -File -Recurse -Filter '*.exe' | Where-Object Name -Match 'Prototype')
+    if ($prototypeExecutables.Count -gt 0) { throw "Native artifact contains prototype executable(s): $($prototypeExecutables.Name -join ', ')." }
     return $root
 }
 
@@ -96,6 +97,60 @@ function Assert-RequiredFiles {
     })
     if ($missing.Count -gt 0) {
         throw "$Description is missing required file(s): $($missing -join ', ')."
+    }
+}
+
+function Assert-P533RuntimeArtifact {
+    param(
+        [Parameter(Mandatory = $true)][string]$PackageRoot,
+        [Parameter(Mandatory = $true)][string]$NativeRoot,
+        [Parameter(Mandatory = $true)][string]$ExpectedRevision
+    )
+
+    $sourceManifestPath = Join-Path $PackageRoot 'p533-assets\manifest.json'
+    $artifactManifestPath = Join-Path $NativeRoot 'p533-assets\manifest.json'
+    $runtimeRoot = Join-Path $NativeRoot 'p533-assets\runtime'
+    $sourceManifest = Get-Content -LiteralPath $sourceManifestPath -Raw | ConvertFrom-Json
+    $artifactManifest = Get-Content -LiteralPath $artifactManifestPath -Raw | ConvertFrom-Json
+    if ((Get-FileHash -LiteralPath $sourceManifestPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $artifactManifestPath -Algorithm SHA256).Hash) {
+        throw "P.533 artifact manifest does not match source revision '$ExpectedRevision'. Deployment was not activated."
+    }
+    $provenance = Get-Content -LiteralPath (Join-Path $runtimeRoot 'provenance.json') -Raw | ConvertFrom-Json
+    if ($provenance.modelVersion -ne $sourceManifest.modelVersion -or $provenance.dataVersion -ne $sourceManifest.dataVersion -or $provenance.runtimeNetworkRequired -ne $false) {
+        throw 'P.533 runtime provenance does not match the tracked P.533 manifest. Deployment was not activated.'
+    }
+    $required = @('p533.mjs', 'p533.wasm') + @($sourceManifest.dataFiles | ForEach-Object { $_.runtimeName })
+    foreach ($fileName in $required) {
+        $filePath = Join-Path $runtimeRoot $fileName
+        if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw "P.533 runtime artifact is missing '$fileName'. Deployment was not activated." }
+        $expectedHash = if ($fileName -eq 'p533.mjs') { $sourceManifest.p533MjsSha256 } elseif ($fileName -eq 'p533.wasm') { $sourceManifest.p533WasmSha256 } else { $provenance.installedFiles.$fileName }
+        if ([string]::IsNullOrWhiteSpace([string]$expectedHash) -or (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne ([string]$expectedHash).ToLowerInvariant()) {
+            throw "P.533 runtime artifact hash mismatch for '$fileName'. Deployment was not activated."
+        }
+    }
+    $p533Bundle = @($artifactManifest.bundles | Where-Object name -eq 'p533')
+    if ($p533Bundle.Count -ne 1) { throw 'Native artifact manifest does not contain exactly one P.533 bundle. Deployment was not activated.' }
+    return $runtimeRoot
+}
+
+function Remove-TemporaryCandidate {
+    param(
+        [Parameter(Mandatory = $true)][string]$CandidatePath,
+        [Parameter(Mandatory = $true)][string]$DownloadRootPath
+    )
+
+    $candidate = [IO.Path]::GetFullPath($CandidatePath).TrimEnd('\', '/')
+    $root = [IO.Path]::GetFullPath($DownloadRootPath).TrimEnd('\', '/')
+    if ($candidate.Equals($root, [StringComparison]::OrdinalIgnoreCase) -or -not $candidate.StartsWith($root + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)) {
+        throw "Refusing temporary candidate cleanup outside updater download root: '$CandidatePath'."
+    }
+    try {
+        Remove-Item -LiteralPath $candidate -Recurse -Force -ErrorAction Stop
+    } catch {
+        $primaryError = $_
+        Write-Warning "PowerShell cleanup failed for temporary candidate '$candidate': $($primaryError.Exception.Message)"
+        & cmd.exe /c rmdir /s /q "$candidate" 2>$null
+        if ($LASTEXITCODE -ne 0 -and (Test-Path -LiteralPath $candidate)) { Write-Warning "Temporary candidate cleanup fallback also failed for '$candidate'." }
     }
 }
 
@@ -210,9 +265,10 @@ try {
             Write-Host "[OK] Validated update package from $url" -ForegroundColor Green
             break
         } catch {
-            Write-Host " [!] Rejected candidate: $($_.Exception.Message)" -ForegroundColor DarkYellow
+            $candidateError = $_
+            Write-Host " [!] Rejected candidate: $($candidateError.Exception.Message)" -ForegroundColor DarkYellow
             if (Test-Path -LiteralPath $extractPath) {
-                Remove-Item -LiteralPath $extractPath -Recurse -Force
+                try { Remove-TemporaryCandidate -CandidatePath $extractPath -DownloadRootPath $downloadRoot } catch { Write-Warning "Rejected candidate cleanup was not completed: $($_.Exception.Message)" }
             }
         }
     }
@@ -226,9 +282,12 @@ try {
         try { Invoke-WebRequest -Uri $NativeArtifactUrl -OutFile $NativeArtifactPath -UseBasicParsing } catch { throw "Native artifact download failed from '$NativeArtifactUrl': $($_.Exception.Message)" }
     }
     $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision $deploymentRevision
+    $p533RuntimeRoot = Assert-P533RuntimeArtifact -PackageRoot $packageRoot -NativeRoot $nativeRoot -ExpectedRevision $deploymentRevision
 
     Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
     Copy-PackageTree -Source $packageRoot -Destination $stagePath
+    New-Item -ItemType Directory -Path (Join-Path $stagePath 'p533-assets') -Force | Out-Null
+    Copy-Item -Path (Join-Path $p533RuntimeRoot '*') -Destination (Join-Path $stagePath 'p533-assets\runtime') -Recurse -Force
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
 
     Write-Host '[3/5] Stopping dashboard processes...' -ForegroundColor Yellow

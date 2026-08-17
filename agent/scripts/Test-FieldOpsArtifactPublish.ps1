@@ -168,7 +168,10 @@ try {
         'agent/FieldOps.Agent.exe',
         'tray/FieldOps.Tray.exe',
         'tray/FieldOps.ServiceControl.exe',
-        'tray/FieldOps.NativeHealth.dll'
+        'tray/FieldOps.NativeHealth.dll',
+        'p533-assets/manifest.json',
+        'p533-assets/NOTICE.txt',
+        'p533-assets/runtime/provenance.json'
     )
     $publishedPaths = @($firstSnapshot.RelativePath)
     foreach ($requiredPath in $required) {
@@ -179,6 +182,10 @@ try {
     $prototypeExecutables = @($publishedPaths | Where-Object { $_ -match 'Prototype.*\.exe$' })
     if ($prototypeExecutables.Count -gt 0) {
         throw "Prototype-named executables were published: $($prototypeExecutables -join ', ')."
+    }
+    $p533Bundle = @($manifest.bundles | Where-Object { $_.name -eq 'p533' })
+    if ($p533Bundle.Count -ne 1) {
+        throw 'The published artifact manifest does not contain exactly one P.533 bundle.'
     }
 
     Write-Host 'FieldOps repeat-publish, manifest, naming, and failed-promotion validation passed.'
