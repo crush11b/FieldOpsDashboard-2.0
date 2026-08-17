@@ -106,7 +106,7 @@ async function startServer() {
       status: 'ok',
       source: { type: 'local_telemetry_agent' },
     } as OperatingLocation : null);
-    res.json(observedRfService.getSnapshot());
+    res.json({ ...observedRfService.getSnapshot(), diagnostics: observedRfService.getDiagnostics() });
   });
   app.get('/api/version', (_req, res) => {
     const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');

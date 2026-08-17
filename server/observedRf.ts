@@ -15,6 +15,8 @@ import {
   parsePskPayload,
   summarizeObservedRfReports,
   type ObservedRfConnectionStatus,
+    type ObservedRfRejectionReason,
+    parsePskPayloadDiagnostic,
   type ObservedRfSnapshot,
   type PskReceptionReport,
 } from '../src/propagation/observedRf';
@@ -25,9 +27,18 @@ export const OBSERVED_RF_RECONNECT_MAX_MS = 120_000;
 export interface ObservedRfMqttClient {
   on(event: 'connect' | 'close' | 'error' | 'offline' | 'message', listener: (...args: any[]) => void): this;
   subscribe(topic: string | string[], options: { qos: 0 }, callback: (error?: Error) => void): this;
+    subscribe(topic: string | string[], options: { qos: 0 }, callback: (error?: Error, granted?: readonly { topic: string; qos: number }[]) => void): this;
   unsubscribe(topic: string | string[], callback: (error?: Error) => void): this;
   end(force?: boolean): this;
   removeAllListeners(): this;
+}
+
+export type ObservedRfSubscriptionStatus = 'not_requested' | 'pending' | 'confirmed' | 'failed';
+export interface ObservedRfDiagnostics {
+  readonly broker: { status: ObservedRfConnectionStatus; host: string; port: 1886; transport: 'wss'; connectedAt: string | null };
+  readonly subscriptions: readonly { pattern: string; status: ObservedRfSubscriptionStatus; lastAttempt: string | null; lastConfirmation: string | null; lastError: string | null }[];
+  readonly traffic: { counters: Readonly<typeof ObservedRfService.prototype['diagnosticsCounters']>; rawMessages: number; parsedReports: number; rejectedReports: number; rejectionReasons: Readonly<Record<ObservedRfRejectionReason, number>>; lastRawMessageAtUtc: string | null; lastParsedReportAtUtc: string | null };
+  readonly evidence: { operatingGrid4: string | null; retainedReportCount: number; observationWindow: { startsAt: string; endsAt: string }; sourceStatus: ObservedRfConnectionStatus };
 }
 
 export type ObservedRfMqttFactory = (url: string, options: IClientOptions) => ObservedRfMqttClient;
@@ -70,6 +81,12 @@ export class ObservedRfService {
   private cachedCollectedAtUtc: string | null = null;
   private cachedObservationWindow: CacheFile['observationWindow'] | null = null;
   private cachedValidCollection = false;
+  private connectedAt: string | null = null;
+  private subscriptions = new Map<string, { status: ObservedRfSubscriptionStatus; lastAttempt: string | null; lastConfirmation: string | null; lastError: string | null }>();
+  private diagnosticsCounters = { brokerConnectCount: 0, subscriptionAttemptCount: 0, subscriptionConfirmedCount: 0, subscriptionFailureCount: 0, rawMessageCount: 0, parsedReportCount: 0, rejectedMessageCount: 0, reportsMatchingOperatingGrid: 0, reportsOutsideWindow: 0, reportsRejectedFutureTimestamp: 0 };
+  private rejectionReasons: Record<ObservedRfRejectionReason, number> = { invalid_topic: 0, invalid_json: 0, missing_callsign: 0, missing_frequency: 0, invalid_locator: 0, operating_grid_mismatch: 0, unsupported_band: 0, invalid_timestamp: 0, future_timestamp: 0, other: 0 };
+  private lastRawMessageAtUtc: string | null = null;
+  private lastParsedReportAtUtc: string | null = null;
 
   constructor(options: ObservedRfServiceOptions = {}) {
     this.now = options.now ?? (() => new Date());
@@ -140,6 +157,12 @@ export class ObservedRfService {
     };
   }
 
+  getDiagnostics(): ObservedRfDiagnostics {
+    const now = this.now();
+    const window = { startsAt: new Date(now.getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: now.toISOString() };
+    return { broker: { status: this.resolveStatus(now, now.toISOString()), host: 'mqtt.pskreporter.info', port: 1886, transport: 'wss', connectedAt: this.connectedAt }, subscriptions: [...this.subscriptions].map(([pattern, state]) => ({ pattern, ...state })), traffic: { counters: { ...this.diagnosticsCounters }, rawMessages: this.diagnosticsCounters.rawMessageCount, parsedReports: this.diagnosticsCounters.parsedReportCount, rejectedReports: this.diagnosticsCounters.rejectedMessageCount, rejectionReasons: { ...this.rejectionReasons }, lastRawMessageAtUtc: this.lastRawMessageAtUtc, lastParsedReportAtUtc: this.lastParsedReportAtUtc }, evidence: { operatingGrid4: this.operatingGrid4, retainedReportCount: this.reports.size, observationWindow: window, sourceStatus: this.resolveStatus(now, now.toISOString()) } };
+  }
+
   close(): void {
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer);
     this.reconnectTimer = null;
@@ -162,16 +185,21 @@ export class ObservedRfService {
     client.on('connect', () => {
       if (client !== this.client || !this.operatingGrid4) return;
       this.reconnectAttempt = 0;
-      this.connectionStatus = 'live';
-      this.cachedValidCollection = true;
-      this.cachedObservationWindow = { startsAt: new Date(this.now().getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: this.now().toISOString() };
-      this.persist(true);
+      this.diagnosticsCounters.brokerConnectCount += 1;
+      this.connectedAt = this.now().toISOString();
       this.subscribeGrid(this.operatingGrid4);
     });
     client.on('message', (topic: string, payload: Uint8Array) => {
       if (client !== this.client || !this.operatingGrid4) return;
-      const report = parsePskPayload(topic, payload, this.operatingGrid4, this.now());
-      if (!report) return;
+      this.diagnosticsCounters.rawMessageCount += 1;
+      this.lastRawMessageAtUtc = this.now().toISOString();
+      const result = parsePskPayloadDiagnostic(topic, payload, this.operatingGrid4, this.now());
+      if (!result.report) { const reason = result.rejectionReason ?? 'other'; this.rejectionReasons[reason] += 1; this.diagnosticsCounters.rejectedMessageCount += 1; if (reason === 'future_timestamp') this.diagnosticsCounters.reportsRejectedFutureTimestamp += 1; return; }
+      const report = result.report;
+      this.diagnosticsCounters.parsedReportCount += 1;
+      this.lastParsedReportAtUtc = report.observedAtUtc;
+      if (Date.parse(report.observedAtUtc) < this.now().getTime() - OBSERVED_RF_WINDOW_MS) { this.diagnosticsCounters.reportsOutsideWindow += 1; return; }
+      this.diagnosticsCounters.reportsMatchingOperatingGrid += 1;
       this.reports.set(report.reportId, report);
       this.prune(this.now());
       this.persist(true);
@@ -188,7 +216,16 @@ export class ObservedRfService {
 
   private subscribeGrid(grid4: string): void {
     if (!this.client) return;
-    this.client.subscribe([...buildObservedRfTopicPatterns(grid4)], { qos: 0 }, () => {});
+    const patterns = [...buildObservedRfTopicPatterns(grid4)];
+    const attemptedAt = this.now().toISOString();
+    patterns.forEach(pattern => { this.subscriptions.set(pattern, { status: 'pending', lastAttempt: attemptedAt, lastConfirmation: null, lastError: null }); this.diagnosticsCounters.subscriptionAttemptCount += 1; });
+    this.client.subscribe(patterns, { qos: 0 }, (error) => {
+      const confirmedAt = this.now().toISOString();
+      patterns.forEach(pattern => this.subscriptions.set(pattern, { status: error ? 'failed' : 'confirmed', lastAttempt: attemptedAt, lastConfirmation: error ? null : confirmedAt, lastError: error?.message ?? null }));
+      if (error) this.diagnosticsCounters.subscriptionFailureCount += patterns.length;
+      else this.diagnosticsCounters.subscriptionConfirmedCount += patterns.length;
+      if (!error) { this.connectionStatus = 'live'; this.cachedValidCollection = true; this.cachedObservationWindow = { startsAt: new Date(this.now().getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: this.now().toISOString() }; this.persist(true); }
+    });
   }
 
   private unsubscribeGrid(grid4: string): void {

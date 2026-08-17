@@ -13,6 +13,7 @@ export const OBSERVED_RF_BANDS: readonly PropagationGuidanceBand[] = [
 
 export type ObservedRfConnectionStatus = 'connecting' | 'live' | 'reconnecting' | 'cached' | 'stale' | 'unavailable';
 export type ObservedRfDirection = 'outbound' | 'inbound' | 'local';
+export type ObservedRfRejectionReason = 'invalid_topic' | 'invalid_json' | 'missing_callsign' | 'missing_frequency' | 'invalid_locator' | 'operating_grid_mismatch' | 'unsupported_band' | 'invalid_timestamp' | 'future_timestamp' | 'other';
 
 export interface PskReceptionReport {
   readonly reportId: string;
@@ -143,32 +144,45 @@ export function locatorGrid4(locator: string | null): string | null {
 }
 
 export function parsePskPayload(topic: string, payload: string | Uint8Array, operatingGrid4: string, receivedAt: Date): PskReceptionReport | null {
+  return parsePskPayloadDiagnostic(topic, payload, operatingGrid4, receivedAt).report;
+}
+
+export function parsePskPayloadDiagnostic(topic: string, payload: string | Uint8Array, operatingGrid4: string, receivedAt: Date): { readonly report: PskReceptionReport | null; readonly rejectionReason: ObservedRfRejectionReason | null } {
   const parsedTopic = parsePskTopic(topic);
-  if (!parsedTopic) return null;
+  if (!parsedTopic) return { report: null, rejectionReason: 'invalid_topic' };
   let value: unknown;
-  try { value = JSON.parse(typeof payload === 'string' ? payload : new TextDecoder().decode(payload)); } catch { return null; }
-  if (!isRecord(value)) return null;
+  try { value = JSON.parse(typeof payload === 'string' ? payload : new TextDecoder().decode(payload)); } catch { return { report: null, rejectionReason: 'invalid_json' }; }
+  if (!isRecord(value)) return { report: null, rejectionReason: 'other' };
 
   const senderCallsign = normalizedCallsign(value.sc ?? parsedTopic.senderCallsign);
   const receiverCallsign = normalizedCallsign(value.rc ?? parsedTopic.receiverCallsign);
   const frequencyHz = finiteNumber(value.f);
-  if (!senderCallsign || !receiverCallsign || frequencyHz === null) return null;
-  const senderLocator = normalizeLocator(value.sl ?? parsedTopic.senderLocator);
-  const receiverLocator = normalizeLocator(value.rl ?? parsedTopic.receiverLocator);
+  if (!senderCallsign || !receiverCallsign) return { report: null, rejectionReason: 'missing_callsign' };
+  if (frequencyHz === null) return { report: null, rejectionReason: 'missing_frequency' };
+  const senderLocatorValue = value.sl ?? parsedTopic.senderLocator;
+  const receiverLocatorValue = value.rl ?? parsedTopic.receiverLocator;
+  const senderLocator = normalizeLocator(senderLocatorValue);
+  const receiverLocator = normalizeLocator(receiverLocatorValue);
+  const hasSenderLocatorValue = typeof senderLocatorValue === 'string' ? senderLocatorValue.trim().length > 0 : senderLocatorValue !== null && senderLocatorValue !== undefined;
+  const hasReceiverLocatorValue = typeof receiverLocatorValue === 'string' ? receiverLocatorValue.trim().length > 0 : receiverLocatorValue !== null && receiverLocatorValue !== undefined;
+  if ((hasSenderLocatorValue && senderLocator === null) || (hasReceiverLocatorValue && receiverLocator === null)) {
+    return { report: null, rejectionReason: 'invalid_locator' };
+  }
   const senderGrid4 = locatorGrid4(senderLocator);
   const receiverGrid4 = locatorGrid4(receiverLocator);
   const grid = operatingGrid4.toUpperCase();
   const direction = senderGrid4 === grid && receiverGrid4 === grid ? 'local' : senderGrid4 === grid ? 'outbound' : receiverGrid4 === grid ? 'inbound' : null;
-  if (!direction) return null;
+  if (!direction) return { report: null, rejectionReason: 'operating_grid_mismatch' };
   const band = classifyObservedRfBand(frequencyHz, value.b ?? parsedTopic.band);
-  if (!band) return null;
-  const observedAtUtc = parseReportTimestamp(value.t, receivedAt);
-  if (!observedAtUtc) return null;
-  const sourceSequence = primitive(value.seq ?? value.sequence ?? value.sequenceNumber ?? value.id);
+  if (!band) return { report: null, rejectionReason: 'unsupported_band' };
+  const timestamp = parseReportTimestampDiagnostic(value.t, receivedAt);
+  if (!timestamp.value) return { report: null, rejectionReason: timestamp.reason };
+  const observedAtUtc = timestamp.value;
+  const sourceSequence = primitive(value.sq ?? value.seq ?? value.sequence ?? value.sequenceNumber ?? value.id);
   const reportId = sourceSequence !== null
     ? `sequence:${String(sourceSequence)}`
     : deterministicReportId(senderCallsign, receiverCallsign, frequencyHz, value.md ?? parsedTopic.mode, observedAtUtc, senderLocator, receiverLocator);
-  return {
+  return { report: {
     reportId,
     sourceSequence,
     senderCallsign,
@@ -183,8 +197,8 @@ export function parsePskPayload(topic: string, payload: string | Uint8Array, ope
     snrDb: finiteNumber(value.rp),
     observedAtUtc,
     receivedAtUtc: receivedAt.toISOString(),
-    senderDxcc: primitive(value.sdxcc ?? value.sdc ?? value.scountry ?? parsedTopic.senderDxcc),
-    receiverDxcc: primitive(value.rdxcc ?? value.rdc ?? value.rcountry ?? parsedTopic.receiverDxcc),
+    senderDxcc: primitive(value.sa ?? value.sdxcc ?? value.sdc ?? value.scountry ?? parsedTopic.senderDxcc),
+    receiverDxcc: primitive(value.ra ?? value.rdxcc ?? value.rdc ?? value.rcountry ?? parsedTopic.receiverDxcc),
     direction,
     provenance: {
       sourceId: OBSERVED_RF_SOURCE_ID,
@@ -192,7 +206,7 @@ export function parsePskPayload(topic: string, payload: string | Uint8Array, ope
       semantics: 'observed_digital_reception_report',
       limitation: 'Does not prove SSB usability, station-specific success, regional openness, confidence, or a propagation rating.',
     },
-  };
+  }, rejectionReason: null };
 }
 
 export function isPskReceptionReport(value: unknown): value is PskReceptionReport {
@@ -259,12 +273,13 @@ function optionalString(value: unknown): string | null { return typeof value ===
 function finiteNumber(value: unknown): number | null { const number = typeof value === 'string' && value.trim() ? Number(value) : value; return typeof number === 'number' && Number.isFinite(number) ? number : null; }
 function primitive(value: unknown): string | number | null { return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ? value : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
-function parseReportTimestamp(value: unknown, receivedAt: Date): string | null {
+function parseReportTimestampDiagnostic(value: unknown, receivedAt: Date): { value: string | null; reason: 'invalid_timestamp' | 'future_timestamp' } {
   const sourceNumber = finiteNumber(value);
-  if (sourceNumber === null || sourceNumber < 0 || !Number.isFinite(receivedAt.getTime())) return null;
+  if (sourceNumber === null || sourceNumber < 0 || !Number.isFinite(receivedAt.getTime())) return { value: null, reason: 'invalid_timestamp' };
   const date = new Date(sourceNumber > 10_000_000_000 ? sourceNumber : sourceNumber * 1000);
-  if (!Number.isFinite(date.getTime()) || date.getTime() > receivedAt.getTime() + OBSERVED_RF_FUTURE_SKEW_MS) return null;
-  return date.toISOString();
+  if (!Number.isFinite(date.getTime())) return { value: null, reason: 'invalid_timestamp' };
+  if (date.getTime() > receivedAt.getTime() + OBSERVED_RF_FUTURE_SKEW_MS) return { value: null, reason: 'future_timestamp' };
+  return { value: date.toISOString(), reason: 'invalid_timestamp' };
 }
 function deterministicReportId(sender: string, receiver: string, frequency: number, mode: unknown, timestamp: string, senderLocator: string | null, receiverLocator: string | null): string { return `report:${[sender, receiver, frequency, optionalString(mode) ?? '', timestamp, senderLocator ?? '', receiverLocator ?? ''].join('|')}`; }
 

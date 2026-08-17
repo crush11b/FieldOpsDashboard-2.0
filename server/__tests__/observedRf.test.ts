@@ -10,14 +10,21 @@ class FakeMqttClient implements ObservedRfMqttClient {
   subscriptions: string[][] = [];
   unsubscriptions: string[][] = [];
   ended = false;
+  subscriptionError: Error | undefined;
+  deferSubscription = false;
+  private pendingSubscriptionCallback: ((error?: Error) => void) | null = null;
 
   on(event: string, listener: (...args: any[]) => void): this {
     this.listeners.set(event, [...(this.listeners.get(event) ?? []), listener]);
     return this;
   }
   subscribe(topic: string | string[], _options: { qos: 0 }, callback: (error?: Error) => void): this {
-    this.subscriptions.push(Array.isArray(topic) ? topic : [topic]); callback(); return this;
+    this.subscriptions.push(Array.isArray(topic) ? topic : [topic]);
+    if (this.deferSubscription) this.pendingSubscriptionCallback = callback;
+    else callback(this.subscriptionError);
+    return this;
   }
+  confirmSubscription(): void { this.pendingSubscriptionCallback?.(); this.pendingSubscriptionCallback = null; }
   unsubscribe(topic: string | string[], callback: (error?: Error) => void): this {
     this.unsubscriptions.push(Array.isArray(topic) ? topic : [topic]); callback(); return this;
   }
@@ -37,6 +44,33 @@ async function tempCache(): Promise<string> {
 }
 
 describe('ObservedRfService', () => {
+  it('does not report live while subscriptions are pending or failed', async () => {
+    const cachePath = await tempCache();
+    const pendingClient = new FakeMqttClient(); pendingClient.deferSubscription = true;
+    const pending = new ObservedRfService({ cachePath, now: () => NOW, mqttFactory: () => pendingClient });
+    pending.setOperatingLocation(LOCATION); pendingClient.emit('connect');
+    expect(pending.getSnapshot().status).toBe('connecting');
+    expect(pending.getDiagnostics().subscriptions.every(subscription => subscription.status === 'pending')).toBe(true);
+    const failedClient = new FakeMqttClient(); failedClient.subscriptionError = new Error('denied');
+    const failed = new ObservedRfService({ cachePath, now: () => NOW, mqttFactory: () => failedClient });
+    failed.setOperatingLocation(LOCATION); failedClient.emit('connect');
+    expect(failed.getSnapshot().status).not.toBe('live');
+    expect(failed.getDiagnostics().subscriptions.every(subscription => subscription.status === 'failed')).toBe(true);
+    pending.close(); failed.close(); await rm(path.dirname(cachePath), { recursive: true, force: true });
+  });
+
+  it('reports confirmed subscriptions and bounded traffic diagnostics without payloads', async () => {
+    const cachePath = await tempCache(); const client = new FakeMqttClient();
+    const service = new ObservedRfService({ cachePath, now: () => NOW, mqttFactory: () => client });
+    service.setOperatingLocation(LOCATION); client.emit('connect'); client.emit('message', TOPIC, MESSAGE); client.emit('message', TOPIC, '{broken');
+    const diagnostics = service.getDiagnostics();
+    expect(diagnostics.subscriptions.every(subscription => subscription.status === 'confirmed')).toBe(true);
+    expect(diagnostics.traffic.counters).toMatchObject({ brokerConnectCount: 1, subscriptionAttemptCount: 2, subscriptionConfirmedCount: 2, rawMessageCount: 2, parsedReportCount: 1, rejectedMessageCount: 1 });
+    expect(diagnostics.traffic.rejectionReasons.invalid_json).toBe(1);
+    expect(JSON.stringify(diagnostics)).not.toContain(MESSAGE);
+    service.close(); await rm(path.dirname(cachePath), { recursive: true, force: true });
+  });
+
   it('connects once, subscribes twice, and reports live zero activity', async () => {
     const cachePath = await tempCache();
     const client = new FakeMqttClient();

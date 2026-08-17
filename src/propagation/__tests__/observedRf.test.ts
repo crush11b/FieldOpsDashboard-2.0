@@ -42,6 +42,11 @@ describe('PSKReporter MQTT observed-RF contracts', () => {
     expect(report?.provenance.sourceName).toBe('PSKReporter reports via mqtt.pskreporter.info');
   });
 
+  it('accepts current canonical sequence and DXCC fields alongside legacy aliases', () => {
+    const report = parsePskPayload(TX_TOPIC, payload({ sq: 99, sa: 291, ra: 226 }), 'FM17', NOW);
+    expect(report).toMatchObject({ reportId: 'sequence:99', sourceSequence: 99, senderDxcc: 291, receiverDxcc: 226 });
+  });
+
   it('rejects malformed messages and cannot fabricate required fields', () => {
     expect(parsePskPayload(TX_TOPIC, '{broken', 'FM17', NOW)).toBeNull();
     expect(parsePskPayload('pskr/filter/v2/20m/FT8/+/+/FM17/FN20/291/291', JSON.stringify({ f: 14_074_000 }), 'FM17', NOW)).toBeNull();
