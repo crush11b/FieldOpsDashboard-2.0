@@ -30,6 +30,36 @@ describe('product-owned Dashboard configuration', () => {
     expect(config.theme).toBe(INITIAL_CONFIG.theme);
     expect(config).not.toHaveProperty('unknown');
     expect(config.apps).toEqual(INITIAL_CONFIG.apps);
+    expect(config.propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
+  });
+
+  it('defaults a missing propagation profile and preserves unrelated fields', () => {
+    const config = normalizeDashboardConfig({ callsign: 'KQ4EVK', theme: 'sunlight' });
+
+    expect(config.callsign).toBe('KQ4EVK');
+    expect(config.theme).toBe('sunlight');
+    expect(config.propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
+  });
+
+  it('round-trips valid station profiles and normalizes invalid fields independently', () => {
+    const valid = {
+      mode: 'FT8', transmitPowerWatts: 37, antenna: { type: 'beam' },
+      deployment: { geometry: 'directional', heightCategory: 'not_applicable' },
+    };
+    expect(normalizeDashboardConfig({ propagation: { stationProfile: valid } }).propagation.stationProfile).toEqual(valid);
+
+    const invalid = normalizeDashboardConfig({ propagation: { stationProfile: {
+      mode: 'VARA', transmitPowerWatts: 0, antenna: { type: 'invalid' },
+      deployment: { geometry: 'inverted_v', heightCategory: 'under_15_ft' },
+    } } });
+    expect(invalid.propagation.stationProfile).toEqual({
+      mode: 'SSB', transmitPowerWatts: 10, antenna: { type: 'EFHW' },
+      deployment: { geometry: 'inverted_v', heightCategory: 'under_15_ft' },
+    });
+    expect(normalizeDashboardConfig({ propagation: { stationProfile: {
+      mode: 'SSB', transmitPowerWatts: 10, antenna: { type: 'EFHW' },
+      deployment: { geometry: 'inverted_v', heightCategory: 'not_applicable' },
+    } } }).propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
   });
 
   it('rejects malformed configuration JSON', () => {

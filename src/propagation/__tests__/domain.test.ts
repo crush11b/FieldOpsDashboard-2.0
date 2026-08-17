@@ -36,7 +36,7 @@ const stationProfile = {
   mode: 'FT8' as const,
   transmitPowerWatts: 20,
   antenna: { type: 'EFHW' as const },
-  deployment: { geometry: 'inverted_v' as const, heightCategory: 'low' as const },
+  deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const },
 };
 
 const location = resolveOperatingLocation(
@@ -117,11 +117,12 @@ describe('Slice 5A propagation domain', () => {
   it('validates canonical antenna, deployment, and height vocabularies at runtime', () => {
     expect(ANTENNA_TYPES).toContain('EFHW');
     expect(DEPLOYMENT_GEOMETRIES).toContain('inverted_v');
-    expect(HEIGHT_CATEGORIES).toEqual(['ground_level', 'low', 'elevated', 'unknown']);
+    expect(HEIGHT_CATEGORIES).toEqual(['under_15_ft', '15_to_30_ft', 'over_30_ft', 'unknown', 'not_applicable']);
     expect(isValidStationProfile({ ...stationProfile, antenna: { type: 'not-an-antenna' } })).toBe(false);
     expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'not-a-geometry' } })).toBe(false);
     expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'inverted_v', heightCategory: 'not-a-height' } })).toBe(false);
-    expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'other', heightCategory: 'unknown' } })).toBe(true);
+    expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'other', heightCategory: 'unknown' } })).toBe(false);
+    expect(isValidStationProfile({ ...stationProfile, deployment: { geometry: 'horizontal', heightCategory: '15_to_30_ft' } })).toBe(true);
     expect(isValidStationProfile({ ...stationProfile, antenna: { type: 'custom' }, deployment: { geometry: 'other' } })).toBe(true);
   });
 

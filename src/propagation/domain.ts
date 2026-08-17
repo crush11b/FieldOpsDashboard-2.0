@@ -22,10 +22,24 @@ export type PropagationConfidence = (typeof PROPAGATION_CONFIDENCE_LEVELS)[numbe
 
 export const ANTENNA_TYPES = ['EFHW', 'EFRW', 'dipole', 'vertical', 'loaded_vertical', 'portable_whip', 'beam', 'unknown_random_wire', 'custom'] as const;
 export type AntennaType = (typeof ANTENNA_TYPES)[number];
-export const DEPLOYMENT_GEOMETRIES = ['inverted_v', 'sloper', 'vertical', 'low_horizontal', 'elevated_horizontal', 'other'] as const;
+export const DEPLOYMENT_GEOMETRIES = ['inverted_v', 'sloper', 'horizontal', 'vertical', 'directional', 'other'] as const;
 export type DeploymentGeometry = (typeof DEPLOYMENT_GEOMETRIES)[number];
-export const HEIGHT_CATEGORIES = ['ground_level', 'low', 'elevated', 'unknown'] as const;
+export const HEIGHT_CATEGORIES = ['under_15_ft', '15_to_30_ft', 'over_30_ft', 'unknown', 'not_applicable'] as const;
 export type HeightCategory = (typeof HEIGHT_CATEGORIES)[number];
+
+export const ANTENNA_DEPLOYMENT_COMPATIBILITY: Readonly<Record<AntennaType, readonly DeploymentGeometry[]>> = {
+  EFHW: ['inverted_v', 'sloper', 'vertical', 'horizontal'],
+  EFRW: ['inverted_v', 'sloper', 'vertical', 'horizontal'],
+  dipole: ['inverted_v', 'horizontal'],
+  vertical: ['vertical'],
+  loaded_vertical: ['vertical'],
+  portable_whip: ['vertical'],
+  beam: ['directional'],
+  unknown_random_wire: ['sloper', 'inverted_v', 'horizontal', 'vertical', 'other'],
+  custom: ['other'],
+};
+
+export const WIRE_HEIGHT_DEPLOYMENTS: readonly DeploymentGeometry[] = ['inverted_v', 'sloper', 'horizontal'];
 
 export interface PropagationSourceReference {
   readonly state: PropagationSourceState;
@@ -172,6 +186,20 @@ export function isHeightCategory(value: unknown): value is HeightCategory {
   return typeof value === 'string' && (HEIGHT_CATEGORIES as readonly string[]).includes(value);
 }
 
+export function isDeploymentCompatible(antenna: AntennaType, deployment: DeploymentGeometry): boolean {
+  return ANTENNA_DEPLOYMENT_COMPATIBILITY[antenna].includes(deployment);
+}
+
+export function isHeightCategoryValidForDeployment(
+  deployment: DeploymentGeometry,
+  heightCategory: HeightCategory | undefined,
+): boolean {
+  if (heightCategory === undefined) return true;
+  if (WIRE_HEIGHT_DEPLOYMENTS.includes(deployment)) return heightCategory !== 'not_applicable';
+  if (deployment === 'other') return heightCategory === 'unknown' || heightCategory === 'not_applicable';
+  return heightCategory === 'not_applicable';
+}
+
 export function isValidCoordinates(value: unknown): value is Coordinates {
   if (!isRecord(value)) return false;
   return typeof value.lat === 'number' && Number.isFinite(value.lat) && value.lat >= -90 && value.lat <= 90
@@ -202,7 +230,9 @@ export function isValidStationProfile(value: unknown): value is StationProfile {
     && isAntennaType(value.antenna.type)
     && isRecord(value.deployment)
     && isDeploymentGeometry(value.deployment.geometry)
-    && (value.deployment.heightCategory === undefined || isHeightCategory(value.deployment.heightCategory));
+    && isDeploymentCompatible(value.antenna.type, value.deployment.geometry)
+    && (value.deployment.heightCategory === undefined || isHeightCategory(value.deployment.heightCategory))
+    && isHeightCategoryValidForDeployment(value.deployment.geometry, value.deployment.heightCategory);
 }
 
 export function validatePropagationRequest(request: PropagationRequest): readonly string[] {

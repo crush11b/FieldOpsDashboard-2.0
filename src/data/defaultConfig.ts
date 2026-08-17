@@ -1,4 +1,5 @@
 import { AppLauncherItem, BandPropagation, DashboardConfig, LogEntry } from '../types';
+import { DEFAULT_STATION_PROFILE } from '../propagation/stationProfileCatalog';
 
 export const DEFAULT_APPS: AppLauncherItem[] = [
   // 1. Digital Comms
@@ -454,5 +455,6 @@ export const INITIAL_CONFIG: DashboardConfig = {
   potaParkRef: 'K-0182',
   gpsComPort: 'COM6 (GPS Receiver)',
   gpsBaudRate: 9600,
+  propagation: { stationProfile: DEFAULT_STATION_PROFILE },
   apps: DEFAULT_APPS,
 };

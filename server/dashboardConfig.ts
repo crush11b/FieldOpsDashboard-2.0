@@ -4,6 +4,7 @@ import path from 'node:path';
 import express, { type Request, type Response, type Router } from 'express';
 import type { AppCategory, AppLauncherItem, DashboardConfig } from '../src/types';
 import { INITIAL_CONFIG } from '../src/data/defaultConfig';
+import { normalizeStationProfile } from '../src/propagation/stationProfileCatalog';
 
 const CONFIG_FILE_NAME = 'dashboard-config.json';
 const MAX_TEXT_LENGTH = 512;
@@ -50,6 +51,9 @@ export function normalizeDashboardConfig(input: unknown): DashboardConfig {
     potaParkRef: boundedString(source.potaParkRef, defaultConfig.potaParkRef).trim(),
     gpsComPort: boundedString(source.gpsComPort, defaultConfig.gpsComPort ?? '').trim(),
     gpsBaudRate: typeof source.gpsBaudRate === 'number' && VALID_BAUD_RATES.has(source.gpsBaudRate) ? source.gpsBaudRate : defaultConfig.gpsBaudRate,
+    propagation: {
+      stationProfile: normalizeStationProfile(isRecord(source.propagation) ? source.propagation.stationProfile : undefined),
+    },
     apps: completeApps,
   };
 }

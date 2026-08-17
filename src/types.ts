@@ -1,5 +1,6 @@
 import type { TelemetrySource, TelemetryStatus, TelemetryTimestamps } from './telemetry';
 import { parseCoordinates } from './location/coordinates';
+import type { StationProfile } from './propagation/domain';
 
 export type AppCategory = 
   | 'digital'
@@ -170,6 +171,9 @@ export interface DashboardConfig {
   apps: AppLauncherItem[];
   gpsComPort?: string;
   gpsBaudRate?: number;
+  propagation: {
+    stationProfile: StationProfile;
+  };
 }
 
 // ADIF Log entry for SmartLog+
