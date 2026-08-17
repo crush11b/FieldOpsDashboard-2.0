@@ -99,6 +99,7 @@ export default function App() {
   const [config, setConfig] = useState<DashboardConfig>(INITIAL_CONFIG);
   const [configReady, setConfigReady] = useState(false);
   const [configPersistenceError, setConfigPersistenceError] = useState<string | null>(null);
+  const configPersistenceGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +127,23 @@ export default function App() {
       try { localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(updated)); } catch { /* compatibility cache is best effort */ }
       setConfigPersistenceError('Dashboard configuration is active but was not saved to the local backend.');
     });
+  };
+
+  const persistConfig = async (updated: DashboardConfig): Promise<DashboardConfig | null> => {
+    const generation = ++configPersistenceGeneration.current;
+    setConfigPersistenceError(null);
+    try {
+      const saved = await saveDashboardConfig(updated);
+      if (generation !== configPersistenceGeneration.current) return null;
+      setConfig(saved);
+      return saved;
+    } catch (error) {
+      if (generation === configPersistenceGeneration.current) {
+        console.warn('Dashboard configuration persistence failed', error);
+        setConfigPersistenceError('Dashboard configuration was not saved; the previous settings remain active.');
+      }
+      return null;
+    }
   };
 
   // 2. Dual Battery Status
@@ -480,7 +498,7 @@ export default function App() {
             operatingLocation={operatingLocation}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
-            onUpdateConfig={updateConfig}
+            onPersistConfig={persistConfig}
           />
         </div>
 

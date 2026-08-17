@@ -39,6 +39,23 @@ export interface PropagationGuidanceResponse {
   };
   readonly ratingPolicyVersion: typeof PROPAGATION_RATING_POLICY_VERSION;
   readonly sourceErrors: readonly string[];
+  readonly modelBandSummaries: readonly {
+    readonly band: string;
+    readonly medianBcrPercent: number | null;
+    readonly minimumBcrPercent: number | null;
+    readonly maximumBcrPercent: number | null;
+    readonly successfulSampleCount: number;
+    readonly sampleCount: number;
+  }[];
+  readonly observedBandSummaries: readonly {
+    readonly band: string;
+    readonly sourceState: 'live' | 'cached' | 'stale' | 'unavailable';
+    readonly reportCount: number;
+    readonly uniquePathCount: number;
+    readonly uniqueRemoteCallsignCount: number;
+    readonly modeCounts: Readonly<Record<string, number>>;
+    readonly newestReportAt: string | null;
+  }[];
 }
 
 interface CachedModel { readonly result: RegionalP533Result; readonly storedAt: number }
@@ -132,6 +149,25 @@ export class PropagationGuidanceService {
       model: { status: model.status, cache, ssn: modelSsn, provenance: model.status === 'not_applicable' || model.status === 'unavailable' ? null : model.provenance, sampleCount: model.sampleCount, executionCount: model.executionCount, elapsedMs: model.elapsedMs, ...(model.reason ? { reason: model.reason } : {}) },
       ratingPolicyVersion: PROPAGATION_RATING_POLICY_VERSION,
       sourceErrors,
+      modelBandSummaries: model.bandResults.map(item => ({
+        band: item.band,
+        medianBcrPercent: item.summary.basicCircuitReliabilityPercent.median,
+        minimumBcrPercent: item.summary.basicCircuitReliabilityPercent.minimum,
+        maximumBcrPercent: item.summary.basicCircuitReliabilityPercent.maximum,
+        successfulSampleCount: item.summary.successfulSampleCount,
+        sampleCount: item.summary.sampleCount,
+      })),
+      observedBandSummaries: regionalObservedRf.regionBandSummaries.map(item => ({
+        band: item.band,
+        sourceState: regionalObservedRf.sourceStatus === 'live' || regionalObservedRf.sourceStatus === 'cached' || regionalObservedRf.sourceStatus === 'stale'
+          ? regionalObservedRf.sourceStatus
+          : 'unavailable',
+        reportCount: item.reportCount,
+        uniquePathCount: item.uniquePathCount,
+        uniqueRemoteCallsignCount: item.uniqueRemoteCallsignCount,
+        modeCounts: item.modeCounts,
+        newestReportAt: item.newestReportAt,
+      })),
     };
   }
 
