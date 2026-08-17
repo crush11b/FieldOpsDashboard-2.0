@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -101,6 +101,33 @@ describe('ObservedRfService', () => {
     expect(stale.getSnapshot().status).toBe('stale');
     expect(JSON.parse(await readFile(cachePath, 'utf8')).reports[0].observedAtUtc).toBeDefined();
     cached.close(); stale.close();
+    await rm(path.dirname(cachePath), { recursive: true, force: true });
+  });
+
+  it('persists valid zero activity and rejects shallow or unproven cache entries', async () => {
+    const cachePath = await tempCache();
+    const client = new FakeMqttClient();
+    const live = new ObservedRfService({ cachePath, now: () => NOW, mqttFactory: () => client });
+    live.setOperatingLocation(LOCATION);
+    client.emit('connect');
+    live.close();
+    const cached = new ObservedRfService({ cachePath, now: () => NOW, mqttFactory: () => new FakeMqttClient() });
+    cached.setOperatingLocation(LOCATION);
+    expect(cached.getSnapshot()).toMatchObject({ status: 'cached', reports: [] });
+    cached.close();
+
+    await writeFile(cachePath, JSON.stringify({
+      grid4: 'FM17',
+      observationWindow: { startsAt: '2026-08-16T11:45:00.000Z', endsAt: NOW.toISOString() },
+      sourceWasLive: false,
+      validCollection: false,
+      collectedAtUtc: NOW.toISOString(),
+      reports: [{ reportId: 'untrusted' }],
+    }));
+    const unavailable = new ObservedRfService({ cachePath, now: () => NOW, mqttFactory: () => new FakeMqttClient() });
+    unavailable.setOperatingLocation(LOCATION);
+    expect(unavailable.getSnapshot().status).toBe('connecting');
+    unavailable.close();
     await rm(path.dirname(cachePath), { recursive: true, force: true });
   });
 

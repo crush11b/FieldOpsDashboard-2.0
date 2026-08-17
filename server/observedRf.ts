@@ -10,6 +10,7 @@ import {
   OBSERVED_RF_SOURCE_NAME,
   OBSERVED_RF_WINDOW_MS,
   buildObservedRfTopicPatterns,
+  isPskReceptionReport,
   latLonGrid4,
   parsePskPayload,
   summarizeObservedRfReports,
@@ -33,6 +34,9 @@ export type ObservedRfMqttFactory = (url: string, options: IClientOptions) => Ob
 
 interface CacheFile {
   readonly grid4: string;
+  readonly observationWindow: { readonly startsAt: string; readonly endsAt: string };
+  readonly sourceWasLive: boolean;
+  readonly validCollection: boolean;
   readonly collectedAtUtc: string;
   readonly reports: readonly PskReceptionReport[];
 }
@@ -64,6 +68,8 @@ export class ObservedRfService {
   private cachedGrid4: string | null = null;
   private reports = new Map<string, PskReceptionReport>();
   private cachedCollectedAtUtc: string | null = null;
+  private cachedObservationWindow: CacheFile['observationWindow'] | null = null;
+  private cachedValidCollection = false;
 
   constructor(options: ObservedRfServiceOptions = {}) {
     this.now = options.now ?? (() => new Date());
@@ -90,6 +96,8 @@ export class ObservedRfService {
     if (!cacheMatchesOperatingGrid) {
       this.reports.clear();
       this.cachedCollectedAtUtc = null;
+      this.cachedObservationWindow = null;
+      this.cachedValidCollection = false;
     }
     if (oldGrid4) this.unsubscribeGrid(oldGrid4);
     if (nextGrid4) {
@@ -100,7 +108,7 @@ export class ObservedRfService {
       this.disconnect(false);
       this.connectionStatus = 'unavailable';
     }
-    if (!cacheMatchesOperatingGrid) this.persist();
+    if (!cacheMatchesOperatingGrid) this.persist(false);
   }
 
   getSnapshot(): ObservedRfSnapshot {
@@ -115,7 +123,9 @@ export class ObservedRfService {
       status,
       evidenceStatus: status === 'live' ? 'live_observed_rf_source' : status === 'cached' ? 'cached_observed_rf_source' : status === 'stale' ? 'stale_observed_rf_source' : 'unavailable',
       operatingGrid4: this.operatingGrid4,
-      observationWindow: { startsAt: new Date(now.getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: now.toISOString() },
+      observationWindow: status === 'live' || !this.cachedObservationWindow
+        ? { startsAt: new Date(now.getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: now.toISOString() }
+        : this.cachedObservationWindow,
       collectedAtUtc: this.cachedCollectedAtUtc ?? now.toISOString(),
       reports,
       bandSummaries: summarizeObservedRfReports(reports),
@@ -153,6 +163,9 @@ export class ObservedRfService {
       if (client !== this.client || !this.operatingGrid4) return;
       this.reconnectAttempt = 0;
       this.connectionStatus = 'live';
+      this.cachedValidCollection = true;
+      this.cachedObservationWindow = { startsAt: new Date(this.now().getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: this.now().toISOString() };
+      this.persist(true);
       this.subscribeGrid(this.operatingGrid4);
     });
     client.on('message', (topic: string, payload: Uint8Array) => {
@@ -161,7 +174,7 @@ export class ObservedRfService {
       if (!report) return;
       this.reports.set(report.reportId, report);
       this.prune(this.now());
-      this.persist();
+      this.persist(true);
     });
     client.on('offline', () => { if (client === this.client) this.connectionStatus = 'reconnecting'; });
     client.on('error', () => { if (client === this.client) this.connectionStatus = 'reconnecting'; });
@@ -205,7 +218,13 @@ export class ObservedRfService {
   private prune(now: Date): void {
     const cutoff = now.getTime() - OBSERVED_RF_WINDOW_MS;
     for (const [id, report] of this.reports) {
-      if (Date.parse(report.observedAtUtc) < cutoff) this.reports.delete(id);
+      const observedAt = Date.parse(report.observedAtUtc);
+      if (!isPskReceptionReport(report)
+        || !Number.isFinite(observedAt)
+        || observedAt < cutoff
+        || observedAt > now.getTime() + 2 * 60 * 1000) {
+        this.reports.delete(id);
+      }
     }
   }
 
@@ -213,7 +232,7 @@ export class ObservedRfService {
     if (this.connectionStatus === 'live') return 'live';
     if (this.operatingGrid4 === null) return 'unavailable';
     const age = now.getTime() - Date.parse(newest);
-    if (this.reports.size > 0 || this.cachedCollectedAtUtc) return age <= OBSERVED_RF_WINDOW_MS ? 'cached' : age <= OBSERVED_RF_CACHE_STALE_AFTER_MS ? 'stale' : 'stale';
+    if (this.cachedValidCollection) return age <= OBSERVED_RF_WINDOW_MS ? 'cached' : 'stale';
     return this.connectionStatus === 'connecting' || this.connectionStatus === 'reconnecting' ? this.connectionStatus : 'unavailable';
   }
 
@@ -223,16 +242,28 @@ export class ObservedRfService {
       if (!isCacheFile(value)) return;
       this.cachedGrid4 = value.grid4;
       this.cachedCollectedAtUtc = value.collectedAtUtc;
+      this.cachedObservationWindow = value.observationWindow;
+      this.cachedValidCollection = value.validCollection && value.sourceWasLive;
       this.reports = new Map(value.reports.map(report => [report.reportId, report]));
       this.prune(this.now());
     } catch { /* cache is optional */ }
   }
 
-  private persist(): void {
+  private persist(validCollection: boolean): void {
     if (!this.operatingGrid4) return;
-    const cache: CacheFile = { grid4: this.operatingGrid4, collectedAtUtc: this.now().toISOString(), reports: [...this.reports.values()] };
+    const now = this.now();
+    const cache: CacheFile = {
+      grid4: this.operatingGrid4,
+      observationWindow: { startsAt: new Date(now.getTime() - OBSERVED_RF_WINDOW_MS).toISOString(), endsAt: now.toISOString() },
+      sourceWasLive: validCollection,
+      validCollection,
+      collectedAtUtc: now.toISOString(),
+      reports: [...this.reports.values()],
+    };
     this.cachedGrid4 = this.operatingGrid4;
     this.cachedCollectedAtUtc = cache.collectedAtUtc;
+    this.cachedObservationWindow = cache.observationWindow;
+    this.cachedValidCollection = validCollection;
     const directory = path.dirname(this.cachePath);
     fs.mkdirSync(directory, { recursive: true });
     const temporaryPath = `${this.cachePath}.${process.pid}.${Date.now()}.tmp`;
@@ -247,7 +278,12 @@ export class ObservedRfService {
 
 function isCacheFile(value: unknown): value is CacheFile {
   return isRecord(value) && typeof value.grid4 === 'string' && /^[A-R]{2}[0-9]{2}$/.test(value.grid4)
+    && isRecord(value.observationWindow)
+    && typeof value.observationWindow.startsAt === 'string' && Number.isFinite(Date.parse(value.observationWindow.startsAt))
+    && typeof value.observationWindow.endsAt === 'string' && Number.isFinite(Date.parse(value.observationWindow.endsAt))
+    && Date.parse(value.observationWindow.startsAt) <= Date.parse(value.observationWindow.endsAt)
+    && typeof value.sourceWasLive === 'boolean' && typeof value.validCollection === 'boolean'
     && typeof value.collectedAtUtc === 'string' && Number.isFinite(Date.parse(value.collectedAtUtc))
-    && Array.isArray(value.reports) && value.reports.every(report => isRecord(report) && typeof report.reportId === 'string');
+    && Array.isArray(value.reports) && value.reports.every(isPskReceptionReport);
 }
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

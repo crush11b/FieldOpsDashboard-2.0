@@ -48,6 +48,15 @@ describe('PSKReporter MQTT observed-RF contracts', () => {
     expect(parsePskPayload(TX_TOPIC, payload({ f: 'not-a-frequency' }), 'FM17', NOW)).toBeNull();
   });
 
+  it('requires a valid source timestamp and keeps receipt time separate', () => {
+    const report = parsePskPayload(TX_TOPIC, payload({ t: 1786881300000 }), 'FM17', NOW);
+    expect(report?.observedAtUtc).toBe('2026-08-16T11:55:00.000Z');
+    expect(report?.receivedAtUtc).toBe(NOW.toISOString());
+    expect(parsePskPayload(TX_TOPIC, payload({ t: undefined }), 'FM17', NOW)).toBeNull();
+    expect(parsePskPayload(TX_TOPIC, payload({ t: -1 }), 'FM17', NOW)).toBeNull();
+    expect(parsePskPayload(TX_TOPIC, payload({ t: 1786881900 }), 'FM17', NOW)).toBeNull();
+  });
+
   it('classifies all ten production bands, supports 6m, and excludes 60m', () => {
     const frequencies = [1_900_000, 3_700_000, 7_100_000, 10_125_000, 14_074_000, 18_100_000, 21_074_000, 24_915_000, 28_074_000, 50_313_000];
     expect(frequencies.map(frequency => classifyObservedRfBand(frequency, undefined))).toEqual(OBSERVED_RF_BANDS);

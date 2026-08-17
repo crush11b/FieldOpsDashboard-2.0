@@ -3,6 +3,7 @@ import type { PropagationGuidanceBand } from './domain';
 
 export const OBSERVED_RF_WINDOW_MS = 15 * 60 * 1000;
 export const OBSERVED_RF_CACHE_STALE_AFTER_MS = 30 * 60 * 1000;
+export const OBSERVED_RF_FUTURE_SKEW_MS = 2 * 60 * 1000;
 export const OBSERVED_RF_SOURCE_ID = 'pskreporter-via-mqtt';
 export const OBSERVED_RF_SOURCE_NAME = 'PSKReporter reports via mqtt.pskreporter.info';
 
@@ -27,6 +28,7 @@ export interface PskReceptionReport {
   readonly mode: string | null;
   readonly snrDb: number | null;
   readonly observedAtUtc: string;
+  readonly receivedAtUtc: string;
   readonly senderDxcc: string | number | null;
   readonly receiverDxcc: string | number | null;
   readonly direction: ObservedRfDirection;
@@ -161,6 +163,7 @@ export function parsePskPayload(topic: string, payload: string | Uint8Array, ope
   const band = classifyObservedRfBand(frequencyHz, value.b ?? parsedTopic.band);
   if (!band) return null;
   const observedAtUtc = parseReportTimestamp(value.t, receivedAt);
+  if (!observedAtUtc) return null;
   const sourceSequence = primitive(value.seq ?? value.sequence ?? value.sequenceNumber ?? value.id);
   const reportId = sourceSequence !== null
     ? `sequence:${String(sourceSequence)}`
@@ -179,6 +182,7 @@ export function parsePskPayload(topic: string, payload: string | Uint8Array, ope
     mode: optionalString(value.md ?? parsedTopic.mode),
     snrDb: finiteNumber(value.rp),
     observedAtUtc,
+    receivedAtUtc: receivedAt.toISOString(),
     senderDxcc: primitive(value.sdxcc ?? value.sdc ?? value.scountry ?? parsedTopic.senderDxcc),
     receiverDxcc: primitive(value.rdxcc ?? value.rdc ?? value.rcountry ?? parsedTopic.receiverDxcc),
     direction,
@@ -189,6 +193,35 @@ export function parsePskPayload(topic: string, payload: string | Uint8Array, ope
       limitation: 'Does not prove SSB usability, station-specific success, regional openness, confidence, or a propagation rating.',
     },
   };
+}
+
+export function isPskReceptionReport(value: unknown): value is PskReceptionReport {
+  if (!isRecord(value)
+    || typeof value.reportId !== 'string' || !value.reportId
+    || !isSourceSequence(value.sourceSequence)
+    || !isCallsign(value.senderCallsign) || !isCallsign(value.receiverCallsign)
+    || !isPositiveFinite(value.frequencyHz)
+    || !isHfObservedBand(value.band)
+    || !(value.mode === null || typeof value.mode === 'string')
+    || !(value.snrDb === null || isFiniteNumber(value.snrDb))
+    || !isSourceSequence(value.senderDxcc) || !isSourceSequence(value.receiverDxcc)
+    || !isTimestamp(value.observedAtUtc) || !isTimestamp(value.receivedAtUtc)
+    || !isNullableLocator(value.senderLocator) || !isNullableLocator(value.receiverLocator)
+    || !isNullableGrid4(value.senderGrid4) || !isNullableGrid4(value.receiverGrid4)
+    || !isDirection(value.direction)
+    || !isRecord(value.provenance)
+    || value.provenance.sourceId !== OBSERVED_RF_SOURCE_ID
+    || value.provenance.sourceName !== OBSERVED_RF_SOURCE_NAME
+    || value.provenance.semantics !== 'observed_digital_reception_report'
+    || value.provenance.limitation !== 'Does not prove SSB usability, station-specific success, regional openness, confidence, or a propagation rating.') {
+    return false;
+  }
+  return classifyObservedRfBand(value.frequencyHz, value.band) === value.band
+    && ((value.direction === 'outbound' && value.senderGrid4 !== null)
+      || (value.direction === 'inbound' && value.receiverGrid4 !== null)
+      || (value.direction === 'local' && value.senderGrid4 !== null && value.receiverGrid4 !== null))
+    && (value.senderLocator === null || value.senderGrid4 === locatorGrid4(value.senderLocator))
+    && (value.receiverLocator === null || value.receiverGrid4 === locatorGrid4(value.receiverLocator));
 }
 
 export function summarizeObservedRfReports(reports: readonly PskReceptionReport[]): readonly ObservedRfBandSummary[] {
@@ -226,5 +259,21 @@ function optionalString(value: unknown): string | null { return typeof value ===
 function finiteNumber(value: unknown): number | null { const number = typeof value === 'string' && value.trim() ? Number(value) : value; return typeof number === 'number' && Number.isFinite(number) ? number : null; }
 function primitive(value: unknown): string | number | null { return typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)) ? value : null; }
 function isRecord(value: unknown): value is Record<string, unknown> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
-function parseReportTimestamp(value: unknown, receivedAt: Date): string { const seconds = finiteNumber(value); const date = seconds === null ? receivedAt : new Date(seconds > 10_000_000_000 ? seconds : seconds * 1000); return Number.isFinite(date.getTime()) ? date.toISOString() : receivedAt.toISOString(); }
+function parseReportTimestamp(value: unknown, receivedAt: Date): string | null {
+  const sourceNumber = finiteNumber(value);
+  if (sourceNumber === null || sourceNumber < 0 || !Number.isFinite(receivedAt.getTime())) return null;
+  const date = new Date(sourceNumber > 10_000_000_000 ? sourceNumber : sourceNumber * 1000);
+  if (!Number.isFinite(date.getTime()) || date.getTime() > receivedAt.getTime() + OBSERVED_RF_FUTURE_SKEW_MS) return null;
+  return date.toISOString();
+}
 function deterministicReportId(sender: string, receiver: string, frequency: number, mode: unknown, timestamp: string, senderLocator: string | null, receiverLocator: string | null): string { return `report:${[sender, receiver, frequency, optionalString(mode) ?? '', timestamp, senderLocator ?? '', receiverLocator ?? ''].join('|')}`; }
+
+function isSourceSequence(value: unknown): value is string | number | null { return value === null || typeof value === 'string' || (typeof value === 'number' && Number.isFinite(value)); }
+function isCallsign(value: unknown): value is string { return typeof value === 'string' && value.trim().length > 0; }
+function isFiniteNumber(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
+function isPositiveFinite(value: unknown): value is number { return isFiniteNumber(value) && value > 0; }
+function isHfObservedBand(value: unknown): value is PropagationGuidanceBand { return typeof value === 'string' && (OBSERVED_RF_BANDS as readonly string[]).includes(value); }
+function isTimestamp(value: unknown): value is string { return typeof value === 'string' && Number.isFinite(Date.parse(value)); }
+function isNullableLocator(value: unknown): value is string | null { return value === null || normalizeLocator(value) === value; }
+function isNullableGrid4(value: unknown): value is string | null { return value === null || (typeof value === 'string' && /^[A-R]{2}[0-9]{2}$/.test(value)); }
+function isDirection(value: unknown): value is ObservedRfDirection { return value === 'outbound' || value === 'inbound' || value === 'local'; }
