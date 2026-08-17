@@ -57,7 +57,7 @@ The evaluator applies explicit ordered rules:
 
 1. Establish the model baseline from the 5H-A opportunity state: `very_favorable` -> `EXCELLENT`, `favorable` -> `GOOD`, `marginal` -> `FAIR`, and `unfavorable` -> `POOR`.
 2. Apply current, recent observed-RF confirmation or observed-opening rules. Strong direct live evidence can promote a favorable baseline one level when the current environment is favorable or quiet and there is no wide-spread or partial-model caution. An observed opening promotes at most one level: direct evidence may promote normally, adjacent evidence is capped at `GOOD`, and indirect evidence is capped at `FAIR`. Stale, cached, limited, and zero-report evidence cannot promote.
-3. Apply current environmental qualification. Disturbed conditions downgrade an unconfirmed rating by one level. Severe disturbance caps at `FAIR`, or `GOOD` when strong direct live RF is actually present. Current R3+ blackout evidence uses the same cap because sunlit-path applicability is unknown. Historical, cached, stale, partial, and unavailable environment states do not change the rating.
+3. Apply current environmental qualification. Ordinary disturbed conditions qualify only an unconfirmed modeled `EXCELLENT` to `GOOD` or `GOOD` to `FAIR`; `FAIR` and `POOR` remain unchanged. Live, recent observed support that contributed to a confirmed model, observed opening, or observed-only result prevents this ordinary qualification from erasing the observed evidence. Severe disturbance caps at `FAIR`, or `GOOD` when strong direct live RF is actually present. Current R3+ blackout evidence uses the same cap because sunlit-path applicability is unknown. Historical, cached, stale, partial, and unavailable environment states do not change the rating.
 4. Derive final confidence from source freshness, agreement, mode relevance, model completeness, and the resulting evidence path.
 
 The compact policy table is:
@@ -75,6 +75,8 @@ The compact policy table is:
 | `local_nvis` | `UNAVAILABLE`; separate local/NVIS evaluator required |
 
 The evaluator never guarantees a contact, treats FT8 as voice evidence, or converts report counts into a rating.
+
+The `current_conditions_disturbed` caution is independent from the ordinary qualification step. The evaluator emits `environment_disturbed_qualification` only when the rule changes the rating; it never records a no-op downgrade such as `GOOD` -> `GOOD` or `FAIR` -> `FAIR`. Severe disturbance and current R3+ remain explicit caps even when ordinary disturbed qualification is protected by observed evidence.
 
 ## Decision trace and confidence
 

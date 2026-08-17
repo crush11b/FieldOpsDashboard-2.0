@@ -175,20 +175,22 @@ export function evaluatePropagationBand(input: EvidenceSynthesisInput): Propagat
       addStep(steps, 'insufficient_evidence', 'unavailable', null, rating, 'Neither a usable P.533 baseline nor sufficient current observed RF evidence is available.');
     }
 
-    const protectWithDirectObservation = strongDirect;
-    if (basis.environment.state === 'disturbed' && !protectWithDirectObservation && rating !== 'UNAVAILABLE') {
-      const qualified = degradeOneLevel(rating);
-      addStep(steps, 'environment_disturbed_qualification', 'downgrade', rating, qualified, 'Current disturbed conditions qualify an unconfirmed modeled result by at most one level.');
-      rating = qualified;
+    const protectWithCurrentObservation = currentObservation;
+    if (basis.environment.state === 'disturbed' && !protectWithCurrentObservation && rating !== 'UNAVAILABLE') {
+      const qualified = rating === 'EXCELLENT' ? 'GOOD' : rating === 'GOOD' ? 'FAIR' : rating;
+      if (qualified !== rating) {
+        addStep(steps, 'environment_disturbed_qualification', 'downgrade', rating, qualified, 'Current disturbed conditions qualify an unconfirmed modeled result by at most one level.');
+        rating = qualified;
+      }
     }
     if (basis.environment.state === 'severely_disturbed' && rating !== 'UNAVAILABLE') {
-      const cap = protectWithDirectObservation ? 'GOOD' : 'FAIR';
+      const cap = strongDirect ? 'GOOD' : 'FAIR';
       const qualified = capRating(rating, cap);
       addStep(steps, 'environment_severe_cap', 'cap', rating, qualified, `Current severe disturbance caps the result at ${cap} unless strong direct live RF is being observed.`);
       rating = qualified;
     }
     if (basis.environment.state === 'radio_blackout' && rating !== 'UNAVAILABLE') {
-      const cap = protectWithDirectObservation ? 'GOOD' : 'FAIR';
+      const cap = strongDirect ? 'GOOD' : 'FAIR';
       const qualified = capRating(rating, cap);
       addStep(steps, 'environment_blackout_cap', 'cap', rating, qualified, `Current R-scale blackout evidence with unknown sunlit-path applicability caps the result at ${cap}.`);
       rating = qualified;
