@@ -455,6 +455,6 @@ export const INITIAL_CONFIG: DashboardConfig = {
   potaParkRef: 'K-0182',
   gpsComPort: 'COM6 (GPS Receiver)',
   gpsBaudRate: 9600,
-  propagation: { stationProfile: DEFAULT_STATION_PROFILE },
+  propagation: { stationProfile: DEFAULT_STATION_PROFILE, destinationRegion: 'western_europe' },
   apps: DEFAULT_APPS,
 };

@@ -173,6 +173,7 @@ export interface DashboardConfig {
   gpsBaudRate?: number;
   propagation: {
     stationProfile: StationProfile;
+    destinationRegion: import('./propagation/regionalDestinations').PropagationRegionId;
   };
 }
 

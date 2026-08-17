@@ -11,7 +11,6 @@ import { TouchMenuDrawer } from './components/TouchMenuDrawer';
 
 import { 
   AppLauncherItem, 
-  BandPropagation, 
   DashboardConfig, 
   DualBatteryStatus, 
   ExternalDataStatus,
@@ -24,9 +23,10 @@ import {
   latLonToGridSquare,
   SystemTelemetry
 } from './types';
-import { DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
+import { INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
+import { resolveOperatingLocation } from './location/operatingLocation';
 import { toFiniteNumber } from './utils/numbers';
 import { formatNetworkDisplay, formatStorageDisplay } from './utils/systemTelemetryDisplay';
 import { hasMeaningfulWeatherMovement, NOAA_ALERT_REFRESH_INTERVAL_MS, WEATHER_REFRESH_INTERVAL_MS } from './utils/weatherRefreshPolicy';
@@ -171,14 +171,15 @@ export default function App() {
   const [initialGpsState] = useState(loadInitialGpsState);
   const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
   const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
-  const operatingLocation = resolveGpsCoordinates(gps, gpsProvenance);
-  const operatingGridSquare = isCurrentOperatingLocation(operatingLocation) ? gps.gridSquare : '';
+  const operatingCoordinates = resolveGpsCoordinates(gps, gpsProvenance);
+  const operatingLocation = resolveOperatingLocation(gps, gpsProvenance);
+  const operatingGridSquare = isCurrentOperatingLocation(operatingCoordinates) ? gps.gridSquare : '';
 
   // Persist GPS changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        if (operatingLocation) {
+        if (operatingCoordinates) {
           localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
         }
       } catch (e) {
@@ -213,7 +214,6 @@ export default function App() {
     source: 'NOAA SWPC',
   });
 
-  const [bands, setBands] = useState<BandPropagation[]>(DEFAULT_BAND_PROPAGATION);
 
   // Modal / Drawer UI States
   const [configModalOpen, setConfigModalOpen] = useState(false);
@@ -245,7 +245,7 @@ export default function App() {
 
   // Weather and NOAA use explicit field intervals; GNSS jitter only updates the location reference.
   useEffect(() => {
-    const usableLocation = isCurrentOperatingLocation(operatingLocation) ? operatingLocation : null;
+    const usableLocation = isCurrentOperatingLocation(operatingCoordinates) ? operatingCoordinates : null;
     if (!usableLocation) {
       weatherLocationRef.current = null;
       if (weatherTimersRef.current.weather !== null) window.clearInterval(weatherTimersRef.current.weather);
@@ -274,10 +274,10 @@ export default function App() {
       void refreshAlertsRef.current?.();
       void refreshSolar();
     }
-  }, [gpsProvenance.status, gpsProvenance.source.type, operatingLocation?.provenance]);
+  }, [gpsProvenance.status, gpsProvenance.source.type, operatingCoordinates?.provenance]);
 
   useEffect(() => {
-    const usableLocation = isCurrentOperatingLocation(operatingLocation) ? operatingLocation : null;
+    const usableLocation = isCurrentOperatingLocation(operatingCoordinates) ? operatingCoordinates : null;
     if (!usableLocation || weatherLocationRef.current === null) return;
     if (!hasMeaningfulWeatherMovement(weatherLocationRef.current, usableLocation)) return;
     weatherLocationRef.current = { lat: usableLocation.lat, lon: usableLocation.lon };
@@ -299,7 +299,7 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (!isCurrentOperatingLocation(operatingLocation)) return;
+    if (!isCurrentOperatingLocation(operatingCoordinates)) return;
     const refreshWeather = async () => {
       if (weatherRequestRef.current.weather) return;
       weatherRequestRef.current.weather = true;
@@ -362,7 +362,7 @@ export default function App() {
       refreshWeatherRef.current = null;
       refreshAlertsRef.current = null;
     };
-  }, [operatingLocation?.provenance]);
+  }, [operatingCoordinates?.provenance]);
 
   // Toggle Favorite App
   const handleToggleFavorite = (appId: string) => {
@@ -476,18 +476,11 @@ export default function App() {
 
           {/* Regional HF Band Guidance */}
           <VOACAPPropagationWidget
-            solar={solar}
-            bands={bands}
+            config={config}
+            operatingLocation={operatingLocation}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
-            location={isCurrentOperatingLocation(operatingLocation) ? operatingLocation : undefined}
-            onRefreshSolar={async () => {
-              const res = await fetch('/api/solar-data');
-              if (res.ok) {
-                const data = await res.json();
-                setSolar((prev) => ({ ...prev, ...data }));
-              }
-            }}
+            onUpdateConfig={updateConfig}
           />
         </div>
 
