@@ -5,6 +5,7 @@ coverage/
 **/bin/
 **/obj/
 agent/artifacts/
+agent/publish/
 p533-assets/runtime/
 p533-assets-*/
 public/p533/

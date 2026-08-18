@@ -2,7 +2,7 @@ name: Native artifacts
 
 on:
   push:
-    branches: [main, feature/2.3-mvp-02-tray-usability]
+    branches: [main, feature/2.4-field-tools-coordinate-workspace]
   workflow_dispatch:
 
 jobs:
