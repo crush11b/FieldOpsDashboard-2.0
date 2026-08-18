@@ -37,6 +37,7 @@ import { SpaceWeatherService } from './server/spaceWeather';
 import { ObservedRfService } from './server/observedRf';
 import type { OperatingLocation } from './src/location/operatingLocation';
 import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
+import { createPotaTargetRouter, PotaActivationTargetResolver } from './server/potaTargetResolver';
 
 async function startServer() {
   const app = express();
@@ -66,6 +67,7 @@ async function startServer() {
   app.use(express.urlencoded({ extended: true }));
   app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
+  app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
   const propagationGuidanceService = new PropagationGuidanceService(
