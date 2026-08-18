@@ -1,6 +1,6 @@
 # Version 2.4 POTA Activation-Target Research Input
 
-- Status: **Research complete - product definition pending**
+- Status: **Research complete - product decision recorded; implementation details remain non-authoritative**
 - Date: 2026-08-17
 - Release: Version 2.4 - Field Tools
 - Roadmap task ID: **None assigned**
@@ -17,7 +17,7 @@ The approved product boundary is recorded in the [Version 2.4 direction and Slic
 
 The activation-target concept described below is a candidate architecture, not an approved workflow. The proposed planning-target workflow, UI contents, caching behavior, and offline role are technical options for product design review. Acceptance criteria and implementation scope must be written only after the operator workflow is approved.
 
-The source research may be reused when product definition is complete. It does not authorize implementation or establish a Version 2.4 task number.
+The source research may be reused when implementation details are separately approved. It does not authorize implementation or establish a Version 2.4 task number.
 
 This decision follows the rebaseline priorities:
 
