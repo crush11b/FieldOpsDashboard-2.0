@@ -1,151 +1,138 @@
 # FieldOps Dashboard
 
-> Rugged, offline-first operations dashboard for amateur-radio field operators, POTA/SOTA activators, EMCOMM teams, and Panasonic ToughBook/ToughPad deployments.
+> A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-![Version](https://img.shields.io/badge/version-2.2.0-004B87?style=for-the-badge)
-![Status](https://img.shields.io/badge/status-active_development-F9A825?style=for-the-badge)
-![Platform](https://img.shields.io/badge/platform-Windows_10%2F11-0078D4?style=for-the-badge&logo=windows&logoColor=white)
-![License](https://img.shields.io/badge/license-MIT-blue?style=for-the-badge)
+[![Version 2.3.0](https://img.shields.io/badge/version-2.3.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.3.0)
+[![Status](https://img.shields.io/badge/status-2.4%20Field%20Tools%20in%20development-C47F00?style=for-the-badge)](#version-24-direction)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
+
+## What it is
+
+FieldOps Dashboard brings the operational picture for a field radio station into one touch-friendly local application. It combines location, weather, system status, application launching, logging, and field-oriented controls so an operator does not have to assemble the essentials across many disconnected tools.
+
+It is designed for portable amateur-radio work, Panasonic ToughBook/ToughPad computers, camping and travel, and other situations where connectivity may be slow, intermittent, or unavailable.
+
+## Why it exists
+
+Field operations need useful information even when individual data sources fail. FieldOps identifies the source and condition of operational data and distinguishes live, cached, stale, unavailable, manual, and modeled values instead of filling gaps with fabricated defaults.
+
+The project prioritizes practical single-operator field usefulness, trustworthy information, local operation, and graceful degradation over speculative enterprise infrastructure.
 
 ## Current release
 
-**FieldOps Dashboard 2.2.0 — Trustworthy Dashboard**
+**Version 2.3 - Single-Operator Field MVP**
 
-Version 2.2 establishes the project’s reliability baseline. Operational data is now presented with explicit source, status, freshness, and provenance semantics instead of fabricated defaults or misleading success states.
+The current release establishes a dependable Windows field baseline with local startup, a Windows Local Agent and Tray companion, real GNSS and system telemetry paths, application launching, persistent operator configuration, and deployment tooling.
 
-Release tag: [`v2.2.0`](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.2.0)
+See the [Version 2.3 changelog](CHANGELOG.md) and [MVP acceptance record](docs/validation/Version-2.3-Single-Operator-Field-MVP-Acceptance-2026-08-14.md).
 
-## Current product direction
+## What works today
 
-The project is currently rebaselined around a **single-operator, locally operated field MVP**. The existing trustworthy telemetry, Windows service, authentication, and hardware-integration framework is preserved, but broader multi-user, enterprise, fleet, signing, remote-administration, and advanced hardening work is deferred until real deployment needs justify it.
+- Real GNSS location with Maidenhead/grid presentation and source-aware status
+- Weather and NOAA alert context from the local dashboard backend
+- Windows battery, power, CPU, memory, storage, and network telemetry
+- Configurable launching of field applications and approved web destinations through the Tray companion
+- Contact logging and ADIF export
+- Modeled HF band guidance, clearly distinguished from measured propagation data
+- Local operator configuration that persists across browser-origin changes and reboot
+- A touch-oriented dashboard with configurable launcher tiles and field display themes
+- A local Express backend with a React and TypeScript frontend
+- A Windows Local Agent that isolates local hardware and service concerns
 
-Version 2.3 now prioritizes a usable ToughBook/ToughPad installation with dependable startup, practical tray behavior, real GNSS, real Windows system telemetry, and representative field validation. Operator-facing Field Tools follow immediately after the MVP.
+Availability depends on connected hardware, local application configuration, and external data sources. When a source cannot provide current information, the dashboard preserves an honest unavailable or stale state.
 
-See:
+## Trustworthy data by design
 
-- [`docs/planning/FieldOpsDashboard_Project_Rebaseline_2026.md`](docs/planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
-- [`docs/architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md`](docs/architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md)
+FieldOps uses explicit source, freshness, and status semantics throughout the dashboard:
 
-## What the project does
+- **Live**: current data from an active source
+- **Cached**: retained data within an accepted age
+- **Stale**: retained data beyond its freshness threshold
+- **Unavailable**: no usable value is available
+- **Error**: the source failed, possibly with retained data
+- **Manual**: explicitly entered or overridden by the operator
+- **Modeled**: calculated guidance rather than a direct measurement
 
-FieldOps Dashboard combines field-radio tools, local hardware integration, weather and propagation context, application launching, and logging into one touch-friendly interface designed for unreliable or unavailable internet connectivity.
+A modeled band condition is not presented as a measurement, and a valid zero is not silently treated as missing.
 
-Core capabilities include:
+## Version 2.4 direction
 
-- GPS position, source, fix state, age, and Maidenhead grid presentation
-- Weather and NOAA alert presentation with honest unavailable and stale states
-- Modeled HF propagation guidance clearly distinguished from measured data
-- ToughBook battery and system-status presentation
-- Configurable launcher tiles for radio and field applications
-- ADIF contact logging and export
-- Offline-capable frontend and local Express backend
-- A Windows Local Agent foundation for isolated hardware access
+**Version 2.4 - Field Tools** is active development on the separate `feature/2.4-field-tools-coordinate-workspace` branch. Those changes are not part of the current `main` release baseline.
 
-## Trustworthy telemetry semantics
+The development direction includes richer operating-location and coordinate tools, distance and bearing workspaces, solar and twilight calculations, propagation improvements, observed-RF evidence, and product definition for future POTA/SOTA activation support. These are development areas and should not be read as current Version 2.3 capabilities.
 
-FieldOps Dashboard does not substitute invented values when a source fails.
+The approved [project rebaseline](docs/planning/FieldOpsDashboard_Project_Rebaseline_2026.md) describes the release sequencing and the operator-value focus for this work.
 
-Telemetry can be represented as:
+## SmartDeploy and activation-support direction
 
-- **Live** — current data from an active source
-- **Cached** — retained data that is still within an acceptable age
-- **Stale** — retained data that has exceeded its freshness threshold
-- **Unavailable** — no usable value is available
-- **Error** — the source failed, optionally with previously retained data
-- **Manual** — explicitly entered or overridden by the operator
-- **Modeled** — calculated guidance, not a direct measurement
+Version 2.4 product-definition work has recovered the original SmartDeploy concept around POTA/SOTA mission planning. **SmartDeploy 2.0 is not implemented, and Operations Brief generation is not available in the current release.**
 
-Valid zero values remain valid. A reading of `0` is not automatically treated as missing.
-
-## Windows Local Agent
-
-The repository includes the first Windows Local Agent foundation under [`agent/`](agent/README.md).
-
-The agent is a Windows service that:
-
-- runs under the `LocalService` account
-- starts automatically with Windows
-- uses restart-on-failure service recovery
-- listens only on `127.0.0.1:43120`
-- provides an authenticated, read-only health endpoint
-- stores its local credential using Windows DPAPI
-
-### Important v2.2 boundary
-
-Telemetry transmission remains intentionally dormant in Version 2.2.
-
-Only `AgentLifecycleService` is registered. `TelemetrySenderService` and `HttpTelemetryDestination` are present as foundation code but are not registered or active.
-
-## Architecture
+The future concept is:
 
 ```text
-Browser / touch UI
-        │
-        ▼
-React + TypeScript frontend
-        │
-        ▼
-Local Express backend
-        │
-        ├── weather and NOAA adapters
-        ├── propagation modeling
-        ├── configuration and ADIF export
-        └── authenticated telemetry receiver foundation
-
-Windows Local Agent
-        ├── Windows service lifecycle
-        ├── localhost-only health endpoint
-        ├── credential protection
-        └── dormant telemetry transport foundation
+Equipment Inventory
+        -> Reusable Loadout
+        -> Mission
+        -> Online Planning Intelligence
+        -> Equipment / Deployment Analysis
+        -> SmartDeploy Operations Brief / Risk Assessment
+        -> Active Mission
 ```
 
-### Technology stack
+Future work may eventually synthesize an operating window, selected equipment and loadout, weather forecasts and hazards, space-weather outlooks, propagation modeling, antenna deployment considerations, power and endurance, contingencies, and evidence-grounded operational recommendations.
 
-- **Frontend:** React 19, TypeScript, Vite, Tailwind CSS, Lucide icons, Motion
-- **Backend:** Express.js, bundled with esbuild
-- **Testing:** Vitest, Testing Library, jsdom
-- **Windows Agent:** .NET 8 Windows service
-- **Deployment:** PowerShell-based offline and ToughBook deployment tooling
+This is product direction and design work. Inventory, reusable loadouts, mission planning, activation sequencing, and Operations Brief generation are not current `main` features.
+
+## Architecture at a glance
+
+```text
+Touch-friendly React dashboard
+              |
+              v
+      Local Express backend
+        |              |
+        |              +-- Weather, NOAA alerts, and local data adapters
+        |
+        +-- Local configuration and ADIF export
+
+Windows Local Agent + Tray companion
+        +-- GNSS and Windows system telemetry
+        +-- Local service lifecycle and application launching
+        +-- Loopback-only authenticated health boundary
+```
+
+The browser-facing backend owns dashboard integration. The .NET 8 Windows Local Agent isolates local hardware and service concerns, while the Tray companion provides the interactive operator-session boundary for startup and launching.
+
+## Supported environment
+
+- Windows 10/11 for the primary field deployment
+- Panasonic ToughBook/ToughPad as the primary rugged hardware target
+- Node.js 20 or newer for dashboard development and local execution
+- npm for JavaScript dependencies
+- .NET 8 SDK when building or testing the Windows Agent from source
+- Internet access for live external data; local dashboard assets remain useful when sources are unavailable
 
 ## Getting started
 
-### Prerequisites
-
-- Node.js 20 or newer recommended
-- npm
-- Windows 10/11 for ToughBook hardware integration and agent deployment
-- .NET 8 SDK only when building or testing the Windows agent from source
-
-### Clone and install
+Install dependencies and run the local development server:
 
 ```powershell
 git clone https://github.com/crush11b/FieldOpsDashboard-2.0.git
 cd FieldOpsDashboard-2.0
 npm install
-```
-
-### Run in development
-
-```powershell
 npm run dev
 ```
 
-Open:
+Open `http://localhost:3000`.
 
-```text
-http://localhost:3000
-```
-
-### Build and run production output
+Build and run the production bundle:
 
 ```powershell
 npm run build
 npm start
 ```
 
-## Validation commands
-
-### Frontend and Express
+## Build and test
 
 ```powershell
 npm run metadata:check
@@ -154,116 +141,39 @@ npm test
 npm run build
 ```
 
-The Version 2.2 release baseline passed:
-
-- metadata synchronization
-- TypeScript validation
-- 180 automated tests across 18 files
-- frontend production build
-- Express production bundle
-- `git diff --check`
-
-### Windows agent
+For the Windows Agent and Tray companion:
 
 ```powershell
-dotnet build .\agent\FieldOps.Agent.sln
-dotnet test .\agent\FieldOps.Agent.sln
+dotnet build .\\agent\\FieldOps.Agent.sln
+dotnet test .\\agent\\FieldOps.Agent.sln
 ```
-
-Create the self-contained Windows agent and tray artifact bundles:
-
-```powershell
-.\agent\scripts\Publish-FieldOpsArtifacts.ps1
-```
-
-Generated output is written under the ignored `agent\artifacts\publish\win-x64` root and is not installed, signed, or registered for startup. Existing service deployment remains PowerShell-based.
 
 ## ToughBook deployment
 
-The repository contains an offline deployment guide and transactional updater:
+Detailed installation and update mechanics are kept outside the public product overview:
 
-- [`README_OFFLINE_DEPLOYMENT.txt`](README_OFFLINE_DEPLOYMENT.txt)
-- [`UpdateDashboard.ps1`](UpdateDashboard.ps1)
+- [Offline and local deployment guide](README_OFFLINE_DEPLOYMENT.txt)
+- [Transactional dashboard updater](UpdateDashboard.ps1)
+- [Windows Local Agent documentation](agent/README.md)
+- [ToughBook and Windows validation records](docs/validation/)
+- [Approved deployment and architecture direction](docs/README.md)
 
-After deploying the dashboard package, install the Windows agent from an elevated PowerShell session:
+## Documentation
 
-```powershell
-.\agent\scripts\Install-FieldOpsAgent.ps1 -OperatorAccount '.\FieldOperator'
-```
-
-Verify the service:
-
-```powershell
-.\agent\scripts\Test-FieldOpsAgentHealth.ps1
-```
-
-Uninstall it with:
-
-```powershell
-.\agent\scripts\Uninstall-FieldOpsAgent.ps1
-```
-
-## Repository layout
-
-```text
-.
-├── agent/                     # .NET Windows Local Agent, tests, scripts, publish output
-├── docs/                      # Architecture, telemetry, ADRs, roadmap, and backlog material
-├── public/                    # PWA manifest and service worker
-├── scripts/                   # Product-metadata synchronization
-├── server/                    # Backend modules and server tests
-├── src/
-│   ├── components/            # Dashboard widgets and UI tests
-│   ├── location/              # Coordinate and Maidenhead logic
-│   ├── telemetry/             # Shared status, freshness, envelope, and display models
-│   ├── test/                  # Shared test setup and telemetry factories
-│   └── utils/                 # ADIF and numeric helpers
-├── product-metadata.json      # Canonical product and release identity
-├── server.ts                  # Express application entry point
-└── README.md
-```
-
-## Product metadata
-
-Canonical identity is stored in [`product-metadata.json`](product-metadata.json):
-
-- **Product:** FieldOps Dashboard
-- **Package:** `fieldops-dashboard`
-- **Version:** `2.2.0`
-- **Release:** Trustworthy Dashboard
-
-Run the synchronization check with:
-
-```powershell
-npm run metadata:check
-```
-
-## Roadmap
-
-Version 2.2 completed the Trustworthy Dashboard milestone.
-
-Version 2.3 is redefined as **Single-Operator Field MVP**. It focuses on dependable startup and deployment, practical tray behavior, minimal local integration, serial-port enumeration, real NMEA GNSS, real Windows system telemetry, and representative ToughBook/ToughPad operational validation.
-
-Multi-user, enterprise, fleet, remote-administration, signing, and generalized hardening work remain part of the long-term framework but are intentionally deferred from the current release path. Version 2.4 is expected to shift decisively toward operator-facing Field Tools.
-
-Project architecture and roadmap documents are available under [`docs/`](docs/README.md).
+- [Documentation index](docs/README.md)
+- [Project rebaseline](docs/planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
+- [Architecture decisions](docs/architecture/decisions/)
+- [Serial-port enumeration](docs/architecture/Serial-Port-Enumeration.md)
+- [Windows system telemetry](docs/architecture/Windows-System-Telemetry.md)
+- [Telemetry model and status semantics](docs/Telemetry.md)
+- [Telemetry credential provisioning](docs/TelemetryCredentialProvisioning.md)
 
 ## Project status
 
-This project is under active development. It is suitable for controlled development and field evaluation, but individual integrations may still be incomplete or intentionally disabled.
+FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.3 is the released single-operator baseline. Version 2.4 Field Tools work remains on a separate development branch and is not being merged into `main` by this targeted documentation update.
 
-Do not interpret unavailable, stale, cached, manual, or modeled values as live measurements.
+Some integrations require local hardware, installed radio applications, configured credentials, or live external services. Modeled, cached, stale, unavailable, and manual values should be interpreted according to their displayed status.
 
-## Development deployment
+## License status
 
-For controlled MVP development deployment on the primary ToughBook, run from an elevated PowerShell window at the repository root:
-
-```powershell
-.\Deploy-ToughBook.ps1
-```
-
-The helper publishes fresh Agent/Tray artifacts, overlays source files without renaming or mirroring `C:\FieldOpsDashboard`, installs the Agent for the normal `stick` account, and builds the dashboard. It does not launch the server, roll back, or delete user files; it prints `npm start` when ready. Use `-Force` only for controlled development when the machine-model check cannot identify the ToughBook. Production updating remains a separate workflow while updater hardening is deferred.
-
-## License
-
-Distributed under the MIT License. See [`LICENSE`](LICENSE) for details.
+No license file is currently tracked in this repository. Licensing is intentionally left unresolved until the project authority adds an explicit license.

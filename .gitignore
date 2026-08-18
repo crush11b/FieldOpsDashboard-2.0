@@ -5,6 +5,7 @@ coverage/
 **/bin/
 **/obj/
 agent/artifacts/
+agent/publish/
 .DS_Store
 *.log
 telemetry-credentials.json
