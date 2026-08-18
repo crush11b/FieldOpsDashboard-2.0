@@ -95,6 +95,35 @@ describe('SmartDeploy orchestration', () => {
     await service({ propagate }).generateBrief(request());
     expect(propagate).toHaveBeenCalledOnce();
   });
+
+  it('uses only the explicitly marked long-lived model SSN for a future mission and exposes the temporal limitation', async () => {
+    const propagate = vi.fn(async (value) => {
+      expect(value.ssn).toBe(100);
+      return propagation;
+    });
+    const generate = vi.fn((value) => {
+      expect(value.missionEvidence.limitations).toContain('Propagation modeling uses a long-lived smoothed monthly SSN model input; mission-window space-weather forecasting is not included in Slice 1.');
+      return brief;
+    });
+    const result = await service({
+      spaceWeather: {
+        getSnapshot: vi.fn(async () => ({
+          modelSsn: { value: 100, state: 'live', modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn', validity: 'long_lived_model_input' } },
+          products: { ssn: { value: 240, state: 'live' } },
+        })),
+      } as any,
+      propagate,
+      generate,
+    }).generateBrief(request({ missionWindow: { start: '2035-08-18T12:00:00Z', end: '2035-08-18T14:00:00Z' } }));
+    expect(result).toMatchObject({ kind: 'smartdeploy_generation' });
+    expect(propagate).toHaveBeenCalledWith(expect.objectContaining({ ssn: 100 }));
+  });
+
+  it('does not treat an unmarked live value as an approved future model input', async () => {
+    const propagate = vi.fn(async (value) => { expect(value.ssn).toBeNaN(); return propagation; });
+    await service({ spaceWeather: { getSnapshot: vi.fn(async () => ({ modelSsn: { value: 240, state: 'live' }, products: { ssn: { value: 240, state: 'live' } } })) } as any, propagate }).generateBrief(request({ missionWindow: { start: '2035-08-18T12:00:00Z', end: '2035-08-18T14:00:00Z' } }));
+    expect(propagate).toHaveBeenCalledOnce();
+  });
 });
 
 describe('SmartDeploy retained-brief routes', () => {

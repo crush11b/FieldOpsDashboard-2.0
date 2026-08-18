@@ -93,13 +93,23 @@ export class SmartDeployService {
     try {
       this.observedRf.setOperatingLocation(normalized.request.operatingLocation);
       const weather = await this.spaceWeather.getSnapshot();
-      const ssn = typeof weather.modelSsn?.value === 'number' && Number.isFinite(weather.modelSsn.value) ? weather.modelSsn.value : Number.NaN;
+      const modelSsn = weather.modelSsn;
+      const hasLongLivedModelInput = modelSsn?.modelInput?.semanticBasis === 'noaa_smoothed_monthly_ssn'
+        && modelSsn.modelInput.validity === 'long_lived_model_input';
+      const ssn = hasLongLivedModelInput && typeof modelSsn.value === 'number' && Number.isFinite(modelSsn.value)
+        ? modelSsn.value
+        : Number.NaN;
       const propagation = await this.propagate({ planningRequest: normalized.request, ssn });
       const observedRf = this.observedRf.getSnapshot();
       const baseEvidence = this.compose({ planningRequest: normalized.request, propagation, observedRf }, this.now);
-      const missionEvidence = resolution.status === 'stale'
-        ? { ...baseEvidence, limitations: [...baseEvidence.limitations, 'POTA target data is stale and was used without a successful refresh.'] }
-        : baseEvidence;
+      const missionEvidence = {
+        ...baseEvidence,
+        limitations: [
+          ...baseEvidence.limitations,
+          'Propagation modeling uses a long-lived smoothed monthly SSN model input; mission-window space-weather forecasting is not included in Slice 1.',
+          ...(resolution.status === 'stale' ? ['POTA target data is stale and was used without a successful refresh.'] : []),
+        ],
+      };
       const brief = this.generate({ planningRequest: normalized.request, missionEvidence }, this.now);
       try {
         this.options.store.save(brief);
