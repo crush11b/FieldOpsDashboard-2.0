@@ -1,17 +1,21 @@
-# Version 2.4 POTA Activation-Target Decision
+# Version 2.4 POTA Activation-Target Research Input
 
-- Status: **Approved sequencing decision / implementation-ready planning slice**
+- Status: **Research complete - product definition pending**
 - Date: 2026-08-17
 - Release: Version 2.4 - Field Tools
 - Roadmap task ID: **None assigned**
 - Related authority: [FieldOpsDashboard Project Rebaseline 2026](FieldOpsDashboard_Project_Rebaseline_2026.md)
-- Selected capability: **POTA activation-target lookup and offline-aware planning context**
+- Research topic: **POTA activation-target lookup and offline-aware planning context**
 
-## Decision summary
+## Research disposition
 
-POTA is selected as the next Version 2.4 operator-facing slice. This is a new sequencing decision under the approved 2026 rebaseline. It does not create, rename, or renumber a historical roadmap or backlog task.
+No POTA production implementation has been approved. This document is a research and design input only; it is not an implementation-ready product decision, task authorization, acceptance specification, or replacement for the rebaseline, roadmap, backlog, or ADR-007.
 
-POTA is selected before SOTA because the current product already contains POTA-oriented operator configuration and logging fields, while the immediate operator problem is concrete and narrow: identify a park, verify its basic location context, and use that location for planning without replacing the live operating location. SOTA remains the follow-up provider using the same activation-target concept after this slice proves useful in field operation.
+The operator-facing purpose and contents of a future POTA Field Tools tab remain to be defined. The operator-facing purpose and contents of a future SOTA Field Tools tab also remain to be defined. POTA-first, SOTA-first, and combined sequencing remain open until product design is complete.
+
+The activation-target concept described below is a candidate architecture, not an approved workflow. The proposed planning-target workflow, UI contents, caching behavior, and offline role are technical options for product design review. Acceptance criteria and implementation scope must be written only after the operator workflow is approved.
+
+The source research may be reused when product definition is complete. It does not authorize implementation or establish a Version 2.4 task number.
 
 This decision follows the rebaseline priorities:
 
@@ -23,11 +27,11 @@ This decision follows the rebaseline priorities:
 6. Proportionate security: no credentials, privileged operations, or remote access are introduced.
 7. Future scalability: the target concept is reusable without creating a provider framework.
 
-Propagation remains closed as **FUNCTIONAL / MVP ACCEPTED - REFINEMENT BACKLOG** and is not a dependency for this slice.
+Propagation remains closed as **FUNCTIONAL / MVP ACCEPTED - REFINEMENT BACKLOG**. This research does not reopen propagation work.
 
-## Operator problem and first workflow
+## Candidate operator problem and workflow for design review
 
-The first useful workflow is:
+The following is a candidate workflow to evaluate with the operator; it is not approved:
 
 1. Operator opens Field Tools.
 2. Operator enters a POTA reference such as `US-0182`.
@@ -38,17 +42,17 @@ The first useful workflow is:
 7. Existing Field Tools calculations use the planning target as a destination for distance, bearing, and relevant solar/twilight calculations.
 8. The live or manual operating location remains separately labeled and unchanged.
 
-The first slice is read-only. It does not submit an activation, create a spot, manage spots, or persist a QSO/session.
+The candidate is read-only and does not submit an activation, create a spot, manage spots, or persist a QSO/session. Whether this is the right first workflow remains unresolved.
 
-## POTA upstream decision
+## POTA upstream research
 
-### Chosen source
+### Practical source candidate
 
-Use the POTA-hosted structured individual park route:
+The POTA-hosted structured individual park route is the current practical source candidate:
 
 `GET https://api.pota.app/park/{reference}`
 
-The backend, not the browser, calls this route. The reference is normalized and validated before it is placed in the URL. The provider must use a fixed HTTPS origin and a bounded request timeout.
+If product design later selects online lookup, the backend should call this route rather than the browser. The reference should be normalized and validated before it is placed in the URL, with a fixed HTTPS origin and bounded request timeout. These are design recommendations, not an approved implementation contract.
 
 ### Findings
 
@@ -67,7 +71,7 @@ The route was tested with `GET https://api.pota.app/park/US-0182` and returned `
 
 A syntactically valid unknown reference such as `US-0000` returned `200` with JSON `null`.
 
-The collection routes tested (`/parks` and `/parks?entityId=291`) returned `403`. The first slice therefore does not depend on a bulk collection endpoint or a complete local park mirror.
+The collection routes tested (`/parks` and `/parks?entityId=291`) returned `403`. This research therefore provides no basis for depending on a bulk collection endpoint or a complete local park mirror.
 
 The individual response advertised `Cache-Control: public, max-age=3600, immutable`. This is useful operational cache guidance, but it is not a complete API contract.
 
@@ -77,7 +81,7 @@ No authentication was required for the tested individual lookup. The implementat
 
 ### Contract and stability risk
 
-The individual route is practical and official-looking, but no public, versioned API contract or schema guarantee was found in the POTA documentation reviewed. The route must therefore be treated as an external compatibility dependency:
+The individual route is practical and POTA-hosted, but no public, versioned API contract or schema guarantee was found in the POTA documentation reviewed. Any future implementation must therefore treat it as an external compatibility dependency:
 
 - validate every field;
 - tolerate nullable optional fields;
@@ -89,11 +93,11 @@ The individual route is practical and official-looking, but no public, versioned
 
 The application must not scrape HTML pages when this structured route is available.
 
-### Licensing, attribution, and caching
+### Licensing, attribution, and caching considerations
 
 POTA describes Parks on the Air as a registered service mark and states copyright ownership on its public site. The reviewed public pages did not provide an explicit API data license or a clear bulk-redistribution grant. The application must not assume that park records may be redistributed as a complete dataset.
 
-The first slice may cache the operator-selected individual park response locally for offline planning because the response explicitly advertises public one-hour HTTP caching and the cache is narrow, user-initiated, and not a bulk mirror. The implementation must:
+The response headers make bounded local caching technically feasible, but caching and its role in the first product slice remain product decisions. If product design later requires offline continuity, the following conservative policy is a candidate for review:
 
 - cache only successful individual lookups selected by the operator;
 - retain the source URL, fetched time, and normalized source metadata;
@@ -103,11 +107,11 @@ The first slice may cache the operator-selected individual park response locally
 - avoid redistributing raw bulk data or shipping a preloaded park dataset;
 - link or attribute POTA as the source where the production UI can do so.
 
-This is a practical engineering decision, not a legal conclusion. Any future bulk packaging, redistribution, or long-lived mirror requires an explicit POTA licensing review.
+This is not an approval to cache or redistribute POTA data, and it is not a legal conclusion. Any future cache, bulk packaging, redistribution, or long-lived mirror requires product approval and an explicit POTA licensing review.
 
-## Internal activation-target semantics
+## Candidate activation-target semantics
 
-The provider should normalize into a reusable internal concept without introducing a generalized provider/plugin framework:
+If product design selects a target-oriented workflow, the provider could normalize into a reusable internal concept without introducing a generalized provider/plugin framework:
 
 ```ts
 interface ActivationTarget {
@@ -129,11 +133,13 @@ interface ActivationTarget {
 }
 ```
 
-Required normalized fields are reference, name, valid coordinates, and a locally derived Maidenhead grid. `grid4`/`grid6` from upstream are useful evidence but must not replace local validation and conversion. Optional source fields remain nullable. The target is planning data and is never telemetry.
+The fields above are candidate semantics, not an approved schema. Any future normalization should require valid identity and coordinates, locally validate or derive Maidenhead data, preserve nullable optional fields, and keep the target as planning data rather than telemetry.
 
-The eventual SOTA provider may produce the same conceptual target shape with `kind: 'sota'`, but SOTA-specific work is deferred. No generalized provider registry is required for the POTA slice.
+An eventual SOTA design could reuse the conceptual target shape with `kind: 'sota'`, but SOTA-specific product definition is pending. No generalized provider registry is justified by this research alone.
 
-## Exact source-state semantics
+## Candidate source-state semantics
+
+The following states are proposed for product design review. They are not approved UI or API behavior.
 
 ### Live
 
@@ -161,7 +167,9 @@ The reference is syntactically valid, the upstream lookup succeeds, and the stru
 
 The response is not valid JSON or lacks valid required identity/coordinate fields. Treat it as unavailable for new data. Do not fabricate or partially display a target. A prior valid record may be shown as cached with the source error disclosed.
 
-## Backend and UI boundary
+## Candidate backend and UI boundaries
+
+If a future product decision selects an online lookup and planning-target workflow, the following ownership boundary is recommended:
 
 The local Express backend owns:
 
@@ -173,7 +181,7 @@ The local Express backend owns:
 - source-state classification;
 - user-safe error mapping.
 
-The production UI owns:
+The future production UI would own:
 
 - POTA reference entry and lookup action;
 - PLANNING TARGET presentation;
@@ -181,11 +189,11 @@ The production UI owns:
 - target versus operating-location distinction;
 - reuse of existing distance, bearing, Maidenhead, and solar calculations.
 
-Selecting a planning target must not update GPS state, GPS provenance, local-storage live-location state, telemetry envelopes, or the operating-location object.
+Regardless of the eventual UI, any future planning target must remain distinct from live GNSS or manual operating-location telemetry. Selecting one must not update GPS state, GPS provenance, local-storage live-location state, telemetry envelopes, or the operating-location object.
 
-## Explicit non-goals
+## Scope deliberately left unresolved
 
-This slice does not include:
+The following are not authorized by this research and remain subject to later product definition:
 
 - SOTA provider implementation;
 - activation submission;
@@ -199,26 +207,24 @@ This slice does not include:
 - generalized provider/plugin frameworks;
 - enterprise, fleet, remote, or multi-user architecture.
 
-POTA park boundaries, access permissions, closures, and operating legality remain outside this lookup. The operator must verify current park rules and boundaries through authoritative local park sources, consistent with POTA guidance.
+POTA park boundaries, access permissions, closures, and operating legality remain outside the researched lookup. Any future product must direct the operator to verify current park rules and boundaries through authoritative local park sources, consistent with POTA guidance.
 
-## Acceptance criteria for the implementation slice
+## Future acceptance and validation inputs
 
-- A valid POTA reference can be submitted from Field Tools.
-- The backend performs one bounded individual lookup against the chosen POTA route.
-- A successful response is normalized only when required identity and coordinates validate.
-- The UI displays reference, name, coordinates, derived Maidenhead grid, source state, source URL, and fetch/cache age as applicable.
-- The selected park is labeled PLANNING TARGET and remains distinct from live/manual operating location.
-- Existing distance and bearing calculations can use the target without mutating GPS or telemetry state.
-- Relevant solar/twilight calculations can use the target coordinates without mutating operating location.
-- Invalid, unknown, unavailable, cached, and malformed-source states are distinguishable and tested.
-- A successful individual lookup can be reused offline under the bounded cache policy.
-- No bulk park dataset is downloaded, shipped, or mirrored.
-- No POTA credentials, activation submission, spotting, or privileged agent operation is introduced.
-- The feature remains useful with no network connection after a prior successful lookup.
+The prior acceptance and implementation requirements are design inputs only. They do not constitute an authorized implementation task. After the operator workflow and tab contents are approved, the team must write new acceptance criteria that match that product definition.
 
-## Automated test requirements
+Potential concerns to revisit during product design include:
 
-Add focused tests for:
+- whether lookup is the primary operator action or only one part of a broader POTA/SOTA experience;
+- which metadata is useful enough to display;
+- whether distance, bearing, and solar/twilight calculations belong in the first tab;
+- which source states must be visible to the operator;
+- whether any offline cache is needed and what retention is acceptable;
+- whether the selected source remains suitable at implementation time.
+
+## Future test and field-validation inputs
+
+If product design authorizes implementation, focused tests should be derived from the approved workflow. The following research-derived cases should be considered:
 
 - reference syntax and normalization;
 - URL construction that cannot be redirected by operator input;
@@ -236,9 +242,9 @@ Add focused tests for:
 
 Use recorded, redacted response fixtures rather than live POTA calls in automated tests.
 
-## ToughBook field validation
+## Future ToughBook validation inputs
 
-On the production Panasonic ToughBook CF-20, validate:
+If a product slice is later approved, the production Panasonic ToughBook CF-20 should be used to validate the approved workflow. Research-derived scenarios to consider include:
 
 - online lookup of a known park reference;
 - touch-friendly entry and readable target details;
@@ -251,10 +257,15 @@ On the production Panasonic ToughBook CF-20, validate:
 - restart preserves only the approved bounded cache behavior;
 - no repeated polling or request storm occurs during normal use.
 
-## Recommended implementation task
+## Recommended next activity
 
-Implement the first vertical slice only:
+Do not begin POTA or SOTA implementation from this document. The next activity should be operator/product design of the POTA and SOTA Field Tools experiences. That design should decide:
 
-> Add a backend-owned POTA individual-reference adapter for `GET https://api.pota.app/park/{reference}`, a bounded operator-selected last-known-good cache, and a Field Tools PLANNING TARGET view that reuses the existing coordinate, Maidenhead, distance/bearing, and solar infrastructure without changing live operating-location telemetry.
+- the operator problem and purpose of each tab;
+- the contents and interaction model of each tab;
+- POTA-first, SOTA-first, or combined sequencing;
+- whether an activation-target concept is needed and what it means;
+- whether online lookup and offline caching are required;
+- the acceptance criteria and implementation scope.
 
-Re-evaluate the upstream contract, cache policy, and licensing position before expanding to bulk data, spotting, submission, or SOTA.
+After that product decision, reuse this source research and re-evaluate the upstream contract, cache policy, and licensing position before implementation.
