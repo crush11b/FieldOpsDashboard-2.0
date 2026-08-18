@@ -174,6 +174,47 @@ After the Single-Operator Field MVP is released, the next release should be domi
 
 The final sequence should be chosen by expected use on the next several field outings.
 
+### Approved Version 2.4 product interpretation
+
+POTA/SOTA activation support remains the Version 2.4 Field Tools capability. **SmartDeploy is the bounded operator workflow through which activation support becomes useful; it does not replace POTA/SOTA and does not redefine Version 2.4 as the full Field Operations Assistant.**
+
+The first activation-planning implementation slice is **POTA-first** because an individual-target source has already been researched and provides a concrete workflow for field validation. This is implementation sequencing, not a permanent architectural limitation: the core planning concept must remain capable of supporting SOTA later.
+
+The operator problem for this slice is **activation planning**, not an isolated park lookup or propagation calculator. Target lookup is an input, and propagation is planning intelligence consumed by the workflow.
+
+### POTA Activation Planning / SmartDeploy Slice 1
+
+The candidate first slice is a coherent, reviewable activation-planning workflow:
+
+```text
+POTA target
+	-> operating location
+	-> mission start and end
+	-> operator-entered radio / antenna / mode / power context
+	-> mission-window propagation/model intelligence
+	-> distance and bearing
+	-> solar/twilight context
+	-> trust, provenance, and limitations
+	-> SmartDeploy planning brief
+	-> locally retained field-use result
+```
+
+Mission time is first-class. The workflow captures a bounded planned operating window with a start and end, and planning intelligence is evaluated for that window wherever the underlying capability supports it. Existing model-time inputs should eventually be supplied from the mission window rather than silently treating current time as mission time; this planning decision does not reopen or modify propagation implementation.
+
+The initial equipment context is deliberately thin: the operator states, “I am taking this equipment; build my plan around it.” It may include radio, antenna, allowed or preferred modes, intended transmit power, and deployment configuration only where meaningful and explicitly entered. Version 2.4 does not select, optimize, or recommend the operator's equipment.
+
+Planning may require connectivity, but field use of the generated plan must not require continuous connectivity. The first brief is therefore locally retained for later offline use. This establishes a product requirement without selecting a final persistence or database architecture.
+
+The slice should reuse existing coordinate, Maidenhead, distance/bearing, solar/twilight, observed-RF, P.533, station-profile, logging, and trustworthy-status capabilities. Observed-RF evidence is observational evidence only and must not be presented as a forecast for a future mission. New weather-forecast or space-weather-forecast provider work is not a prerequisite for this first slice; those intelligence classes may be added later without blocking it.
+
+The first brief is deterministic and evidence-grounded. Operator-entered antenna facts may be used as context, but unsupported exact azimuth, apex height, topology, or site-specific deployment advice is not generated. AI is not required; any later AI must synthesize structured evidence and must not supply operational facts of its own.
+
+### Version 2.4 and Version 2.5 boundary
+
+The following remain deferred to the later Field Operations Assistant work: persistent full equipment inventory, reusable loadouts, automatic equipment selection, loadout optimization, full mission lifecycle/state management, full power/endurance optimization, broad antenna deployment optimization, autonomous operating-plan generation, generalized AI operations assistance, true path prediction, activation submission or spotting, generalized provider platforms, and enterprise/multi-user/fleet architecture.
+
+Only the minimum bounded concepts required to complete the POTA activation-planning slice may be pulled forward. SmartDeploy Slice 1 is a planning workflow and locally retained brief, not authorization for the complete Version 2.5 assistant roadmap.
+
 ## Backlog scoring requirements
 
 Future backlog reviews should include:

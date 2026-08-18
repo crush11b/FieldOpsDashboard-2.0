@@ -11,7 +11,9 @@
 
 No POTA production implementation has been approved. This document is a research and design input only; it is not an implementation-ready product decision, task authorization, acceptance specification, or replacement for the rebaseline, roadmap, backlog, or ADR-007.
 
-The operator-facing purpose and contents of a future POTA Field Tools tab remain to be defined. The operator-facing purpose and contents of a future SOTA Field Tools tab also remain to be defined. POTA-first, SOTA-first, and combined sequencing remain open until product design is complete.
+The authoritative rebaseline now selects POTA-first sequencing for the first activation-planning slice while preserving a provider-neutral planning concept capable of supporting SOTA later. The detailed operator-facing contents, acceptance criteria, provider contract, and implementation task remain subject to subsequent product and engineering decisions. The SOTA Field Tools experience remains to be defined.
+
+The approved product boundary is recorded in the [Version 2.4 direction and Slice 1 amendment](FieldOpsDashboard_Project_Rebaseline_2026.md). This document remains research and design input; its candidate workflow, schema, caching behavior, source findings, and proposed implementation details are not promoted into requirements by that reference.
 
 The activation-target concept described below is a candidate architecture, not an approved workflow. The proposed planning-target workflow, UI contents, caching behavior, and offline role are technical options for product design review. Acceptance criteria and implementation scope must be written only after the operator workflow is approved.
 
