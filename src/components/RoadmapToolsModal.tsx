@@ -27,6 +27,8 @@ import { resolveOperatingLocation, type OperatingLocation } from '../location/op
 import { parseCoordinates } from '../location/coordinates';
 import { calculateDistanceKm, calculateDistanceMiles, calculateInitialBearing, compassDirection } from '../location/geography';
 import { calculateSolarEvents, type SolarEventName } from '../location/solarEvents';
+import type { StationProfile } from '../propagation/domain';
+import { SmartDeployPlanner } from './SmartDeployPlanner';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -37,6 +39,7 @@ interface RoadmapToolsModalProps {
   gridSquare: string;
   gps: GPSStatus;
   gpsProvenance: GPSProvenance;
+  stationProfile?: StationProfile;
   initialTab?: string;
 }
 
@@ -49,6 +52,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   gridSquare,
   gps,
   gpsProvenance,
+  stationProfile,
   initialTab = 'coordinate',
 }) => {
   const [activeTab, setActiveTab] = useState<string>(initialTab === 'smart_frequency' ? 'smart_deploy' : initialTab);
@@ -293,6 +297,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           {/* MODULE 1: SmartDeploy Antenna Calculator */}
           {activeTab === 'smart_deploy' && (
             <div className="space-y-4">
+              <SmartDeployPlanner operatingLocation={operatingLocation} stationProfile={stationProfile} />
               <div className="p-3.5 rounded-xl border border-amber-600/60 bg-amber-950/20 space-y-3">
                 <h3 className="font-black text-xs uppercase text-amber-300 flex items-center gap-2">
                   <Calculator className="w-4 h-4" /> FIELD ANTENNA CUTTING & NVIS TAKEOFF CALCULATOR

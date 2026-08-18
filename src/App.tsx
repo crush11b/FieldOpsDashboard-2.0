@@ -588,6 +588,7 @@ export default function App() {
         gridSquare={operatingGridSquare}
         gps={gps}
         gpsProvenance={gpsProvenance}
+        stationProfile={config.propagation.stationProfile}
         initialTab={roadmapActiveTab}
       />
 

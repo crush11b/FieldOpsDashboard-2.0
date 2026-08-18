@@ -38,6 +38,8 @@ import { ObservedRfService } from './server/observedRf';
 import type { OperatingLocation } from './src/location/operatingLocation';
 import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
 import { createPotaTargetRouter, PotaActivationTargetResolver } from './server/potaTargetResolver';
+import { createSmartDeployRouter, SmartDeployService } from './server/smartDeploy';
+import { SmartDeployBriefStore, getDefaultSmartDeployBriefPath } from './server/smartDeployBriefStore';
 
 async function startServer() {
   const app = express();
@@ -70,6 +72,11 @@ async function startServer() {
   app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
+  const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
+  app.use(createSmartDeployRouter({
+    service: new SmartDeployService({ store: smartDeployBriefStore, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
+    store: smartDeployBriefStore,
+  }));
   const propagationGuidanceService = new PropagationGuidanceService(
     spaceWeatherService,
     observedRfService,
