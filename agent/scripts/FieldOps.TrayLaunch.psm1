@@ -117,7 +117,14 @@ namespace FieldOpsDashboard.Deployment
 
         private static void ThrowLastError(string operation)
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), operation + " failed.");
+            var errorCode = Marshal.GetLastWin32Error();
+            throw new Win32Exception(errorCode, FormatWin32Error(errorCode, operation));
+        }
+
+        public static string FormatWin32Error(int errorCode, string operation)
+        {
+            var nativeMessage = new Win32Exception(errorCode).Message;
+            return operation + " failed. Win32 error " + errorCode + ": " + nativeMessage;
         }
     }
 }

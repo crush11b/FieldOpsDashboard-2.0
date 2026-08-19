@@ -131,6 +131,17 @@ Describe 'FieldOps immediate Tray launch integration' {
         ($output -join "`n") | Should Not Match 'Add-Type|ParserError|; expected'
     }
 
+    It 'preserves the native Win32 error code and message in diagnostics' {
+        $powershell = Get-Command powershell.exe -ErrorAction Stop
+        $module = (Resolve-Path $modulePath).Path
+        $command = "Import-Module -Name '$module' -Force; [FieldOpsDashboard.Deployment.InteractiveProcess]::FormatWin32Error(1314, 'CreateProcessAsUser')"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $diagnostic = (& $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1) -join "`n"
+
+        $diagnostic | Should Match '^CreateProcessAsUser failed\. Win32 error 1314:'
+        $diagnostic | Should Match 'A required privilege is not held by the client'
+    }
+
     It 'loads the helper after installer completion and preserves startup registration' {
         $updater | Should Match 'FieldOps\.TrayLaunch\.psm1'
         $updater | Should Match 'Start-FieldOpsTray'
@@ -147,5 +158,20 @@ Describe 'FieldOps immediate Tray launch integration' {
         $module | Should Match 'OpenProcessToken'
         $module | Should Match 'winsta0\\\\default'
         $module | Should Not Match 'Start-Process'
+    }
+
+    It 'keeps the documented minimum token and process cleanup contract' {
+        $module = Get-Content -LiteralPath $modulePath -Raw
+        $module.Contains('TokenAssignPrimary = 0x0001') | Should Be $true
+        $module.Contains('TokenDuplicate = 0x0002') | Should Be $true
+        $module.Contains('TokenQuery = 0x0008') | Should Be $true
+        $module.Contains('TokenAssignPrimary | TokenDuplicate | TokenQuery') | Should Be $true
+        $module.Contains('false, CreateUnicodeEnvironment, IntPtr.Zero') | Should Be $true
+        $module.Contains('finally') | Should Be $true
+        $module.Contains('CloseHandle(processInformation.thread)') | Should Be $true
+        $module.Contains('CloseHandle(processInformation.process)') | Should Be $true
+        $module.Contains('CloseHandle(primaryToken)') | Should Be $true
+        $module.Contains('CloseHandle(sourceToken)') | Should Be $true
+        $module.Contains('CloseHandle(process)') | Should Be $true
     }
 }
