@@ -1,0 +1,104 @@
+$modulePath = Join-Path $PSScriptRoot '..\FieldOps.BackupRetention.psm1'
+$updaterPath = Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1'
+Import-Module $modulePath -Force
+
+Describe 'FieldOps recovery backup retention' {
+    BeforeEach {
+        $script:parent = Join-Path $TestDrive 'install-parent'
+        if (Test-Path -LiteralPath $script:parent) { Remove-Item -LiteralPath $script:parent -Recurse -Force }
+        New-Item -ItemType Directory -Path $script:parent -Force | Out-Null
+        $script:installName = 'FieldOpsDashboard'
+    }
+
+    It 'accepts only exact updater backup names' {
+        New-Item -ItemType Directory -Path (Join-Path $script:parent '.FieldOpsDashboard-backup-11111111111111111111111111111111') | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:parent '.FieldOpsDashboard-backup-not-a-guid') | Out-Null
+        New-Item -ItemType Directory -Path (Join-Path $script:parent '.OtherDashboard-backup-22222222222222222222222222222222') | Out-Null
+        (Get-FieldOpsRecoveryBackups -ParentPath $script:parent -InstallName $script:installName).Count | Should Be 1
+    }
+
+    It 'rejects backups outside the expected parent' {
+        $outside = Join-Path $TestDrive '.FieldOpsDashboard-backup-11111111111111111111111111111111'
+        New-Item -ItemType Directory -Path $outside | Out-Null
+        (Get-FieldOpsRecoveryBackups -ParentPath $script:parent -InstallName $script:installName).Count | Should Be 0
+    }
+
+    It 'never deletes the current transaction backup unless explicitly completed' {
+        $current = Join-Path $script:parent '.FieldOpsDashboard-backup-11111111111111111111111111111111'
+        New-Item -ItemType Directory -Path $current | Out-Null
+        $result = Invoke-FieldOpsRecoveryBackupCleanup -ParentPath $script:parent -InstallName $script:installName -CurrentTransactionBackupPath $current
+        Test-Path -LiteralPath $current | Should Be $true
+        $result.RemovedCount | Should Be 0
+    }
+
+    It 'retains the newest two older backups and removes older valid backups deterministically' {
+        $names = @('11111111111111111111111111111111', '22222222222222222222222222222222', '33333333333333333333333333333333')
+        $paths = @()
+        for ($index = 0; $index -lt $names.Count; $index++) {
+            $path = Join-Path $script:parent ('.FieldOpsDashboard-backup-' + $names[$index])
+            New-Item -ItemType Directory -Path $path | Out-Null
+            [IO.Directory]::SetLastWriteTimeUtc($path, [DateTime]::UtcNow.AddMinutes(-$index))
+            $paths += $path
+        }
+        $result = Invoke-FieldOpsRecoveryBackupCleanup -ParentPath $script:parent -InstallName $script:installName -CurrentTransactionBackupPath (Join-Path $script:parent '.FieldOpsDashboard-backup-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')
+        $result.RetainedCount | Should Be 2
+        $result.RemovedCount | Should Be 1
+        (Test-Path -LiteralPath $paths[0]) | Should Be $true
+        (Test-Path -LiteralPath $paths[1]) | Should Be $true
+        (Test-Path -LiteralPath $paths[2]) | Should Be $false
+    }
+
+    It 'does not delete active install, stage, download, or failed paths' {
+        $backup = Join-Path $script:parent '.FieldOpsDashboard-backup-11111111111111111111111111111111'
+        $active = @($backup, (Join-Path $script:parent 'FieldOpsDashboard'), (Join-Path $script:parent '.FieldOpsDashboard-stage-22222222222222222222222222222222'), (Join-Path $script:parent '.FieldOpsDashboard-failed-33333333333333333333333333333333'))
+        foreach ($path in $active) { New-Item -ItemType Directory -Path $path -Force | Out-Null }
+        $result = Invoke-FieldOpsRecoveryBackupCleanup -ParentPath $script:parent -InstallName $script:installName -CurrentTransactionBackupPath $backup -ExcludedPaths $active
+        foreach ($path in $active) { Test-Path -LiteralPath $path | Should Be $true }
+        $result.RemovedCount | Should Be 0
+    }
+
+    It 'treats cleanup failures as non-fatal and reports the specific name' {
+        $backup = Join-Path $script:parent '.FieldOpsDashboard-backup-11111111111111111111111111111111'
+        New-Item -ItemType Directory -Path $backup | Out-Null
+        $result = Invoke-FieldOpsRecoveryBackupCleanup -ParentPath $script:parent -InstallName $script:installName -CurrentTransactionBackupPath (Join-Path $script:parent '.FieldOpsDashboard-backup-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa') -RemoveProvider { param($Path) throw 'access denied' } -RetainCount 0
+        $result.Failures.Count | Should Be 1
+        $result.Failures[0].Name | Should Be '.FieldOpsDashboard-backup-11111111111111111111111111111111'
+    }
+
+    It 'keeps cleanup after readiness success and out of the failure path' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $cleanupIndex = $updater.IndexOf('Invoke-FieldOpsRecoveryBackupCleanup')
+        $successIndex = $updater.IndexOf("if ($readiness.Status -eq 'Passed')")
+        $failureIndex = $updater.LastIndexOf("`n} catch {")
+        $cleanupIndex | Should BeGreaterThan $successIndex
+        $cleanupIndex | Should BeLessThan $failureIndex
+        ([regex]::Matches($updater, 'Invoke-FieldOpsRecoveryBackupCleanup')).Count | Should Be 1
+    }
+
+    It 'uses concise backup output and stable eight-stage labels without raw objects' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match 'Recovery backups found:.*cleanup will run after successful deployment'
+        $updater | Should Match 'Recovery backups: retained.*removed'
+        $updater | Should Match 'Recovery backups: none require cleanup'
+        $updater | Should Not Match 'Previous update recovery folders were found.*join'
+        foreach ($stage in 1..8) { $updater | Should Match "\[$stage/8\]" }
+        $updater | Should Not Match 'Format-Table|Status\s+Service\s+Processes'
+    }
+
+    It 'keeps direct-token diagnostics out of the deployed stage' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match 'FieldOps\.TrayLaunch\.psm1'
+        $updater | Should Match 'Test-FieldOpsInteractiveTrayLaunch\.ps1'
+        $updater | Should Match 'Remove-Item -LiteralPath \$diagnosticPath'
+    }
+
+    It 'parses under Windows PowerShell 5.1' {
+        $powershell = Get-Command powershell.exe -ErrorAction Stop
+        $module = (Resolve-Path $modulePath).Path
+        $command = "Import-Module '$module' -Force; if (`$null -eq (Get-Command Get-FieldOpsRecoveryBackups)) { throw 'backup command unavailable' }; 'backup-ok'"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+        $LASTEXITCODE | Should Be 0
+        ($output -join "`n") | Should Match 'backup-ok'
+    }
+}

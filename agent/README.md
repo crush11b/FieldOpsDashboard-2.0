@@ -140,3 +140,7 @@ avoids Session 0 and elevated-administrator launches while preserving the per-SI
 for future logons. The launch is bounded and verified by executable path, operator SID, and session;
 an unavailable or exited Tray is reported as a failed deployment verification. The updater then
 launches the production server with `npm start`. Do not use `npm run dev` for an installed deployment.
+
+The BAT remains a deliberately small bootstrap and does not select a Git revision or native artifact.
+For a controlled offline update, select the intended 40-character revision and pass the matching local
+package explicitly with `-Revision` and `-NativeArtifactPath`; desktop bootstrap refinement is deferred.

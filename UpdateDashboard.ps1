@@ -30,6 +30,7 @@ $requiredPackageFiles = @(
     'scripts\FieldOps.RuntimeShutdown.psm1',
     'scripts\FieldOps.RuntimeReadiness.psm1',
     'scripts\FieldOps.RuntimeRollback.psm1',
+    'scripts\FieldOps.BackupRetention.psm1',
     'p533-assets\manifest.json'
 )
 $requiredDeploymentFiles = @(
@@ -176,6 +177,12 @@ function Copy-PackageTree {
     if ($robocopyExitCode -gt 7) {
         throw "robocopy failed with exit code $robocopyExitCode while copying '$Source' to '$Destination'."
     }
+    foreach ($relative in @('agent\scripts\FieldOps.TrayLaunch.psm1', 'scripts\Test-FieldOpsInteractiveTrayLaunch.ps1')) {
+        $diagnosticPath = Join-Path $Destination $relative
+        if (Test-Path -LiteralPath $diagnosticPath) {
+            Remove-Item -LiteralPath $diagnosticPath -Force -ErrorAction Stop
+        }
+    }
 }
 
 function Write-UpdateError {
@@ -249,17 +256,17 @@ $runtimeSnapshot = $null
 $runtimeRollbackResult = $null
 $filesystemRollbackSucceeded = $false
 $safeWorkingDirectory = $installParent
+$backupRetentionModule = Join-Path $PSScriptRoot 'scripts\FieldOps.BackupRetention.psm1'
+Import-Module $backupRetentionModule -Force
 
 try {
-    $staleArtifacts = @(Get-ChildItem -LiteralPath $installParent -Force -ErrorAction SilentlyContinue | Where-Object {
-        $_.Name -like ".$installName-backup-*" -or $_.Name -like ".$installName-stage-*" -or $_.Name -like ".$installName-failed-*"
-    })
-    if ($staleArtifacts.Count -gt 0) {
-        Write-Warning "Previous update recovery folders were found and will be preserved: $($staleArtifacts.Name -join ', ')"
+    $existingBackups = @(Get-FieldOpsRecoveryBackups -ParentPath $installParent -InstallName $installName -ExcludedPaths @($resolvedInstallPath, $stagePath, $downloadRoot, $failedPath))
+    if ($existingBackups.Count -gt 0) {
+        Write-Host "[!] Recovery backups found: $($existingBackups.Count); cleanup will run after successful deployment." -ForegroundColor Yellow
     }
     New-Item -ItemType Directory -Path $downloadRoot | Out-Null
 
-    Write-Host '[1/5] Downloading and validating update candidates...' -ForegroundColor Yellow
+    Write-Host '[1/8] Downloading and validating update candidates...' -ForegroundColor Yellow
     $deploymentRevision = Resolve-DeploymentRevision -Repository $Repository -Branch $Branch -Revision $Revision
     $url = "https://github.com/$Repository/archive/$deploymentRevision.tar.gz"
     for ($index = 0; $index -lt 1; $index++) {
@@ -307,14 +314,14 @@ try {
     $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision $deploymentRevision
     $p533RuntimeRoot = Assert-P533RuntimeArtifact -PackageRoot $packageRoot -NativeRoot $nativeRoot -ExpectedRevision $deploymentRevision
 
-    Write-Host '[2/5] Staging validated package...' -ForegroundColor Yellow
+    Write-Host '[2/8] Staging validated package...' -ForegroundColor Yellow
     Copy-PackageTree -Source $packageRoot -Destination $stagePath
     $stagedRuntimeRoot = Join-Path $stagePath 'p533-assets\runtime'
     New-Item -ItemType Directory -Path $stagedRuntimeRoot -Force | Out-Null
     Copy-Item -Path (Join-Path $p533RuntimeRoot '*') -Destination $stagedRuntimeRoot -Recurse -Force
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
 
-    Write-Host '[3/5] Stopping FieldOps and dashboard processes...' -ForegroundColor Yellow
+    Write-Host '[3/8] Stopping FieldOps and dashboard processes...' -ForegroundColor Yellow
     Import-Module (Join-Path $stagePath 'scripts\FieldOps.RuntimeRollback.psm1') -Force
     $runtimeSnapshot = Get-FieldOpsRuntimeSnapshot `
         -DashboardRoot $resolvedInstallPath `
@@ -334,7 +341,7 @@ try {
             -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
             -Timeout ([TimeSpan]::FromSeconds(30)) | Out-Null
     }
-    Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
+    Write-Host '[4/8] Activating staged deployment...' -ForegroundColor Yellow
     # Ensure the updater is not running from the directory it is about to move.
     Set-Location -LiteralPath $installParent
     if (-not $SkipProcessStop) {
@@ -370,7 +377,7 @@ try {
     $deploymentManifest.informationalVersion = [string]$nativeManifest.informationalVersion
     $manifestJson = $deploymentManifest | ConvertTo-Json -Depth 3
     [IO.File]::WriteAllText((Join-Path $resolvedInstallPath 'deployment-manifest.json'), $manifestJson, (New-Object Text.UTF8Encoding($false)))
-    Write-Host '[5/7] Restoring dependencies and building production dashboard...' -ForegroundColor Yellow
+    Write-Host '[5/8] Restoring dependencies and building production dashboard...' -ForegroundColor Yellow
     Set-Location -LiteralPath $resolvedInstallPath
     if (-not (Get-Command npm -ErrorAction SilentlyContinue)) { throw 'npm is required for the production dashboard build.' }
     & npm install --no-audit --no-fund
@@ -378,7 +385,7 @@ try {
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE." }
 
-    Write-Host '[6/7] Publishing and installing the Local Agent and tray...' -ForegroundColor Yellow
+    Write-Host '[6/8] Publishing and installing the Local Agent and tray...' -ForegroundColor Yellow
     $artifactRoot = Join-Path $resolvedInstallPath 'agent\artifacts\publish\win-x64'
     New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
@@ -441,6 +448,20 @@ try {
     }
     if ($readiness.Status -eq 'Passed') {
         Write-Host "[OK] Revision: $($readiness.Revision) source/native match" -ForegroundColor Green
+        $cleanup = Invoke-FieldOpsRecoveryBackupCleanup `
+            -ParentPath $installParent `
+            -InstallName $installName `
+            -CurrentTransactionBackupPath $backupPath `
+            -ExcludedPaths @($resolvedInstallPath, $stagePath, $downloadRoot, $failedPath) `
+            -CleanupCurrentTransactionBackup
+        foreach ($failure in $cleanup.Failures) {
+            Write-Host "[!] Backup cleanup: could not remove $($failure.Name): $($failure.Detail)" -ForegroundColor Yellow
+        }
+        if ($cleanup.Failures.Count -eq 0 -and $cleanup.RemovedCount -eq 0 -and $cleanup.RetainedCount -eq 0) {
+            Write-Host '[OK] Recovery backups: none require cleanup.' -ForegroundColor Green
+        } else {
+            Write-Host "[OK] Recovery backups: retained $($cleanup.RetainedCount), removed $($cleanup.RemovedCount)." -ForegroundColor Green
+        }
         Write-Host '[OK] FieldOps Dashboard update complete.' -ForegroundColor Green
         $deploymentStarted = $false
     } else {
