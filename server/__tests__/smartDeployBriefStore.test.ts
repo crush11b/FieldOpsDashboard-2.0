@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { SmartDeployBrief } from '../smartDeployBrief';
+import type { SmartDeployBrief, SmartDeployBriefV2 } from '../smartDeployBrief';
 import {
   SMART_DEPLOY_BRIEF_RETENTION_LIMIT,
   SmartDeployBriefStore,
@@ -41,6 +41,27 @@ function createBrief(id: string, generatedAtUtc: string): SmartDeployBrief {
   } as unknown as SmartDeployBrief;
 }
 
+function createManualV2Brief(id: string): SmartDeployBrief {
+  const plannedLocation = { coordinates: { lat: 37.4, lon: -77.4 }, gridSquare: 'FM17hj', provenance: 'manual', status: 'degraded', source: { id: 'smartdeploy:planned-site', type: 'manual_planned_site_coordinates' }, planningSemantics: 'operator_planned_override' };
+  const activation = { program: 'POTA', reference: 'US-1234', coordinates: { lat: 38, lon: -78 }, provenance: { kind: 'externally_resolved' } };
+  const section = (status: string) => ({ status, evidence: {} });
+  return {
+    schemaVersion: 2,
+    briefId: id,
+    generatedAtUtc: '2026-08-18T12:00:00.000Z',
+    status: 'complete',
+    activation,
+    plannedOperatingSite: { location: plannedLocation, source: 'operator_planned_override', description: 'Operator-entered planned location' },
+    currentDeviceLocation: { coordinates: { lat: 40, lon: -80 }, gridSquare: 'FM29', provenance: 'current', status: 'ok', source: { id: 'gps', type: 'serial_nmea' } },
+    propagationObjective: { kind: 'regional', regionId: 'western_us', regionLabel: 'Western U.S.' },
+    missionWindow: { start: '2026-08-18T12:00:00.000Z', midpoint: '2026-08-18T13:00:00.000Z', end: '2026-08-18T14:00:00.000Z' },
+    station: { radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' }, selectedModes: ['SSB'], modeledMode: 'SSB', transmitPowerWatts: 10 },
+    sections: { activation: section('available'), plannedOperatingSite: section('derived'), currentDevice: section('available'), propagationObjective: section('available'), missionWindow: section('available'), station: section('available'), propagation: section('complete'), solar: section('derived'), observedRf: section('unavailable') },
+    limitations: [],
+    summary: 'Manual planned site brief',
+  } as unknown as SmartDeployBrief;
+}
+
 function createStore(): { store: SmartDeployBriefStore; directory: string; filePath: string } {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-smartdeploy-'));
   temporaryDirectories.push(directory);
@@ -63,6 +84,15 @@ describe('SmartDeployBriefStore', () => {
     const reloaded = new SmartDeployBriefStore(filePath).get('brief-1');
     expect(reloaded).toMatchObject({ status: 'found', brief });
     expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).briefs).toEqual([brief]);
+  });
+
+  it('preserves a v2 manual planned location and provenance across reopen', () => {
+    const { store, filePath } = createStore();
+    const brief = createManualV2Brief('manual-v2');
+    store.save(brief);
+    const reopened = new SmartDeployBriefStore(filePath).get('manual-v2');
+    const plannedSite = (brief as SmartDeployBriefV2).plannedOperatingSite;
+    expect(reopened).toMatchObject({ status: 'found', brief: { plannedOperatingSite: { location: plannedSite.location, source: 'operator_planned_override' } } });
   });
 
   it('orders newest first and retains only the ten newest briefs', () => {

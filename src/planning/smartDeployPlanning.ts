@@ -1,6 +1,6 @@
 import type { OperatingLocation } from '../location/operatingLocation';
-import { latLonToGridSquare } from '../types';
-import type { Coordinates } from '../location/coordinates';
+import { gridSquareToLatLon, latLonToGridSquare } from '../types';
+import { parseCoordinates, type Coordinates } from '../location/coordinates';
 import {
   isAntennaType,
   isDeploymentCompatible,
@@ -334,7 +334,13 @@ function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-export type PlannedOperatingLocationSelection = 'provider_reference' | 'current_device';
+export type PlannedOperatingLocationSelection = 'provider_reference' | 'current_device' | 'manual';
+
+export interface ManualPlannedOperatingLocationInput {
+  readonly gridSquare?: string;
+  readonly latitude?: string;
+  readonly longitude?: string;
+}
 
 export type PlannedOperatingLocationResolution =
   | { readonly status: 'resolved'; readonly location: OperatingLocation }
@@ -344,6 +350,7 @@ export function resolvePlannedOperatingLocation(
   activationTarget: ActivationTarget,
   currentDeviceLocation: OperatingLocation | undefined,
   selection: PlannedOperatingLocationSelection = 'provider_reference',
+  manualInput?: ManualPlannedOperatingLocationInput,
 ): PlannedOperatingLocationResolution {
   if (selection === 'current_device') {
     if (!currentDeviceLocation?.coordinates || currentDeviceLocation.provenance === 'unavailable') {
@@ -351,6 +358,8 @@ export function resolvePlannedOperatingLocation(
     }
     return { status: 'resolved', location: { ...currentDeviceLocation, planningSemantics: 'operator_selected_current_device' } };
   }
+
+  if (selection === 'manual') return resolveManualPlannedOperatingLocation(manualInput);
 
   return {
     status: 'resolved',
@@ -363,4 +372,50 @@ export function resolvePlannedOperatingLocation(
       planningSemantics: 'provider_reference_default',
     },
   };
+}
+
+function resolveManualPlannedOperatingLocation(input: ManualPlannedOperatingLocationInput | undefined): PlannedOperatingLocationResolution {
+  const gridValue = input?.gridSquare?.trim() ?? '';
+  const latitudeValue = input?.latitude?.trim() ?? '';
+  const longitudeValue = input?.longitude?.trim() ?? '';
+  const hasLatitude = latitudeValue !== '';
+  const hasLongitude = longitudeValue !== '';
+  const hasCoordinates = hasLatitude || hasLongitude;
+  const hasGrid = gridValue !== '';
+
+  if (!hasGrid && !hasCoordinates) return { status: 'unavailable', reason: 'Enter a Maidenhead grid or both planned-site coordinates.' };
+  if (hasCoordinates && (!hasLatitude || !hasLongitude)) return { status: 'unavailable', reason: 'Enter both planned-site latitude and longitude.' };
+
+  const gridCoordinates = hasGrid && isManualGridSquare(gridValue) ? gridSquareToLatLon(gridValue) : null;
+  if (hasGrid && !gridCoordinates) return { status: 'unavailable', reason: 'The planned-site Maidenhead grid is invalid.' };
+  const coordinateInput = hasCoordinates ? parseCoordinates(latitudeValue, longitudeValue) : null;
+  if (hasCoordinates && !coordinateInput) return { status: 'unavailable', reason: 'The planned-site latitude and longitude are invalid.' };
+
+  const coordinates = coordinateInput ?? gridCoordinates;
+  if (!coordinates) return { status: 'unavailable', reason: 'The planned operating location is incomplete.' };
+  const calculatedGrid = latLonToGridSquare(coordinates.lat, coordinates.lon);
+  if (hasGrid && coordinateInput && !gridMatchesCoordinates(gridValue, calculatedGrid)) {
+    return { status: 'unavailable', reason: 'The planned-site grid and coordinates do not identify the same location.' };
+  }
+
+  return {
+    status: 'resolved',
+    location: {
+      coordinates,
+      gridSquare: hasGrid ? gridValue.toUpperCase() : calculatedGrid || null,
+      provenance: 'manual',
+      status: 'degraded',
+      source: { id: 'smartdeploy:planned-site', type: coordinateInput ? 'manual_planned_site_coordinates' : 'manual_planned_site_grid', name: 'Operator planned site' },
+      planningSemantics: 'operator_planned_override',
+    },
+  };
+}
+
+function gridMatchesCoordinates(inputGrid: string, calculatedGrid: string): boolean {
+  const normalized = inputGrid.trim().toUpperCase();
+  return calculatedGrid.toUpperCase().startsWith(normalized);
+}
+
+function isManualGridSquare(value: string): boolean {
+  return /^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/i.test(value);
 }

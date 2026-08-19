@@ -108,6 +108,31 @@ describe('SmartDeploy planner', () => {
     fireEvent.click(screen.getByRole('button', { name: /Delete US-1234/ }));
     await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/smartdeploy/briefs/brief-1', { method: 'DELETE' }));
   });
+
+  it('sends an explicitly entered planned site without replacing it with current GPS or the POTA target', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
+      if (String(input).startsWith('/api/pota-target')) return { ok: true, json: async () => ({ target }) };
+      if (String(input) === '/api/smartdeploy/generate') {
+        const body = JSON.parse(String(init?.body));
+        expect(body.plannedOperatingLocation.coordinates).toEqual({ lat: 37.4, lon: -77.4 });
+        expect(body.plannedOperatingLocation.coordinates).not.toEqual(target.coordinates);
+        expect(body.plannedOperatingLocation.coordinates).toEqual(location.coordinates);
+        expect(body.plannedOperatingLocation.planningSemantics).toBe('operator_planned_override');
+        expect(body.plannedOperatingLocation.source.type).toBe('manual_planned_site_coordinates');
+        return { ok: true, json: async () => ({ brief: v2Brief, persistence: { status: 'saved' } }) };
+      }
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployPlanner operatingLocation={{ ...location, coordinates: { lat: 40, lon: -80 }, gridSquare: 'FM29' }} stationProfile={profile} />);
+    fillRequiredFields();
+    fireEvent.change(screen.getByLabelText('Planned operating site'), { target: { value: 'manual' } });
+    fireEvent.change(screen.getByLabelText('Planned site latitude'), { target: { value: '37.4' } });
+    fireEvent.change(screen.getByLabelText('Planned site longitude'), { target: { value: '-77.4' } });
+    fireEvent.click(screen.getByText('GENERATE SMARTDEPLOY PLAN'));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/smartdeploy/generate', expect.objectContaining({ method: 'POST' })));
+  });
 });
 
 describe('SmartDeploy brief rendering', () => {

@@ -175,7 +175,9 @@ function plannedSiteSnapshot(planning: SmartDeployExecutionRequest): SmartDeploy
     ? 'POTA reference location - approximate planning point'
     : source === 'operator_selected_current_device'
       ? 'Current device location selected by operator'
-      : 'Operator-planned location';
+      : planning.plannedOperatingLocation.source.type === 'manual_planned_site_grid'
+        ? 'Operator-entered Maidenhead grid center estimate'
+        : 'Operator-entered planned location';
   return { location: planning.plannedOperatingLocation, source, description };
 }
 
@@ -197,6 +199,7 @@ function buildV2Limitations(planning: SmartDeployExecutionRequest, evidence: Mis
     if (!limitations.some(limitation => limitation.code === code || limitation.message === message)) limitations.push({ code, message });
   };
   if (planning.plannedOperatingLocation.planningSemantics === 'provider_reference_default') add('planned_site_reference_coordinate', 'The planned site uses the provider reference coordinate and may not be the exact station setup point.');
+  if (planning.plannedOperatingLocation.source.type === 'manual_planned_site_grid') add('planned_site_grid_center_estimate', 'The planned site was derived from the center of the entered Maidenhead grid and may not be the exact station setup point.');
   if (evidence.propagation.status !== 'complete') add(`propagation_${evidence.propagation.status}`, evidence.propagation.status === 'partial' ? 'Band outlook is partial across the mission samples.' : 'Band outlook is unavailable across the mission samples.');
   if (evidence.solar.status === 'unavailable') add('solar_unavailable', 'Solar and twilight evidence is unavailable for the planned site.');
   if (evidence.observedRf.status === 'notTemporallyApplicable') add('observed_rf_not_temporally_applicable', 'Live band activity is too early to apply to this mission.');

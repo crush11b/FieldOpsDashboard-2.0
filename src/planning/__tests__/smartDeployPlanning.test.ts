@@ -129,4 +129,23 @@ describe('SmartDeploy Slice 1 planning contract', () => {
     const unavailable = resolvePlannedOperatingLocation(baseRequest.activationTarget, { ...location, coordinates: null, provenance: 'unavailable' }, 'current_device');
     expect(unavailable).toEqual({ status: 'unavailable', reason: 'Current device location is unavailable.' });
   });
+
+  it('resolves a manual Maidenhead planned site without using activation or current-device coordinates', () => {
+    const result = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07pk' });
+    expect(result).toMatchObject({ status: 'resolved', location: { gridSquare: 'FM07PK', provenance: 'manual', planningSemantics: 'operator_planned_override', source: { type: 'manual_planned_site_grid' } } });
+    expect(result.status === 'resolved' && result.location.coordinates).not.toEqual(baseRequest.activationTarget.coordinates);
+    expect(result.status === 'resolved' && result.location.coordinates).not.toEqual(baseRequest.currentDeviceLocation?.coordinates);
+  });
+
+  it('resolves a manual latitude/longitude planned site and derives one grid', () => {
+    const result = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { latitude: '37.40000', longitude: '-77.40000' });
+    expect(result).toMatchObject({ status: 'resolved', location: { coordinates: { lat: 37.4, lon: -77.4 }, gridSquare: 'FM17hj' } });
+  });
+
+  it('rejects incomplete or conflicting manual planned-site input without fallback', () => {
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { latitude: '37.4' })).toEqual({ status: 'unavailable', reason: 'Enter both planned-site latitude and longitude.' });
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'not-a-grid' })).toEqual({ status: 'unavailable', reason: 'The planned-site Maidenhead grid is invalid.' });
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07zz' })).toEqual({ status: 'unavailable', reason: 'The planned-site Maidenhead grid is invalid.' });
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07pk', latitude: '37.4', longitude: '-77.4' })).toEqual({ status: 'unavailable', reason: 'The planned-site grid and coordinates do not identify the same location.' });
+  });
 });

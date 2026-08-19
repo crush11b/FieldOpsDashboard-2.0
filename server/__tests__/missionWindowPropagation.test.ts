@@ -8,6 +8,7 @@ const planningRequest = {
     provenance: { kind: 'externally_resolved' as const, source: { id: 'pota-api', type: 'pota_individual_park_api' }, resolvedAtUtc: '2026-08-18T00:00:00.000Z' },
   },
   plannedOperatingLocation: { coordinates: { lat: 37, lon: -77 }, gridSquare: 'FM17', provenance: 'manual' as const, status: 'degraded' as const, source: { id: 'test', type: 'manual_location' } },
+  currentDeviceLocation: { coordinates: { lat: 40, lon: -80 }, gridSquare: 'FM29', provenance: 'current' as const, status: 'ok' as const, source: { id: 'gps', type: 'serial_nmea' } },
   propagationObjective: { kind: 'regional' as const, regionId: 'western_us' as const },
   missionWindow: { start: '2026-08-18T14:00:00Z', end: '2026-08-18T18:00:00Z' },
   equipment: { radio: { name: 'Test Radio' }, antenna: { type: 'EFHW' as const }, modes: ['SSB', 'FT8'] as const, transmitPowerWatts: 10, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } },
@@ -38,6 +39,7 @@ describe('mission-window propagation adapter', () => {
     expect(calls.filter(request => request.utcHour === 16)).toHaveLength(36);
     expect(calls.filter(request => request.utcHour === 18)).toHaveLength(36);
     expect(calls.every(request => request.origin.lat === planningRequest.plannedOperatingLocation.coordinates.lat)).toBe(true);
+    expect(calls.every(request => request.origin.lat !== planningRequest.currentDeviceLocation?.coordinates.lat)).toBe(true);
     expect(calls.every(request => !(request.destination.lat === planningRequest.activationTarget.coordinates.lat && request.destination.lon === planningRequest.activationTarget.coordinates.lon))).toBe(true);
     expect(result.generatedAtUtc).toBe('2035-01-01T00:00:00.000Z');
   });
