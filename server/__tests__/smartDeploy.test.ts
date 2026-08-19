@@ -1,10 +1,14 @@
 import http from 'node:http';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import express from 'express';
 import { describe, expect, it, vi } from 'vitest';
 import type { MissionEvidence } from '../missionEvidence';
 import type { MissionWindowPropagationResult } from '../missionWindowPropagation';
 import { PotaActivationTargetResolver } from '../potaTargetResolver';
 import { LocalSotaSummitDataset, parseSotaSummitCsv } from '../sotaSummitDataset';
+import { SotaSummitDataStore } from '../sotaSummitDataStore';
 import { SotaActivationTargetResolver } from '../sotaTargetResolver';
 import { createSmartDeployRouter, SmartDeployService } from '../smartDeploy';
 import type { SmartDeployBrief } from '../smartDeployBrief';
@@ -94,6 +98,35 @@ describe('SmartDeploy orchestration', () => {
     }));
     expect(result).toMatchObject({ kind: 'smartdeploy_generation', sota: { status: 'cached', reference: 'W4V/SH-001' }, brief });
     expect(propagate).toHaveBeenCalledOnce();
+  });
+
+  it('plans a persisted SOTA summit offline without requesting the SOTA source', async () => {
+    const directory = mkdtempSync(path.join(os.tmpdir(), 'fieldops-smartdeploy-sota-'));
+    try {
+      const filePath = path.join(directory, 'sota-summits.json');
+      writeFileSync(filePath, JSON.stringify({
+        documentVersion: 1,
+        metadata: { sourceVersion: '19/08/2026', downloadedAtUtc: '2026-08-19T12:00:00.000Z' },
+        records: [{ reference: 'W4V/SH-001', name: 'High Knob', association: 'USA', region: 'Virginia', latitude: 37.4567, longitude: -82.1234, elevationM: 1287 }],
+      }));
+      const network = vi.fn(async () => { throw new Error('network must not be used'); });
+      const dataStore = new SotaSummitDataStore(filePath, { fetcher: network });
+      const sotaResolver = new SotaActivationTargetResolver(() => dataStore.dataset);
+      const propagate = vi.fn(async value => {
+        expect(value.planningRequest.activationTarget.coordinates).toEqual({ lat: 37.4567, lon: -82.1234 });
+        expect(value.planningRequest.plannedOperatingLocation.coordinates).toEqual({ lat: 37.4567, lon: -82.1234 });
+        return propagation;
+      });
+      const result = await service({ sotaResolver, propagate }).generateBrief(request({
+        targetRequest: { program: 'SOTA', reference: 'w4v/sh-001' }, potaReference: undefined,
+        activationTarget: undefined, plannedOperatingLocation: undefined,
+      }));
+      expect(result).toMatchObject({ kind: 'smartdeploy_generation', sota: { status: 'cached', reference: 'W4V/SH-001' } });
+      expect(network).not.toHaveBeenCalled();
+      expect(propagate).toHaveBeenCalledOnce();
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 
   it('rejects unsupported target programs before resolver or evidence activity', async () => {
@@ -204,6 +237,25 @@ describe('SmartDeploy orchestration', () => {
 });
 
 describe('SmartDeploy retained-brief routes', () => {
+  it('resolves provider-neutral POTA and SOTA target requests through the SmartDeploy route', async () => {
+    const resolveTarget = vi.fn(async (input: unknown) => ({ status: 'cached', reference: (input as any).reference, target }));
+    const app = express();
+    app.use(express.json());
+    app.use(createSmartDeployRouter({ service: { generateBrief: vi.fn(), resolveTarget } as any, store: store() }));
+    const server = http.createServer(app);
+    await new Promise<void>(resolve => server.listen(0, resolve));
+    const address = server.address();
+    const baseUrl = `http://127.0.0.1:${typeof address === 'object' && address ? address.port : 0}`;
+    try {
+      const response = await fetch(`${baseUrl}/api/smartdeploy/target`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ targetRequest: { program: 'SOTA', reference: 'W4V/SH-001' } }) });
+      expect(response.status).toBe(200);
+      expect(await response.json()).toMatchObject({ kind: 'smartdeploy_target', status: 'cached' });
+      expect(resolveTarget).toHaveBeenCalledWith({ program: 'SOTA', reference: 'W4V/SH-001' });
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
   it('lists, gets, and deletes retained briefs without invoking generation', async () => {
     const list = vi.fn(() => ({ status: 'loaded', briefs: [brief], diagnostics: [] }));
     const get = vi.fn((id: string) => id === 'brief-1' ? { status: 'found', brief, diagnostics: [] } : { status: 'notFound', diagnostics: [] });

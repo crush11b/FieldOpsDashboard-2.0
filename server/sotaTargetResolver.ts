@@ -20,6 +20,7 @@ export class SotaActivationTargetResolver implements ActivationTargetResolver {
     const resolvedAtUtc = dataset.metadata?.downloadedAtUtc;
     const target: ActivationTarget = {
       program: 'SOTA', reference: summit.reference, displayName: summit.name,
+      ...(summit.elevationM !== undefined ? { elevationM: summit.elevationM } : {}),
       coordinates: { lat: summit.latitude, lon: summit.longitude },
       gridSquare: latLonToGridSquare(summit.latitude, summit.longitude) || undefined,
       provenance: { kind: 'externally_resolved', source: { id: SOTA_SUMMIT_SOURCE_ID, type: SOTA_SUMMIT_SOURCE_TYPE, name: SOTA_SUMMIT_SOURCE_NAME }, ...(resolvedAtUtc ? { resolvedAtUtc } : {}) },

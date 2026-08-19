@@ -9,6 +9,7 @@ import type { SmartDeployBriefV1, SmartDeployBriefV2 } from '../../../server/sma
 const location = { coordinates: { lat: 37.4, lon: -77.4 }, gridSquare: 'FM17', provenance: 'current' as const, status: 'ok' as const, source: { id: 'gps', type: 'serial_nmea', name: 'GNSS' } };
 const profile = { mode: 'SSB' as const, transmitPowerWatts: 10, antenna: { type: 'EFHW' as const }, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } };
 const target = { program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: { lat: 38, lon: -78 }, gridSquare: 'FM18', provenance: { kind: 'externally_resolved', source: { id: 'pota', type: 'pota_api' }, resolvedAtUtc: '2026-08-18T11:00:00.000Z' } };
+const sotaTarget = { program: 'SOTA', reference: 'W4V/SH-001', displayName: 'High Knob', elevationM: 1287, coordinates: { lat: 37.4567, lon: -82.1234 }, gridSquare: 'EM97', provenance: { kind: 'externally_resolved', source: { id: 'sota-summit-database', type: 'sota_official_summit_csv', name: 'Official Summits on the Air summit database' }, resolvedAtUtc: '2026-08-19T12:00:00.000Z' } };
 
 const brief = {
   schemaVersion: 1,
@@ -47,8 +48,8 @@ const v2Brief = {
   summary: 'v2 summary',
 } as unknown as SmartDeployBriefV2;
 
-function fillRequiredFields() {
-  fireEvent.change(screen.getByLabelText('POTA reference'), { target: { value: 'US-1234' } });
+function fillRequiredFields(program: 'POTA' | 'SOTA' = 'POTA', reference = program === 'POTA' ? 'US-1234' : 'W4V/SH-001') {
+  fireEvent.change(screen.getByLabelText(`${program} reference`), { target: { value: reference } });
   fireEvent.change(screen.getByLabelText('Radio'), { target: { value: 'Field Radio' } });
   fireEvent.change(screen.getByLabelText('Mission start'), { target: { value: '2026-08-18T08:00' } });
   fireEvent.change(screen.getByLabelText('Mission end'), { target: { value: '2026-08-18T10:00' } });
@@ -84,11 +85,97 @@ describe('SmartDeploy planner', () => {
     await waitFor(() => expect(screen.getByText(/Available/)).toBeTruthy());
   });
 
+  it('selects SOTA, shows its example, resolves a known summit, and displays identity and coordinates', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
+      if (input === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'AVAILABLE', metadata: { downloadedAtUtc: '2026-08-19T12:00:00.000Z', sourceVersion: '19/08/2026' } }) };
+      return { ok: true, json: async () => ({ kind: 'smartdeploy_target', status: 'cached', target: sotaTarget }) };
+    }));
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    expect(screen.getByLabelText('POTA reference')).toHaveAttribute('placeholder', 'US-1234');
+    fireEvent.change(screen.getByLabelText('Activation program'), { target: { value: 'SOTA' } });
+    expect(screen.getByLabelText('SOTA reference')).toHaveAttribute('placeholder', 'W4V/SH-001');
+    fireEvent.change(screen.getByLabelText('SOTA reference'), { target: { value: 'w4v/sh-001' } });
+    fireEvent.click(screen.getByRole('button', { name: 'RESOLVE SOTA TARGET' }));
+    await waitFor(() => expect(screen.getByText(/High Knob/)).toBeTruthy());
+    expect(screen.getByText(/37.45670, -82.12340/)).toBeTruthy();
+    expect(screen.getByText(/1287 m/)).toBeTruthy();
+    expect(screen.getByText(/SOURCE: cached/)).toBeTruthy();
+  });
+
+  it('allows stale SOTA planning with a visible warning and blocks unavailable SOTA honestly', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
+      if (input === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'STALE', metadata: { downloadedAtUtc: '2026-07-01T12:00:00.000Z', sourceVersion: '01/07/2026' } }) };
+      if (input === '/api/smartdeploy/target') return { ok: true, json: async () => ({ status: 'stale', target: sotaTarget }) };
+      return { ok: true, json: async () => ({ brief: v2Brief, persistence: { status: 'saved' } }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    fireEvent.change(screen.getByLabelText('Activation program'), { target: { value: 'SOTA' } });
+    fillRequiredFields('SOTA');
+    fireEvent.click(screen.getByRole('button', { name: 'RESOLVE SOTA TARGET' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent(/stale/i));
+    expect(screen.getByText(/SOURCE: stale/)).toBeTruthy();
+
+    const unavailableFetcher = vi.fn(async (input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
+      ? { ok: true, json: async () => ({ briefs: [] }) }
+      : input === '/api/sota-data/status' ? { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) }
+      : { ok: false, json: async () => ({ status: 'unavailable', message: 'The SOTA source is currently unavailable.' }) });
+    vi.stubGlobal('fetch', unavailableFetcher);
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    fireEvent.change(screen.getAllByLabelText('Activation program')[1], { target: { value: 'SOTA' } });
+    fireEvent.change(screen.getAllByLabelText('SOTA reference')[1], { target: { value: 'W4V/SH-001' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'RESOLVE SOTA TARGET' })[1]);
+    await waitFor(() => expect(screen.getAllByRole('alert')[0]).toHaveTextContent(/unavailable/i));
+    expect(unavailableFetcher).not.toHaveBeenCalledWith('/api/smartdeploy/generate', expect.anything());
+  });
+
+  it('preserves usable SOTA state when an explicit refresh fails and restores POTA semantics when switched back', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
+      if (input === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'AVAILABLE', metadata: { downloadedAtUtc: '2026-08-19T12:00:00.000Z', sourceVersion: '19/08/2026' } }) };
+      if (input === '/api/sota-data/refresh') return { ok: false, json: async () => ({ state: 'AVAILABLE', metadata: { downloadedAtUtc: '2026-08-19T12:00:00.000Z' }, message: 'Refresh failed; prior dataset remains available.' }) };
+      return { ok: true, json: async () => ({ target: sotaTarget, status: 'cached' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    fireEvent.click(screen.getByRole('button', { name: 'REFRESH SOTA DATA' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/prior dataset remains available/i));
+    fireEvent.change(screen.getByLabelText('Activation program'), { target: { value: 'SOTA' } });
+    expect(screen.getByLabelText('SOTA reference')).toHaveAttribute('placeholder', 'W4V/SH-001');
+    fireEvent.change(screen.getByLabelText('Activation program'), { target: { value: 'POTA' } });
+    expect(screen.getByLabelText('POTA reference')).toHaveAttribute('placeholder', 'US-1234');
+  });
+
+  it('plans a known SOTA summit offline through the shared generation endpoint using authoritative coordinates', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
+      if (input === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'AVAILABLE', metadata: { downloadedAtUtc: '2026-08-19T12:00:00.000Z', sourceVersion: '19/08/2026' } }) };
+      if (input === '/api/smartdeploy/target') return { ok: true, json: async () => ({ status: 'cached', target: sotaTarget }) };
+      if (input === '/api/smartdeploy/generate') {
+        const body = JSON.parse(String(init?.body));
+        expect(body.targetRequest).toEqual({ program: 'SOTA', reference: 'W4V/SH-001' });
+        expect(body.activationTarget.coordinates).toEqual(sotaTarget.coordinates);
+        return { ok: true, json: async () => ({ brief: v2Brief, persistence: { status: 'saved' } }) };
+      }
+      throw new Error(`Unexpected network request: ${String(input)}`);
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    fireEvent.change(screen.getByLabelText('Activation program'), { target: { value: 'SOTA' } });
+    fillRequiredFields('SOTA');
+    fireEvent.click(screen.getByText('GENERATE SMARTDEPLOY PLAN'));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/smartdeploy/generate', expect.objectContaining({ method: 'POST' })));
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes('sotadata.org.uk'))).toBe(false);
+  });
+
   it('shows a loading state and preserves fields during generation', async () => {
     let resolveRequest!: (value: unknown) => void;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
       ? Promise.resolve({ ok: true, json: async () => ({ briefs: [] }) })
-      : String(input).startsWith('/api/pota-target') ? Promise.resolve({ ok: true, json: async () => ({ target }) })
+      : input === '/api/sota-data/status' ? Promise.resolve({ ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) })
+      : String(input) === '/api/smartdeploy/target' ? Promise.resolve({ ok: true, json: async () => ({ target, status: 'live' }) })
       : new Promise(resolve => { resolveRequest = resolve; })));
     render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
     fillRequiredFields();
@@ -103,7 +190,8 @@ describe('SmartDeploy planner', () => {
   it('renders structured server validation errors', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
       ? { ok: true, json: async () => ({ briefs: [] }) }
-      : String(input).startsWith('/api/pota-target') ? { ok: true, json: async () => ({ target }) }
+      : input === '/api/sota-data/status' ? { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) }
+      : String(input) === '/api/smartdeploy/target' ? { ok: true, json: async () => ({ target, status: 'live' }) }
       : { ok: false, json: async () => ({ message: 'The POTA park reference was not found.' }) }));
     render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
     fillRequiredFields();
@@ -129,7 +217,8 @@ describe('SmartDeploy planner', () => {
   it('sends an explicitly entered planned site without replacing it with current GPS or the POTA target', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
-      if (String(input).startsWith('/api/pota-target')) return { ok: true, json: async () => ({ target }) };
+      if (input === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) };
+      if (String(input) === '/api/smartdeploy/target') return { ok: true, json: async () => ({ target, status: 'live' }) };
       if (String(input) === '/api/smartdeploy/generate') {
         const body = JSON.parse(String(init?.body));
         expect(body.plannedOperatingLocation.coordinates).toEqual({ lat: 37.4, lon: -77.4 });

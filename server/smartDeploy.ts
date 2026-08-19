@@ -46,6 +46,15 @@ export interface SmartDeployGenerationFailure {
   readonly sota?: Pick<SotaTargetResolution, 'status' | 'reference' | 'refreshAttemptedAtUtc'>;
 }
 
+export interface SmartDeployTargetResolutionFailure {
+  readonly kind: 'smartdeploy_target_error';
+  readonly code: 'invalid_request' | 'unsupported_target_program' | 'pota_invalid' | 'pota_unknown' | 'pota_unavailable' | 'sota_invalid' | 'sota_unknown' | 'sota_unavailable';
+  readonly message: string;
+  readonly status: ActivationTargetResolution['status'];
+  readonly reference: string;
+  readonly error?: string;
+}
+
 export interface SmartDeployServiceOptions {
   readonly resolver?: ActivationTargetResolver;
   readonly sotaResolver?: SotaActivationTargetResolver;
@@ -158,6 +167,33 @@ export class SmartDeployService {
       return { kind: 'smartdeploy_error', code: 'generation_failed', message: 'SmartDeploy evidence could not be generated. No brief was saved.', ...resolutionMetadata };
     }
   }
+
+  async resolveTarget(input: unknown): Promise<ActivationTargetResolution | SmartDeployTargetResolutionFailure> {
+    const targetRequest = normalizeActivationTargetRequest(input);
+    if (!targetRequest) return { kind: 'smartdeploy_target_error', code: 'invalid_request', status: 'invalid', reference: '', message: 'A target program and reference are required.' };
+    if (targetRequest.program !== 'POTA' && targetRequest.program !== 'SOTA') {
+      return { kind: 'smartdeploy_target_error', code: 'unsupported_target_program', status: 'unsupported', reference: targetRequest.reference, message: `The ${targetRequest.program} activation target is not supported yet.` };
+    }
+    const resolution = targetRequest.program === 'SOTA'
+      ? await this.sotaResolver.resolve(targetRequest)
+      : await this.resolver.resolve(targetRequest);
+    if (resolution.status === 'invalid' || resolution.status === 'unknown' || resolution.status === 'unavailable') {
+      const provider = targetRequest.program.toLowerCase();
+      return {
+        kind: 'smartdeploy_target_error',
+        code: `${provider}_${resolution.status}` as SmartDeployTargetResolutionFailure['code'],
+        status: resolution.status,
+        reference: resolution.reference,
+        ...(resolution.error ? { error: resolution.error } : {}),
+        message: resolution.status === 'invalid'
+          ? `Enter a valid ${targetRequest.program} reference.`
+          : resolution.status === 'unknown'
+            ? `The ${targetRequest.program} reference was not found.`
+            : `The ${targetRequest.program} source is currently unavailable.`,
+      };
+    }
+    return resolution;
+  }
 }
 
 export interface SmartDeployRouterOptions {
@@ -167,6 +203,15 @@ export interface SmartDeployRouterOptions {
 
 export function createSmartDeployRouter(options: SmartDeployRouterOptions): Router {
   const router = express.Router();
+  router.post('/api/smartdeploy/target', async (request, response) => {
+    const result = await options.service.resolveTarget(request.body?.targetRequest ?? request.body);
+    if ('kind' in result && result.kind === 'smartdeploy_target_error') {
+      const status = result.code.endsWith('_unknown') ? 404 : result.code.endsWith('_unavailable') ? 503 : 400;
+      response.status(status).json(result);
+      return;
+    }
+    response.json({ kind: 'smartdeploy_target', ...result });
+  });
   router.post('/api/smartdeploy/generate', async (request, response) => {
     const result = await options.service.generateBrief(request.body);
     if (result.kind === 'smartdeploy_error') {

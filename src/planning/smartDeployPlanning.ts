@@ -32,6 +32,7 @@ export interface ActivationTarget {
   readonly program: string;
   readonly reference: string;
   readonly displayName?: string;
+  readonly elevationM?: number;
   readonly coordinates: Coordinates;
   readonly gridSquare?: string;
   readonly provenance: PlanningInputProvenance;
