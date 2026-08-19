@@ -99,7 +99,7 @@ describe('SmartDeployBriefStore', () => {
   it('skips unsupported and malformed entries while preserving valid entries', () => {
     const { store, filePath } = createStore();
     const valid = createBrief('valid', '2026-08-18T12:00:00.000Z');
-    fs.writeFileSync(filePath, JSON.stringify({ storeVersion: 1, briefs: [valid, { ...valid, briefId: 'future', schemaVersion: 2 }, { briefId: 'invalid', schemaVersion: 1 }] }));
+    fs.writeFileSync(filePath, JSON.stringify({ storeVersion: 1, briefs: [valid, { ...valid, briefId: 'future', schemaVersion: 3 }, { briefId: 'invalid', schemaVersion: 1 }] }));
     const result = store.list();
     expect(result.status).toBe('loaded');
     expect(result.briefs).toEqual([valid]);

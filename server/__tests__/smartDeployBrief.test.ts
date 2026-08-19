@@ -52,9 +52,13 @@ function brief(overrides: { propagation?: MissionWindowPropagationResult; observ
 describe('SmartDeploy operations brief', () => {
   it('creates a versioned deterministic identity and snapshots the normalized mission', () => {
     const result = brief();
-    expect(result).toMatchObject({ schemaVersion: 1, briefId: 'brief-test-1', generatedAtUtc: '2026-08-18T12:30:00.000Z', status: 'complete' });
-    expect(result.mission).toMatchObject({ activationTarget: { program: 'POTA', reference: 'US-1234', displayName: 'Test Park' }, operatingLocation: { coordinates: operatingCoordinates }, missionWindow: planning().missionWindow, objective: 'Complete the activation' });
-    expect(result.mission.equipment.modes).toEqual(['SSB', 'FT8']);
+    expect(result).toMatchObject({ schemaVersion: 2, briefId: 'brief-test-1', generatedAtUtc: '2026-08-18T12:30:00.000Z', status: 'complete' });
+    expect(result.activation).toMatchObject({ program: 'POTA', reference: 'US-1234', displayName: 'Test Park' });
+    expect(result.plannedOperatingSite.location.coordinates).toEqual(operatingCoordinates);
+    expect(result.plannedOperatingSite.source).toBe('operator_planned_override');
+    expect(result.propagationObjective).toMatchObject({ kind: 'regional', regionId: 'western_us', regionLabel: 'Western U.S.' });
+    expect(result.missionWindow).toMatchObject({ start: '2026-08-18T14:00:00.000Z', midpoint: '2026-08-18T16:00:00.000Z', end: '2026-08-18T18:00:00.000Z' });
+    expect(result.station.selectedModes).toEqual(['SSB', 'FT8']);
   });
 
   it('retains all propagation samples, timestamps, partial state, and modeled-mode truth', () => {
@@ -64,7 +68,7 @@ describe('SmartDeploy operations brief', () => {
     expect(result.sections.propagation.evidence.samples.map(sample => sample.modelDateTimeUtc)).toEqual(['2026-08-18T14:00:00.000Z', '2026-08-18T16:00:00.000Z', '2026-08-18T18:00:00.000Z']);
     expect(result.sections.propagation.evidence.samples[0].modes).toEqual(['SSB', 'FT8']);
     expect(result.sections.propagation.evidence.samples[0].stationProfile.mode).toBe('SSB');
-    expect(result.limitations.some(limitation => limitation.code === 'single_mode_modeled')).toBe(true);
+    expect(result.limitations.some(limitation => limitation.code === 'mode_selected_vs_modeled')).toBe(true);
     expect(result.limitations.some(limitation => limitation.code === 'propagation_partial')).toBe(true);
     expect(result.summary).toContain('2 of 3 mission samples');
   });
@@ -78,9 +82,8 @@ describe('SmartDeploy operations brief', () => {
   });
 
   it('summarizes stable and changing strongest-band conclusions deterministically', () => {
-    expect(brief().summary).toContain('20m is the strongest modeled band at all three sampled mission times');
+    expect(brief().summary).toContain('start: 20m; midpoint: 20m; end: 20m');
     const changing = brief({ propagation: propagation('complete', ['20m', '40m', '20m']) });
-    expect(changing.summary).toContain('The strongest modeled band changes across the sampled mission times');
     expect(changing.summary).toContain('start: 20m; midpoint: 40m; end: 20m');
   });
 
@@ -90,7 +93,7 @@ describe('SmartDeploy operations brief', () => {
     const future = generateSmartDeployBrief({ planningRequest: futurePlanning, missionEvidence: futureEvidence }, { now: () => new Date('2026-08-18T12:30:00Z'), createBriefId: () => 'future' });
     expect(future.sections.observedRf.status).toBe('notTemporallyApplicable');
     expect(future.status).toBe('complete');
-    expect(future.summary).toContain('not temporally applicable');
+    expect(future.summary).toContain('Live band activity is too early to apply to this mission.');
 
     const stale = brief({ observedRf: observed('stale') });
     expect(stale.status).toBe('partial');
@@ -103,9 +106,9 @@ describe('SmartDeploy operations brief', () => {
     const evidence = composeMissionEvidence({ planningRequest: invalidPlanning, propagation: propagation(), observedRf: null });
     const result = generateSmartDeployBrief({ planningRequest: invalidPlanning, missionEvidence: evidence }, { createBriefId: () => 'unavailable', now: () => new Date('2026-08-18T12:30:00Z') });
     expect(result.status).toBe('unavailable');
-    expect(result.sections.geometry.status).toBe('unavailable');
-    expect(result.limitations.some(limitation => limitation.code === 'geometry_unavailable')).toBe(true);
-    expect(JSON.parse(JSON.stringify(result))).toMatchObject({ schemaVersion: 1, briefId: 'unavailable', status: 'unavailable' });
+    expect(result.sections.plannedOperatingSite.status).toBe('unavailable');
+    expect(result.limitations.some(limitation => limitation.code === 'solar_unavailable')).toBe(true);
+    expect(JSON.parse(JSON.stringify(result))).toMatchObject({ schemaVersion: 2, briefId: 'unavailable', status: 'unavailable' });
   });
 
   it('produces identical content with injected identity and clock', () => {

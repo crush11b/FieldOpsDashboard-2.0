@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import type { SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
+import { getPropagationRegion } from '../src/propagation/regionalDestinations';
 import type { MissionEvidence } from './missionEvidence';
 
-export const SMART_DEPLOY_BRIEF_SCHEMA_VERSION = 1 as const;
+export const SMART_DEPLOY_BRIEF_SCHEMA_VERSION = 2 as const;
+export const SMART_DEPLOY_BRIEF_V1_SCHEMA_VERSION = 1 as const;
 
 export type SmartDeployBriefStatus = 'complete' | 'partial' | 'unavailable';
 export type SmartDeployBriefSectionStatus = 'available' | 'derived' | 'complete' | 'partial' | 'unavailable' | 'stale' | 'observed' | 'notTemporallyApplicable';
@@ -20,24 +22,89 @@ export interface SmartDeployBriefLimitation {
   readonly message: string;
 }
 
-export interface SmartDeployBriefSections {
-  readonly mission: { readonly status: 'available'; readonly snapshot: SmartDeployBriefMissionSnapshot };
-  readonly geometry: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['geometry'] };
-  readonly solar: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['solar'] };
-  readonly propagation: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['propagation'] };
-  readonly observedRf: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['observedRf'] };
-}
-
-export interface SmartDeployBrief {
-  readonly schemaVersion: typeof SMART_DEPLOY_BRIEF_SCHEMA_VERSION;
+export interface SmartDeployBriefV1 {
+  readonly schemaVersion: 1;
   readonly briefId: string;
   readonly generatedAtUtc: string;
   readonly status: SmartDeployBriefStatus;
   readonly mission: SmartDeployBriefMissionSnapshot;
-  readonly sections: SmartDeployBriefSections;
+  readonly sections: {
+    readonly mission: { readonly status: 'available'; readonly snapshot: SmartDeployBriefMissionSnapshot };
+    readonly geometry: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['geometry'] };
+    readonly solar: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['solar'] };
+    readonly propagation: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['propagation'] };
+    readonly observedRf: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['observedRf'] };
+  };
   readonly limitations: readonly SmartDeployBriefLimitation[];
   readonly summary: string;
 }
+
+export interface SmartDeployBriefV2Activation {
+  readonly program: string;
+  readonly reference: string;
+  readonly displayName?: string;
+  readonly coordinates: SmartDeployExecutionRequest['activationTarget']['coordinates'];
+  readonly gridSquare?: string;
+  readonly provenance: SmartDeployExecutionRequest['activationTarget']['provenance'];
+}
+
+export interface SmartDeployBriefV2PlannedOperatingSite {
+  readonly location: SmartDeployExecutionRequest['plannedOperatingLocation'];
+  readonly source: 'provider_reference_default' | 'operator_selected_current_device' | 'operator_planned_override';
+  readonly description: string;
+}
+
+export interface SmartDeployBriefV2PropagationObjective {
+  readonly kind: SmartDeployExecutionRequest['propagationObjective']['kind'];
+  readonly regionId: SmartDeployExecutionRequest['propagationObjective']['regionId'];
+  readonly regionLabel: string;
+}
+
+export interface SmartDeployBriefV2MissionWindow {
+  readonly start: string;
+  readonly midpoint: string;
+  readonly end: string;
+}
+
+export interface SmartDeployBriefV2Station {
+  readonly radio: SmartDeployExecutionRequest['equipment']['radio'];
+  readonly antenna: SmartDeployExecutionRequest['equipment']['antenna'];
+  readonly selectedModes: SmartDeployExecutionRequest['equipment']['modes'];
+  readonly modeledMode: MissionEvidence['propagation']['samples'][number]['stationProfile']['mode'] | null;
+  readonly transmitPowerWatts: number;
+  readonly deployment?: SmartDeployExecutionRequest['equipment']['deployment'];
+}
+
+export interface SmartDeployBriefV2Sections {
+  readonly activation: { readonly status: 'available'; readonly evidence: SmartDeployBriefV2Activation };
+  readonly plannedOperatingSite: { readonly status: 'derived' | 'unavailable'; readonly evidence: SmartDeployBriefV2PlannedOperatingSite };
+  readonly currentDevice: { readonly status: 'available'; readonly evidence: SmartDeployExecutionRequest['currentDeviceLocation'] };
+  readonly propagationObjective: { readonly status: 'available'; readonly evidence: SmartDeployBriefV2PropagationObjective };
+  readonly missionWindow: { readonly status: 'available'; readonly evidence: SmartDeployBriefV2MissionWindow };
+  readonly station: { readonly status: 'available'; readonly evidence: SmartDeployBriefV2Station };
+  readonly propagation: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['propagation'] };
+  readonly solar: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['solar'] };
+  readonly observedRf: { readonly status: SmartDeployBriefSectionStatus; readonly evidence: MissionEvidence['observedRf'] };
+}
+
+export interface SmartDeployBriefV2 {
+  readonly schemaVersion: 2;
+  readonly briefId: string;
+  readonly generatedAtUtc: string;
+  readonly status: SmartDeployBriefStatus;
+  readonly activation: SmartDeployBriefV2Activation;
+  readonly plannedOperatingSite: SmartDeployBriefV2PlannedOperatingSite;
+  readonly currentDeviceLocation?: SmartDeployExecutionRequest['currentDeviceLocation'];
+  readonly propagationObjective: SmartDeployBriefV2PropagationObjective;
+  readonly missionWindow: SmartDeployBriefV2MissionWindow;
+  readonly station: SmartDeployBriefV2Station;
+  readonly objective?: string;
+  readonly sections: SmartDeployBriefV2Sections;
+  readonly limitations: readonly SmartDeployBriefLimitation[];
+  readonly summary: string;
+}
+
+export type SmartDeployBrief = SmartDeployBriefV1 | SmartDeployBriefV2;
 
 export interface GenerateSmartDeployBriefRequest {
   readonly planningRequest: SmartDeployExecutionRequest;
@@ -52,141 +119,112 @@ export interface GenerateSmartDeployBriefOptions {
 export function generateSmartDeployBrief(
   request: GenerateSmartDeployBriefRequest,
   options: GenerateSmartDeployBriefOptions = {},
-): SmartDeployBrief {
+): SmartDeployBriefV2 {
   const generatedAtUtc = (options.now ?? (() => new Date()))().toISOString();
   const briefId = (options.createBriefId ?? randomUUID)();
-  const mission = snapshotMission(request.planningRequest);
-  const sections = buildSections(mission, request.missionEvidence);
-  const limitations = buildLimitations(sections, request.missionEvidence);
-  const status = determineOverallStatus(sections);
+  const planning = request.planningRequest;
+  const region = getPropagationRegion(planning.propagationObjective.regionId);
+  const activation: SmartDeployBriefV2Activation = { ...planning.activationTarget };
+  const plannedOperatingSite = plannedSiteSnapshot(planning);
+  const propagationObjective: SmartDeployBriefV2PropagationObjective = {
+    ...planning.propagationObjective,
+    regionLabel: region?.label ?? planning.propagationObjective.regionId,
+  };
+  const missionWindow = missionWindowSnapshot(planning.missionWindow);
+  const station: SmartDeployBriefV2Station = {
+    radio: { ...planning.equipment.radio },
+    antenna: { ...planning.equipment.antenna },
+    selectedModes: [...planning.equipment.modes],
+    modeledMode: request.missionEvidence.propagation.samples[0]?.stationProfile.mode ?? null,
+    transmitPowerWatts: planning.equipment.transmitPowerWatts,
+    ...(planning.equipment.deployment ? { deployment: { ...planning.equipment.deployment } } : {}),
+  };
+  const sections: SmartDeployBriefV2Sections = {
+    activation: { status: 'available', evidence: activation },
+    plannedOperatingSite: { status: request.missionEvidence.geometry.status, evidence: plannedOperatingSite },
+    currentDevice: { status: 'available', evidence: planning.currentDeviceLocation },
+    propagationObjective: { status: 'available', evidence: propagationObjective },
+    missionWindow: { status: 'available', evidence: missionWindow },
+    station: { status: 'available', evidence: station },
+    propagation: { status: request.missionEvidence.propagation.status, evidence: request.missionEvidence.propagation },
+    solar: { status: request.missionEvidence.solar.status, evidence: request.missionEvidence.solar },
+    observedRf: { status: request.missionEvidence.observedRf.status, evidence: request.missionEvidence.observedRf },
+  };
+  const limitations = buildV2Limitations(planning, request.missionEvidence);
   return {
-    schemaVersion: SMART_DEPLOY_BRIEF_SCHEMA_VERSION,
+    schemaVersion: 2,
     briefId,
     generatedAtUtc,
-    status,
-    mission,
+    status: determineV2Status(request.missionEvidence),
+    activation,
+    plannedOperatingSite,
+    ...(planning.currentDeviceLocation ? { currentDeviceLocation: planning.currentDeviceLocation } : {}),
+    propagationObjective,
+    missionWindow,
+    station,
+    ...(planning.objective !== undefined ? { objective: planning.objective } : {}),
     sections,
     limitations,
-    summary: buildSummary(mission, sections, limitations),
+    summary: buildV2Summary(activation, plannedOperatingSite, propagationObjective, missionWindow, station, sections, limitations),
   };
 }
 
-function snapshotMission(planning: SmartDeployExecutionRequest): SmartDeployBriefMissionSnapshot {
-  return {
-    activationTarget: { ...planning.activationTarget },
-    operatingLocation: { ...planning.operatingLocation },
-    missionWindow: { ...planning.missionWindow },
-    equipment: {
-      ...planning.equipment,
-      radio: { ...planning.equipment.radio },
-      antenna: { ...planning.equipment.antenna },
-      modes: [...planning.equipment.modes],
-      ...(planning.equipment.deployment ? { deployment: { ...planning.equipment.deployment } } : {}),
-    },
-    ...(planning.objective !== undefined ? { objective: planning.objective } : {}),
-  };
+function plannedSiteSnapshot(planning: SmartDeployExecutionRequest): SmartDeployBriefV2PlannedOperatingSite {
+  const source = planning.plannedOperatingLocation.planningSemantics ?? 'operator_planned_override';
+  const description = source === 'provider_reference_default'
+    ? 'POTA reference location - approximate planning point'
+    : source === 'operator_selected_current_device'
+      ? 'Current device location selected by operator'
+      : 'Operator-planned location';
+  return { location: planning.plannedOperatingLocation, source, description };
 }
 
-function buildSections(mission: SmartDeployBriefMissionSnapshot, evidence: MissionEvidence): SmartDeployBriefSections {
-  return {
-    mission: { status: 'available', snapshot: mission },
-    geometry: { status: evidence.geometry.status, evidence: evidence.geometry },
-    solar: { status: evidence.solar.status, evidence: evidence.solar },
-    propagation: { status: evidence.propagation.status, evidence: evidence.propagation },
-    observedRf: { status: evidence.observedRf.status, evidence: evidence.observedRf },
-  };
+function missionWindowSnapshot(window: SmartDeployExecutionRequest['missionWindow']): SmartDeployBriefV2MissionWindow {
+  const start = Date.parse(window.start);
+  const end = Date.parse(window.end);
+  return { start: new Date(start).toISOString(), midpoint: new Date(start + Math.floor((end - start) / 2)).toISOString(), end: new Date(end).toISOString() };
 }
 
-function determineOverallStatus(sections: SmartDeployBriefSections): SmartDeployBriefStatus {
-  if (sections.mission.status !== 'available' || sections.geometry.status === 'unavailable') return 'unavailable';
-  if (sections.solar.status !== 'derived'
-    || sections.propagation.status !== 'complete'
-    || (sections.observedRf.status !== 'observed' && sections.observedRf.status !== 'notTemporallyApplicable')) return 'partial';
+function determineV2Status(evidence: MissionEvidence): SmartDeployBriefStatus {
+  if (evidence.geometry.status === 'unavailable') return 'unavailable';
+  if (evidence.propagation.status !== 'complete' || evidence.solar.status !== 'derived' || evidence.observedRf.status === 'stale' || evidence.observedRf.status === 'unavailable') return 'partial';
   return 'complete';
 }
 
-function buildLimitations(sections: SmartDeployBriefSections, evidence: MissionEvidence): readonly SmartDeployBriefLimitation[] {
+function buildV2Limitations(planning: SmartDeployExecutionRequest, evidence: MissionEvidence): readonly SmartDeployBriefLimitation[] {
   const limitations: SmartDeployBriefLimitation[] = [];
   const add = (code: string, message: string) => {
-    if (!limitations.some(limitation => limitation.code === code && limitation.message === message)) limitations.push({ code, message });
+    if (!limitations.some(limitation => limitation.code === code || limitation.message === message)) limitations.push({ code, message });
   };
-  if (sections.geometry.status === 'unavailable') add('geometry_unavailable', 'Mission geometry is unavailable.');
-  if (sections.solar.status === 'unavailable') add('solar_unavailable', 'Solar evidence is unavailable.');
-  if (sections.propagation.status === 'partial') add('propagation_partial', 'Propagation evidence is partial across the mission window.');
-  if (sections.propagation.status === 'unavailable') add('propagation_unavailable', 'Propagation modeling is unavailable across the mission window.');
-  if (sections.observedRf.status === 'stale') add('observed_rf_stale', 'Observed RF is stale context.');
-  if (sections.observedRf.status === 'unavailable') add('observed_rf_unavailable', 'Observed RF is unavailable or does not match the operating grid.');
-  if (sections.observedRf.status === 'notTemporallyApplicable') add('observed_rf_not_temporally_applicable', 'Observed RF is not temporally applicable to this mission window.');
-  const selectedModes = evidence.propagation.samples[0]?.modes ?? evidence.planningRequest.equipment.modes;
-  const modeledMode = evidence.propagation.samples[0]?.stationProfile.mode;
-  if (modeledMode && selectedModes.length > 1) add('single_mode_modeled', `Only ${modeledMode} was modeled; selected modes were ${selectedModes.join(', ')}.`);
-  for (const message of evidence.propagation.summary.limitations) add('propagation_evidence_limitation', message);
-  for (const message of evidence.limitations) add('mission_evidence_limitation', message);
+  if (planning.plannedOperatingLocation.planningSemantics === 'provider_reference_default') add('planned_site_reference_coordinate', 'The planned site uses the provider reference coordinate and may not be the exact station setup point.');
+  if (evidence.propagation.status !== 'complete') add(`propagation_${evidence.propagation.status}`, evidence.propagation.status === 'partial' ? 'Band outlook is partial across the mission samples.' : 'Band outlook is unavailable across the mission samples.');
+  if (evidence.solar.status === 'unavailable') add('solar_unavailable', 'Solar and twilight evidence is unavailable for the planned site.');
+  if (evidence.observedRf.status === 'notTemporallyApplicable') add('observed_rf_not_temporally_applicable', 'Live band activity is too early to apply to this mission.');
+  if (evidence.observedRf.status === 'stale') add('observed_rf_stale', 'Live band activity is available but stale.');
+  if (evidence.observedRf.status === 'unavailable') add('observed_rf_unavailable', 'Live band activity is unavailable.');
+  if (evidence.propagation.samples[0]?.modes.length && evidence.propagation.samples[0].modes.length > 1 && evidence.propagation.samples[0].stationProfile.mode) add('mode_selected_vs_modeled', `Propagation modeled with ${evidence.propagation.samples[0].stationProfile.mode}; selected modes were ${evidence.propagation.samples[0].modes.join(', ')}.`);
+  add('model_no_forecast', 'Uses a general solar-cycle model value; mission-time space-weather forecast is not included.');
+  for (const message of evidence.limitations) {
+    if (!message.includes('long-lived smoothed monthly SSN') && !message.includes('mission-window space-weather forecasting')) add('evidence_limitation', message);
+  }
   return limitations;
 }
 
-function buildSummary(
-  mission: SmartDeployBriefMissionSnapshot,
-  sections: SmartDeployBriefSections,
+function buildV2Summary(
+  activation: SmartDeployBriefV2Activation,
+  plannedSite: SmartDeployBriefV2PlannedOperatingSite,
+  objective: SmartDeployBriefV2PropagationObjective,
+  window: SmartDeployBriefV2MissionWindow,
+  station: SmartDeployBriefV2Station,
+  sections: SmartDeployBriefV2Sections,
   limitations: readonly SmartDeployBriefLimitation[],
 ): string {
-  const lines = [
-    `Activate ${mission.activationTarget.program} ${mission.activationTarget.reference}${mission.activationTarget.displayName ? ` (${mission.activationTarget.displayName})` : ''}.`,
-    `Mission window: ${mission.missionWindow.start} to ${mission.missionWindow.end} UTC.`,
-    `Operating from ${formatLocation(mission.operatingLocation)} with ${mission.equipment.radio.name}, ${mission.equipment.modes.join(' / ')}, and ${mission.equipment.transmitPowerWatts} W intended transmit power.`,
-    geometrySummary(sections.geometry),
-    propagationSummary(sections.propagation),
-    solarSummary(sections.solar),
-    observedRfSummary(sections.observedRf),
-  ];
-  if (limitations.length > 0) lines.push(`Limitations: ${limitations.map(limitation => limitation.message).join(' ')}`);
-  return lines.join(' ');
-}
-
-function formatLocation(location: SmartDeployBriefMissionSnapshot['operatingLocation']): string {
-  if (location.gridSquare) return `grid ${location.gridSquare}`;
-  if (location.coordinates) return `${location.coordinates.lat.toFixed(4)}, ${location.coordinates.lon.toFixed(4)}`;
-  return 'an unavailable operating location';
-}
-
-function geometrySummary(section: SmartDeployBriefSections['geometry']): string {
-  const geometry = section.evidence;
-  if (section.status === 'unavailable' || geometry.sampleCount === 0) return 'Regional mission geometry is unavailable.';
-  return `The planned operating site has ${geometry.sampleCount} representative ${geometry.regionId} paths spanning ${geometry.minimumDistanceKm?.toFixed(1) ?? 'unavailable'} to ${geometry.maximumDistanceKm?.toFixed(1) ?? 'unavailable'} km (median ${geometry.medianDistanceKm?.toFixed(1) ?? 'unavailable'} km).`;
-}
-
-function propagationSummary(section: SmartDeployBriefSections['propagation']): string {
-  const propagation = section.evidence;
-  const successful = propagation.summary.successfulSampleCount;
-  if (propagation.status === 'unavailable' || successful === 0) return 'Modeled propagation is unavailable across the mission window.';
-  const strongest = propagation.summary.strongestBandBySample;
-  const availableStrongest = strongest.filter(sample => sample.band !== null);
-  const mode = propagation.samples[0]?.stationProfile.mode;
-  const modeText = mode ? ` using modeled mode ${mode}` : '';
-  if (propagation.status === 'partial') return `Modeled propagation is partial: ${successful} of ${propagation.samples.length} mission samples are available${modeText}.`;
-  if (propagation.summary.consistentStrongestBand) return `${propagation.summary.consistentStrongestBand} is the strongest modeled band at all three sampled mission times${modeText}.`;
-  if (availableStrongest.length > 0) {
-    const labels = strongest.map(sample => `${sample.position}: ${sample.band ?? 'unavailable'}`).join('; ');
-    return `The strongest modeled band changes across the sampled mission times${modeText}: ${labels}.`;
-  }
-  return `Modeled propagation is available, but no strongest band could be determined${modeText}.`;
-}
-
-function solarSummary(section: SmartDeployBriefSections['solar']): string {
-  if (section.status === 'unavailable') return 'Solar evidence is unavailable.';
-  const overlap = section.evidence.overlap;
-  const facts: string[] = [];
-  if (overlap.entirelyDuringDaylight) facts.push('the mission occurs entirely during daylight');
-  else if (overlap.entirelyDuringDarkness) facts.push('the mission occurs entirely during darkness');
-  else if (overlap.includesDaylight) facts.push('the mission includes daylight');
-  if (overlap.overlapsCivilTwilight) facts.push('the mission overlaps civil twilight');
-  if (overlap.extendsBeyondCivilDusk) facts.push('the mission extends beyond civil dusk');
-  return facts.length > 0 ? `At the planned operating site, ${facts.join(' and ')}.` : 'The mission does not overlap a derived daylight or civil-twilight interval.';
-}
-
-function observedRfSummary(section: SmartDeployBriefSections['observedRf']): string {
-  if (section.status === 'observed') return `Recent observed RF evidence is available for operating grid ${section.evidence.observedOperatingGrid4 ?? 'unavailable'} during ${section.evidence.observationWindow.startsAt} to ${section.evidence.observationWindow.endsAt}.`;
-  if (section.status === 'notTemporallyApplicable') return 'Observed RF is not temporally applicable to this mission window.';
-  if (section.status === 'stale') return 'Observed RF is stale context.';
-  return 'Observed RF is unavailable.';
+  const bands = sections.propagation.evidence.summary.strongestBandBySample.map(sample => `${sample.position}: ${sample.band ?? 'unavailable'}`).join('; ');
+  const notes = limitations.length ? ` ${limitations.map(limitation => limitation.message).join(' ')}` : '';
+  const sampleStatus = sections.propagation.evidence.summary.successfulSampleCount === 0
+    ? 'Modeled propagation is unavailable.'
+    : sections.propagation.evidence.summary.successfulSampleCount < sections.propagation.evidence.samples.length
+      ? `Band outlook is partial: ${sections.propagation.evidence.summary.successfulSampleCount} of ${sections.propagation.evidence.samples.length} mission samples are available.`
+      : '';
+  return `SmartDeploy plan: ${activation.reference}${activation.displayName ? ` - ${activation.displayName}` : ''}. Mission ${window.start} to ${window.end} UTC from ${plannedSite.description}. RF target: ${objective.regionLabel}. ${sampleStatus} Strongest modeled bands: ${bands || 'unavailable'}; modeled mode: ${station.modeledMode ?? 'unavailable'}.${notes}`;
 }

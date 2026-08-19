@@ -1,8 +1,8 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { SmartDeployBrief } from './smartDeployBrief';
-import { SMART_DEPLOY_BRIEF_SCHEMA_VERSION } from './smartDeployBrief';
+import type { SmartDeployBrief, SmartDeployBriefV1, SmartDeployBriefV2 } from './smartDeployBrief';
+import { SMART_DEPLOY_BRIEF_SCHEMA_VERSION, SMART_DEPLOY_BRIEF_V1_SCHEMA_VERSION } from './smartDeployBrief';
 
 export const SMART_DEPLOY_BRIEF_STORE_VERSION = 1 as const;
 export const SMART_DEPLOY_BRIEF_STORE_FILE_NAME = 'smartdeploy-briefs.json';
@@ -55,17 +55,7 @@ export function getDefaultSmartDeployBriefPath(
 }
 
 export function validateSmartDeployBrief(input: unknown): input is SmartDeployBrief {
-  if (!isRecord(input)
-    || input.schemaVersion !== SMART_DEPLOY_BRIEF_SCHEMA_VERSION
-    || !nonEmptyString(input.briefId)
-    || !validDateString(input.generatedAtUtc)
-    || !['complete', 'partial', 'unavailable'].includes(String(input.status))
-    || !isMissionSnapshot(input.mission)
-    || !isSections(input.sections)
-    || !Array.isArray(input.limitations)
-    || !input.limitations.every(isLimitation)
-    || typeof input.summary !== 'string') return false;
-  return true;
+  return isV1Brief(input) || isV2Brief(input);
 }
 
 export class SmartDeployBriefStore {
@@ -99,7 +89,7 @@ export class SmartDeployBriefStore {
     const briefs: SmartDeployBrief[] = [];
     const diagnostics: SmartDeployBriefStoreDiagnostic[] = [];
     for (const candidate of parsed.briefs) {
-      if (!isRecord(candidate) || candidate.schemaVersion !== SMART_DEPLOY_BRIEF_SCHEMA_VERSION) {
+      if (!isRecord(candidate) || (candidate.schemaVersion !== SMART_DEPLOY_BRIEF_SCHEMA_VERSION && candidate.schemaVersion !== SMART_DEPLOY_BRIEF_V1_SCHEMA_VERSION)) {
         diagnostics.push({
           code: isRecord(candidate) && 'briefId' in candidate ? 'unsupported_brief_schema' : 'invalid_brief',
           message: 'A stored SmartDeploy brief was skipped because its schema is unsupported or malformed.',
@@ -212,4 +202,46 @@ function isRecord(input: unknown): input is Record<string, any> {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error;
+}
+
+function isV1Brief(input: unknown): input is SmartDeployBriefV1 {
+  return isRecord(input)
+    && input.schemaVersion === SMART_DEPLOY_BRIEF_V1_SCHEMA_VERSION
+    && validBriefEnvelope(input)
+    && isMissionSnapshot(input.mission)
+    && isSections(input.sections);
+}
+
+function isV2Brief(input: unknown): input is SmartDeployBriefV2 {
+  if (!isRecord(input) || input.schemaVersion !== SMART_DEPLOY_BRIEF_SCHEMA_VERSION || !validBriefEnvelope(input)
+    || !isRecord(input.activation) || !nonEmptyString(input.activation.program) || !nonEmptyString(input.activation.reference)
+    || !isRecord(input.plannedOperatingSite) || !isRecord(input.plannedOperatingSite.location)
+    || !['provider_reference_default', 'operator_selected_current_device', 'operator_planned_override'].includes(String(input.plannedOperatingSite.source))
+    || !nonEmptyString(input.plannedOperatingSite.description)
+    || !isRecord(input.propagationObjective) || input.propagationObjective.kind !== 'regional' || !nonEmptyString(input.propagationObjective.regionId) || !nonEmptyString(input.propagationObjective.regionLabel)
+    || !isRecord(input.missionWindow) || !validDateString(input.missionWindow.start) || !validDateString(input.missionWindow.midpoint) || !validDateString(input.missionWindow.end)
+    || !isRecord(input.station) || !isRecord(input.station.radio) || !isRecord(input.station.antenna) || !Array.isArray(input.station.selectedModes)
+    || !input.station.selectedModes.every(mode => typeof mode === 'string') || (input.station.modeledMode !== null && typeof input.station.modeledMode !== 'string')
+    || typeof input.station.transmitPowerWatts !== 'number' || !Number.isFinite(input.station.transmitPowerWatts)
+    || !isV2Sections(input.sections)) return false;
+  return input.currentDeviceLocation === undefined || isRecord(input.currentDeviceLocation);
+}
+
+function validBriefEnvelope(input: Record<string, any>): boolean {
+  return nonEmptyString(input.briefId)
+    && validDateString(input.generatedAtUtc)
+    && ['complete', 'partial', 'unavailable'].includes(String(input.status))
+    && Array.isArray(input.limitations)
+    && input.limitations.every(isLimitation)
+    && typeof input.summary === 'string';
+}
+
+function isV2Sections(input: unknown): boolean {
+  if (!isRecord(input)) return false;
+  const required = ['activation', 'plannedOperatingSite', 'currentDevice', 'propagationObjective', 'missionWindow', 'station', 'propagation', 'solar', 'observedRf'];
+  return required.every(key => {
+    const section = input[key];
+    if (!isRecord(section) || typeof section.status !== 'string') return false;
+    return key === 'currentDevice' ? section.evidence === undefined || isRecord(section.evidence) : isRecord(section.evidence);
+  });
 }

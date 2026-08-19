@@ -8,7 +8,7 @@ import { resolvePlannedOperatingLocation, type ActivationTarget, type PlannedOpe
 import { SmartDeployBriefView } from './SmartDeployBriefView';
 
 interface SmartDeployPlannerProps { operatingLocation: OperatingLocation; stationProfile?: StationProfile; }
-interface BriefListItem { briefId: string; generatedAtUtc: string; status: SmartDeployBrief['status']; mission: SmartDeployBrief['mission']; }
+interface BriefListItem { briefId: string; generatedAtUtc: string; status: SmartDeployBrief['status']; activation: { reference: string; displayName?: string }; }
 
 export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatingLocation, stationProfile }) => {
   const profile = stationProfile ?? { mode: 'SSB' as const, transmitPowerWatts: 10, antenna: { type: 'EFHW' as const }, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } };
@@ -31,7 +31,7 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
   const [warning, setWarning] = useState<string | null>(null);
 
   const loadRecent = async () => {
-    try { const response = await fetch('/api/smartdeploy/briefs'); if (!response.ok) throw new Error('Recent plans are unavailable.'); const payload = await response.json(); setRecent(payload.briefs || []); } catch { setError('Recent plans could not be loaded.'); }
+    try { const response = await fetch('/api/smartdeploy/briefs'); if (!response.ok) throw new Error('Recent plans are unavailable.'); const payload = await response.json(); setRecent((payload.briefs || []).map(toBriefListItem)); } catch { setError('Recent plans could not be loaded.'); }
   };
   useEffect(() => { void loadRecent(); }, []);
 
@@ -82,10 +82,11 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
       <button type="button" onClick={generate} disabled={busy} className="w-full py-3 rounded bg-amber-400 hover:bg-amber-300 disabled:opacity-50 text-slate-950 font-black text-xs">{busy ? 'GENERATING SMARTDEPLOY PLAN...' : 'GENERATE SMARTDEPLOY PLAN'}</button>
       {error && <div role="alert" className="rounded-lg border border-red-700/70 bg-red-950/30 p-3 text-red-200 text-[11px]">{error}</div>}{warning && <div role="status" className="rounded-lg border border-amber-700/70 bg-amber-950/30 p-3 text-amber-200 text-[11px]">{warning}</div>}
     </div>
-    {recent.length > 0 && <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3 space-y-2"><h3 className="font-black text-[11px] uppercase text-cyan-300">RECENT PLANS</h3>{recent.map(item => <div key={item.briefId} className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-900/70 p-2"><button type="button" onClick={() => void loadBrief(item.briefId)} className="text-left flex-1 text-[11px] text-slate-200"><strong className="text-amber-200">{item.mission.activationTarget.reference}</strong> {item.mission.activationTarget.displayName || ''}<span className="block text-[10px] text-slate-500">{item.mission.missionWindow.start} • {item.status} • generated {item.generatedAtUtc}</span></button><button type="button" aria-label={`Delete ${item.mission.activationTarget.reference}`} onClick={() => void deleteBrief(item.briefId)} className="px-3 py-2 rounded border border-red-800 text-red-300 text-[10px]">DELETE</button></div>)}</div>}
+    {recent.length > 0 && <div className="rounded-xl border border-slate-700 bg-slate-950/50 p-3 space-y-2"><h3 className="font-black text-[11px] uppercase text-cyan-300">RECENT PLANS</h3>{recent.map(item => <div key={item.briefId} className="flex items-center justify-between gap-2 rounded border border-slate-800 bg-slate-900/70 p-2"><button type="button" onClick={() => void loadBrief(item.briefId)} className="text-left flex-1 text-[11px] text-slate-200"><strong className="text-amber-200">{item.activation.reference}</strong> {item.activation.displayName || ''}<span className="block text-[10px] text-slate-500">{item.status} • generated {item.generatedAtUtc}</span></button><button type="button" aria-label={`Delete ${item.activation.reference}`} onClick={() => void deleteBrief(item.briefId)} className="px-3 py-2 rounded border border-red-800 text-red-300 text-[10px]">DELETE</button></div>)}</div>}
     {brief && <SmartDeployBriefView brief={brief} />}
   </div>;
 };
 
 function toUtc(value: string): string | null { const parsed = new Date(value); return Number.isFinite(parsed.getTime()) ? parsed.toISOString() : null; }
 function formatApiError(payload: any): string { if (Array.isArray(payload?.issues) && payload.issues.length) return payload.issues.map((issue: any) => `${issue.path || 'request'}: ${issue.message}`).join(' '); return payload?.message || 'SmartDeploy request was rejected.'; }
+function toBriefListItem(brief: any): BriefListItem { const activation = brief.schemaVersion === 2 ? brief.activation : brief.mission?.activationTarget; return { briefId: brief.briefId, generatedAtUtc: brief.generatedAtUtc, status: brief.status, activation: activation || { reference: 'Unknown activation' } }; }
