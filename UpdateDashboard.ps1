@@ -2,7 +2,7 @@
 [CmdletBinding()]
 param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
-    [Parameter(Mandatory = $true)][string]$OperatorAccount,
+    [string]$OperatorAccount,
     [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
     [string]$Branch = 'main',
     [ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision,
@@ -23,6 +23,7 @@ $requiredPackageFiles = @(
     'agent\scripts\Publish-FieldOpsArtifacts.ps1',
     'agent\scripts\Install-FieldOpsAgent.ps1',
     'agent\scripts\FieldOps.OperatorProvisioning.psm1',
+    'agent\scripts\FieldOps.OperatorResolution.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
     'scripts\FieldOps.RuntimeShutdown.psm1',
     'p533-assets\manifest.json'
@@ -282,6 +283,13 @@ try {
     if (-not $packageRoot) {
         throw 'No download candidate contained a valid FieldOps Dashboard deployment package.'
     }
+
+    Import-Module (Join-Path $packageRoot 'agent\scripts\FieldOps.OperatorResolution.psm1') -Force
+    $resolvedOperator = Resolve-FieldOpsInteractiveOperator -OperatorAccount $OperatorAccount
+    $OperatorAccount = $resolvedOperator.Account
+    $operatorSource = if ($resolvedOperator.Source -eq 'explicit') { 'explicit' } else { 'interactive' }
+    Write-Host "[OK] FieldOps operator: $($resolvedOperator.Account) ($operatorSource)" -ForegroundColor Green
+    Write-Host "     SID: $($resolvedOperator.Sid)" -ForegroundColor Gray
 
     if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) {
         $NativeArtifactPath = Join-Path $downloadRoot 'fieldops-native-win-x64.zip'
