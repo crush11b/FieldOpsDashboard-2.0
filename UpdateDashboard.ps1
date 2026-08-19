@@ -481,7 +481,6 @@ try {
     if ($runtimeShutdownStarted -and $null -ne $runtimeSnapshot -and ($filesystemRollbackSucceeded -or -not $deploymentStarted)) {
         Write-Host '[ROLLBACK] Restoring previous runtime state...' -ForegroundColor Yellow
         try {
-            Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeRollback.psm1') -Force
             $runtimeRollbackResult = Restore-FieldOpsRuntimeState `
                 -Snapshot $runtimeSnapshot `
                 -DashboardRoot $resolvedInstallPath `
