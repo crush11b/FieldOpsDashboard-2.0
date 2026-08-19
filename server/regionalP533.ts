@@ -19,7 +19,9 @@ import {
 import {executeP533Circuit} from './p533Engine';
 import type {P533CircuitExecution} from '../src/propagation/p533';
 
-export async function executeRegionalP533(request: RegionalP533Request): Promise<RegionalP533Result> {
+export type RegionalP533Executor = (request: ReturnType<typeof buildRegionalP533CircuitRequest>) => Promise<P533CircuitExecution>;
+
+export async function executeRegionalP533(request: RegionalP533Request, executeCircuit: RegionalP533Executor = executeP533Circuit): Promise<RegionalP533Result> {
   const started = Date.now();
   const region = getPropagationRegion(request.regionId);
   const assumptions = getRegionalP533Assumptions(request.referenceProfile);
@@ -48,7 +50,7 @@ export async function executeRegionalP533(request: RegionalP533Request): Promise
   for (const band of P533_SUPPORTED_BANDS) {
     const samples = [];
     for (const sample of paths.samples) {
-      const execution = await executeSample(request, sample, band);
+      const execution = await executeSample(request, sample, band, executeCircuit);
       executionCount += 1;
       if (execution.ok) assetProvenance = execution.result.assetProvenance;
       samples.push(toRegionalP533SampleResult(region.id, sample, band, request.stationProfile, assumptions, execution));
@@ -59,6 +61,10 @@ export async function executeRegionalP533(request: RegionalP533Request): Promise
   return { ...base, provenance: { ...base.provenance, assetProvenance }, status: failures === 0 ? 'complete' : failures === executionCount ? 'unavailable' : 'partial', bandResults, sampleCount: paths.samples.length, executionCount, elapsedMs: Date.now() - started };
 }
 
-async function executeSample(request: RegionalP533Request, sample: RegionalPathSample, band: typeof P533_SUPPORTED_BANDS[number]): Promise<P533CircuitExecution> {
-  return executeP533Circuit(buildRegionalP533CircuitRequest(request, sample, band));
+async function executeSample(request: RegionalP533Request, sample: RegionalPathSample, band: typeof P533_SUPPORTED_BANDS[number], executeCircuit: RegionalP533Executor): Promise<P533CircuitExecution> {
+  try {
+    return await executeCircuit(buildRegionalP533CircuitRequest(request, sample, band));
+  } catch (error) {
+    return { ok: false, error: { code: 'execution_failed', message: error instanceof Error ? error.message : 'P.533 execution failed.' } };
+  }
 }

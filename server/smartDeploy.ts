@@ -103,7 +103,7 @@ export class SmartDeployService {
 
     try {
       const executionRequest = toSmartDeployExecutionRequest(normalized.request);
-      this.observedRf.setOperatingLocation(executionRequest.operatingLocation);
+      this.observedRf.setOperatingLocation(normalized.request.plannedOperatingLocation);
       const weather = await this.spaceWeather.getSnapshot();
       const modelSsn = weather.modelSsn;
       const hasLongLivedModelInput = modelSsn?.modelInput?.semanticBasis === 'noaa_smoothed_monthly_ssn'

@@ -62,17 +62,16 @@ function observedSnapshot(overrides: Partial<ObservedRfSnapshot> = {}): Observed
 }
 
 describe('SmartDeploy mission evidence composition', () => {
-  it('derives operating-location to activation-target geometry using canonical direction', () => {
+  it('derives a regional path envelope from the planned operating site', () => {
     const result = composeMissionEvidence({ planningRequest: planning(), propagation: propagation(), observedRf: null });
-    expect(result.geometry).toMatchObject({ status: 'derived', distanceKm: expect.any(Number), initialBearingDegrees: expect.any(Number), compassDirection: expect.any(String) });
+    expect(result.geometry).toMatchObject({ status: 'derived', semantics: 'regional_path_envelope', regionId: 'western_us', sampleCount: 4, distanceKm: null, initialBearingDegrees: null, compassDirection: null });
     expect(result.geometry.originCoordinates).toEqual(operatingCoordinates);
-    expect(result.geometry.destinationCoordinates).toEqual(activationCoordinates);
-    expect(result.geometry.distanceKm).toBeGreaterThan(0);
-    expect(result.geometry.initialBearingDegrees).toBeGreaterThan(0);
+    expect(result.geometry.destinationCoordinates).toBeNull();
+    expect(result.geometry.minimumDistanceKm).toBeGreaterThan(0);
   });
 
   it('does not turn unavailable geometry into zero-valued evidence', () => {
-    const result = composeMissionEvidence({ planningRequest: planning({ operatingLocation: { ...planning().operatingLocation, coordinates: null, provenance: 'unavailable' } }), propagation: propagation(), observedRf: null });
+    const result = composeMissionEvidence({ planningRequest: planning({ plannedOperatingLocation: { ...planning().plannedOperatingLocation, coordinates: null, provenance: 'unavailable' } }), propagation: propagation(), observedRf: null });
     expect(result.status).toBe('unavailable');
     expect(result.geometry).toMatchObject({ status: 'unavailable', distanceKm: null, initialBearingDegrees: null, compassDirection: null });
   });
@@ -82,11 +81,11 @@ describe('SmartDeploy mission evidence composition', () => {
       planningRequest: planning({ missionWindow: { start: '2026-08-18T23:00:00Z', end: '2026-08-19T05:00:00Z' } }),
       propagation: propagation(), observedRf: null,
     }, () => new Date('2035-01-01T00:00:00Z'));
-    expect(result.solar.site).toBe('activation_target');
-    expect(result.solar.siteCoordinates).toEqual(activationCoordinates);
+    expect(result.solar.site).toBe('planned_operating_location');
+    expect(result.solar.siteCoordinates).toEqual(operatingCoordinates);
     expect(result.solar.missionDatesUtc).toEqual(['2026-08-18', '2026-08-19']);
     expect(result.solar.days.map(day => day.date)).toEqual(['2026-08-18', '2026-08-19']);
-    expect(result.solar.days[0].events.sunrise).toBe(calculateSolarEvents(activationCoordinates, '2026-08-18')!.events.sunrise!.toISOString());
+    expect(result.solar.days[0].events.sunrise).toBe(calculateSolarEvents(operatingCoordinates, '2026-08-18')!.events.sunrise!.toISOString());
     expect(result.generatedAtUtc).toBe('2035-01-01T00:00:00.000Z');
   });
 
@@ -110,7 +109,7 @@ describe('SmartDeploy mission evidence composition', () => {
 
   it('keeps solar failure non-blocking and preserves unavailable polar events', () => {
     const result = composeMissionEvidence({
-      planningRequest: planning({ activationTarget: { ...planning().activationTarget, coordinates: { lat: 89, lon: 0 } } }),
+      planningRequest: planning({ plannedOperatingLocation: { ...planning().plannedOperatingLocation, coordinates: { lat: 89, lon: 0 } } }),
       propagation: propagation(), observedRf: null,
     });
     expect(result.status).toBe('complete');

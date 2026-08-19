@@ -95,11 +95,11 @@ describe('SmartDeploy operations brief', () => {
     const stale = brief({ observedRf: observed('stale') });
     expect(stale.status).toBe('partial');
     expect(stale.sections.observedRf.status).toBe('stale');
-    expect(stale.sections.solar.evidence.site).toBe('activation_target');
+    expect(stale.sections.solar.evidence.site).toBe('planned_operating_location');
   });
 
   it('marks foundational geometry failure unavailable while retaining serializable evidence', () => {
-    const invalidPlanning = { ...planning(), operatingLocation: { ...planning().operatingLocation, coordinates: null, provenance: 'unavailable' as const } } as SmartDeployExecutionRequest;
+    const invalidPlanning = { ...planning(), plannedOperatingLocation: { ...planning().plannedOperatingLocation, coordinates: null, provenance: 'unavailable' as const } } as SmartDeployExecutionRequest;
     const evidence = composeMissionEvidence({ planningRequest: invalidPlanning, propagation: propagation(), observedRf: null });
     const result = generateSmartDeployBrief({ planningRequest: invalidPlanning, missionEvidence: evidence }, { createBriefId: () => 'unavailable', now: () => new Date('2026-08-18T12:30:00Z') });
     expect(result.status).toBe('unavailable');

@@ -1,14 +1,9 @@
 import type { MissionWindow, SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import { isValidCoordinates } from '../src/propagation/domain';
-import {
-  P533_BAND_FREQUENCIES,
-  createP533CircuitRequest,
-  type P533CircuitExecution,
-  type P533CircuitResult,
-  type P533SupportedBand,
-} from '../src/propagation/p533';
+import { P533_BAND_FREQUENCIES, type P533CircuitExecution, type P533CircuitResult, type P533SupportedBand } from '../src/propagation/p533';
 import type { PropagationMode, StationProfile } from '../src/propagation/domain';
-import { REGIONAL_P533_REFERENCE_PROFILE } from '../src/propagation/regionalP533';
+import { executeRegionalP533, type RegionalP533Executor } from './regionalP533';
+import type { RegionalP533Result } from '../src/propagation/regionalP533';
 import { executeP533Circuit } from './p533Engine';
 
 export const MISSION_WINDOW_SAMPLE_POSITIONS = ['start', 'midpoint', 'end'] as const;
@@ -20,13 +15,14 @@ export interface MissionWindowPropagationRequest {
   readonly ssn: number;
 }
 
-export type MissionWindowP533Executor = (request: ReturnType<typeof createP533CircuitRequest>) => Promise<P533CircuitExecution>;
+export type MissionWindowP533Executor = RegionalP533Executor;
 type MissionWindowPropagationSampleTuple = readonly [MissionWindowPropagationSample, MissionWindowPropagationSample, MissionWindowPropagationSample];
 
 export interface MissionWindowPropagationBandSample {
   readonly band: P533SupportedBand;
   readonly modelFrequencyMHz: number;
   readonly execution: P533CircuitExecution;
+  readonly regional: RegionalP533Result['bandResults'][number];
 }
 
 export interface MissionWindowPropagationSample {
@@ -63,8 +59,6 @@ export interface MissionWindowPropagationResult {
   readonly summary: MissionWindowPropagationSummary;
   readonly error?: string;
 }
-
-const SUPPORTED_BANDS = Object.keys(P533_BAND_FREQUENCIES) as P533SupportedBand[];
 
 export async function executeMissionWindowPropagation(
   request: MissionWindowPropagationRequest,
@@ -119,8 +113,7 @@ export function missionSampleTimes(window: MissionWindow): readonly [
 
 function validateMissionPropagationRequest(request: MissionWindowPropagationRequest, stationProfile: StationProfile | null): string | null {
   const planning = request.planningRequest;
-  if (!isValidCoordinates(planning.activationTarget.coordinates)) return 'Activation target coordinates are unavailable.';
-  if (!planning.operatingLocation.coordinates || planning.operatingLocation.provenance === 'unavailable' || !isValidCoordinates(planning.operatingLocation.coordinates)) return 'Operating location coordinates are unavailable.';
+  if (!planning.plannedOperatingLocation.coordinates || planning.plannedOperatingLocation.provenance === 'unavailable' || !isValidCoordinates(planning.plannedOperatingLocation.coordinates)) return 'Planned operating location coordinates are unavailable.';
   const samples = missionSampleTimes(planning.missionWindow);
   if (samples.some(sample => !Number.isFinite(Date.parse(sample.modelDateTimeUtc)))) return 'Mission window timestamps are invalid.';
   if (!stationProfile) return 'Equipment context cannot be represented by the existing P.533 station profile.';
@@ -148,32 +141,8 @@ async function executeSample(
   ssn: number,
   executeCircuit: MissionWindowP533Executor,
 ): Promise<MissionWindowPropagationSample> {
-  const bands: MissionWindowPropagationBandSample[] = [];
-  for (const band of SUPPORTED_BANDS) {
-    let execution: P533CircuitExecution;
-    try {
-      execution = await executeCircuit(createP533CircuitRequest({
-        origin: planning.operatingLocation.coordinates!,
-        destination: planning.activationTarget.coordinates,
-        year: new Date(modelDateTimeUtc).getUTCFullYear(),
-        month: new Date(modelDateTimeUtc).getUTCMonth() + 1,
-        day: new Date(modelDateTimeUtc).getUTCDate(),
-        utcHour: new Date(modelDateTimeUtc).getUTCHours(),
-        ssn,
-        band,
-        mode: stationProfile.mode,
-        transmitPowerWatts: stationProfile.transmitPowerWatts,
-        requiredSnrDb: REGIONAL_P533_REFERENCE_PROFILE.requiredSnrDb,
-        bandwidthHz: REGIONAL_P533_REFERENCE_PROFILE.bandwidthHz,
-        requiredReliabilityPercent: REGIONAL_P533_REFERENCE_PROFILE.requiredReliabilityPercent,
-        antenna: REGIONAL_P533_REFERENCE_PROFILE.antenna,
-        noiseEnvironment: REGIONAL_P533_REFERENCE_PROFILE.noiseEnvironment,
-      }));
-    } catch (error) {
-      execution = { ok: false, error: { code: 'execution_failed', message: error instanceof Error ? error.message : 'P.533 execution failed.' } };
-    }
-    bands.push({ band, modelFrequencyMHz: P533_BAND_FREQUENCIES[band].modelFrequencyMHz, execution });
-  }
+  const regional = await executeRegionalP533({ operatingLocation: planning.plannedOperatingLocation, regionId: planning.propagationObjective.regionId, stationProfile, modelDateTimeUtc, ssn }, executeCircuit);
+  const bands = regional.bandResults.map(regionalBand => ({ band: regionalBand.band, modelFrequencyMHz: regionalBand.modelFrequencyMHz, execution: aggregateRegionalExecution(regionalBand), regional: regionalBand }));
   const successfulBands = bands.filter(item => item.execution.ok);
   const status: MissionWindowPropagationStatus = successfulBands.length === 0 ? 'unavailable' : successfulBands.length === bands.length ? 'complete' : 'partial';
   return {
@@ -234,4 +203,12 @@ function buildResult(
 function strongestBand(sample: MissionWindowPropagationSample): P533SupportedBand | null {
   const successful = sample.bands.filter((band): band is MissionWindowPropagationBandSample & { execution: { readonly ok: true; readonly result: P533CircuitResult } } => band.execution.ok && band.execution.result.frequency.basicCircuitReliabilityPercent !== null);
   return successful.sort((left, right) => right.execution.result.frequency.basicCircuitReliabilityPercent! - left.execution.result.frequency.basicCircuitReliabilityPercent!)[0]?.band ?? null;
+}
+
+function aggregateRegionalExecution(band: RegionalP533Result['bandResults'][number]): P533CircuitExecution {
+  const successful = band.samples.filter(sample => sample.execution.ok);
+  if (successful.length === 0) return band.samples[0]?.execution ?? { ok: false, error: { code: 'execution_failed', message: 'No regional path sample was available.' } };
+  const first = successful[0].execution;
+  if (!first.ok) return first;
+  return { ok: true, result: { ...first.result, frequency: { ...first.result.frequency, basicCircuitReliabilityPercent: band.summary.basicCircuitReliabilityPercent.median, snrDb: band.summary.snrDb.median, receivedPowerDb: band.summary.receivedPowerDb.median, basicMufMHz: band.summary.basicMufMHz.median } } };
 }

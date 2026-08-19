@@ -1,6 +1,6 @@
-import { calculateDistanceKm, calculateInitialBearing, compassDirection } from '../src/location/geography';
 import { calculateSolarEvents, type SolarEventName, type SolarEvents } from '../src/location/solarEvents';
 import { latLonGrid4 } from '../src/propagation/observedRf';
+import { getPropagationRegion, resolveRegionalPathSamples, summarizeRegionalPathGeometry } from '../src/propagation/regionalDestinations';
 import type { ObservedRfSnapshot } from '../src/propagation/observedRf';
 import type { SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import type { MissionWindowPropagationResult } from './missionWindowPropagation';
@@ -14,12 +14,17 @@ export type MissionObservedRfStatus = 'observed' | 'unavailable' | 'stale' | 'no
 
 export interface MissionGeometryEvidence {
   readonly status: MissionGeometryStatus;
-  readonly originCoordinates: SmartDeployExecutionRequest['operatingLocation']['coordinates'];
-  readonly destinationCoordinates: SmartDeployExecutionRequest['activationTarget']['coordinates'];
+  readonly originCoordinates: SmartDeployExecutionRequest['plannedOperatingLocation']['coordinates'];
+  readonly destinationCoordinates: null;
   readonly distanceKm: number | null;
   readonly initialBearingDegrees: number | null;
   readonly compassDirection: string | null;
-  readonly semantics: 'great_circle_distance_and_initial_bearing';
+  readonly semantics: 'regional_path_envelope';
+  readonly regionId: SmartDeployExecutionRequest['propagationObjective']['regionId'];
+  readonly sampleCount: number;
+  readonly minimumDistanceKm: number | null;
+  readonly maximumDistanceKm: number | null;
+  readonly medianDistanceKm: number | null;
   readonly limitation?: string;
 }
 
@@ -39,8 +44,8 @@ export interface MissionSolarOverlapEvidence {
 
 export interface MissionSolarEvidence {
   readonly status: MissionSolarStatus;
-  readonly site: 'activation_target';
-  readonly siteCoordinates: SmartDeployExecutionRequest['activationTarget']['coordinates'];
+  readonly site: 'planned_operating_location';
+  readonly siteCoordinates: SmartDeployExecutionRequest['plannedOperatingLocation']['coordinates'];
   readonly missionDatesUtc: readonly string[];
   readonly days: readonly MissionSolarDayEvidence[];
   readonly overlap: MissionSolarOverlapEvidence;
@@ -109,41 +114,55 @@ export function composeMissionEvidence(
 }
 
 function deriveGeometry(planning: SmartDeployExecutionRequest): MissionGeometryEvidence {
-  const origin = planning.operatingLocation.coordinates;
-  const destination = planning.activationTarget.coordinates;
-  if (!origin || !destination || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon) || !Number.isFinite(destination.lat) || !Number.isFinite(destination.lon)) {
+  const origin = planning.plannedOperatingLocation.coordinates;
+  const destination = getPropagationRegion(planning.propagationObjective.regionId);
+  const region = destination ? resolveRegionalPathSamples(planning.plannedOperatingLocation, destination) : { status: 'unavailable' as const, samples: [], reason: 'Propagation region is unavailable.' };
+  if (region.status !== 'resolved' || !origin || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon)) {
     return {
-      status: 'unavailable', originCoordinates: origin, destinationCoordinates: destination, distanceKm: null, initialBearingDegrees: null,
-      compassDirection: null, semantics: 'great_circle_distance_and_initial_bearing', limitation: 'Mission geometry is unavailable because one or both coordinate sets are unavailable.',
+      status: 'unavailable', originCoordinates: origin, destinationCoordinates: null, distanceKm: null, initialBearingDegrees: null,
+      compassDirection: null, semantics: 'regional_path_envelope', regionId: planning.propagationObjective.regionId, sampleCount: 0, minimumDistanceKm: null, maximumDistanceKm: null, medianDistanceKm: null,
+      limitation: region.reason ?? 'Regional mission geometry is unavailable.',
     };
   }
-  const initialBearingDegrees = calculateInitialBearing(origin, destination);
+  const summary = summarizeRegionalPathGeometry(region.samples);
   return {
     status: 'derived',
     originCoordinates: origin,
-    destinationCoordinates: destination,
-    distanceKm: calculateDistanceKm(origin, destination),
-    initialBearingDegrees,
-    compassDirection: compassDirection(initialBearingDegrees),
-    semantics: 'great_circle_distance_and_initial_bearing',
+    destinationCoordinates: null,
+    distanceKm: null,
+    initialBearingDegrees: null,
+    compassDirection: null,
+    semantics: 'regional_path_envelope',
+    regionId: planning.propagationObjective.regionId,
+    sampleCount: summary.sampleCount,
+    minimumDistanceKm: summary.minimumDistanceKm,
+    maximumDistanceKm: summary.maximumDistanceKm,
+    medianDistanceKm: summary.medianDistanceKm,
   };
 }
 
 function deriveSolar(planning: SmartDeployExecutionRequest, solarCalculator: MissionSolarCalculator): MissionSolarEvidence {
-  const siteCoordinates = planning.activationTarget.coordinates;
+  const siteCoordinates = planning.plannedOperatingLocation.coordinates;
   const missionDatesUtc = missionDates(planning.missionWindow.start, planning.missionWindow.end);
+  if (!siteCoordinates) {
+    return {
+      status: 'unavailable', site: 'planned_operating_location', siteCoordinates, missionDatesUtc,
+      days: missionDatesUtc.map(date => toSolarDayEvidence(date, null)), overlap: unavailableSolarOverlap(),
+      limitation: 'Solar events are unavailable because the planned operating location is unavailable.',
+    };
+  }
   const calculated = missionDatesUtc.map(date => solarCalculator(siteCoordinates, date));
   const days = calculated.map((events, index) => toSolarDayEvidence(missionDatesUtc[index], events));
   if (calculated.some(events => events === null)) {
     return {
-      status: 'unavailable', site: 'activation_target', siteCoordinates, missionDatesUtc, days,
+      status: 'unavailable', site: 'planned_operating_location', siteCoordinates, missionDatesUtc, days,
       overlap: unavailableSolarOverlap(), limitation: 'Solar events are unavailable for one or more mission dates.',
     };
   }
   const events = calculated.filter((value): value is SolarEvents => value !== null);
   return {
     status: 'derived',
-    site: 'activation_target',
+    site: 'planned_operating_location',
     siteCoordinates,
     missionDatesUtc,
     days,
@@ -152,8 +171,8 @@ function deriveSolar(planning: SmartDeployExecutionRequest, solarCalculator: Mis
 }
 
 function deriveObservedRf(planning: SmartDeployExecutionRequest, snapshot: ObservedRfSnapshot | null): MissionObservedRfEvidence {
-  const expectedOperatingGrid4 = planning.operatingLocation.coordinates
-    ? latLonGrid4(planning.operatingLocation.coordinates.lat, planning.operatingLocation.coordinates.lon)
+  const expectedOperatingGrid4 = planning.plannedOperatingLocation.coordinates
+    ? latLonGrid4(planning.plannedOperatingLocation.coordinates.lat, planning.plannedOperatingLocation.coordinates.lon)
     : null;
   if (!snapshot) {
     return {

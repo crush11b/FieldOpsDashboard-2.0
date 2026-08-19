@@ -77,8 +77,7 @@ export interface SmartDeployExecutionRequest extends SmartDeployPlanningRequest 
 }
 
 export function toSmartDeployExecutionRequest(request: SmartDeployPlanningRequest): SmartDeployExecutionRequest {
-  // Task 2 compatibility: execution still uses current device context until Task 3 changes P.533/evidence semantics.
-  return { ...request, operatingLocation: request.currentDeviceLocation ?? request.plannedOperatingLocation };
+  return { ...request, operatingLocation: request.plannedOperatingLocation };
 }
 
 export type SmartDeployPlanningIssueCode =

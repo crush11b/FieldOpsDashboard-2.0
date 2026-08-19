@@ -151,9 +151,8 @@ function formatLocation(location: SmartDeployBriefMissionSnapshot['operatingLoca
 
 function geometrySummary(section: SmartDeployBriefSections['geometry']): string {
   const geometry = section.evidence;
-  if (section.status === 'unavailable' || geometry.distanceKm === null) return 'Mission geometry is unavailable.';
-  const bearing = geometry.initialBearingDegrees === null ? 'no bearing' : `${geometry.initialBearingDegrees.toFixed(1)}° ${geometry.compassDirection ?? ''}`.trim();
-  return `The activation site is ${geometry.distanceKm.toFixed(1)} km from the operating location on an initial bearing of ${bearing}.`;
+  if (section.status === 'unavailable' || geometry.sampleCount === 0) return 'Regional mission geometry is unavailable.';
+  return `The planned operating site has ${geometry.sampleCount} representative ${geometry.regionId} paths spanning ${geometry.minimumDistanceKm?.toFixed(1) ?? 'unavailable'} to ${geometry.maximumDistanceKm?.toFixed(1) ?? 'unavailable'} km (median ${geometry.medianDistanceKm?.toFixed(1) ?? 'unavailable'} km).`;
 }
 
 function propagationSummary(section: SmartDeployBriefSections['propagation']): string {
@@ -182,7 +181,7 @@ function solarSummary(section: SmartDeployBriefSections['solar']): string {
   else if (overlap.includesDaylight) facts.push('the mission includes daylight');
   if (overlap.overlapsCivilTwilight) facts.push('the mission overlaps civil twilight');
   if (overlap.extendsBeyondCivilDusk) facts.push('the mission extends beyond civil dusk');
-  return facts.length > 0 ? `At the activation site, ${facts.join(' and ')}.` : 'The mission does not overlap a derived daylight or civil-twilight interval.';
+  return facts.length > 0 ? `At the planned operating site, ${facts.join(' and ')}.` : 'The mission does not overlap a derived daylight or civil-twilight interval.';
 }
 
 function observedRfSummary(section: SmartDeployBriefSections['observedRf']): string {

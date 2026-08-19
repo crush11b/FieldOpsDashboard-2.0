@@ -34,9 +34,11 @@ describe('mission-window propagation adapter', () => {
     const executeCircuit = async (request: any) => { calls.push(request); return success(request); };
     const result = await executeMissionWindowPropagation({ planningRequest, ssn: 100 }, () => new Date('2035-01-01T00:00:00Z'), executeCircuit);
     expect(result.samples.map(sample => sample.modelDateTimeUtc)).toEqual(['2026-08-18T14:00:00.000Z', '2026-08-18T16:00:00.000Z', '2026-08-18T18:00:00.000Z']);
-    expect(calls.filter(request => request.utcHour === 14)).toHaveLength(9);
-    expect(calls.filter(request => request.utcHour === 16)).toHaveLength(9);
-    expect(calls.filter(request => request.utcHour === 18)).toHaveLength(9);
+    expect(calls.filter(request => request.utcHour === 14)).toHaveLength(36);
+    expect(calls.filter(request => request.utcHour === 16)).toHaveLength(36);
+    expect(calls.filter(request => request.utcHour === 18)).toHaveLength(36);
+    expect(calls.every(request => request.origin.lat === planningRequest.plannedOperatingLocation.coordinates.lat)).toBe(true);
+    expect(calls.every(request => !(request.destination.lat === planningRequest.activationTarget.coordinates.lat && request.destination.lon === planningRequest.activationTarget.coordinates.lon))).toBe(true);
     expect(result.generatedAtUtc).toBe('2035-01-01T00:00:00.000Z');
   });
 
