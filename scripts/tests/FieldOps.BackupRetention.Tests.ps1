@@ -174,6 +174,13 @@ Describe 'FieldOps recovery backup retention' {
         $updater | Should Match '\$readiness.Status -eq ''Passed'''
     }
 
+    It 'uses direct Node production startup without npm or cmd wrappers' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match 'Start-FieldOpsDashboardProcess -DashboardRoot \$resolvedInstallPath'
+        $updater | Should Not Match "Start-Process -FilePath 'npm\.cmd' -ArgumentList 'start'"
+        $updater | Should Match 'Get-FieldOpsRollbackLockingProcesses'
+    }
+
     It 'parses under Windows PowerShell 5.1' {
         $powershell = Get-Command powershell.exe -ErrorAction Stop
         $module = (Resolve-Path $modulePath).Path

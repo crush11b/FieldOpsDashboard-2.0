@@ -91,6 +91,17 @@ Describe 'FieldOps runtime shutdown' {
             ($global:FieldOpsTestStoppedIds -contains 204) | Should Be $false
         }
 
+            It 'fails quiescence while direct production Node remains and succeeds after it disappears' {
+                $global:FieldOpsTestServiceStatus = 'Stopped'
+                $global:FieldOpsTestProcesses = @([pscustomobject]@{
+                Name = 'node.exe'; ProcessId = 205; ExecutablePath = 'C:\Program Files\nodejs\node.exe'; CommandLine = 'node C:\FieldOpsDashboard\dist\server.cjs'
+                })
+                Mock Stop-Process -ModuleName FieldOps.RuntimeShutdown {}
+                { Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::Zero) } | Should Throw 'node.exe PID 205'
+                $global:FieldOpsTestProcesses = @()
+                (Wait-FieldOpsRuntimeQuiescent -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -ServiceName 'FieldOpsAgent' -Timeout ([TimeSpan]::FromSeconds(1))).Processes.Count | Should Be 0
+            }
+
     It 'fails with remaining process details when quiescence misses its deadline' {
             $global:FieldOpsTestServiceStatus = 'Stopped'
             $global:FieldOpsTestProcesses = @([pscustomobject]@{

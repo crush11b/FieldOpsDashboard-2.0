@@ -1,6 +1,9 @@
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+$readinessModule = Join-Path $PSScriptRoot 'FieldOps.RuntimeReadiness.psm1'
+Import-Module $readinessModule -Force
+
 function ConvertTo-FieldOpsNormalizedPath {
     param([Parameter(Mandatory = $true)][string]$Path)
     return ([IO.Path]::GetFullPath($Path)).TrimEnd('\').ToLowerInvariant()
@@ -17,21 +20,24 @@ function Get-FieldOpsOwnedRuntimeProcesses {
     $nativePath = ConvertTo-FieldOpsNormalizedPath -Path $NativeRoot
     $agentPath = Join-Path $nativePath 'Agent\FieldOps.Agent.exe'
     $trayPath = Join-Path $nativePath 'Tray\FieldOps.Tray.exe'
-    $dashboardPattern = [regex]::Escape($dashboardPath) + '(?=[\\/"''\s]|$)'
-    $dashboardProcessNames = @('node.exe', 'tsx.exe', 'npm.exe', 'vite.exe', 'cmd.exe')
+    $legacyWrapperPattern = [regex]::Escape($dashboardPath) + '(?=[\\/"''\s]|$)'
+    $legacyWrapperNames = @('tsx.exe', 'npm.exe', 'vite.exe', 'cmd.exe')
     $nativeProcessNames = @('FieldOps.Agent.exe', 'FieldOps.Tray.exe')
 
-    foreach ($process in @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)) {
+    $processes = @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)
+    $dashboardProcesses = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $DashboardRoot -ProcessProvider { $processes })
+    foreach ($process in $processes) {
         $name = [string]$process.Name
         $executablePath = if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) { '' } else { ConvertTo-FieldOpsNormalizedPath -Path ([string]$process.ExecutablePath) }
         $commandLine = [string]$process.CommandLine
         $isNative = ($name -ieq 'FieldOps.Agent.exe' -and $executablePath -eq $agentPath) -or
             ($name -ieq 'FieldOps.Tray.exe' -and $executablePath -eq $trayPath)
-        $isDashboard = $dashboardProcessNames -contains $name.ToLowerInvariant() -and
+        $isDashboard = $legacyWrapperNames -contains $name.ToLowerInvariant() -and
             -not [string]::IsNullOrWhiteSpace($commandLine) -and
-            $commandLine -match $dashboardPattern
+            $commandLine -match $legacyWrapperPattern
 
-        if ($isNative -or $isDashboard) {
+        $directDashboard = @($dashboardProcesses | Where-Object ProcessId -eq ([int]$process.ProcessId)).Count -gt 0
+        if ($isNative -or $isDashboard -or $directDashboard) {
             [pscustomobject]@{
                 Name = $name
                 ProcessId = [int]$process.ProcessId

@@ -69,6 +69,36 @@ Describe 'FieldOps runtime readiness' {
         $result.Status | Should Be 'Passed'
     }
 
+    It 'starts production Dashboard directly with node and an absolute server path' {
+        $calls = [pscustomobject]@{ FilePath = $null; ArgumentList = $null; WorkingDirectory = $null }
+        $process = New-Object psobject -Property @{ Id = 701; HasExited = $false; ExitCode = $null }
+        $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
+        $nodeProvider = { param($Name) [pscustomobject]@{ Source = 'C:\Program Files\nodejs\node.exe' } }
+        $starter = { param($FilePath, $ArgumentList, $WorkingDirectory) $calls.FilePath = $FilePath; $calls.ArgumentList = @($ArgumentList); $calls.WorkingDirectory = $WorkingDirectory; $process }
+        $result = Start-FieldOpsDashboardProcess -DashboardRoot 'C:\FieldOpsDashboard' -NodeProvider $nodeProvider -ProcessStarter $starter -SleepProvider { param($Milliseconds) }
+        $result.Id | Should Be 701
+        $calls.FilePath | Should Be 'C:\Program Files\nodejs\node.exe'
+        $calls.ArgumentList[0] | Should Be 'C:\FieldOpsDashboard\dist\server.cjs'
+        $calls.WorkingDirectory | Should Be 'C:\FieldOpsDashboard'
+        (Get-Content -LiteralPath $updaterPath -Raw) | Should Not Match "Start-Process -FilePath 'npm\.cmd' -ArgumentList 'start'"
+    }
+
+    It 'reports an immediate production Node exit with launch diagnostics' {
+        $process = New-Object psobject -Property @{ Id = 702; HasExited = $true; ExitCode = 17 }
+        $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
+        { Start-FieldOpsDashboardProcess -DashboardRoot 'C:\FieldOpsDashboard' -NodeProvider { param($Name) [pscustomobject]@{ Source = 'C:\node.exe' } } -ProcessStarter { param($FilePath, $ArgumentList, $WorkingDirectory) $process } -SleepProvider { param($Milliseconds) } } |
+            Should Throw 'PID 702 exited before readiness'
+    }
+
+    It 'matches only the installed production server and excludes unrelated Node' {
+        $processes = @(
+            [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node C:\FieldOpsDashboard\dist\server.cjs'; ProcessId = 703 },
+            [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node C:\OtherApplication\server.cjs'; ProcessId = 704 },
+            [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node C:\FieldOpsDashboard2\dist\server.cjs'; ProcessId = 705 }
+        )
+        (Get-FieldOpsDashboardProcessCandidates -DashboardRoot 'C:\FieldOpsDashboard' -ProcessProvider { $processes }).Count | Should Be 1
+    }
+
     It 'waits for HTTP after the Dashboard process appears' {
         $script:httpCalls = 0
         $delayedHttp = {

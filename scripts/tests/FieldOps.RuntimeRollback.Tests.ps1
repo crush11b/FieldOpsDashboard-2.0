@@ -160,6 +160,12 @@ Describe 'FieldOps runtime rollback state' {
         $result.Dashboard.Detail | Should Match 'localhost unavailable'
     }
 
+    It 'uses the shared direct-node Dashboard starter for restoration' {
+        $rollback = Get-Content -LiteralPath $modulePath -Raw
+        $rollback | Should Match 'Start-FieldOpsDashboardProcess -DashboardRoot \$Root'
+        $rollback | Should Not Match "Start-Process -FilePath 'npm\.cmd' -ArgumentList 'start'"
+    }
+
     It 'reports prior source/native mismatch' {
         $snapshot = [pscustomobject]@{ Agent = [pscustomobject]@{ Exists = $false; Running = $false }; Tray = [pscustomobject]@{ Running = $false }; Dashboard = [pscustomobject]@{ Running = $false }; Revision = [pscustomobject]@{ SourceRevision = $script:revision; NativeRevision = $script:revision } }
         $result = Restore-FieldOpsRuntimeState -Snapshot $snapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -ExpectedOperatorAccount $script:operator -ExpectedOperatorSid $script:sid -RevisionReader { param($Root) [pscustomobject]@{ sourceRevision = $script:revision; nativeRevision = ('0' * 40) } }
@@ -173,6 +179,12 @@ Describe 'FieldOps runtime rollback state' {
         $updater | Should Match 'Previous installation restored'
         $updater | Should Match 'Restore-FieldOpsRuntimeState'
         $updater | Should Match 'runtime restoration had problems'
+    }
+
+    It 'reports scoped process identity when filesystem rollback encounters a lock' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match 'Get-FieldOpsRollbackLockingProcesses'
+        $updater | Should Match 'PID.*CommandLine.*ExecutablePath'
     }
 
     It 'does not leak the runtime shutdown object' {

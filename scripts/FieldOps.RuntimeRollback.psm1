@@ -110,7 +110,7 @@ function Restore-FieldOpsRuntimeState {
         [Parameter(Mandatory = $true)][string]$ExpectedOperatorSid,
         [string]$ExpectedRevision,
         [scriptblock]$ServiceStarter = { Start-Service -Name 'FieldOpsAgent' },
-        [scriptblock]$DashboardStarter = { param($Root) Start-Process -FilePath 'npm.cmd' -ArgumentList 'start' -WorkingDirectory $Root },
+        [scriptblock]$DashboardStarter = { param($Root) Start-FieldOpsDashboardProcess -DashboardRoot $Root | Out-Null },
         [scriptblock]$TrayStarter = { param($Path, $Account, $Sid) Start-FieldOpsTrayScheduledLaunch -TrayPath $Path -OperatorAccount $Account -OperatorSid $Sid },
         [scriptblock]$AgentReadiness = { param($Root) Test-FieldOpsAgentReadiness -NativeRoot $Root },
         [scriptblock]$TrayReadiness = { param($Path, $Account, $Sid) Test-FieldOpsTrayReadiness -TrayPath $Path -OperatorAccount $Account -OperatorSid $Sid },

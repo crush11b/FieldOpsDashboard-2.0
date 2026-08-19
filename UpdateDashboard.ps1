@@ -224,6 +224,27 @@ function Stop-FieldOpsLauncherWrappers {
     throw "FieldOps launcher process still owns '$InstallRoot' after bounded shutdown."
 }
 
+function Get-FieldOpsRollbackLockingProcesses {
+    param([Parameter(Mandatory = $true)][string]$InstallRoot)
+
+    $normalizedRoot = ([IO.Path]::GetFullPath($InstallRoot)).TrimEnd('\').ToLowerInvariant()
+    $rootPattern = [regex]::Escape($normalizedRoot) + '(?=[\\/"''\s]|$)'
+    foreach ($process in @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)) {
+        $commandLine = [string]$process.CommandLine
+        $executablePath = [string]$process.ExecutablePath
+        $normalizedExecutablePath = if ([string]::IsNullOrWhiteSpace($executablePath)) { '' } else { ([IO.Path]::GetFullPath($executablePath)).TrimEnd('\').ToLowerInvariant() }
+        if (($commandLine -and $commandLine.ToLowerInvariant() -match $rootPattern) -or
+            ($normalizedExecutablePath -and ($normalizedExecutablePath -eq $normalizedRoot -or $normalizedExecutablePath.StartsWith($normalizedRoot + '\')))) {
+            [pscustomobject]@{
+                ProcessId = [int]$process.ProcessId
+                Name = [string]$process.Name
+                CommandLine = $commandLine
+                ExecutablePath = $executablePath
+            }
+        }
+    }
+}
+
 function Ensure-FieldOpsTelemetryCredentials {
     $receiverPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Dashboard\telemetry-credentials.json'
     $agentPath = Join-Path $env:ProgramData 'FieldOpsDashboard\Agent\telemetry-write-token.dat'
@@ -421,7 +442,8 @@ try {
     if (-not $SkipLaunch) {
         Write-Host '[7/8] Starting production Dashboard Server...' -ForegroundColor Green
         Set-Location -LiteralPath $resolvedInstallPath
-        Start-Process -FilePath 'npm.cmd' -ArgumentList 'start' -WorkingDirectory $resolvedInstallPath
+        Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeReadiness.psm1') -Force
+        Start-FieldOpsDashboardProcess -DashboardRoot $resolvedInstallPath | Out-Null
     } else {
         Write-Host '[7/8] Dashboard launch skipped.' -ForegroundColor Gray
     }
@@ -519,8 +541,8 @@ try {
             Write-Host '[OK] Previous installation restored.' -ForegroundColor Yellow
         } catch {
             $lockedPath = if (Test-Path -LiteralPath $resolvedInstallPath) { $resolvedInstallPath } else { $backupPath }
-            $lockingProcesses = @(Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue | Select-Object -ExpandProperty ProcessName -Unique)
-            $lockHint = if ($lockingProcesses.Count -gt 0) { $lockingProcesses -join ', ' } else { 'undetermined' }
+            $lockingProcesses = @(Get-FieldOpsRollbackLockingProcesses -InstallRoot $resolvedInstallPath)
+            $lockHint = if ($lockingProcesses.Count -gt 0) { ($lockingProcesses | ForEach-Object { "PID $($_.ProcessId) $($_.Name) CommandLine=[$($_.CommandLine)] ExecutablePath=[$($_.ExecutablePath)]" }) -join '; ' } else { 'undetermined' }
             Write-Host "[X] Rollback failed while handling '$lockedPath'. Likely locking process: $lockHint. Partial state: dashboard activation may remain at '$resolvedInstallPath' and backup may remain at '$backupPath'." -ForegroundColor Red
             Write-Host "[X] Rollback error: $($_.Exception.Message)" -ForegroundColor Red
         }

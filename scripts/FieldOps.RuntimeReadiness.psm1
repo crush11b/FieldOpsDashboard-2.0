@@ -76,6 +76,29 @@ function Get-FieldOpsDashboardProcessCandidates {
     })
 }
 
+    function Start-FieldOpsDashboardProcess {
+        [CmdletBinding()]
+        param(
+            [Parameter(Mandatory = $true)][string]$DashboardRoot,
+            [int]$StartupProbeMilliseconds = 250,
+            [scriptblock]$NodeProvider = { param($Name) Get-Command $Name -ErrorAction SilentlyContinue },
+            [scriptblock]$ProcessStarter = { param($FilePath, $ArgumentList, $WorkingDirectory) Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -PassThru -ErrorAction Stop },
+            [scriptblock]$SleepProvider = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds }
+        )
+
+        $node = & $NodeProvider 'node.exe'
+        if ($null -eq $node) { $node = & $NodeProvider 'node' }
+        if ($null -eq $node) { throw 'Node.js executable was not found on PATH.' }
+        $serverPath = [IO.Path]::GetFullPath((Join-Path $DashboardRoot 'dist\server.cjs'))
+        $process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot
+        & $SleepProvider $StartupProbeMilliseconds
+        $process.Refresh()
+        if ($process.HasExited) {
+            throw "Dashboard server process PID $($process.Id) exited before readiness. Exit code: $($process.ExitCode). Launch path: $($node.Source). Server path: $serverPath."
+        }
+        return $process
+    }
+
 function ConvertFrom-FieldOpsDashboardVersionResponse {
     param([Parameter(Mandatory = $true)]$Response)
 
@@ -286,3 +309,4 @@ function Test-FieldOpsRuntimeReadiness {
 }
 
 Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness, Get-FieldOpsDashboardProcessCandidates, ConvertFrom-FieldOpsDashboardVersionResponse
+Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness, Get-FieldOpsDashboardProcessCandidates, Start-FieldOpsDashboardProcess, ConvertFrom-FieldOpsDashboardVersionResponse
