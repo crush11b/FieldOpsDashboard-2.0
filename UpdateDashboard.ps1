@@ -24,6 +24,7 @@ $requiredPackageFiles = @(
     'agent\scripts\Install-FieldOpsAgent.ps1',
     'agent\scripts\FieldOps.OperatorProvisioning.psm1',
     'agent\scripts\FieldOps.OperatorResolution.psm1',
+    'agent\scripts\FieldOps.TrayLaunch.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
     'scripts\FieldOps.RuntimeShutdown.psm1',
     'p533-assets\manifest.json'
@@ -369,13 +370,25 @@ try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
-    Write-Host '[OK] Deployment verified.' -ForegroundColor Green
 
     $deploymentStarted = $false
     Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
 
+    Import-Module (Join-Path $resolvedInstallPath 'agent\scripts\FieldOps.TrayLaunch.psm1') -Force
+    Write-Host "[7/8] Starting FieldOps Tray for $OperatorAccount..." -ForegroundColor Yellow
+    $trayResult = Start-FieldOpsTray `
+        -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
+        -OperatorAccount $OperatorAccount `
+        -OperatorSid $resolvedOperator.Sid
+    if ($trayResult.Status -eq 'AlreadyRunning') {
+        Write-Host "[OK] FieldOps Tray already running for '$OperatorAccount'." -ForegroundColor Green
+    } else {
+        Write-Host "[OK] FieldOps Tray running in interactive session $($trayResult.SessionId)." -ForegroundColor Green
+    }
+    Write-Host '[OK] Deployment verified.' -ForegroundColor Green
+
     if (-not $SkipLaunch) {
-        Write-Host '[7/7] Starting production Dashboard Server...' -ForegroundColor Green
+        Write-Host '[8/8] Starting production Dashboard Server...' -ForegroundColor Green
         Set-Location -LiteralPath $resolvedInstallPath
         Start-Process -FilePath 'npm.cmd' -ArgumentList 'start' -WorkingDirectory $resolvedInstallPath
     } else {

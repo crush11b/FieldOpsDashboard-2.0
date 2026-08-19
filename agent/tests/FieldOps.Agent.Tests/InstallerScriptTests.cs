@@ -132,7 +132,9 @@ public sealed class InstallerScriptTests
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
-        Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("[string]$OperatorAccount", updater);
+        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("Resolve-FieldOpsInteractiveOperator", updater);
         Assert.Contains("[ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision", updater);
         Assert.Contains("Resolve-DeploymentRevision", updater);
         Assert.Contains("archive/$deploymentRevision.tar.gz", updater);

@@ -134,5 +134,9 @@ The repository-root `UpdateDashboard.bat` is the supported single-operator entry
 the active interactive operator automatically. For an explicit override, pass
 `-OperatorAccount '.\stick'`. Future runs update
 `C:\FieldOpsDashboard`, publish the agent and tray, delegate installation/startup registration to
-the existing installer, provision the protected dashboard telemetry credential, and launch the
-production server with `npm start`. Do not use `npm run dev` for an installed deployment.
+the existing installer, provision the protected dashboard telemetry credential, and immediately
+launch the installed Tray through the resolved operator's explorer-owned primary token. This
+avoids Session 0 and elevated-administrator launches while preserving the per-SID Run registration
+for future logons. The launch is bounded and verified by executable path, operator SID, and session;
+an unavailable or exited Tray is reported as a failed deployment verification. The updater then
+launches the production server with `npm start`. Do not use `npm run dev` for an installed deployment.
