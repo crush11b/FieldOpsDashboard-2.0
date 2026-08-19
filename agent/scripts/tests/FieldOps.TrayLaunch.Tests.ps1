@@ -120,6 +120,17 @@ Describe 'FieldOps immediate Tray launch integration' {
     $updater = Get-Content -LiteralPath $updaterPath -Raw
     $installer = Get-Content -LiteralPath $installerPath -Raw
 
+    It 'imports and compiles the interop with Windows PowerShell 5.1' {
+        $powershell = Get-Command powershell.exe -ErrorAction Stop
+        $module = (Resolve-Path $modulePath).Path
+        $command = "Import-Module -Name '$module' -Force; if (`$null -eq ('FieldOpsDashboard.Deployment.InteractiveProcess' -as [type])) { throw 'InteractiveProcess type was not compiled.' }"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+
+        $LASTEXITCODE | Should Be 0
+        ($output -join "`n") | Should Not Match 'Add-Type|ParserError|; expected'
+    }
+
     It 'loads the helper after installer completion and preserves startup registration' {
         $updater | Should Match 'FieldOps\.TrayLaunch\.psm1'
         $updater | Should Match 'Start-FieldOpsTray'

@@ -115,7 +115,10 @@ namespace FieldOpsDashboard.Deployment
             }
         }
 
-        private static void ThrowLastError(string operation) => throw new Win32Exception(Marshal.GetLastWin32Error(), operation + " failed.");
+        private static void ThrowLastError(string operation)
+        {
+            throw new Win32Exception(Marshal.GetLastWin32Error(), operation + " failed.");
+        }
     }
 }
 '@
