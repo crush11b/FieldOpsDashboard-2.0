@@ -79,6 +79,30 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         { Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:failure; PrivilegeProvider = $script:privileges } } | Should Throw 'CreateProcessAsUser failed. Win32 error 1314'
     }
 
+    It 'uses the production privilege preparation and reports before and after state' {
+        $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\FieldOps.TrayLaunch.psm1') -Raw
+        $diagnostic = Get-Content -LiteralPath $scriptPath -Raw
+        $source | Should Match 'EnableForCreateProcessAsUser'
+        $source | Should Match 'Get-FieldOpsCallerPrivilegeState'
+        $source | Should Match 'Get-FieldOpsLastPreparedPrivilegeState'
+        $diagnostic | Should Match 'Privilege state after preparation'
+        $diagnostic | Should Match 'PreparedPrivilegeProvider'
+    }
+
+    It 'handles the documented privilege states and native cleanup contract' {
+        $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\FieldOps.TrayLaunch.psm1') -Raw
+        $source | Should Match 'SeAssignPrimaryTokenPrivilege'
+        $source | Should Match 'SeIncreaseQuotaPrivilege'
+        $source | Should Match 'State = "NotAssigned"'
+        $source | Should Match 'State = .*Enabled.*Disabled'
+        $source | Should Match 'ERROR_NOT_ALL_ASSIGNED|ErrorNotAllAssigned'
+        $source | Should Match 'TOKEN_ADJUST_PRIVILEGES|TokenAdjustPrivileges'
+        $source | Should Match 'AdjustTokenPrivileges'
+        $source | Should Match 'CloseHandle'
+        $source | Should Match 'FreeHGlobal'
+        $source | Should Match 'previousState'
+    }
+
     It 'does not contain updater, install, service, or process shutdown calls' {
         $source = Get-Content -LiteralPath $scriptPath -Raw
         $source | Should Not Match 'UpdateDashboard|Install-FieldOpsAgent|Stop-Service|Stop-Process|Start-Service|New-LocalGroup|Add-LocalGroupMember|Register-FieldOpsTrayStartup|Provision-FieldOpsTelemetryCredential'

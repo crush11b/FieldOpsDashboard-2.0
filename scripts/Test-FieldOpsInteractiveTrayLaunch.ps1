@@ -7,7 +7,8 @@ param(
     [scriptblock]$SessionProvider = { Get-FieldOpsInteractiveSessionCandidates },
     [scriptblock]$TrayProcessProvider = { Get-FieldOpsTrayProcessCandidates },
     [scriptblock]$LaunchInvoker = { param($Path, $Account, $Sid, $Timeout) Start-FieldOpsTray -TrayPath $Path -OperatorAccount $Account -OperatorSid $Sid -SessionProvider $SessionProvider -TrayProcessProvider $TrayProcessProvider -TimeoutSeconds $Timeout },
-    [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeDiagnostics }
+    [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeState },
+    [scriptblock]$PreparedPrivilegeProvider = { Get-FieldOpsLastPreparedPrivilegeState }
 )
 
 Set-StrictMode -Version Latest
@@ -18,15 +19,6 @@ $operatorResolutionModule = Join-Path $scriptDirectory '..\agent\scripts\FieldOp
 $trayLaunchModule = Join-Path $scriptDirectory '..\agent\scripts\FieldOps.TrayLaunch.psm1'
 Import-Module $operatorResolutionModule -Force
 Import-Module $trayLaunchModule -Force
-
-function Get-FieldOpsCallerPrivilegeDiagnostics {
-    $lines = @(& whoami.exe /priv 2>$null)
-    foreach ($privilegeName in @('SeAssignPrimaryTokenPrivilege', 'SeIncreaseQuotaPrivilege')) {
-        $line = $lines | Where-Object { $_ -match "\b$privilegeName\b" } | Select-Object -First 1
-        $state = if ($null -eq $line) { 'not reported' } elseif ($line -match 'Enabled') { 'Enabled' } elseif ($line -match 'Disabled') { 'Disabled' } else { 'Present' }
-        [pscustomobject]@{ Privilege = $privilegeName; State = $state }
-    }
-}
 
 function Resolve-FieldOpsDiagnosticSession {
     param(
@@ -57,6 +49,25 @@ function Write-FieldOpsDiagnosticProcessState {
     }
 }
 
+function Write-FieldOpsPrivilegeState {
+    param([Parameter(Mandatory = $false)]$States)
+
+    $items = @($States)
+    if ($items.Count -eq 0) {
+        Write-Output '  unavailable: privilege preparation did not produce a state result.'
+        return
+    }
+    foreach ($item in $items) {
+        if ($null -eq $item) {
+            Write-Output '  unavailable: privilege preparation did not produce a state result.'
+            continue
+        }
+        try { $name = [string]$item.Name } catch { $name = [string]$item.Privilege }
+        if ([string]::IsNullOrWhiteSpace($name)) { $name = [string]$item.Privilege }
+        Write-Output ('  {0}: {1}' -f $name, $item.State)
+    }
+}
+
 function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
     $trayPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe'
     Write-Output ('Dashboard install path: {0}' -f ([IO.Path]::GetFullPath($InstallPath)))
@@ -76,7 +87,7 @@ function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
     Write-Output ('Target Explorer session ID: {0}' -f $session.SessionId)
     Write-Output ('Target Explorer/source PID: {0}' -f $session.ProcessId)
     Write-Output 'Caller privilege diagnostics (read-only):'
-    & $PrivilegeProvider | ForEach-Object { Write-Output ('  {0}: {1}' -f $_.Privilege, $_.State) }
+    Write-FieldOpsPrivilegeState -States (& $PrivilegeProvider)
 
     $allTrayProcesses = @(& $TrayProcessProvider)
     Write-Output ('Detected FieldOps.Tray instances: {0}' -f $allTrayProcesses.Count)
@@ -93,10 +104,14 @@ function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
 
     try {
         $result = & $LaunchInvoker $trayPath $operator.Account $operator.Sid $TimeoutSeconds
+        Write-Output 'Privilege state after preparation:'
+        Write-FieldOpsPrivilegeState -States (& $PreparedPrivilegeProvider)
         Write-Output ('Diagnostic result: {0}' -f $result.Status)
         Write-Output ('Launched/observed Tray PID: {0}; session {1}; account {2}; SID {3}; path {4}' -f `
             $result.ProcessId, $result.SessionId, $result.Account, $result.Sid, $result.TrayPath)
     } catch {
+        Write-Output 'Privilege state after preparation:'
+        Write-FieldOpsPrivilegeState -States (& $PreparedPrivilegeProvider)
         Write-Output ('Diagnostic result: failure: {0}' -f $_.Exception.Message)
         throw
     }
