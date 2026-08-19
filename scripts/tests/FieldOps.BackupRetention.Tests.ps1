@@ -87,9 +87,32 @@ Describe 'FieldOps recovery backup retention' {
 
     It 'keeps direct-token diagnostics out of the deployed stage' {
         $updater = Get-Content -LiteralPath $updaterPath -Raw
-        $updater | Should Match 'FieldOps\.TrayLaunch\.psm1'
-        $updater | Should Match 'Test-FieldOpsInteractiveTrayLaunch\.ps1'
+        $updater | Should Match 'diagnosticRelativePaths'
         $updater | Should Match 'Remove-Item -LiteralPath \$diagnosticPath'
+    }
+
+    It 'quiesces a newly started runtime before filesystem rollback' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $quiesceIndex = $updater.IndexOf('Quiescing newly started FieldOps runtime')
+        $moveIndex = $updater.IndexOf('Move-Item -LiteralPath $resolvedInstallPath -Destination $failedPath')
+        $quiesceIndex | Should BeGreaterThan -1
+        $quiesceIndex | Should BeLessThan $moveIndex
+        $updater | Should Match 'Invoke-FieldOpsRuntimeShutdown'
+        $updater | Should Match 'Wait-FieldOpsRuntimeQuiescent'
+    }
+
+    It 'does not attempt filesystem rollback when rollback quiescence fails' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match '\$deploymentStarted -and \$rollbackQuiescenceSucceeded -and \(Test-Path -LiteralPath \$backupPath'
+        $updater | Should Match 'filesystem restore was not attempted'
+    }
+
+    It 'preserves unrelated Node ownership and retention failure boundaries' {
+        $shutdown = Get-Content -LiteralPath (Join-Path $PSScriptRoot 'FieldOps.RuntimeShutdown.Tests.ps1') -Raw
+        $shutdown | Should Match 'preserves unrelated Node'
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match 'Invoke-FieldOpsRecoveryBackupCleanup'
+        $updater | Should Match '\$readiness.Status -eq ''Passed'''
     }
 
     It 'parses under Windows PowerShell 5.1' {

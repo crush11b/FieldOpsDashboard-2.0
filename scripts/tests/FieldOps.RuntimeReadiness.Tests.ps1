@@ -69,6 +69,31 @@ Describe 'FieldOps runtime readiness' {
         $result.Status | Should Be 'Passed'
     }
 
+    It 'waits for HTTP after the Dashboard process appears' {
+        $script:httpCalls = 0
+        $delayedHttp = {
+            param($Uri)
+            $script:httpCalls++
+            if ($script:httpCalls -lt 2) { throw 'connection refused while server initializes' }
+            [pscustomobject]@{ StatusCode = 200; Content = ($script:version | ConvertTo-Json) }
+        }
+        $result = Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ProcessProvider $script:dashboardProvider -HttpProvider $delayedHttp -TimeoutSeconds 1 -PollMilliseconds 1
+        $result.Status | Should Be 'Passed'
+        $script:httpCalls | Should BeGreaterThan 1
+    }
+
+    It 'reports process and HTTP state when Dashboard readiness times out' {
+        $result = Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ProcessProvider $script:dashboardProvider -HttpProvider { param($Uri) throw 'still starting' } -TimeoutSeconds 0
+        $result.Status | Should Be 'Failed'
+        $result.Detail | Should Match 'Process: appeared'
+        $result.Detail | Should Match 'Last HTTP state: still starting'
+    }
+
+    It 'uses a 45-second default bounded Dashboard readiness window' {
+        $readiness = Get-Content -LiteralPath $modulePath -Raw
+        $readiness | Should Match '\$TimeoutSeconds = 45'
+    }
+
     It 'fails when Dashboard endpoint times out or returns malformed identity' {
         $timeout = { param($Uri) throw 'connection refused' }
         (Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ProcessProvider $script:dashboardProvider -HttpProvider $timeout -TimeoutSeconds 0).Status | Should Be 'Failed'

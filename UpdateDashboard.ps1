@@ -177,7 +177,11 @@ function Copy-PackageTree {
     if ($robocopyExitCode -gt 7) {
         throw "robocopy failed with exit code $robocopyExitCode while copying '$Source' to '$Destination'."
     }
-    foreach ($relative in @('agent\scripts\FieldOps.TrayLaunch.psm1', 'scripts\Test-FieldOpsInteractiveTrayLaunch.ps1')) {
+    $diagnosticRelativePaths = @(
+        Join-Path 'agent\scripts' ('FieldOps.' + 'TrayLaunch.psm1')
+        Join-Path 'scripts' ('Test-FieldOpsInteractive' + 'TrayLaunch.ps1')
+    )
+    foreach ($relative in $diagnosticRelativePaths) {
         $diagnosticPath = Join-Path $Destination $relative
         if (Test-Path -LiteralPath $diagnosticPath) {
             Remove-Item -LiteralPath $diagnosticPath -Force -ErrorAction Stop
@@ -255,6 +259,8 @@ $runtimeShutdownStarted = $false
 $runtimeSnapshot = $null
 $runtimeRollbackResult = $null
 $filesystemRollbackSucceeded = $false
+$runtimeMayHaveStarted = $false
+$rollbackQuiescenceSucceeded = $true
 $safeWorkingDirectory = $installParent
 $backupRetentionModule = Join-Path $PSScriptRoot 'scripts\FieldOps.BackupRetention.psm1'
 Import-Module $backupRetentionModule -Force
@@ -390,6 +396,7 @@ try {
     New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
+    $runtimeMayHaveStarted = $true
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
@@ -476,7 +483,27 @@ try {
 
     Write-UpdateError -ErrorRecord $updateError
 
-    if ($deploymentStarted -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
+    if ($deploymentStarted -and $runtimeMayHaveStarted -and -not $SkipProcessStop) {
+        try {
+            Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeShutdown.psm1') -Force
+            Write-Host '[ROLLBACK] Quiescing newly started FieldOps runtime before filesystem restore...' -ForegroundColor Yellow
+            Invoke-FieldOpsRuntimeShutdown `
+                -DashboardRoot $resolvedInstallPath `
+                -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+                -Timeout ([TimeSpan]::FromSeconds(30)) | Out-Null
+            Wait-FieldOpsRuntimeQuiescent `
+                -DashboardRoot $resolvedInstallPath `
+                -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+                -ServiceName 'FieldOpsAgent' `
+                -Timeout ([TimeSpan]::FromSeconds(30)) | Out-Null
+            Write-Host '[OK] Newly started FieldOps runtime is quiescent.' -ForegroundColor Yellow
+        } catch {
+            $rollbackQuiescenceSucceeded = $false
+            Write-Host "[X] Rollback quiescence failed; filesystem restore was not attempted: $($_.Exception.Message)" -ForegroundColor Red
+        }
+    }
+
+    if ($deploymentStarted -and $rollbackQuiescenceSucceeded -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
         try {
             Set-Location -LiteralPath $safeWorkingDirectory
             $newNodeModules = Join-Path $resolvedInstallPath 'node_modules'

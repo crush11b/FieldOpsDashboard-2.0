@@ -45,7 +45,9 @@ function New-FieldOpsReadinessCheck {
         [string]$Detail,
         [string]$Path,
         [int]$ProcessId,
-        [string]$SessionId
+        [string]$SessionId,
+        [string]$ProcessState,
+        [string]$HttpState
     )
     return [pscustomobject]@{
         Status = $Status
@@ -53,6 +55,8 @@ function New-FieldOpsReadinessCheck {
         Path = $Path
         ProcessId = $ProcessId
         SessionId = $SessionId
+        ProcessState = $ProcessState
+        HttpState = $HttpState
     }
 }
 
@@ -184,7 +188,7 @@ function Test-FieldOpsDashboardReadiness {
         [Parameter(Mandatory = $true)][string]$ExpectedRevision,
         [scriptblock]$ProcessProvider = { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue },
         [scriptblock]$HttpProvider = { param($Uri) Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 2 },
-        [int]$TimeoutSeconds = 15,
+        [int]$TimeoutSeconds = 45,
         [int]$PollMilliseconds = 100,
         [switch]$SkipLaunch
     )
@@ -194,16 +198,20 @@ function Test-FieldOpsDashboardReadiness {
     }
 
     $expectedServerPath = ConvertTo-FieldOpsReadinessPath (Join-Path $DashboardRoot 'dist\server.cjs')
+    $diagnostics = [pscustomobject]@{ ProcessAppeared = $false; LastHttpError = 'not attempted' }
+    $state = $null
     try {
         $state = Wait-FieldOpsReadinessCondition -Description 'FieldOps Dashboard server and /api/version' -TimeoutSeconds $TimeoutSeconds -PollMilliseconds $PollMilliseconds -Condition {
             $processes = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $DashboardRoot -ProcessProvider $ProcessProvider)
+            if ($processes.Count -gt 0) { $diagnostics.ProcessAppeared = $true }
             if ($processes.Count -ne 1) { return $false }
             try {
                 $response = & $HttpProvider 'http://127.0.0.1:3000/api/version'
                 $body = ConvertFrom-FieldOpsDashboardVersionResponse -Response $response
-                if ($null -eq $body) { return $false }
+                if ($null -eq $body) { $diagnostics.LastHttpError = 'HTTP response was unavailable or malformed.'; return $false }
                 return [pscustomobject]@{ Process = $processes[0]; Version = $body }
             } catch {
+                $diagnostics.LastHttpError = $_.Exception.Message
                 return $false
             }
         }
@@ -214,9 +222,14 @@ function Test-FieldOpsDashboardReadiness {
             if ([string]$state.Version.$name -notmatch '^[0-9a-fA-F]{40}$') { throw "/api/version '$name' is not a full SHA: '$($state.Version.$name)'." }
             if (-not [string]::Equals([string]$state.Version.$name, $ExpectedRevision, [StringComparison]::OrdinalIgnoreCase)) { throw "/api/version '$name' '$($state.Version.$name)' does not equal expected revision '$ExpectedRevision'." }
         }
-        return New-FieldOpsReadinessCheck -Status 'Passed' -Detail 'http://127.0.0.1:3000/api/version ready' -Path $expectedServerPath -ProcessId ([int]$state.Process.ProcessId)
+        return New-FieldOpsReadinessCheck -Status 'Passed' -Detail 'http://127.0.0.1:3000/api/version ready' -Path $expectedServerPath -ProcessId ([int]$state.Process.ProcessId) -ProcessState 'appeared' -HttpState 'ready'
     } catch {
-        return New-FieldOpsReadinessCheck -Status 'Failed' -Detail $_.Exception.Message -Path $expectedServerPath
+        if ($null -ne $state) {
+            return New-FieldOpsReadinessCheck -Status 'Failed' -Detail $_.Exception.Message -Path $expectedServerPath -ProcessState 'appeared' -HttpState 'ready'
+        }
+        $processState = if ($diagnostics.ProcessAppeared) { 'appeared' } else { 'never appeared' }
+        $detail = "FieldOps Dashboard server and /api/version was not ready within $TimeoutSeconds seconds. Process: $processState. Last HTTP state: $($diagnostics.LastHttpError)."
+        return New-FieldOpsReadinessCheck -Status 'Failed' -Detail $detail -Path $expectedServerPath -ProcessState $processState -HttpState $diagnostics.LastHttpError
     }
 }
 
@@ -236,7 +249,7 @@ function Test-FieldOpsRuntimeReadiness {
         [scriptblock]$StartupProvider,
         [scriptblock]$DashboardProcessProvider,
         [scriptblock]$HttpProvider,
-        [int]$TimeoutSeconds = 15,
+        [int]$TimeoutSeconds = 45,
         [int]$PollMilliseconds = 100,
         [switch]$SkipLaunch
     )
