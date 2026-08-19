@@ -28,6 +28,7 @@ $requiredPackageFiles = @(
     'agent\scripts\FieldOps.TrayScheduledLaunch.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
     'scripts\FieldOps.RuntimeShutdown.psm1',
+    'scripts\FieldOps.RuntimeReadiness.psm1',
     'p533-assets\manifest.json'
 )
 $requiredDeploymentFiles = @(
@@ -241,6 +242,7 @@ $backupPath = Join-Path $installParent ".$installName-backup-$transactionId"
 $failedPath = Join-Path $installParent ".$installName-failed-$transactionId"
 $packageRoot = $null
 $deploymentStarted = $false
+$runtimeReadinessFailed = $false
 $safeWorkingDirectory = $installParent
 
 try {
@@ -317,7 +319,7 @@ try {
         Invoke-FieldOpsRuntimeShutdown `
             -DashboardRoot $resolvedInstallPath `
             -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
-            -Timeout ([TimeSpan]::FromSeconds(30))
+            -Timeout ([TimeSpan]::FromSeconds(30)) | Out-Null
     }
     Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
     # Ensure the updater is not running from the directory it is about to move.
@@ -376,7 +378,7 @@ try {
     Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
 
     Import-Module (Join-Path $resolvedInstallPath 'agent\scripts\FieldOps.TrayScheduledLaunch.psm1') -Force
-    Write-Host "[7/8] Starting FieldOps Tray for $OperatorAccount through an interactive scheduled task..." -ForegroundColor Yellow
+    Write-Host "[6/8] Starting FieldOps Tray for $OperatorAccount through an interactive scheduled task..." -ForegroundColor Yellow
     try {
         $trayResult = Start-FieldOpsTrayScheduledLaunch `
             -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
@@ -393,11 +395,48 @@ try {
     Write-Host '[OK] Deployment installed; runtime verification completed with the result above.' -ForegroundColor Green
 
     if (-not $SkipLaunch) {
-        Write-Host '[8/8] Starting production Dashboard Server...' -ForegroundColor Green
+        Write-Host '[7/8] Starting production Dashboard Server...' -ForegroundColor Green
         Set-Location -LiteralPath $resolvedInstallPath
         Start-Process -FilePath 'npm.cmd' -ArgumentList 'start' -WorkingDirectory $resolvedInstallPath
     } else {
-        Write-Host '[5/5] Dashboard launch skipped.' -ForegroundColor Gray
+        Write-Host '[7/8] Dashboard launch skipped.' -ForegroundColor Gray
+    }
+
+    Write-Host '[8/8] Verifying FieldOps runtime...' -ForegroundColor Yellow
+    Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeReadiness.psm1') -Force
+    $readiness = Test-FieldOpsRuntimeReadiness `
+        -DashboardRoot $resolvedInstallPath `
+        -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+        -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
+        -OperatorAccount $OperatorAccount `
+        -OperatorSid $resolvedOperator.Sid `
+        -ExpectedRevision $deploymentRevision `
+        -SkipLaunch:$SkipLaunch
+    if ($readiness.Agent.Status -eq 'Passed') {
+        Write-Host "[OK] Agent: $($readiness.Agent.Detail)" -ForegroundColor Green
+    } else {
+        Write-Host "[X] Agent: $($readiness.Agent.Detail)" -ForegroundColor Red
+    }
+    if ($readiness.Tray.Status -eq 'Passed') {
+        Write-Host "[OK] Tray: $($readiness.Tray.Detail)" -ForegroundColor Green
+    } else {
+        Write-Host "[X] Tray: $($readiness.Tray.Detail)" -ForegroundColor Red
+    }
+    if ($readiness.Dashboard.Status -eq 'Passed') {
+        Write-Host "[OK] Dashboard: $($readiness.Dashboard.Detail)" -ForegroundColor Green
+    } elseif ($readiness.Dashboard.Status -eq 'Skipped') {
+        Write-Host "[!] Dashboard: $($readiness.Dashboard.Detail)" -ForegroundColor Yellow
+    } else {
+        Write-Host "[X] Dashboard: $($readiness.Dashboard.Detail)" -ForegroundColor Red
+    }
+    if ($readiness.Status -eq 'Passed') {
+        Write-Host "[OK] Revision: $($readiness.Revision) source/native match" -ForegroundColor Green
+        Write-Host '[OK] FieldOps Dashboard update complete.' -ForegroundColor Green
+    } else {
+        $runtimeReadinessFailed = $true
+        Write-Host '[!] Installation completed, but runtime readiness verification failed:' -ForegroundColor Yellow
+        foreach ($failure in $readiness.Failures) { Write-Host "    $failure" -ForegroundColor Yellow }
+        throw 'Runtime readiness verification failed after installation.'
     }
 } catch {
     $updateError = $_
@@ -424,7 +463,11 @@ try {
         }
     }
 
-    Write-UpdateError -ErrorRecord $updateError
+    if ($runtimeReadinessFailed) {
+        Write-Host '[!] Installation completed, but runtime readiness verification failed. No rollback was attempted.' -ForegroundColor Yellow
+    } else {
+        Write-UpdateError -ErrorRecord $updateError
+    }
     exit 1
 } finally {
     Set-Location -LiteralPath $safeWorkingDirectory
