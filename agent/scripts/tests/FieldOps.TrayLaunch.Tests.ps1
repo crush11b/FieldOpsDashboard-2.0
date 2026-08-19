@@ -169,6 +169,8 @@ Describe 'FieldOps immediate Tray launch integration' {
     It 'uses explicit process identity APIs rather than the elevated updater token' {
         $module = Get-Content -LiteralPath $modulePath -Raw
         $module | Should Match 'CreateProcessWithTokenW'
+        $module | Should Match 'ProbeSourceToken'
+        $module | Should Match 'ProbeDuplicatedToken'
         $module | Should Match 'DuplicateTokenEx'
         $module | Should Match 'OpenProcessToken'
         $module | Should Not Match 'CreateProcessAsUser|winsta0\\\\default'
@@ -188,5 +190,13 @@ Describe 'FieldOps immediate Tray launch integration' {
         $module.Contains('CloseHandle(primaryToken)') | Should Be $true
         $module.Contains('CloseHandle(sourceToken)') | Should Be $true
         $module.Contains('CloseHandle(process)') | Should Be $true
+    }
+
+    It 'keeps the production Launch path on the duplicated primary token' {
+        $module = Get-Content -LiteralPath $modulePath -Raw
+        $launchBody = $module.Substring($module.IndexOf('public static int Launch('), $module.IndexOf('public static int ProbeSourceToken(') - $module.IndexOf('public static int Launch('))
+        $launchBody | Should Match 'DuplicateTokenEx\(sourceToken'
+        $launchBody | Should Match 'CreateProcessWithTokenW\(primaryToken'
+        $launchBody | Should Not Match 'ProbeSourceToken|ProbeDuplicatedToken'
     }
 }

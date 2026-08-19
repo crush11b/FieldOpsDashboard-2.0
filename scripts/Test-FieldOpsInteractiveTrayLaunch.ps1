@@ -3,16 +3,23 @@ param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
     [string]$OperatorAccount,
     [int]$TimeoutSeconds = 15,
+    [switch]$SourceTokenProbe,
+    [switch]$DuplicateTokenProbe,
     [scriptblock]$OperatorResolver = { param($Account) Resolve-FieldOpsInteractiveOperator -OperatorAccount $Account },
     [scriptblock]$SessionProvider = { Get-FieldOpsInteractiveSessionCandidates },
     [scriptblock]$TrayProcessProvider = { Get-FieldOpsTrayProcessCandidates },
     [scriptblock]$LaunchInvoker = { param($Path, $Account, $Sid, $Timeout) Start-FieldOpsTray -TrayPath $Path -OperatorAccount $Account -OperatorSid $Sid -SessionProvider $SessionProvider -TrayProcessProvider $TrayProcessProvider -TimeoutSeconds $Timeout },
     [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeState },
-    [scriptblock]$TokenInspectionProvider = { param($ProcessId) [FieldOpsDashboard.Deployment.InteractiveProcess]::InspectToken([uint32]$ProcessId) }
+    [scriptblock]$TokenInspectionProvider = { param($ProcessId) [FieldOpsDashboard.Deployment.InteractiveProcess]::InspectToken([uint32]$ProcessId) },
+    [scriptblock]$TokenProbeInvoker = { param($Path, $WorkingDirectory, $SourceProcessId, $UseDuplicate) if ($UseDuplicate) { [FieldOpsDashboard.Deployment.InteractiveProcess]::ProbeDuplicatedToken($Path, $WorkingDirectory, [uint32]$SourceProcessId) } else { [FieldOpsDashboard.Deployment.InteractiveProcess]::ProbeSourceToken($Path, $WorkingDirectory, [uint32]$SourceProcessId) } }
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+
+if ($SourceTokenProbe -and $DuplicateTokenProbe) {
+    throw 'Select only one token probe: -SourceTokenProbe or -DuplicateTokenProbe.'
+}
 
 $scriptDirectory = if ($PSScriptRoot) { $PSScriptRoot } else { Split-Path -Parent $MyInvocation.MyCommand.Path }
 $operatorResolutionModule = Join-Path $scriptDirectory '..\agent\scripts\FieldOps.OperatorResolution.psm1'
@@ -122,6 +129,38 @@ function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
     if ($existing.Count -gt 0) {
         Write-Output 'Diagnostic result: success; the correct Tray is already running. No launch was attempted.'
         return
+    }
+
+    if ($SourceTokenProbe -or $DuplicateTokenProbe) {
+        $useDuplicate = [bool]$DuplicateTokenProbe
+        if ($useDuplicate) {
+            Write-Output 'Token probe: DuplicateTokenEx primary token'
+        } else {
+            Write-Output 'Token probe: Explorer source primary token'
+        }
+        try {
+            $probeProcessId = [int](& $TokenProbeInvoker $trayPath (Split-Path -Parent $trayPath) ([uint32]$session.ProcessId) $useDuplicate)
+            $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+            while ([DateTime]::UtcNow -lt $deadline) {
+                $running = @(& $TrayProcessProvider | Where-Object {
+                    [string]::Equals([string]$_.ExecutablePath, [string]$trayPath, [StringComparison]::OrdinalIgnoreCase) -and
+                    [string]::Equals([string]$_.Sid, [string]$operator.Sid, [StringComparison]::OrdinalIgnoreCase) -and
+                    [int]$_.SessionId -eq [int]$session.SessionId
+                })
+                if ($running.Count -eq 1) {
+                    Write-Output ('CreateProcessWithTokenW result: Running, PID {0}, session {1}' -f $running[0].ProcessId, $running[0].SessionId)
+                    return
+                }
+                if ($running.Count -gt 1) {
+                    throw "Multiple FieldOps Tray instances appeared during the selected token probe."
+                }
+                Start-Sleep -Milliseconds 100
+            }
+            throw "CreateProcessWithTokenW returned PID $probeProcessId, but the Tray did not appear in session $($session.SessionId) within $TimeoutSeconds seconds."
+        } catch {
+            Write-Output ('CreateProcessWithTokenW result: {0}' -f $_.Exception.Message)
+            throw
+        }
     }
 
     try {

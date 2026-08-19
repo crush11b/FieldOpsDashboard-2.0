@@ -18,10 +18,12 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $sessionHolder = [pscustomobject]@{ Value = $script:session }
         $processHolder = [pscustomobject]@{ Value = @() }
         $launchHolder = [pscustomobject]@{ Count = 0 }
+        $probeHolder = [pscustomobject]@{ Count = 0; UseDuplicate = $null }
         $requestedAccountHolder = [pscustomobject]@{ Value = $null }
         $script:operatorHolder = $operatorHolder
         $script:processHolder = $processHolder
         $script:launchHolder = $launchHolder
+        $script:probeHolder = $probeHolder
         $script:requestedAccountHolder = $requestedAccountHolder
         $script:operatorResolver = { param($Account) $requestedAccountHolder.Value = $Account; $operatorHolder.Value }.GetNewClosure()
         $script:sessionProvider = { $sessionHolder.Value }.GetNewClosure()
@@ -39,6 +41,13 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
             GrantedAccessNote = 'injected diagnostic fixture'
         } }
         $script:tokenInspectionProvider = { $tokenInspectionHolder.Value }.GetNewClosure()
+        $script:tokenProbeInvoker = {
+            param($Path, $WorkingDirectory, $SourceProcessId, $UseDuplicate)
+            $probeHolder.Count++
+            $probeHolder.UseDuplicate = [bool]$UseDuplicate
+            $processHolder.Value = @([pscustomobject]@{ Account = $operatorHolder.Value.Account; Sid = $operatorHolder.Value.Sid; SessionId = $sessionHolder.Value.SessionId; ProcessId = 704; ExecutablePath = $Path })
+            return 704
+        }.GetNewClosure()
         $script:originalProgramFiles = $env:ProgramFiles
         $env:ProgramFiles = $TestDrive
         $script:expectedTray = Join-Path $TestDrive 'FieldOpsDashboard\Tray\FieldOps.Tray.exe'
@@ -86,6 +95,31 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $result | Should Match 'Tray PID: 702'
     }
 
+    It 'selects the original Explorer token for the source-token probe without invoking production launch' {
+        $result = Invoke-DiagnosticScript @{ SourceTokenProbe = $true; OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:launcher; TokenProbeInvoker = $script:tokenProbeInvoker; PrivilegeProvider = $script:privileges; TimeoutSeconds = 1 } 2>&1 | Out-String
+
+        $script:probeHolder.Count | Should Be 1
+        $script:probeHolder.UseDuplicate | Should Be $false
+        $script:launchHolder.Count | Should Be 0
+        $result | Should Match 'Token probe: Explorer source primary token'
+        $result | Should Match 'CreateProcessWithTokenW result: Running, PID 704, session'
+    }
+
+    It 'keeps the duplicate-token probe distinct and selectable' {
+        $result = Invoke-DiagnosticScript @{ DuplicateTokenProbe = $true; OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:launcher; TokenProbeInvoker = $script:tokenProbeInvoker; PrivilegeProvider = $script:privileges; TimeoutSeconds = 1 } 2>&1 | Out-String
+
+        $script:probeHolder.Count | Should Be 1
+        $script:probeHolder.UseDuplicate | Should Be $true
+        $script:launchHolder.Count | Should Be 0
+        $result | Should Match 'Token probe: DuplicateTokenEx primary token'
+        $result | Should Match 'CreateProcessWithTokenW result: Running, PID 704, session'
+    }
+
+    It 'preserves exact probe Win32 errors' {
+        $failure = { param($Path, $WorkingDirectory, $SourceProcessId, $UseDuplicate) throw 'CreateProcessWithTokenW failed. Win32 error 5: Access is denied.' }
+        { Invoke-DiagnosticScript @{ SourceTokenProbe = $true; OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; TokenProbeInvoker = $failure; PrivilegeProvider = $script:privileges } } | Should Throw 'CreateProcessWithTokenW failed. Win32 error 5: Access is denied'
+    }
+
     It 'preserves the exact native Win32 error text' {
         $script:failure = { param($Path, $Account, $Sid, $Timeout) throw 'CreateProcessWithTokenW failed. Win32 error 1314: A required privilege is not held by the client.' }
         { Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:failure; PrivilegeProvider = $script:privileges } } | Should Throw 'CreateProcessWithTokenW failed. Win32 error 1314'
@@ -119,6 +153,7 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $diagnostic | Should Match 'DuplicateTokenEx requested access'
         $diagnostic | Should Match 'Granted access diagnostic'
         $diagnostic | Should Match 'Direct source-token CreateProcessWithTokenW probe: not attempted'
+        $diagnostic | Should Match 'SourceTokenProbe|DuplicateTokenProbe'
     }
 
     It 'handles the documented privilege states and native cleanup contract' {

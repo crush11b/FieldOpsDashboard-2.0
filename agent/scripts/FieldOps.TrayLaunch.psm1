@@ -281,6 +281,47 @@ namespace FieldOpsDashboard.Deployment
             }
         }
 
+        public static int ProbeSourceToken(string executablePath, string workingDirectory, uint sourceProcessId)
+        {
+            return Probe(executablePath, workingDirectory, sourceProcessId, false);
+        }
+
+        public static int ProbeDuplicatedToken(string executablePath, string workingDirectory, uint sourceProcessId)
+        {
+            return Probe(executablePath, workingDirectory, sourceProcessId, true);
+        }
+
+        private static int Probe(string executablePath, string workingDirectory, uint sourceProcessId, bool duplicateToken)
+        {
+            var process = OpenProcess(ProcessQueryLimitedInformation, false, sourceProcessId);
+            if (process == IntPtr.Zero) ThrowLastError("OpenProcess");
+            var sourceToken = IntPtr.Zero;
+            var primaryToken = IntPtr.Zero;
+            var processInformation = new ProcessInformation();
+            try
+            {
+                if (!OpenProcessToken(process, SourceTokenAccessMask, out sourceToken)) ThrowLastError("OpenProcessToken");
+                var token = sourceToken;
+                if (duplicateToken)
+                {
+                    if (!DuplicateTokenEx(sourceToken, DuplicateTokenAccessMask, IntPtr.Zero, SecurityImpersonation, TokenPrimary, out primaryToken)) ThrowLastError("DuplicateTokenEx");
+                    token = primaryToken;
+                }
+                var startup = new StartupInfo { cb = (uint)Marshal.SizeOf<StartupInfo>(), desktop = null };
+                var commandLine = new StringBuilder("\"" + executablePath + "\"");
+                if (!CreateProcessWithTokenW(token, 0, executablePath, commandLine, 0, IntPtr.Zero, workingDirectory, ref startup, out processInformation)) ThrowLastError("CreateProcessWithTokenW");
+                return checked((int)processInformation.processId);
+            }
+            finally
+            {
+                if (processInformation.thread != IntPtr.Zero) CloseHandle(processInformation.thread);
+                if (processInformation.process != IntPtr.Zero) CloseHandle(processInformation.process);
+                if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+                if (sourceToken != IntPtr.Zero) CloseHandle(sourceToken);
+                CloseHandle(process);
+            }
+        }
+
         private static TokenSummary ReadTokenSummary(string label, IntPtr token, uint requestedAccessMask)
         {
             var tokenType = ReadUInt32(token, 8, label + ": TokenType");
