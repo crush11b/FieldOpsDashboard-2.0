@@ -24,6 +24,7 @@ $requiredPackageFiles = @(
     'agent\scripts\Install-FieldOpsAgent.ps1',
     'agent\scripts\FieldOps.OperatorProvisioning.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
+    'scripts\FieldOps.RuntimeShutdown.psm1',
     'p533-assets\manifest.json'
 )
 $requiredDeploymentFiles = @(
@@ -188,9 +189,10 @@ function Write-UpdateError {
 function Stop-FieldOpsLauncherWrappers {
     param([Parameter(Mandatory = $true)][string]$InstallRoot)
     $normalizedRoot = ([IO.Path]::GetFullPath($InstallRoot)).TrimEnd('\').ToLowerInvariant()
+    $rootPattern = [regex]::Escape($normalizedRoot) + '(?=[\\/"''\s]|$)'
     $wrappers = @(Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue | Where-Object {
         $commandLine = [string]$_.CommandLine
-        $commandLine -and $commandLine.ToLowerInvariant().Contains($normalizedRoot)
+        $commandLine -and $commandLine -match $rootPattern
     })
     foreach ($wrapper in $wrappers) {
         Stop-Process -Id ([int]$wrapper.ProcessId) -Force -ErrorAction Stop
@@ -198,7 +200,7 @@ function Stop-FieldOpsLauncherWrappers {
     $deadline = [DateTime]::UtcNow.AddSeconds(10)
     while ([DateTime]::UtcNow -lt $deadline) {
         $remaining = @(Get-CimInstance Win32_Process -Filter "Name = 'cmd.exe'" -ErrorAction SilentlyContinue | Where-Object {
-            ([string]$_.CommandLine).ToLowerInvariant().Contains($normalizedRoot)
+            ([string]$_.CommandLine) -match $rootPattern
         })
         if ($remaining.Count -eq 0) { return }
         Start-Sleep -Milliseconds 100
@@ -295,16 +297,29 @@ try {
     Copy-Item -Path (Join-Path $p533RuntimeRoot '*') -Destination $stagedRuntimeRoot -Recurse -Force
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
 
-    Write-Host '[3/5] Stopping dashboard processes...' -ForegroundColor Yellow
-    if (-not $SkipProcessStop) {
-        Get-Process -Name 'node','tsx','npm','vite' -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction Stop
-        Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
+    Write-Host '[3/5] Stopping FieldOps and dashboard processes...' -ForegroundColor Yellow
+    Import-Module (Join-Path $stagePath 'scripts\FieldOps.RuntimeShutdown.psm1') -Force
+    if ($SkipProcessStop) {
+        Write-Warning 'Process shutdown and the activation quiescence gate were skipped by -SkipProcessStop.'
     }
-
+    else {
+        Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
+        Invoke-FieldOpsRuntimeShutdown `
+            -DashboardRoot $resolvedInstallPath `
+            -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+            -Timeout ([TimeSpan]::FromSeconds(30))
+    }
     Write-Host '[4/5] Activating staged deployment...' -ForegroundColor Yellow
     # Ensure the updater is not running from the directory it is about to move.
     Set-Location -LiteralPath $installParent
+    if (-not $SkipProcessStop) {
+        Wait-FieldOpsRuntimeQuiescent `
+            -DashboardRoot $resolvedInstallPath `
+            -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+            -ServiceName 'FieldOpsAgent' `
+            -Timeout ([TimeSpan]::FromSeconds(30))
+    }
+    Remove-Module FieldOps.RuntimeShutdown -Force -ErrorAction SilentlyContinue
     Move-Item -LiteralPath $resolvedInstallPath -Destination $backupPath
     $deploymentStarted = $true
 
