@@ -29,6 +29,7 @@ $requiredPackageFiles = @(
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
     'scripts\FieldOps.RuntimeShutdown.psm1',
     'scripts\FieldOps.RuntimeReadiness.psm1',
+    'scripts\FieldOps.RuntimeRollback.psm1',
     'p533-assets\manifest.json'
 )
 $requiredDeploymentFiles = @(
@@ -243,6 +244,10 @@ $failedPath = Join-Path $installParent ".$installName-failed-$transactionId"
 $packageRoot = $null
 $deploymentStarted = $false
 $runtimeReadinessFailed = $false
+$runtimeShutdownStarted = $false
+$runtimeSnapshot = $null
+$runtimeRollbackResult = $null
+$filesystemRollbackSucceeded = $false
 $safeWorkingDirectory = $installParent
 
 try {
@@ -310,11 +315,19 @@ try {
     Assert-RequiredFiles -Root $stagePath -RequiredFiles $requiredDeploymentFiles -Description 'Staged deployment'
 
     Write-Host '[3/5] Stopping FieldOps and dashboard processes...' -ForegroundColor Yellow
+    Import-Module (Join-Path $stagePath 'scripts\FieldOps.RuntimeRollback.psm1') -Force
+    $runtimeSnapshot = Get-FieldOpsRuntimeSnapshot `
+        -DashboardRoot $resolvedInstallPath `
+        -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+        -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
+        -OperatorAccount $OperatorAccount `
+        -OperatorSid $resolvedOperator.Sid
     Import-Module (Join-Path $stagePath 'scripts\FieldOps.RuntimeShutdown.psm1') -Force
     if ($SkipProcessStop) {
         Write-Warning 'Process shutdown and the activation quiescence gate were skipped by -SkipProcessStop.'
     }
     else {
+        $runtimeShutdownStarted = $true
         Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
         Invoke-FieldOpsRuntimeShutdown `
             -DashboardRoot $resolvedInstallPath `
@@ -329,7 +342,7 @@ try {
             -DashboardRoot $resolvedInstallPath `
             -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
             -ServiceName 'FieldOpsAgent' `
-            -Timeout ([TimeSpan]::FromSeconds(30))
+            -Timeout ([TimeSpan]::FromSeconds(30)) | Out-Null
     }
     Remove-Module FieldOps.RuntimeShutdown -Force -ErrorAction SilentlyContinue
     Move-Item -LiteralPath $resolvedInstallPath -Destination $backupPath
@@ -373,9 +386,6 @@ try {
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
-
-    $deploymentStarted = $false
-    Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
 
     Import-Module (Join-Path $resolvedInstallPath 'agent\scripts\FieldOps.TrayScheduledLaunch.psm1') -Force
     Write-Host "[6/8] Starting FieldOps Tray for $OperatorAccount through an interactive scheduled task..." -ForegroundColor Yellow
@@ -432,14 +442,18 @@ try {
     if ($readiness.Status -eq 'Passed') {
         Write-Host "[OK] Revision: $($readiness.Revision) source/native match" -ForegroundColor Green
         Write-Host '[OK] FieldOps Dashboard update complete.' -ForegroundColor Green
+        $deploymentStarted = $false
     } else {
         $runtimeReadinessFailed = $true
+        $readinessFailureMessage = ($readiness.Failures -join '; ')
         Write-Host '[!] Installation completed, but runtime readiness verification failed:' -ForegroundColor Yellow
         foreach ($failure in $readiness.Failures) { Write-Host "    $failure" -ForegroundColor Yellow }
-        throw 'Runtime readiness verification failed after installation.'
+        throw "Runtime readiness verification failed after installation: $readinessFailureMessage"
     }
 } catch {
     $updateError = $_
+
+    Write-UpdateError -ErrorRecord $updateError
 
     if ($deploymentStarted -and (Test-Path -LiteralPath $backupPath -PathType Container)) {
         try {
@@ -453,6 +467,7 @@ try {
                 Move-Item -LiteralPath $resolvedInstallPath -Destination $failedPath
             }
             Move-Item -LiteralPath $backupPath -Destination $resolvedInstallPath
+            $filesystemRollbackSucceeded = $true
             Write-Host '[OK] Previous installation restored.' -ForegroundColor Yellow
         } catch {
             $lockedPath = if (Test-Path -LiteralPath $resolvedInstallPath) { $resolvedInstallPath } else { $backupPath }
@@ -463,11 +478,32 @@ try {
         }
     }
 
-    if ($runtimeReadinessFailed) {
-        Write-Host '[!] Installation completed, but runtime readiness verification failed. No rollback was attempted.' -ForegroundColor Yellow
-    } else {
-        Write-UpdateError -ErrorRecord $updateError
+    if ($runtimeShutdownStarted -and $null -ne $runtimeSnapshot -and ($filesystemRollbackSucceeded -or -not $deploymentStarted)) {
+        Write-Host '[ROLLBACK] Restoring previous runtime state...' -ForegroundColor Yellow
+        try {
+            Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeRollback.psm1') -Force
+            $runtimeRollbackResult = Restore-FieldOpsRuntimeState `
+                -Snapshot $runtimeSnapshot `
+                -DashboardRoot $resolvedInstallPath `
+                -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
+                -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
+                -ExpectedOperatorAccount $OperatorAccount `
+                -ExpectedOperatorSid $resolvedOperator.Sid `
+                -ExpectedRevision $(if ($null -eq $runtimeSnapshot.Revision) { '' } else { [string]$runtimeSnapshot.Revision.SourceRevision })
+            foreach ($component in @('Agent', 'Tray', 'Dashboard', 'Revision')) {
+                $result = $runtimeRollbackResult.$component
+                $color = if ($result.Status -eq 'Passed') { 'Green' } elseif ($result.Status -eq 'Warning') { 'Yellow' } else { 'Red' }
+                Write-Host "[$(if ($result.Status -eq 'Passed') { 'OK' } else { '!' })] $component restored: $($result.Detail)" -ForegroundColor $color
+            }
+            if ($runtimeRollbackResult.Status -ne 'Passed') {
+                Write-Host '[!] Previous installation restored, but runtime restoration had problems:' -ForegroundColor Yellow
+                foreach ($failure in $runtimeRollbackResult.Failures) { Write-Host "    $failure" -ForegroundColor Yellow }
+            }
+        } catch {
+            Write-Host "[!] Previous installation restored, but runtime restoration failed: $($_.Exception.Message)" -ForegroundColor Yellow
+        }
     }
+    if ($runtimeReadinessFailed) { Write-Host '[!] Installation completed, but runtime readiness verification failed. Rollback was attempted.' -ForegroundColor Yellow }
     exit 1
 } finally {
     Set-Location -LiteralPath $safeWorkingDirectory
