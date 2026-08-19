@@ -48,6 +48,34 @@ Describe 'FieldOps recovery backup retention' {
         (Test-Path -LiteralPath $paths[2]) | Should Be $false
     }
 
+    It 'recognizes and removes the field-shaped current transaction backup' {
+        $currentName = '.FieldOpsDashboard-backup-839aae7291d649738df10e27cf1cbc60'
+        $current = Join-Path $script:parent $currentName
+        New-Item -ItemType Directory -Path $current | Out-Null
+        $historical = @()
+        for ($index = 1; $index -le 3; $index++) {
+            $path = Join-Path $script:parent ('.FieldOpsDashboard-backup-' + ('{0:x32}' -f $index))
+            New-Item -ItemType Directory -Path $path | Out-Null
+            [IO.Directory]::SetLastWriteTimeUtc($path, [DateTime]::UtcNow.AddMinutes(-$index))
+            $historical += $path
+        }
+
+        $backups = @(Get-FieldOpsRecoveryBackups -ParentPath ($script:parent + '\') -InstallName $script:installName)
+        ($backups.Name -contains $currentName) | Should Be $true
+        $result = Invoke-FieldOpsRecoveryBackupCleanup `
+            -ParentPath ($script:parent + '\') `
+            -InstallName $script:installName `
+            -CurrentTransactionBackupPath ($current + '\.') `
+            -CleanupCurrentTransactionBackup
+
+        (Test-Path -LiteralPath $current) | Should Be $false
+        $result.RetainedCount | Should Be 2
+        $result.RemovedCount | Should Be 2
+        (Test-Path -LiteralPath $historical[0]) | Should Be $true
+        (Test-Path -LiteralPath $historical[1]) | Should Be $true
+        (Test-Path -LiteralPath $historical[2]) | Should Be $false
+    }
+
     It 'does not delete active install, stage, download, or failed paths' {
         $backup = Join-Path $script:parent '.FieldOpsDashboard-backup-11111111111111111111111111111111'
         $active = @($backup, (Join-Path $script:parent 'FieldOpsDashboard'), (Join-Path $script:parent '.FieldOpsDashboard-stage-22222222222222222222222222222222'), (Join-Path $script:parent '.FieldOpsDashboard-failed-33333333333333333333333333333333'))

@@ -58,8 +58,9 @@ function Invoke-FieldOpsRecoveryBackupCleanup {
     if ($RetainCount -lt 0) { throw 'RetainCount must not be negative.' }
     $activeExclusions = @($ExcludedPaths) + @($CurrentTransactionBackupPath)
     $candidates = @(Get-FieldOpsRecoveryBackups -ParentPath $ParentPath -InstallName $InstallName -ExcludedPaths $activeExclusions)
+    $canonicalCurrentTransactionBackupPath = ConvertTo-FieldOpsBackupCanonicalPath $CurrentTransactionBackupPath
     $currentCandidates = @(Get-FieldOpsRecoveryBackups -ParentPath $ParentPath -InstallName $InstallName -ExcludedPaths $ExcludedPaths | Where-Object {
-        $_.FullName.Equals($CurrentTransactionBackupPath, [StringComparison]::OrdinalIgnoreCase)
+        (ConvertTo-FieldOpsBackupCanonicalPath $_.FullName).Equals($canonicalCurrentTransactionBackupPath, [StringComparison]::OrdinalIgnoreCase)
     })
     $retained = @($candidates | Select-Object -First $RetainCount)
     $removable = @($candidates | Select-Object -Skip $RetainCount)
