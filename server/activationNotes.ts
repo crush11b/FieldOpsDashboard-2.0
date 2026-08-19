@@ -102,6 +102,13 @@ export function validateActivationNotesCollection(input: unknown): input is Acti
   return normalizeActivationNotesCollection(input).valid;
 }
 
+export function isValidActivationNotesId(input: unknown): input is string {
+  return typeof input === 'string'
+    && input.length > 0
+    && input.length <= ACTIVATION_NOTES_MAX_ID_LENGTH
+    && /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(input);
+}
+
 export function normalizeActivationNotesCollection(input: unknown): ActivationNotesNormalizationResult {
   const issues: string[] = [];
   if (!isRecord(input)) return invalid(['collection must be an object.']);
@@ -165,7 +172,7 @@ function normalizeBoundedString(input: unknown, field: string, maximum: number, 
 function normalizeId(input: unknown, field: string, issues: string[]): string | null {
   if (typeof input !== 'string') { issues.push(`${field} must be a string.`); return null; }
   const value = input.trim();
-  if (!value || value.length > ACTIVATION_NOTES_MAX_ID_LENGTH || !/^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value)) issues.push(`${field} is malformed.`);
+  if (!isValidActivationNotesId(value)) issues.push(`${field} is malformed.`);
   return value || null;
 }
 

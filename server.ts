@@ -43,6 +43,8 @@ import { SmartDeployBriefStore, getDefaultSmartDeployBriefPath } from './server/
 import { createSotaSummitDataRouter } from './server/sotaSummitDataRouter';
 import { getDefaultSotaSummitDatasetPath, SotaSummitDataStore } from './server/sotaSummitDataStore';
 import { SotaActivationTargetResolver } from './server/sotaTargetResolver';
+import { createActivationNotesRouter } from './server/activationNotesApi';
+import { ActivationNotesStore, getDefaultActivationNotesPath } from './server/activationNotesStore';
 
 async function startServer() {
   const app = express();
@@ -70,6 +72,13 @@ async function startServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
+    if (error instanceof SyntaxError && 'body' in error) {
+      response.status(400).json({ kind: 'request_error', code: 'malformed_json', message: 'The request body contains malformed JSON.' });
+      return;
+    }
+    next(error);
+  });
   app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
   app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
@@ -79,6 +88,8 @@ async function startServer() {
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
   const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
+  const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
+  app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
     store: smartDeployBriefStore,
