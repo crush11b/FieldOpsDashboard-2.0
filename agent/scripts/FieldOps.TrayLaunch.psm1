@@ -15,40 +15,6 @@ using System.Text;
 
 namespace FieldOpsDashboard.Deployment
 {
-    public sealed class CallerPrivilegeScope : IDisposable
-    {
-        private readonly IntPtr token;
-        private readonly IntPtr previousState;
-        private readonly uint previousStateLength;
-        private bool restored;
-
-        internal CallerPrivilegeScope(IntPtr token, IntPtr previousState, uint previousStateLength, PrivilegeStatus[] statuses)
-        {
-            this.token = token;
-            this.previousState = previousState;
-            this.previousStateLength = previousStateLength;
-            Statuses = statuses;
-        }
-
-        public PrivilegeStatus[] Statuses { get; private set; }
-
-        public void Dispose()
-        {
-            if (restored) return;
-            restored = true;
-            if (previousState != IntPtr.Zero && previousStateLength > 0)
-            {
-                uint ignored;
-                if (!CallerPrivileges.NativeMethods.AdjustTokenPrivileges(token, false, previousState, previousStateLength, IntPtr.Zero, out ignored))
-                {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), "Restoring caller privileges failed.");
-                }
-            }
-            if (previousState != IntPtr.Zero) Marshal.FreeHGlobal(previousState);
-            if (token != IntPtr.Zero) CallerPrivileges.NativeMethods.CloseHandle(token);
-        }
-    }
-
     public sealed class PrivilegeStatus
     {
         public string Name { get; internal set; }
@@ -58,14 +24,11 @@ namespace FieldOpsDashboard.Deployment
     public static class CallerPrivileges
     {
         private const uint TokenQuery = 0x0008;
-        private const uint TokenAdjustPrivileges = 0x0020;
         private const uint TokenPrivileges = 3;
         private const uint PrivilegeEnabled = 0x00000002;
         private const int ErrorInsufficientBuffer = 122;
-        private const int ErrorNotAllAssigned = 1300;
         private const int EntrySize = 12;
-        private static readonly string[] Names = new[] { "SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege" };
-        public static PrivilegeStatus[] LastPreparedStates { get; private set; }
+        private static readonly string[] Names = new[] { "SeAssignPrimaryTokenPrivilege", "SeIncreaseQuotaPrivilege", "SeImpersonatePrivilege" };
 
         public static PrivilegeStatus[] GetCurrentStates()
         {
@@ -74,93 +37,6 @@ namespace FieldOpsDashboard.Deployment
             {
                 token = OpenCurrentToken(TokenQuery);
                 return ReadStates(token);
-            }
-            finally
-            {
-                if (token != IntPtr.Zero) NativeMethods.CloseHandle(token);
-            }
-        }
-
-        public static CallerPrivilegeScope EnableForCreateProcessAsUser()
-        {
-            IntPtr token = IntPtr.Zero;
-            IntPtr previous = IntPtr.Zero;
-            try
-            {
-                token = OpenCurrentToken(TokenQuery | TokenAdjustPrivileges);
-                var before = ReadStates(token);
-                var present = new System.Collections.Generic.List<int>();
-                var luids = new Luid[Names.Length];
-                for (var index = 0; index < Names.Length; index++)
-                {
-                    if (!NativeMethods.LookupPrivilegeValue(null, Names[index], out luids[index]))
-                    {
-                        throw LastError("LookupPrivilegeValue(" + Names[index] + ")");
-                    }
-                    if (before[index].State != "NotAssigned") present.Add(index);
-                }
-
-                var required = before[1];
-                if (required.State == "NotAssigned")
-                {
-                    throw new InvalidOperationException("SeIncreaseQuotaPrivilege is not assigned to the current process token.");
-                }
-
-                var count = present.Count;
-                var newStateLength = checked(4 + (EntrySize * count));
-                var newState = Marshal.AllocHGlobal(newStateLength);
-                previous = Marshal.AllocHGlobal(newStateLength);
-                var adjusted = false;
-                uint previousLength = 0;
-                try
-                {
-                    Marshal.WriteInt32(newState, count);
-                    for (var item = 0; item < count; item++)
-                    {
-                        var privilegeIndex = present[item];
-                        Marshal.StructureToPtr(luids[privilegeIndex], IntPtr.Add(newState, 4 + (item * EntrySize)), false);
-                        Marshal.WriteInt32(IntPtr.Add(newState, 4 + (item * EntrySize) + 8), (int)PrivilegeEnabled);
-                    }
-
-                    uint returnLength;
-                    adjusted = NativeMethods.AdjustTokenPrivileges(token, false, newState, (uint)newStateLength, previous, out returnLength);
-                    previousLength = returnLength;
-                    var adjustError = Marshal.GetLastWin32Error();
-                    if (!adjusted) throw new Win32Exception(adjustError, "AdjustTokenPrivileges failed. Win32 error " + adjustError + ".");
-                    if (adjustError == ErrorNotAllAssigned)
-                    {
-                        throw new InvalidOperationException("AdjustTokenPrivileges failed. Win32 error 1300: Not all requested privileges are assigned to the current process token.");
-                    }
-
-                    var after = ReadStates(token);
-                    if (after[1].State != "Enabled")
-                    {
-                        throw new InvalidOperationException("SeIncreaseQuotaPrivilege could not be enabled on the current process token.");
-                    }
-                    LastPreparedStates = after;
-                    var scope = new CallerPrivilegeScope(token, previous, returnLength, after);
-                    token = IntPtr.Zero;
-                    previous = IntPtr.Zero;
-                    return scope;
-                }
-                catch
-                {
-                    if (adjusted && previousLength > 0)
-                    {
-                        uint ignored;
-                        NativeMethods.AdjustTokenPrivileges(token, false, previous, previousLength, IntPtr.Zero, out ignored);
-                    }
-                    throw;
-                }
-                finally
-                {
-                    Marshal.FreeHGlobal(newState);
-                }
-            }
-            catch
-            {
-                if (previous != IntPtr.Zero) Marshal.FreeHGlobal(previous);
-                throw;
             }
             finally
             {
@@ -230,7 +106,6 @@ namespace FieldOpsDashboard.Deployment
             [DllImport("kernel32.dll", SetLastError = true)] public static extern bool CloseHandle(IntPtr handle);
             [DllImport("advapi32.dll", SetLastError = true)] public static extern bool OpenProcessToken(IntPtr process, uint access, out IntPtr token);
             [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)] public static extern bool LookupPrivilegeValue(string systemName, string name, out Luid luid);
-            [DllImport("advapi32.dll", SetLastError = true)] public static extern bool AdjustTokenPrivileges(IntPtr token, bool disableAll, IntPtr newState, uint bufferLength, IntPtr previousState, out uint returnLength);
             [DllImport("advapi32.dll", SetLastError = true)] public static extern bool GetTokenInformation(IntPtr token, uint informationClass, IntPtr information, uint length, out uint returnLength);
         }
     }
@@ -243,7 +118,6 @@ namespace FieldOpsDashboard.Deployment
         private const uint TokenQuery = 0x0008;
         private const uint SecurityImpersonation = 2;
         private const uint TokenPrimary = 1;
-        private const uint CreateUnicodeEnvironment = 0x00000400;
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct StartupInfo
@@ -293,13 +167,11 @@ namespace FieldOpsDashboard.Deployment
             out IntPtr duplicateToken);
 
         [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
-        private static extern bool CreateProcessAsUser(
+        private static extern bool CreateProcessWithTokenW(
             IntPtr token,
+            uint logonFlags,
             string applicationName,
             StringBuilder commandLine,
-            IntPtr processAttributes,
-            IntPtr threadAttributes,
-            bool inheritHandles,
             uint creationFlags,
             IntPtr environment,
             string currentDirectory,
@@ -321,12 +193,9 @@ namespace FieldOpsDashboard.Deployment
                 var tokenAccess = TokenAssignPrimary | TokenDuplicate | TokenQuery;
                 if (!OpenProcessToken(process, tokenAccess, out sourceToken)) ThrowLastError("OpenProcessToken");
                 if (!DuplicateTokenEx(sourceToken, tokenAccess, IntPtr.Zero, SecurityImpersonation, TokenPrimary, out primaryToken)) ThrowLastError("DuplicateTokenEx");
-                var startup = new StartupInfo { cb = (uint)Marshal.SizeOf<StartupInfo>(), desktop = "winsta0\\default" };
+                var startup = new StartupInfo { cb = (uint)Marshal.SizeOf<StartupInfo>(), desktop = null };
                 var commandLine = new StringBuilder("\"" + executablePath + "\"");
-                using (var callerPrivileges = CallerPrivileges.EnableForCreateProcessAsUser())
-                {
-                    if (!CreateProcessAsUser(primaryToken, executablePath, commandLine, IntPtr.Zero, IntPtr.Zero, false, CreateUnicodeEnvironment, IntPtr.Zero, workingDirectory, ref startup, out processInformation)) ThrowLastError("CreateProcessAsUser");
-                }
+                if (!CreateProcessWithTokenW(primaryToken, 0, executablePath, commandLine, 0, IntPtr.Zero, workingDirectory, ref startup, out processInformation)) ThrowLastError("CreateProcessWithTokenW");
                 return checked((int)processInformation.processId);
             }
             finally
@@ -382,10 +251,6 @@ function Get-FieldOpsInteractiveSessionCandidates {
 
 function Get-FieldOpsCallerPrivilegeState {
     return [FieldOpsDashboard.Deployment.CallerPrivileges]::GetCurrentStates()
-}
-
-function Get-FieldOpsLastPreparedPrivilegeState {
-    return [FieldOpsDashboard.Deployment.CallerPrivileges]::LastPreparedStates
 }
 
 function Get-FieldOpsTrayProcessCandidates {
@@ -449,6 +314,10 @@ function Start-FieldOpsTray {
         throw "Operator '$OperatorAccount' (SID $OperatorSid) has multiple active interactive sessions."
     }
     $session = $sessions[0]
+    $callerSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    if ($callerSessionId -ne [int]$session.SessionId) {
+        throw "Resolved operator '$OperatorAccount' is in interactive session $($session.SessionId), but the caller is in session $callerSessionId. This single-operator deployment path does not support cross-session Tray launch."
+    }
 
     $existing = @(& $TrayProcessProvider | Where-Object {
         [string]::Equals([string]$_.ExecutablePath, $resolvedTrayPath, [StringComparison]::OrdinalIgnoreCase) -and
@@ -482,4 +351,4 @@ function Start-FieldOpsTray {
     throw "FieldOps Tray launch was accepted as PID $launchedProcessId, but it did not appear for '$OperatorAccount' in interactive session $($session.SessionId) within $TimeoutSeconds seconds."
 }
 
-Export-ModuleMember -Function Get-FieldOpsCallerPrivilegeState, Get-FieldOpsLastPreparedPrivilegeState, Get-FieldOpsInteractiveSessionCandidates, Get-FieldOpsTrayProcessCandidates, Start-FieldOpsTray
+Export-ModuleMember -Function Get-FieldOpsCallerPrivilegeState, Get-FieldOpsInteractiveSessionCandidates, Get-FieldOpsTrayProcessCandidates, Start-FieldOpsTray

@@ -7,8 +7,7 @@ param(
     [scriptblock]$SessionProvider = { Get-FieldOpsInteractiveSessionCandidates },
     [scriptblock]$TrayProcessProvider = { Get-FieldOpsTrayProcessCandidates },
     [scriptblock]$LaunchInvoker = { param($Path, $Account, $Sid, $Timeout) Start-FieldOpsTray -TrayPath $Path -OperatorAccount $Account -OperatorSid $Sid -SessionProvider $SessionProvider -TrayProcessProvider $TrayProcessProvider -TimeoutSeconds $Timeout },
-    [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeState },
-    [scriptblock]$PreparedPrivilegeProvider = { Get-FieldOpsLastPreparedPrivilegeState }
+    [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeState }
 )
 
 Set-StrictMode -Version Latest
@@ -84,8 +83,13 @@ function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
 
     $session = Resolve-FieldOpsDiagnosticSession -Operator $operator -Provider $SessionProvider
     Write-Output ('Diagnostic PowerShell session ID: {0}' -f ([Diagnostics.Process]::GetCurrentProcess().SessionId))
+    Write-Output 'Launch API: CreateProcessWithTokenW'
     Write-Output ('Target Explorer session ID: {0}' -f $session.SessionId)
     Write-Output ('Target Explorer/source PID: {0}' -f $session.ProcessId)
+    $callerSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    if ($callerSessionId -ne [int]$session.SessionId) {
+        throw "Resolved operator '$($operator.Account)' is in interactive session $($session.SessionId), but the diagnostic caller is in session $callerSessionId. This single-operator deployment path does not support cross-session Tray launch."
+    }
     Write-Output 'Caller privilege diagnostics (read-only):'
     Write-FieldOpsPrivilegeState -States (& $PrivilegeProvider)
 
@@ -104,14 +108,14 @@ function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
 
     try {
         $result = & $LaunchInvoker $trayPath $operator.Account $operator.Sid $TimeoutSeconds
-        Write-Output 'Privilege state after preparation:'
-        Write-FieldOpsPrivilegeState -States (& $PreparedPrivilegeProvider)
+        Write-Output 'Caller privilege state after launch (read-only):'
+        Write-FieldOpsPrivilegeState -States (& $PrivilegeProvider)
         Write-Output ('Diagnostic result: {0}' -f $result.Status)
         Write-Output ('Launched/observed Tray PID: {0}; session {1}; account {2}; SID {3}; path {4}' -f `
             $result.ProcessId, $result.SessionId, $result.Account, $result.Sid, $result.TrayPath)
     } catch {
-        Write-Output 'Privilege state after preparation:'
-        Write-FieldOpsPrivilegeState -States (& $PreparedPrivilegeProvider)
+        Write-Output 'Caller privilege state after launch attempt (read-only):'
+        Write-FieldOpsPrivilegeState -States (& $PrivilegeProvider)
         Write-Output ('Diagnostic result: failure: {0}' -f $_.Exception.Message)
         throw
     }

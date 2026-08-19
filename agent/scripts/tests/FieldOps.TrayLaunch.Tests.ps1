@@ -11,7 +11,7 @@ Describe 'FieldOps immediate Tray launch' {
         New-Item -ItemType File -Path $script:trayPath -Force | Out-Null
         $script:operator = 'DESKTOP-88DQ68K\stick'
         $script:sid = 'S-1-5-21-100-200-300-1001'
-        $script:session = [pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = 1; ProcessId = 401 }
+        $script:session = [pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; ProcessId = 401 }
         $script:processes = @()
         $script:launchCount = 0
         $script:launcher = {
@@ -29,7 +29,7 @@ Describe 'FieldOps immediate Tray launch' {
             -SessionProvider $script:sessionProvider -TrayProcessProvider $script:processProvider -ProcessLauncher $script:launcher
 
         $result.Status | Should Be 'Running'
-        $result.SessionId | Should Be 1
+        $result.SessionId | Should Be ([Diagnostics.Process]::GetCurrentProcess().SessionId)
         $result.Sid | Should Be $script:sid
         $script:launchCount | Should Be 1
     }
@@ -53,7 +53,7 @@ Describe 'FieldOps immediate Tray launch' {
     }
 
     It 'treats the correct existing Tray as satisfied' {
-        $script:processes = @([pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = 1; ProcessId = 601; ExecutablePath = $script:trayPath })
+        $script:processes = @([pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; ProcessId = 601; ExecutablePath = $script:trayPath })
 
         $result = Start-FieldOpsTray -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
             -SessionProvider $script:sessionProvider -TrayProcessProvider $script:processProvider -ProcessLauncher $script:launcher
@@ -80,6 +80,16 @@ Describe 'FieldOps immediate Tray launch' {
         { Start-FieldOpsTray -TrayPath (Join-Path $script:trayRoot 'missing.exe') -OperatorAccount $script:operator -OperatorSid $script:sid `
             -SessionProvider $script:sessionProvider -TrayProcessProvider $script:processProvider -ProcessLauncher $script:launcher } |
             Should Throw 'Cannot find path'
+    }
+
+    It 'rejects a cross-session launch before invoking the launcher' {
+        $crossSession = { [pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = ([Diagnostics.Process]::GetCurrentProcess().SessionId + 1); ProcessId = 402 } }
+        $launcher = { param($Session, $Path) $script:launchCount++; return 505 }
+
+        { Start-FieldOpsTray -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -SessionProvider $crossSession -TrayProcessProvider $script:processProvider -ProcessLauncher $launcher } |
+            Should Throw 'does not support cross-session Tray launch'
+        $script:launchCount | Should Be 0
     }
 
     It 'reports a bounded failure when the launched Tray never appears' {
@@ -134,11 +144,11 @@ Describe 'FieldOps immediate Tray launch integration' {
     It 'preserves the native Win32 error code and message in diagnostics' {
         $powershell = Get-Command powershell.exe -ErrorAction Stop
         $module = (Resolve-Path $modulePath).Path
-        $command = "Import-Module -Name '$module' -Force; [FieldOpsDashboard.Deployment.InteractiveProcess]::FormatWin32Error(1314, 'CreateProcessAsUser')"
+        $command = "Import-Module -Name '$module' -Force; [FieldOpsDashboard.Deployment.InteractiveProcess]::FormatWin32Error(1314, 'CreateProcessWithTokenW')"
         $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
         $diagnostic = (& $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1) -join "`n"
 
-        $diagnostic | Should Match '^CreateProcessAsUser failed\. Win32 error 1314:'
+        $diagnostic | Should Match '^CreateProcessWithTokenW failed\. Win32 error 1314:'
         $diagnostic | Should Match 'A required privilege is not held by the client'
     }
 
@@ -153,10 +163,10 @@ Describe 'FieldOps immediate Tray launch integration' {
 
     It 'uses explicit process identity APIs rather than the elevated updater token' {
         $module = Get-Content -LiteralPath $modulePath -Raw
-        $module | Should Match 'CreateProcessAsUser'
+        $module | Should Match 'CreateProcessWithTokenW'
         $module | Should Match 'DuplicateTokenEx'
         $module | Should Match 'OpenProcessToken'
-        $module | Should Match 'winsta0\\\\default'
+        $module | Should Not Match 'CreateProcessAsUser|winsta0\\\\default'
         $module | Should Not Match 'Start-Process'
     }
 
@@ -166,7 +176,7 @@ Describe 'FieldOps immediate Tray launch integration' {
         $module.Contains('TokenDuplicate = 0x0002') | Should Be $true
         $module.Contains('TokenQuery = 0x0008') | Should Be $true
         $module.Contains('TokenAssignPrimary | TokenDuplicate | TokenQuery') | Should Be $true
-        $module.Contains('false, CreateUnicodeEnvironment, IntPtr.Zero') | Should Be $true
+        $module.Contains('CreateProcessWithTokenW(primaryToken, 0, executablePath, commandLine, 0, IntPtr.Zero') | Should Be $true
         $module.Contains('finally') | Should Be $true
         $module.Contains('CloseHandle(processInformation.thread)') | Should Be $true
         $module.Contains('CloseHandle(processInformation.process)') | Should Be $true

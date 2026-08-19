@@ -10,7 +10,7 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $script:trayPath = Join-Path $TestDrive 'FieldOps.Tray.exe'
         New-Item -ItemType File -Path $script:trayPath -Force | Out-Null
         $script:operator = [pscustomobject]@{ Account = 'DESKTOP-88DQ68K\stick'; Sid = 'S-1-5-21-100-200-300-1001'; Source = 'interactive' }
-        $script:session = [pscustomobject]@{ Account = $script:operator.Account; Sid = $script:operator.Sid; SessionId = 7; ProcessId = 701 }
+        $script:session = [pscustomobject]@{ Account = $script:operator.Account; Sid = $script:operator.Sid; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; ProcessId = 701 }
         $operatorHolder = [pscustomobject]@{ Value = $script:operator }
         $sessionHolder = [pscustomobject]@{ Value = $script:session }
         $processHolder = [pscustomobject]@{ Value = @() }
@@ -26,9 +26,9 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $script:launcher = {
             param($Path, $Account, $Sid, $Timeout)
             $launchHolder.Count++
-            [pscustomobject]@{ Status = 'Running'; ProcessId = 702; SessionId = 7; Account = $Account; Sid = $Sid; TrayPath = $Path }
+            [pscustomobject]@{ Status = 'Running'; ProcessId = 702; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; Account = $Account; Sid = $Sid; TrayPath = $Path }
         }.GetNewClosure()
-        $script:privileges = { @([pscustomobject]@{ Privilege = 'SeAssignPrimaryTokenPrivilege'; State = 'Disabled' }, [pscustomobject]@{ Privilege = 'SeIncreaseQuotaPrivilege'; State = 'Disabled' }) }
+        $script:privileges = { @([pscustomobject]@{ Privilege = 'SeAssignPrimaryTokenPrivilege'; State = 'Disabled' }, [pscustomobject]@{ Privilege = 'SeIncreaseQuotaPrivilege'; State = 'Disabled' }, [pscustomobject]@{ Privilege = 'SeImpersonatePrivilege'; State = 'Enabled' }) }
         $script:originalProgramFiles = $env:ProgramFiles
         $env:ProgramFiles = $TestDrive
         $script:expectedTray = Join-Path $TestDrive 'FieldOpsDashboard\Tray\FieldOps.Tray.exe'
@@ -45,8 +45,10 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $result = Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:launcher; PrivilegeProvider = $script:privileges; TimeoutSeconds = 1 } 2>&1 | Out-String
         $script:requestedAccountHolder.Value | Should BeNullOrEmpty
         $result | Should Match 'FieldOps operator: DESKTOP-88DQ68K\\stick'
-        $result | Should Match 'Target Explorer session ID: 7'
+        $result | Should Match ('Target Explorer session ID: ' + [Diagnostics.Process]::GetCurrentProcess().SessionId)
         $result | Should Match 'Target Explorer/source PID: 701'
+        $result | Should Match 'Launch API: CreateProcessWithTokenW'
+        $result | Should Match 'SeImpersonatePrivilege: Enabled'
     }
 
     It 'reuses an explicit operator override' {
@@ -60,7 +62,7 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
     }
 
     It 'reports a correct existing Tray without launching' {
-        $script:processHolder.Value = @([pscustomobject]@{ Account = $script:operator.Account; Sid = $script:operator.Sid; SessionId = 7; ProcessId = 703; ExecutablePath = $script:expectedTray })
+        $script:processHolder.Value = @([pscustomobject]@{ Account = $script:operator.Account; Sid = $script:operator.Sid; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; ProcessId = 703; ExecutablePath = $script:expectedTray })
         $result = Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:launcher; PrivilegeProvider = $script:privileges } 2>&1 | Out-String
         $script:launchHolder.Count | Should Be 0
         $result | Should Match 'PID 703'
@@ -75,18 +77,17 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
     }
 
     It 'preserves the exact native Win32 error text' {
-        $script:failure = { param($Path, $Account, $Sid, $Timeout) throw 'CreateProcessAsUser failed. Win32 error 1314: A required privilege is not held by the client.' }
-        { Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:failure; PrivilegeProvider = $script:privileges } } | Should Throw 'CreateProcessAsUser failed. Win32 error 1314'
+        $script:failure = { param($Path, $Account, $Sid, $Timeout) throw 'CreateProcessWithTokenW failed. Win32 error 1314: A required privilege is not held by the client.' }
+        { Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:failure; PrivilegeProvider = $script:privileges } } | Should Throw 'CreateProcessWithTokenW failed. Win32 error 1314'
     }
 
-    It 'uses the production privilege preparation and reports before and after state' {
+    It 'uses read-only privilege diagnostics and reports the selected launch API' {
         $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\FieldOps.TrayLaunch.psm1') -Raw
         $diagnostic = Get-Content -LiteralPath $scriptPath -Raw
-        $source | Should Match 'EnableForCreateProcessAsUser'
         $source | Should Match 'Get-FieldOpsCallerPrivilegeState'
-        $source | Should Match 'Get-FieldOpsLastPreparedPrivilegeState'
-        $diagnostic | Should Match 'Privilege state after preparation'
-        $diagnostic | Should Match 'PreparedPrivilegeProvider'
+        $source | Should Not Match 'EnableForCreateProcessAsUser|AdjustTokenPrivileges|CreateProcessAsUser'
+        $diagnostic | Should Match 'Launch API: CreateProcessWithTokenW'
+        $diagnostic | Should Match 'Caller privilege state after launch'
     }
 
     It 'handles the documented privilege states and native cleanup contract' {
@@ -95,12 +96,9 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $source | Should Match 'SeIncreaseQuotaPrivilege'
         $source | Should Match 'State = "NotAssigned"'
         $source | Should Match 'State = .*Enabled.*Disabled'
-        $source | Should Match 'ERROR_NOT_ALL_ASSIGNED|ErrorNotAllAssigned'
-        $source | Should Match 'TOKEN_ADJUST_PRIVILEGES|TokenAdjustPrivileges'
-        $source | Should Match 'AdjustTokenPrivileges'
+        $source | Should Match 'SeImpersonatePrivilege'
+        $source | Should Not Match 'TOKEN_ADJUST_PRIVILEGES|TokenAdjustPrivileges|AdjustTokenPrivileges'
         $source | Should Match 'CloseHandle'
-        $source | Should Match 'FreeHGlobal'
-        $source | Should Match 'previousState'
     }
 
     It 'does not contain updater, install, service, or process shutdown calls' {
