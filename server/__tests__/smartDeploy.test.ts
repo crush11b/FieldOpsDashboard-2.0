@@ -4,6 +4,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { MissionEvidence } from '../missionEvidence';
 import type { MissionWindowPropagationResult } from '../missionWindowPropagation';
 import { PotaActivationTargetResolver } from '../potaTargetResolver';
+import { LocalSotaSummitDataset, parseSotaSummitCsv } from '../sotaSummitDataset';
+import { SotaActivationTargetResolver } from '../sotaTargetResolver';
 import { createSmartDeployRouter, SmartDeployService } from '../smartDeploy';
 import type { SmartDeployBrief } from '../smartDeployBrief';
 import type { SmartDeployBriefStore } from '../smartDeployBriefStore';
@@ -74,11 +76,31 @@ describe('SmartDeploy orchestration', () => {
     expect(targetResolver.resolve).toHaveBeenCalledWith({ program: 'POTA', reference: 'us-1234' });
   });
 
+  it('resolves a SOTA request from the local dataset before the existing planning path', async () => {
+    const parsed = parseSotaSummitCsv('SummitCode,AssociationName,RegionName,SummitName,AltM,AltFt,GridRef1,GridRef2,Longitude,Latitude,Points,BonusPoints,ValidFrom,ValidTo,ActivationCount,ActivationDate,ActivationCall\nW4V/SH-001,USA,Virginia,High Knob,1287,4222,18S,18S,-82.1234,37.4567,10,3,01/01/2020,31/12/2099,0,,');
+    if (parsed.status !== 'valid') throw new Error('SOTA integration fixture should parse.');
+    const sotaResolver = new SotaActivationTargetResolver(new LocalSotaSummitDataset(parsed.records, {
+      sourceVersion: '19/08/2026', downloadedAtUtc: '2026-08-19T12:00:00.000Z', stale: false,
+      sourceId: 'sota-summit-database', sourceName: 'Official Summits on the Air summit database', sourceUrl: 'https://www.sotadata.org.uk/summitslist.csv',
+    }));
+    const propagate = vi.fn(async value => {
+      expect(value.planningRequest.activationTarget).toMatchObject({ program: 'SOTA', reference: 'W4V/SH-001', coordinates: { lat: 37.4567, lon: -82.1234 } });
+      return propagation;
+    });
+      const result = await service({ sotaResolver, propagate }).generateBrief(request({
+      targetRequest: { program: 'SOTA', reference: 'w4v/sh-001' },
+      potaReference: undefined,
+        plannedOperatingLocation: undefined,
+    }));
+    expect(result).toMatchObject({ kind: 'smartdeploy_generation', sota: { status: 'cached', reference: 'W4V/SH-001' }, brief });
+    expect(propagate).toHaveBeenCalledOnce();
+  });
+
   it('rejects unsupported target programs before resolver or evidence activity', async () => {
     const targetResolver = resolver('live');
     const propagate = vi.fn();
     const result = await service({ resolver: targetResolver, propagate }).generateBrief(request({
-      targetRequest: { program: 'SOTA', reference: 'W4V/SH-001' },
+      targetRequest: { program: 'WWFF', reference: 'K-1234' },
       potaReference: undefined,
     }));
     expect(result).toMatchObject({ kind: 'smartdeploy_error', code: 'unsupported_target_program' });
