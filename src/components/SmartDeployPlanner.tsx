@@ -89,7 +89,7 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
     } catch { setError('SmartDeploy generation could not reach the local server.'); } finally { setBusy(false); }
   };
 
-  const loadBrief = async (id: string) => { setError(null); try { const response = await fetch(`/api/smartdeploy/briefs/${encodeURIComponent(id)}`); const payload = await response.json(); if (!response.ok) throw new Error(payload.message || 'Stored brief could not be loaded.'); setBrief(payload.brief as SmartDeployBrief); } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Stored brief could not be loaded.'); } };
+  const loadBrief = async (id: string) => { setError(null); setBrief(null); try { const response = await fetch(`/api/smartdeploy/briefs/${encodeURIComponent(id)}`); const payload = await response.json(); if (!response.ok) throw new Error(payload.message || 'Stored brief could not be loaded.'); setBrief(payload.brief as SmartDeployBrief); } catch (loadError) { setError(loadError instanceof Error ? loadError.message : 'Stored brief could not be loaded.'); } };
   const deleteBrief = async (id: string) => { setError(null); try { const response = await fetch(`/api/smartdeploy/briefs/${encodeURIComponent(id)}`, { method: 'DELETE' }); if (!response.ok) throw new Error('Stored brief could not be deleted.'); if (brief?.briefId === id) setBrief(null); await loadRecent(); } catch { setError('Stored brief could not be deleted.'); } };
   const toggleMode = (mode: string) => setModes(current => current.includes(mode) ? current.filter(item => item !== mode) : [...current, mode]);
   const setDeployment = (geometry: DeploymentGeometry) => {
