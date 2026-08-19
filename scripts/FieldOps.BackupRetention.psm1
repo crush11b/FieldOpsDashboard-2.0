@@ -3,7 +3,24 @@ $ErrorActionPreference = 'Stop'
 
 function ConvertTo-FieldOpsBackupCanonicalPath {
     param([Parameter(Mandatory = $true)][string]$Path)
-    return ([IO.Path]::GetFullPath($Path)).TrimEnd('\', '/')
+    $fullPath = [IO.Path]::GetFullPath($Path)
+    $pathRoot = [IO.Path]::GetPathRoot($fullPath)
+    if ([string]::Equals($fullPath, $pathRoot, [StringComparison]::OrdinalIgnoreCase)) {
+        return $pathRoot
+    }
+    return $fullPath.TrimEnd('\', '/')
+}
+
+function Test-FieldOpsBackupPathWithinParent {
+    param(
+        [Parameter(Mandatory = $true)][string]$ChildPath,
+        [Parameter(Mandatory = $true)][string]$ParentPath
+    )
+
+    if ([string]::Equals($ParentPath, [IO.Path]::GetPathRoot($ParentPath), [StringComparison]::OrdinalIgnoreCase)) {
+        return $ChildPath.StartsWith($ParentPath, [StringComparison]::OrdinalIgnoreCase)
+    }
+    return $ChildPath.StartsWith($ParentPath + [IO.Path]::DirectorySeparatorChar, [StringComparison]::OrdinalIgnoreCase)
 }
 
 function Test-FieldOpsBackupPathExcluded {
@@ -27,15 +44,17 @@ function Get-FieldOpsRecoveryBackups {
     param(
         [Parameter(Mandatory = $true)][string]$ParentPath,
         [Parameter(Mandatory = $true)][string]$InstallName,
-        [string[]]$ExcludedPaths
+        [string[]]$ExcludedPaths,
+        [scriptblock]$ChildItemProvider = { param($Path) Get-ChildItem -LiteralPath $Path -Force -Directory -ErrorAction SilentlyContinue }
     )
 
     $parent = ConvertTo-FieldOpsBackupCanonicalPath $ParentPath
     $pattern = '^\.' + [regex]::Escape($InstallName) + '-backup-(?:[0-9a-fA-F]{32}|[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})$'
     $backups = @()
-    foreach ($candidate in @(Get-ChildItem -LiteralPath $parent -Force -Directory -ErrorAction SilentlyContinue)) {
+    foreach ($candidate in @(& $ChildItemProvider $parent)) {
         if ($candidate.Name -notmatch $pattern) { continue }
-        if (([IO.Path]::GetFullPath($candidate.FullName)).TrimEnd('\', '/') -notlike "$parent\*") { continue }
+        $candidatePath = ConvertTo-FieldOpsBackupCanonicalPath $candidate.FullName
+        if (-not (Test-FieldOpsBackupPathWithinParent -ChildPath $candidatePath -ParentPath $parent)) { continue }
         if (($candidate.Attributes -band [IO.FileAttributes]::ReparsePoint) -ne 0) { continue }
         if (Test-FieldOpsBackupPathExcluded -Path $candidate.FullName -ExcludedPaths $ExcludedPaths) { continue }
         $backups += $candidate

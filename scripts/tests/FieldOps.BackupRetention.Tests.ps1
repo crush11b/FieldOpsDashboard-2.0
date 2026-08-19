@@ -17,6 +17,37 @@ Describe 'FieldOps recovery backup retention' {
         (Get-FieldOpsRecoveryBackups -ParentPath $script:parent -InstallName $script:installName).Count | Should Be 1
     }
 
+    It 'preserves filesystem root canonicalization and root child boundaries' {
+        InModuleScope FieldOps.BackupRetention {
+            $root = ConvertTo-FieldOpsBackupCanonicalPath 'C:\'
+            $root | Should Be 'C:\'
+            (ConvertTo-FieldOpsBackupCanonicalPath 'C:\FieldOpsDashboard\') | Should Be 'C:\FieldOpsDashboard'
+            (Test-FieldOpsBackupPathWithinParent -ChildPath 'C:\.FieldOpsDashboard-backup-81894d0e28df459da339897404b2db9f' -ParentPath $root) | Should Be $true
+            (Test-FieldOpsBackupPathWithinParent -ChildPath 'C:\Other\.FieldOpsDashboard-backup-81894d0e28df459da339897404b2db9f' -ParentPath $root) | Should Be $true
+        }
+    }
+
+    It 'discovers field-shaped root backups through a non-destructive Windows root provider seam' {
+        $rootCandidates = @(
+            [pscustomobject]@{ Name = '.FieldOpsDashboard-backup-81894d0e28df459da339897404b2db9f'; FullName = 'C:\.FieldOpsDashboard-backup-81894d0e28df459da339897404b2db9f'; Attributes = [IO.FileAttributes]::Directory; LastWriteTimeUtc = [DateTime]::UtcNow },
+            [pscustomobject]@{ Name = '.FieldOpsDashboard-backup-11111111111111111111111111111111'; FullName = 'C:\.FieldOpsDashboard-backup-11111111111111111111111111111111'; Attributes = [IO.FileAttributes]::Directory; LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(-1) },
+            [pscustomobject]@{ Name = '.FieldOpsDashboard-backup-22222222222222222222222222222222'; FullName = 'C:\.FieldOpsDashboard-backup-22222222222222222222222222222222'; Attributes = [IO.FileAttributes]::Directory; LastWriteTimeUtc = [DateTime]::UtcNow.AddMinutes(-2) }
+        )
+        $backups = @(Get-FieldOpsRecoveryBackups -ParentPath 'C:\' -InstallName $script:installName -ChildItemProvider { param($Path) $rootCandidates })
+        $backups.Count | Should Be 3
+        ($backups.Name -contains '.FieldOpsDashboard-backup-81894d0e28df459da339897404b2db9f') | Should Be $true
+    }
+
+    It 'preserves root semantics in a Windows PowerShell 5.1 subprocess' {
+        $powershell = Get-Command powershell.exe -ErrorAction Stop
+        $module = (Resolve-Path $modulePath).Path
+        $command = "`$module = Import-Module '$module' -Force -PassThru; `$root = & `$module { ConvertTo-FieldOpsBackupCanonicalPath 'C:\' }; if (`$root -cne 'C:\') { throw ('Expected C:\, got ' + `$root) }; 'root-ok'"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+        $LASTEXITCODE | Should Be 0
+        ($output -join "`n") | Should Match 'root-ok'
+    }
+
     It 'rejects backups outside the expected parent' {
         $outside = Join-Path $TestDrive '.FieldOpsDashboard-backup-11111111111111111111111111111111'
         New-Item -ItemType Directory -Path $outside | Out-Null
