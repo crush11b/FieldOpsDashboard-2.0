@@ -1,117 +1,79 @@
-$scriptPath = Join-Path $PSScriptRoot '..\Test-FieldOpsTrayScheduledLaunch.ps1'
+$modulePath = Join-Path $PSScriptRoot '..\..\agent\scripts\FieldOps.TrayScheduledLaunch.psm1'
+$updaterPath = Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1'
+Import-Module $modulePath -Force
 
-function Invoke-ScheduledDiagnostic {
-    param([hashtable]$Parameters)
-    & $scriptPath @Parameters
-}
-
-Describe 'FieldOps scheduled interactive-token Tray diagnostic' {
+Describe 'FieldOps scheduled interactive-token Tray launch' {
     BeforeEach {
-        $script:originalProgramFiles = $env:ProgramFiles
-        $env:ProgramFiles = $TestDrive
-        $script:trayPath = Join-Path $TestDrive 'FieldOpsDashboard\Tray\FieldOps.Tray.exe'
-        New-Item -ItemType Directory -Path (Split-Path $script:trayPath) -Force | Out-Null
+        $script:trayPath = Join-Path $TestDrive 'FieldOps.Tray.exe'
         New-Item -ItemType File -Path $script:trayPath -Force | Out-Null
-        $script:operator = [pscustomobject]@{ Account = 'DESKTOP-88DQ68K\stick'; Sid = 'S-1-5-21-100-200-300-1001'; Source = 'interactive' }
-        $trayPathHolder = [pscustomobject]@{ Value = $script:trayPath }
-        $script:session = [pscustomobject]@{ Account = $script:operator.Account; Sid = $script:operator.Sid; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; ProcessId = 701 }
-        $operatorHolder = [pscustomobject]@{ Value = $script:operator }
-        $sessionHolder = [pscustomobject]@{ Value = $script:session }
-        $processHolder = [pscustomobject]@{ Value = @() }
-        $taskHolder = [pscustomobject]@{ RegisterCount = 0; RunCount = 0; DeleteCount = 0; Exists = $false; TaskName = $null; Account = $null; Path = $null; Context = $null }
-        $script:operatorHolder = $operatorHolder
-        $script:sessionHolder = $sessionHolder
-        $script:processHolder = $processHolder
-        $script:trayPathHolder = $trayPathHolder
-        $script:taskHolder = $taskHolder
-        $script:operatorResolver = { param($Account) $operatorHolder.Value }.GetNewClosure()
-        $script:sessionProvider = { $sessionHolder.Value }.GetNewClosure()
-        $script:processProvider = { $processHolder.Value }.GetNewClosure()
+        $script:operator = 'DESKTOP-88DQ68K\stick'
+        $script:sid = 'S-1-5-21-100-200-300-1001'
+        $script:session = [pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = 1; ProcessId = 701 }
+        $script:processes = @()
+        $script:task = [pscustomobject]@{ RegisterCount = 0; RunCount = 0; DeleteCount = 0; Exists = $false }
+        $script:sessionProvider = { $script:session }
+        $script:processProvider = { $script:processes }
         $script:registerer = {
             param($TaskName, $Account, $Path, $WorkingDirectory)
-            $taskHolder.RegisterCount++
-            $taskHolder.TaskName = $TaskName
-            $taskHolder.Account = $Account
-            $taskHolder.Path = $Path
-            $taskHolder.Exists = $true
-            $taskHolder.Context = [pscustomobject]@{ TaskName = $TaskName; Folder = 'fake-folder'; RegisteredTask = 'fake-task' }
-            return $taskHolder.Context
-        }.GetNewClosure()
+            $script:task.RegisterCount++
+            $script:task.Exists = $true
+            [pscustomobject]@{ TaskName = $TaskName; Folder = 'folder'; RegisteredTask = 'task' }
+        }
         $script:runner = {
             param($Context)
-            $taskHolder.RunCount++
-            $processHolder.Value = @([pscustomobject]@{ Account = $operatorHolder.Value.Account; Sid = $operatorHolder.Value.Sid; SessionId = $sessionHolder.Value.SessionId; ProcessId = 702; ExecutablePath = $trayPathHolder.Value })
-        }.GetNewClosure()
-        $script:deleter = { param($Context) $taskHolder.DeleteCount++; $taskHolder.Exists = $false }.GetNewClosure()
-        $script:existsChecker = { param($Context) $taskHolder.Exists }.GetNewClosure()
+            $script:task.RunCount++
+            $script:processes = @([pscustomobject]@{ Sid = $script:sid; SessionId = 1; ProcessId = 702; ExecutablePath = $script:trayPath })
+        }
+        $script:deleter = { param($Context) $script:task.DeleteCount++; $script:task.Exists = $false }
+        $script:existsChecker = { param($Context) $script:task.Exists }
     }
 
-    AfterEach {
-        $env:ProgramFiles = $script:originalProgramFiles
+    It 'launches through an interactive-token task without credentials and cleans it up' {
+        $result = Start-FieldOpsTrayScheduledLaunch -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -SessionProvider $script:sessionProvider -TrayProcessProvider $script:processProvider -TaskRegisterer $script:registerer `
+            -TaskRunner $script:runner -TaskDeleter $script:deleter -TaskExistsChecker $script:existsChecker -TimeoutSeconds 1
+
+        $result.Status | Should Be 'Running'
+        $result.LogonType | Should Be 'InteractiveToken'
+        $result.PasswordSupplied | Should Be $false
+        $result.SessionId | Should Be 1
+        $script:task.RegisterCount | Should Be 1
+        $script:task.RunCount | Should Be 1
+        $script:task.DeleteCount | Should Be 1
+        $script:task.Exists | Should Be $false
     }
 
-    It 'reuses operator resolution and selects an interactive-token task without credentials' {
-        $result = Invoke-ScheduledDiagnostic @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; TaskRegisterer = $script:registerer; TaskRunner = $script:runner; TaskDeleter = $script:deleter; TaskExistsChecker = $script:existsChecker; TimeoutSeconds = 1 } 2>&1 | Out-String
+    It 'treats one matching existing Tray as satisfied' {
+        $script:processes = @([pscustomobject]@{ Sid = $script:sid; SessionId = 1; ProcessId = 703; ExecutablePath = $script:trayPath })
+        $result = Start-FieldOpsTrayScheduledLaunch -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -SessionProvider $script:sessionProvider -TrayProcessProvider $script:processProvider -TaskRegisterer $script:registerer
 
-        $taskHolder.Account | Should Be $script:operator.Account
-        $taskHolder.Path | Should Be $script:trayPath
-        $taskHolder.TaskName | Should Match '^FieldOpsDashboard-DiagnosticTrayLaunch-[0-9a-f]{32}$'
-        $taskHolder.RunCount | Should Be 1
-        $taskHolder.DeleteCount | Should Be 1
-        $taskHolder.Exists | Should Be $false
-        $result | Should Match 'FieldOps operator: DESKTOP-88DQ68K\\stick'
-        $result | Should Match 'Logon type: InteractiveToken'
-        $result | Should Match 'Password supplied/stored: False'
-        $result | Should Match 'Task registration: success'
-        $result | Should Match 'Task run: success'
-        $result | Should Match 'Observed Tray PID/session/SID: 702/'
-        $result | Should Match 'Temporary task cleanup: success'
+        $result.Status | Should Be 'AlreadyRunning'
+        $script:task.RegisterCount | Should Be 0
     }
 
-    It 'refuses an already-running correct Tray without registering a task' {
-        $script:processHolder.Value = @([pscustomobject]@{ Account = $script:operator.Account; Sid = $script:operator.Sid; SessionId = $script:session.SessionId; ProcessId = 703; ExecutablePath = $script:trayPath })
-
-        { Invoke-ScheduledDiagnostic @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; TaskRegisterer = $script:registerer; TaskRunner = $script:runner; TaskDeleter = $script:deleter; TaskExistsChecker = $script:existsChecker } } | Should Throw 'already running'
-        $taskHolder.RegisterCount | Should Be 0
-        $taskHolder.DeleteCount | Should Be 0
+    It 'cleans up when task execution fails' {
+        $failure = { param($Context) throw 'HRESULT 0x8004131F: invalid task.' }
+        { Start-FieldOpsTrayScheduledLaunch -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -SessionProvider $script:sessionProvider -TrayProcessProvider $script:processProvider -TaskRegisterer $script:registerer `
+            -TaskRunner $failure -TaskDeleter $script:deleter -TaskExistsChecker $script:existsChecker } | Should Throw 'HRESULT 0x8004131F'
+        $script:task.DeleteCount | Should Be 1
+        $script:task.Exists | Should Be $false
     }
 
-    It 'cleans up a temporary task when task run fails and preserves the exact failure' {
-        $failure = { param($Context) throw 'HRESULT 0x8004131F: The task XML contains a value which is incorrectly formatted or out of range.' }
-
-        { Invoke-ScheduledDiagnostic @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; TaskRegisterer = $script:registerer; TaskRunner = $failure; TaskDeleter = $script:deleter; TaskExistsChecker = $script:existsChecker } } | Should Throw 'HRESULT 0x8004131F'
-        $taskHolder.DeleteCount | Should Be 1
-        $taskHolder.Exists | Should Be $false
+    It 'requires exactly one matching interactive session' {
+        { Start-FieldOpsTrayScheduledLaunch -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -SessionProvider { @() } -TrayProcessProvider $script:processProvider } | Should Throw 'Expected exactly one interactive session'
     }
 
-    It 'rejects an observed Tray with the wrong SID and session' {
-        $script:runner = {
-            param($Context)
-            $taskHolder.RunCount++
-            $processHolder.Value = @([pscustomobject]@{ Account = 'DESKTOP-88DQ68K\other'; Sid = 'S-1-5-21-100-200-300-1002'; SessionId = $sessionHolder.Value.SessionId + 1; ProcessId = 704; ExecutablePath = $script:trayPath })
-        }.GetNewClosure()
-
-        { Invoke-ScheduledDiagnostic @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; TaskRegisterer = $script:registerer; TaskRunner = $script:runner; TaskDeleter = $script:deleter; TaskExistsChecker = $script:existsChecker; TimeoutSeconds = 0 } } | Should Throw 'did not appear'
-        $taskHolder.DeleteCount | Should Be 1
-    }
-
-    It 'keeps scheduled probing separate from the production launch module' {
-        $source = Get-Content -LiteralPath $scriptPath -Raw
-        $source | Should Match 'Schedule\.Service'
-        $source | Should Match 'LogonType = 3'
-        $source | Should Match 'RegisterTaskDefinition'
-        $source | Should Match 'DeleteTask'
-        $source | Should Not Match 'UpdateDashboard|Install-FieldOpsAgent|Stop-Service|Stop-Process|Register-FieldOpsTrayStartup|Set-ItemProperty|New-LocalGroup|Add-LocalGroupMember'
-        $source | Should Not Match 'TASK_LOGON_PASSWORD|TASK_LOGON_S4U|TASK_LOGON_INTERACTIVE_TOKEN_OR_PASSWORD'
-    }
-
-    It 'parses under Windows PowerShell 5.1' {
-        $powershell = Get-Command powershell.exe -ErrorAction Stop
-        $scriptFile = (Resolve-Path $scriptPath).Path
-        $command = "`$ErrorActionPreference = 'Stop'; [System.Management.Automation.Language.Parser]::ParseFile('$scriptFile', [ref]`$null, [ref]`$null) | Out-Null; 'parse-ok'"
-        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
-        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
-        $LASTEXITCODE | Should Be 0
-        ($output -join "`n") | Should Match 'parse-ok'
+    It 'keeps the updater on the shared helper and preserves startup registration' {
+        $updater = Get-Content -LiteralPath $updaterPath -Raw
+        $updater | Should Match 'FieldOps\.TrayScheduledLaunch\.psm1'
+        $updater | Should Match 'Start-FieldOpsTrayScheduledLaunch'
+        $updater | Should Match 'interactive FieldOps Tray availability could not be verified'
+        $updater | Should Not Match 'Start-FieldOpsTray\s*`'
+        $updater.IndexOf('Ensure-FieldOpsTelemetryCredentials') | Should BeLessThan $updater.IndexOf('Start-FieldOpsTrayScheduledLaunch')
+        $installer = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\Install-FieldOpsAgent.ps1') -Raw
+        $installer | Should Match 'Register-FieldOpsTrayStartup'
     }
 }

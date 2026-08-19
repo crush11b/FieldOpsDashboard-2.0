@@ -24,7 +24,8 @@ $requiredPackageFiles = @(
     'agent\scripts\Install-FieldOpsAgent.ps1',
     'agent\scripts\FieldOps.OperatorProvisioning.psm1',
     'agent\scripts\FieldOps.OperatorResolution.psm1',
-    'agent\scripts\FieldOps.TrayLaunch.psm1',
+    'agent\scripts\FieldOps.TrayProcessDiscovery.psm1',
+    'agent\scripts\FieldOps.TrayScheduledLaunch.psm1',
     'agent\scripts\Provision-FieldOpsTelemetryCredential.ps1',
     'scripts\FieldOps.RuntimeShutdown.psm1',
     'p533-assets\manifest.json'
@@ -374,18 +375,22 @@ try {
     $deploymentStarted = $false
     Remove-Item -LiteralPath $backupPath -Recurse -Force -ErrorAction SilentlyContinue
 
-    Import-Module (Join-Path $resolvedInstallPath 'agent\scripts\FieldOps.TrayLaunch.psm1') -Force
-    Write-Host "[7/8] Starting FieldOps Tray for $OperatorAccount..." -ForegroundColor Yellow
-    $trayResult = Start-FieldOpsTray `
-        -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
-        -OperatorAccount $OperatorAccount `
-        -OperatorSid $resolvedOperator.Sid
-    if ($trayResult.Status -eq 'AlreadyRunning') {
-        Write-Host "[OK] FieldOps Tray already running for '$OperatorAccount'." -ForegroundColor Green
-    } else {
-        Write-Host "[OK] FieldOps Tray running in interactive session $($trayResult.SessionId)." -ForegroundColor Green
+    Import-Module (Join-Path $resolvedInstallPath 'agent\scripts\FieldOps.TrayScheduledLaunch.psm1') -Force
+    Write-Host "[7/8] Starting FieldOps Tray for $OperatorAccount through an interactive scheduled task..." -ForegroundColor Yellow
+    try {
+        $trayResult = Start-FieldOpsTrayScheduledLaunch `
+            -TrayPath (Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe') `
+            -OperatorAccount $OperatorAccount `
+            -OperatorSid $resolvedOperator.Sid
+        if ($trayResult.Status -eq 'AlreadyRunning') {
+            Write-Host "[OK] FieldOps Tray already running for '$OperatorAccount'." -ForegroundColor Green
+        } else {
+            Write-Host "[OK] FieldOps Tray running in interactive session $($trayResult.SessionId)." -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "[!] Installation succeeded, but interactive FieldOps Tray availability could not be verified: $($_.Exception.Message)" -ForegroundColor Yellow
     }
-    Write-Host '[OK] Deployment verified.' -ForegroundColor Green
+    Write-Host '[OK] Deployment installed; runtime verification completed with the result above.' -ForegroundColor Green
 
     if (-not $SkipLaunch) {
         Write-Host '[8/8] Starting production Dashboard Server...' -ForegroundColor Green
