@@ -3,6 +3,7 @@ import {
   ANTENNA_OPTIONS,
   DEFAULT_STATION_PROFILE,
   getAntennaOptions,
+  getDefaultHeightCategoryForDeployment,
   getDeploymentOptionsForAntenna,
   getHeightOptionsForDeployment,
   getModeOptions,
@@ -49,6 +50,8 @@ describe('Slice 5B station profile catalog', () => {
     expect(getHeightOptionsForDeployment('inverted_v').map(option => option.id)).toEqual(['under_15_ft', '15_to_30_ft', 'over_30_ft', 'unknown']);
     expect(getHeightOptionsForDeployment('vertical').map(option => option.id)).toEqual(['not_applicable']);
     expect(getHeightOptionsForDeployment('directional').map(option => option.id)).toEqual(['not_applicable']);
+    expect(getDefaultHeightCategoryForDeployment('inverted_v')).toBe('15_to_30_ft');
+    expect(getDefaultHeightCategoryForDeployment('vertical')).toBe('not_applicable');
   });
 
   it('defines the valid conservative default profile', () => {
@@ -81,5 +84,14 @@ describe('Slice 5B station profile catalog', () => {
       { antenna: { type: 'custom' }, deployment: { geometry: 'other' } },
     ];
     for (const partial of profiles) expect(isValidStationProfile(normalizeStationProfile(partial))).toBe(true);
+  });
+
+  it('keeps upright field antennas selectable without changing their operator identity', () => {
+    expect(getDeploymentOptionsForAntenna('vertical').map(option => option.id)).toEqual(['vertical']);
+    expect(getDeploymentOptionsForAntenna('portable_whip').map(option => option.id)).toEqual(['vertical']);
+    expect(getDeploymentOptionsForAntenna('loaded_vertical').map(option => option.id)).toEqual(['vertical']);
+    expect(getDeploymentOptionsForAntenna('EFHW').map(option => option.id)).toEqual(['inverted_v', 'sloper', 'vertical', 'horizontal']);
+    expect(normalizeStationProfile({ antenna: { type: 'portable_whip' }, deployment: { geometry: 'vertical' } }).antenna.type).toBe('portable_whip');
+    expect(normalizeStationProfile({ antenna: { type: 'loaded_vertical' }, deployment: { geometry: 'vertical' } }).antenna.type).toBe('loaded_vertical');
   });
 });

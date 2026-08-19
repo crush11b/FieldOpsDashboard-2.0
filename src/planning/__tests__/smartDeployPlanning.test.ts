@@ -52,6 +52,22 @@ describe('SmartDeploy Slice 1 planning contract', () => {
     expect(validate({ missionWindow: { start: '2026-08-18T06:00:00Z', end: new Date(Date.parse('2026-08-18T06:00:00Z') + SMART_DEPLOY_MAX_MISSION_DURATION_MS).toISOString() } }).valid).toBe(true);
   });
 
+  it('accepts supported antenna geometry pairs through the planning contract', () => {
+    const pairs = [
+      ['vertical', 'vertical'], ['portable_whip', 'vertical'], ['loaded_vertical', 'vertical'],
+      ['EFHW', 'inverted_v'], ['EFHW', 'sloper'], ['EFHW', 'horizontal'],
+    ] as const;
+    for (const [antenna, geometry] of pairs) {
+      const heightCategory = geometry === 'vertical' ? 'not_applicable' : '15_to_30_ft';
+      expect(validate({ equipment: { ...baseRequest.equipment, antenna: { type: antenna }, deployment: { geometry, heightCategory } } })).toMatchObject({ valid: true, issues: [] });
+    }
+  });
+
+  it('rejects unsupported geometry and height pairs with deterministic diagnostics', () => {
+    expect(validate({ equipment: { ...baseRequest.equipment, antenna: { type: 'vertical' }, deployment: { geometry: 'horizontal', heightCategory: '15_to_30_ft' } } }).issues).toContainEqual(expect.objectContaining({ message: "Deployment geometry 'horizontal' is not compatible with antenna 'vertical'." }));
+    expect(validate({ equipment: { ...baseRequest.equipment, antenna: { type: 'EFHW' }, deployment: { geometry: 'vertical', heightCategory: '15_to_30_ft' } } }).issues).toContainEqual(expect.objectContaining({ message: "Height category '15_to_30_ft' is not valid for deployment geometry 'vertical'." }));
+  });
+
   it('rejects invalid, equal, reversed, and overlong windows', () => {
     expect(validate({ missionWindow: { start: 'not-a-date', end: '2026-08-18T18:00:00Z' } }).issues).toContainEqual(expect.objectContaining({ path: 'missionWindow.start', code: 'invalid_timestamp' }));
     expect(validate({ missionWindow: { start: '2026-08-18T12:00:00Z', end: '2026-08-18T12:00:00Z' } }).valid).toBe(false);

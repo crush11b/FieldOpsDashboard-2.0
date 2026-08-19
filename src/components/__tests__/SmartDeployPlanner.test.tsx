@@ -85,6 +85,29 @@ describe('SmartDeploy planner', () => {
     await waitFor(() => expect(screen.getByText(/Available/)).toBeTruthy());
   });
 
+  it('keeps antenna geometry and height selections valid as the operator changes field antennas', () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
+      ? { ok: true, json: async () => ({ briefs: [] }) }
+      : { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) }));
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    const antennaSelect = screen.getByLabelText('Antenna');
+    const geometrySelect = screen.getByLabelText('Deployment geometry');
+    const heightSelect = screen.getByLabelText('Height category');
+
+    fireEvent.change(antennaSelect, { target: { value: 'vertical' } });
+    expect(geometrySelect).toHaveValue('vertical');
+    expect(heightSelect).toHaveValue('not_applicable');
+    fireEvent.change(antennaSelect, { target: { value: 'portable_whip' } });
+    expect(geometrySelect).toHaveValue('vertical');
+    expect(heightSelect).toHaveValue('not_applicable');
+    fireEvent.change(antennaSelect, { target: { value: 'loaded_vertical' } });
+    expect(geometrySelect).toHaveValue('vertical');
+    expect(heightSelect).toHaveValue('not_applicable');
+    fireEvent.change(antennaSelect, { target: { value: 'EFHW' } });
+    expect(geometrySelect).toHaveValue('inverted_v');
+    expect(heightSelect).toHaveValue('15_to_30_ft');
+  });
+
   it('selects SOTA, shows its example, resolves a known summit, and displays identity and coordinates', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };

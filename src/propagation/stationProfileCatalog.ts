@@ -99,6 +99,10 @@ export function getHeightOptionsForDeployment(deployment: DeploymentGeometry): r
   return HEIGHT_OPTIONS.filter(option => option.id === 'not_applicable');
 }
 
+export function getDefaultHeightCategoryForDeployment(deployment: DeploymentGeometry): HeightCategory {
+  return WIRE_HEIGHT_DEPLOYMENTS.includes(deployment) ? DEFAULT_STATION_PROFILE.deployment.heightCategory! : 'not_applicable';
+}
+
 export function normalizeStationProfile(input: unknown): StationProfile {
   const source = isRecord(input) ? input : {};
   const antennaType = isRecord(source.antenna) && isAntennaType(source.antenna.type) ? source.antenna.type : DEFAULT_STATION_PROFILE.antenna.type;
@@ -111,7 +115,7 @@ export function normalizeStationProfile(input: unknown): StationProfile {
     : undefined;
   const heightCategory = sourceHeight && isHeightCategoryValidForDeployment(geometry, sourceHeight)
     ? sourceHeight
-    : getDefaultHeightCategory(geometry);
+    : getDefaultHeightCategoryForDeployment(geometry);
 
   return {
     mode: isPropagationMode(source.mode) ? source.mode : DEFAULT_STATION_PROFILE.mode,
@@ -119,10 +123,6 @@ export function normalizeStationProfile(input: unknown): StationProfile {
     antenna: { type: antennaType },
     deployment: { geometry, heightCategory },
   };
-}
-
-function getDefaultHeightCategory(deployment: DeploymentGeometry): HeightCategory {
-  return WIRE_HEIGHT_DEPLOYMENTS.includes(deployment) ? DEFAULT_STATION_PROFILE.deployment.heightCategory! : 'not_applicable';
 }
 
 function isPositiveFiniteNumber(value: unknown): value is number {

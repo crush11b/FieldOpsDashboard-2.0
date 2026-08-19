@@ -248,7 +248,10 @@ function validateEquipment(input: unknown, issues: SmartDeployPlanningIssue[]): 
   if (typeof input.transmitPowerWatts !== 'number' || !Number.isFinite(input.transmitPowerWatts) || input.transmitPowerWatts <= 0) {
     addIssue(issues, 'equipment.transmitPowerWatts', 'invalid_value', 'Transmit power must be a finite positive number.');
   }
-  if (input.deployment !== undefined && !isValidDeployment(input.deployment, input.antenna)) addIssue(issues, 'equipment.deployment', 'invalid_value', 'Deployment configuration is invalid or incompatible with the antenna.');
+  if (input.deployment !== undefined) {
+    const deploymentIssue = getDeploymentIssue(input.deployment, input.antenna);
+    if (deploymentIssue) addIssue(issues, 'equipment.deployment', 'invalid_value', deploymentIssue);
+  }
   validateOptionalText(input.deploymentNotes, 'equipment.deploymentNotes', SMART_DEPLOY_MAX_DEPLOYMENT_NOTES_LENGTH, issues);
 }
 
@@ -264,10 +267,15 @@ function validateProvenance(input: unknown, path: string, issues: SmartDeployPla
   }
 }
 
-function isValidDeployment(input: unknown, antenna: unknown): input is DeploymentProfile {
-  if (!isRecord(input) || !isDeploymentGeometry(input.geometry)) return false;
-  if (input.heightCategory !== undefined && (!isHeightCategory(input.heightCategory) || !isHeightCategoryValidForDeployment(input.geometry, input.heightCategory))) return false;
-  return isRecord(antenna) && isAntennaType(antenna.type) && isDeploymentCompatible(antenna.type, input.geometry);
+function getDeploymentIssue(input: unknown, antenna: unknown): string | null {
+  if (!isRecord(input) || !isDeploymentGeometry(input.geometry)) return 'Deployment geometry is invalid.';
+  if (!isRecord(antenna) || !isAntennaType(antenna.type)) return 'A valid antenna is required before selecting deployment geometry.';
+  if (!isDeploymentCompatible(antenna.type, input.geometry)) return `Deployment geometry '${input.geometry}' is not compatible with antenna '${antenna.type}'.`;
+  if (input.heightCategory !== undefined && !isHeightCategory(input.heightCategory)) return 'Deployment height category is invalid.';
+  if (input.heightCategory !== undefined && !isHeightCategoryValidForDeployment(input.geometry, input.heightCategory)) {
+    return `Height category '${input.heightCategory}' is not valid for deployment geometry '${input.geometry}'.`;
+  }
+  return null;
 }
 
 function validateRequiredString(value: unknown, path: string, issues: SmartDeployPlanningIssue[]): void {
