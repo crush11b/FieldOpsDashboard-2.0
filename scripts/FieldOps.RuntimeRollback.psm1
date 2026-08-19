@@ -14,11 +14,7 @@ function Get-FieldOpsRollbackDashboardProcesses {
         [Parameter(Mandatory = $true)][scriptblock]$ProcessProvider
     )
 
-    $expectedPath = ([IO.Path]::GetFullPath((Join-Path $DashboardRoot 'dist\server.cjs'))).ToLowerInvariant()
-    return @(& $ProcessProvider | Where-Object {
-        [string]$_.Name -in @('node.exe', 'node') -and
-        [string]$_.CommandLine -match [regex]::Escape($expectedPath)
-    })
+    return @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $DashboardRoot -ProcessProvider $ProcessProvider)
 }
 
 function Get-FieldOpsRollbackVersion {
@@ -26,11 +22,7 @@ function Get-FieldOpsRollbackVersion {
 
     try {
         $response = @(& $HttpProvider 'http://127.0.0.1:3000/api/version') | Select-Object -First 1
-        if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { return $null }
-        $content = [string]$response.Content
-        if ([string]::IsNullOrWhiteSpace($content)) { return $null }
-        if ($response.Content -is [string]) { return ($content | ConvertFrom-Json) }
-        return $response.Content
+        return ConvertFrom-FieldOpsDashboardVersionResponse -Response $response
     } catch {
         return $null
     }

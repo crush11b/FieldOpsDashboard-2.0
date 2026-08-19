@@ -55,6 +55,60 @@ Describe 'FieldOps runtime rollback state' {
         $snapshot.Tray.Running | Should Be $false
     }
 
+    It 'captures one quoted case-variant production Dashboard and excludes unrelated Node' {
+        $dashboardProvider = {
+            @(
+                [pscustomobject]@{ Name = 'node.exe'; CommandLine = '"C:\Program Files\nodejs\node.exe" "C:\FIELDOPSDASHBOARD\DIST\SERVER.CJS"'; ProcessId = 103 },
+                [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node "C:\OtherApplication\server.cjs"'; ProcessId = 104 }
+            )
+        }
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider $dashboardProvider -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Dashboard.Running | Should Be $true
+        $snapshot.Dashboard.ProcessCount | Should Be 1
+        $snapshot.Dashboard.Processes[0].ProcessId | Should Be 103
+    }
+
+    It 'treats duplicate owned Dashboard servers as not running' {
+        $dashboardProvider = {
+            @(
+                [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node C:\FieldOpsDashboard\dist\server.cjs'; ProcessId = 103 },
+                [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node "C:/FieldOpsDashboard/dist/server.cjs"'; ProcessId = 104 }
+            )
+        }
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider $dashboardProvider -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Dashboard.Running | Should Be $false
+        $snapshot.Dashboard.ProcessCount | Should Be 2
+    }
+
+    It 'captures revision from JSON string and PS5.1-like responses' {
+        $json = $script:version | ConvertTo-Json
+        $jsonResponse = { param($Uri) [pscustomobject]@{ StatusCode = 200; Content = $json } }
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider $jsonResponse
+        $snapshot.Revision.SourceRevision | Should Be $script:revision
+        $snapshot.Revision.NativeRevision | Should Be $script:revision
+        $snapshot.Revision.InformationalVersion | Should Be $script:version.informationalVersion
+
+        $ps51Response = { param($Uri) [pscustomobject]@{ StatusCode = [int]200; Content = [string]$json; Headers = @{}; RawContent = $json } }
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider $ps51Response
+        $snapshot.Revision.SourceRevision | Should Be $script:revision
+        $snapshot.Revision.NativeRevision | Should Be $script:revision
+    }
+
+    It 'leaves revision unavailable for malformed or offline responses' {
+        foreach ($httpProvider in @(
+            { param($Uri) [pscustomobject]@{ StatusCode = 200; Content = '{"sourceRevision":"bad"}' } },
+            { param($Uri) throw 'connection refused' }
+        )) {
+            $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+                -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider $httpProvider
+            $snapshot.Revision | Should Be $null
+        }
+    }
+
     It 'restores only previously running components' {
         $snapshot = [pscustomobject]@{
             Agent = [pscustomobject]@{ Exists = $true; Running = $true }
@@ -152,5 +206,16 @@ Describe 'FieldOps runtime rollback state' {
         $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
         $LASTEXITCODE | Should Be 0
         ($output -join "`n") | Should Match 'discovery-ok'
+    }
+
+    It 'captures a local PS5.1-shaped version response in a Windows PowerShell 5.1 snapshot' {
+        $powershell = Get-Command powershell.exe -ErrorAction Stop
+        $module = (Resolve-Path $modulePath).Path
+        $json = ($script:version | ConvertTo-Json).Replace("'", "''")
+        $command = "Import-Module '$module' -Force; `$snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -TrayPath 'C:\Program Files\FieldOpsDashboard\Tray\FieldOps.Tray.exe' -OperatorAccount 'DESKTOP-88DQ68K\stick' -OperatorSid 'S-1-5-21-100-200-300-1001' -ServiceProvider { param(`$Name) `$null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider { param(`$Uri) [pscustomobject]@{ StatusCode = [int]200; Content = '$json'; Headers = @{}; RawContent = '$json' } }; if (`$snapshot.Revision.SourceRevision -notmatch '^[0-9a-fA-F]{40}$') { throw 'revision unavailable' }; 'version-ok'"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+        $LASTEXITCODE | Should Be 0
+        ($output -join "`n") | Should Match 'version-ok'
     }
 }

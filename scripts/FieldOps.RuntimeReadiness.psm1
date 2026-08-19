@@ -56,6 +56,40 @@ function New-FieldOpsReadinessCheck {
     }
 }
 
+function Get-FieldOpsDashboardProcessCandidates {
+    param(
+        [Parameter(Mandatory = $true)][string]$DashboardRoot,
+        [Parameter(Mandatory = $true)][scriptblock]$ProcessProvider
+    )
+
+    $expectedPath = ConvertTo-FieldOpsReadinessPath (Join-Path $DashboardRoot 'dist\server.cjs')
+    $pathPattern = [regex]::Escape($expectedPath).Replace('\\', '[/\\]')
+    $dashboardPattern = $pathPattern + '(?=[\\/"''\s]|$)'
+    return @(& $ProcessProvider | Where-Object {
+        [string]$_.Name -in @('node.exe', 'node') -and
+        -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
+        [string]$_.CommandLine -match $dashboardPattern
+    })
+}
+
+function ConvertFrom-FieldOpsDashboardVersionResponse {
+    param([Parameter(Mandatory = $true)]$Response)
+
+    try {
+        if ([int]$Response.StatusCode -lt 200 -or [int]$Response.StatusCode -ge 300) { return $null }
+        $content = $Response.Content
+        if ($null -eq $content) { return $null }
+        if ($content -is [byte[]]) { $content = [Text.Encoding]::UTF8.GetString($content) }
+        if ($content -is [string]) {
+            if ([string]::IsNullOrWhiteSpace($content)) { return $null }
+            return ($content | ConvertFrom-Json)
+        }
+        return $content
+    } catch {
+        return $null
+    }
+}
+
 function Wait-FieldOpsReadinessCondition {
     param(
         [Parameter(Mandatory = $true)][scriptblock]$Condition,
@@ -162,15 +196,11 @@ function Test-FieldOpsDashboardReadiness {
     $expectedServerPath = ConvertTo-FieldOpsReadinessPath (Join-Path $DashboardRoot 'dist\server.cjs')
     try {
         $state = Wait-FieldOpsReadinessCondition -Description 'FieldOps Dashboard server and /api/version' -TimeoutSeconds $TimeoutSeconds -PollMilliseconds $PollMilliseconds -Condition {
-            $processes = @(& $ProcessProvider | Where-Object {
-                [string]$_.Name -in @('node.exe', 'node') -and
-                [string]$_.CommandLine -match [regex]::Escape($expectedServerPath)
-            })
+            $processes = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $DashboardRoot -ProcessProvider $ProcessProvider)
             if ($processes.Count -ne 1) { return $false }
             try {
                 $response = & $HttpProvider 'http://127.0.0.1:3000/api/version'
-                if ([int]$response.StatusCode -lt 200 -or [int]$response.StatusCode -ge 300) { return $false }
-                $body = if ($response.Content -is [string]) { $response.Content | ConvertFrom-Json } else { $response.Content }
+                $body = ConvertFrom-FieldOpsDashboardVersionResponse -Response $response
                 if ($null -eq $body) { return $false }
                 return [pscustomobject]@{ Process = $processes[0]; Version = $body }
             } catch {
@@ -242,4 +272,4 @@ function Test-FieldOpsRuntimeReadiness {
     }
 }
 
-Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness
+Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness, Get-FieldOpsDashboardProcessCandidates, ConvertFrom-FieldOpsDashboardVersionResponse
