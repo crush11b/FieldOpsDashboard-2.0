@@ -43,7 +43,7 @@ const v2Brief = {
     propagationObjective: { status: 'available', evidence: { kind: 'regional', regionId: 'eastern_us', regionLabel: 'Eastern U.S.' } }, missionWindow: { status: 'available', evidence: { start: '2026-08-18T12:00:00.000Z', midpoint: '2026-08-18T13:00:00.000Z', end: '2026-08-18T14:00:00.000Z' } }, station: { status: 'available', evidence: { radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' }, selectedModes: ['SSB', 'FT8'], modeledMode: 'SSB', transmitPowerWatts: 10 } },
     propagation: { status: 'complete', evidence: { samples: [{ position: 'start', modelDateTimeUtc: '2026-08-18T12:00:00.000Z', status: 'complete', stationProfile: { mode: 'SSB' }, bands: [{ regional: { samples: [{ distanceKm: 120 }] } }] }], summary: { successfulSampleCount: 1, strongestBandBySample: [{ position: 'start', band: '20m' }] } } }, solar: { status: 'derived', evidence: { overlap: { entirelyDuringDaylight: true, entirelyDuringDarkness: false, includesDaylight: true } } }, observedRf: { status: 'notTemporallyApplicable', evidence: brief.sections.observedRf.evidence },
   },
-  limitations: [{ code: 'planned_site_reference_coordinate', message: 'The planned site uses the provider reference coordinate and may not be the exact station setup point.' }],
+  limitations: [{ code: 'planned_site_reference_coordinate', message: 'The planned site uses the provider reference coordinate and may not be the exact station setup point.' }, { code: 'model_no_forecast', message: 'Uses a general solar-cycle model value; mission-time space-weather forecast is not included.' }],
   summary: 'v2 summary',
 } as unknown as SmartDeployBriefV2;
 
@@ -122,10 +122,37 @@ describe('SmartDeploy brief rendering', () => {
   it('renders the concise v2 operator view and technical details', () => {
     render(<SmartDeployBriefView brief={v2Brief} />);
     expect(screen.getByText('SMARTDEPLOY PLAN')).toBeTruthy();
-    expect(screen.getByText('POTA reference location - approximate planning point')).toBeTruthy();
+    expect(screen.getAllByText('POTA reference location - approximate planning point').length).toBeGreaterThan(0);
     expect(screen.getByText('Eastern U.S.')).toBeTruthy();
     expect(screen.getByText('Strongest modeled band: 20m')).toBeTruthy();
     expect(screen.getByText('Technical Details')).toBeTruthy();
     expect(screen.getByText('Live band activity is too early to apply to this mission.')).toBeTruthy();
+    expect(screen.getAllByText('CURRENT DEVICE', { exact: true })).toHaveLength(1);
+    expect(screen.getAllByText(/POTA reference location - approximate planning point/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/POTA reference location - approximate planning point/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Uses a general solar-cycle model value/).length).toBeGreaterThan(0);
+  });
+
+  it('keeps unavailable observed RF visible without repeating it in primary notes', () => {
+    const unavailableBrief = {
+      ...v2Brief,
+      sections: { ...v2Brief.sections, observedRf: { ...v2Brief.sections.observedRf, status: 'unavailable' } },
+      limitations: [{ code: 'observed_rf_unavailable', message: 'Live band activity is unavailable.' }],
+    } as unknown as SmartDeployBriefV2;
+    render(<SmartDeployBriefView brief={unavailableBrief} />);
+    expect(screen.getByText('Live activity unavailable.')).toBeTruthy();
+    expect(screen.getByText('LIVE BAND ACTIVITY')).toBeTruthy();
+    expect(screen.queryByText('IMPORTANT NOTES')).toBeNull();
+    expect(screen.getAllByText('Live band activity is unavailable.')).toHaveLength(1);
+  });
+
+  it('labels an explicitly selected current device as the planned site', () => {
+    const selectedCurrentDeviceBrief = {
+      ...v2Brief,
+      plannedOperatingSite: { ...v2Brief.plannedOperatingSite, source: 'operator_selected_current_device', description: 'Current device location selected by operator' },
+    } as unknown as SmartDeployBriefV2;
+    render(<SmartDeployBriefView brief={selectedCurrentDeviceBrief} />);
+    expect(screen.getByText('Current device location selected by operator')).toBeTruthy();
+    expect(screen.queryByText('Context only; this location was not used as the modeled transmitter site.')).toBeNull();
   });
 });

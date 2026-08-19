@@ -96,9 +96,13 @@ describe('SmartDeploy operations brief', () => {
     expect(future.summary).toContain('Live band activity is too early to apply to this mission.');
 
     const stale = brief({ observedRf: observed('stale') });
-    expect(stale.status).toBe('partial');
+    expect(stale.status).toBe('complete');
     expect(stale.sections.observedRf.status).toBe('stale');
     expect(stale.sections.solar.evidence.site).toBe('planned_operating_location');
+
+    const unavailable = brief({ observedRf: null });
+    expect(unavailable.status).toBe('complete');
+    expect(unavailable.sections.observedRf.status).toBe('unavailable');
   });
 
   it('marks foundational geometry failure unavailable while retaining serializable evidence', () => {

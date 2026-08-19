@@ -187,7 +187,7 @@ function missionWindowSnapshot(window: SmartDeployExecutionRequest['missionWindo
 
 function determineV2Status(evidence: MissionEvidence): SmartDeployBriefStatus {
   if (evidence.geometry.status === 'unavailable') return 'unavailable';
-  if (evidence.propagation.status !== 'complete' || evidence.solar.status !== 'derived' || evidence.observedRf.status === 'stale' || evidence.observedRf.status === 'unavailable') return 'partial';
+  if (evidence.propagation.status !== 'complete' || evidence.solar.status === 'unavailable') return 'partial';
   return 'complete';
 }
 
