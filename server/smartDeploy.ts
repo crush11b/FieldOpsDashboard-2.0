@@ -33,7 +33,7 @@ export interface SmartDeployGenerationSuccess {
   readonly status: SmartDeployBrief['status'];
   readonly brief: SmartDeployBrief;
   readonly persistence: { readonly status: 'saved' | 'warning'; readonly warning?: string };
-  readonly pota: Pick<PotaTargetResolution, 'status' | 'reference' | 'retrievedAtUtc' | 'refreshAttemptedAtUtc'>;
+  readonly pota?: Pick<PotaTargetResolution, 'status' | 'reference' | 'retrievedAtUtc' | 'refreshAttemptedAtUtc'>;
   readonly sota?: Pick<SotaTargetResolution, 'status' | 'reference' | 'retrievedAtUtc' | 'refreshAttemptedAtUtc'>;
 }
 
@@ -48,7 +48,7 @@ export interface SmartDeployGenerationFailure {
 
 export interface SmartDeployServiceOptions {
   readonly resolver?: ActivationTargetResolver;
-  readonly sotaResolver?: ActivationTargetResolver;
+  readonly sotaResolver?: SotaActivationTargetResolver;
   readonly spaceWeather?: SpaceWeatherService;
   readonly observedRf?: ObservedRfService;
   readonly store: SmartDeployBriefStore;
@@ -60,7 +60,7 @@ export interface SmartDeployServiceOptions {
 
 export class SmartDeployService {
   private readonly resolver: ActivationTargetResolver;
-  private readonly sotaResolver: ActivationTargetResolver;
+  private readonly sotaResolver: SotaActivationTargetResolver;
   private readonly spaceWeather: SpaceWeatherService;
   private readonly observedRf: ObservedRfService;
   private readonly now: () => Date;
@@ -87,8 +87,12 @@ export class SmartDeployService {
     if (!targetRequest) return invalidFailure('A target program and reference are required.');
     if (targetRequest.program !== 'POTA' && targetRequest.program !== 'SOTA') return { kind: 'smartdeploy_error', code: 'unsupported_target_program', message: `The ${targetRequest.program} activation target is not supported yet.` };
     const resolver = targetRequest.program === 'SOTA' ? this.sotaResolver : this.resolver;
-    const resolution = await resolver.resolve(targetRequest);
-    const resolutionMetadata = targetRequest.program === 'SOTA' ? { sota: resolution } : { pota: resolution };
+    const resolution = targetRequest.program === 'SOTA'
+      ? await this.sotaResolver.resolve(targetRequest) as SotaTargetResolution
+      : await resolver.resolve(targetRequest) as PotaTargetResolution;
+    const resolutionMetadata = targetRequest.program === 'SOTA'
+      ? { sota: resolution as SotaTargetResolution }
+      : { pota: resolution as PotaTargetResolution };
     if (resolution.status === 'invalid') return { kind: 'smartdeploy_error', code: targetRequest.program === 'SOTA' ? 'sota_invalid' : 'pota_invalid', message: targetRequest.program === 'SOTA' ? 'Enter a valid SOTA summit reference, such as W4V/SH-001.' : 'Enter a valid POTA park reference, such as US-1234.', ...resolutionMetadata };
     if (resolution.status === 'unknown') return { kind: 'smartdeploy_error', code: targetRequest.program === 'SOTA' ? 'sota_unknown' : 'pota_unknown', message: targetRequest.program === 'SOTA' ? 'The SOTA summit reference was not found in the local dataset.' : 'The POTA park reference was not found.', ...resolutionMetadata };
     if (resolution.status === 'unavailable' || !resolution.target) return { kind: 'smartdeploy_error', code: targetRequest.program === 'SOTA' ? 'sota_unavailable' : 'pota_unavailable', message: targetRequest.program === 'SOTA' ? 'The local SOTA summit dataset is unavailable. No brief was generated.' : 'The POTA source is currently unavailable. No brief was generated.', ...resolutionMetadata };

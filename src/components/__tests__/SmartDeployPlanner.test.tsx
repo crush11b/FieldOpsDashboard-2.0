@@ -67,6 +67,23 @@ describe('SmartDeploy planner', () => {
     await waitFor(() => expect(fetch).toHaveBeenCalledWith('/api/smartdeploy/briefs'));
   });
 
+  it('shows SOTA data status and refreshes only after the operator requests it', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (input === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [] }) };
+      if (input === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'STALE', metadata: { downloadedAtUtc: '2026-08-19T12:00:00.000Z', sourceVersion: '19/08/2026' } }) };
+      expect(input).toBe('/api/sota-data/refresh');
+      expect(init?.method).toBe('POST');
+      return { ok: true, json: async () => ({ state: 'AVAILABLE', metadata: { downloadedAtUtc: '2026-08-20T12:00:00.000Z', sourceVersion: '20/08/2026' } }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    await waitFor(() => expect(screen.getByText(/Stale/)).toBeTruthy());
+    expect(fetcher).not.toHaveBeenCalledWith('/api/sota-data/refresh', expect.anything());
+    fireEvent.click(screen.getByRole('button', { name: 'REFRESH SOTA DATA' }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/sota-data/refresh', { method: 'POST' }));
+    await waitFor(() => expect(screen.getByText(/Available/)).toBeTruthy());
+  });
+
   it('shows a loading state and preserves fields during generation', async () => {
     let resolveRequest!: (value: unknown) => void;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'

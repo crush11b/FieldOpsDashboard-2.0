@@ -22,6 +22,12 @@ function validRows() {
 }
 
 describe('SOTA summit CSV and local dataset', () => {
+  it('accepts the official dated preamble and preserves its source version', () => {
+    const result = parseSotaSummitCsv(`SOTA Summits List (Date=19/08/2026)\n${fixture}`);
+    expect(result).toMatchObject({ status: 'valid', sourceVersion: '19/08/2026' });
+    expect(result.status === 'valid' && result.records.size).toBe(2);
+  });
+
   it('parses the official headers, quoted names, coordinates, and absent elevation', () => {
     const records = validRows();
     expect(records.get('W4V/SH-001')).toMatchObject({ reference: 'W4V/SH-001', name: 'High Knob, North Ridge', latitude: 37.4567, longitude: -82.1234, elevationM: 1287 });

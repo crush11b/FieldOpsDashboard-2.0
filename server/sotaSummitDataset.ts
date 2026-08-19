@@ -16,12 +16,12 @@ export interface SummitRecord {
 }
 
 export interface SotaDatasetMetadata {
-  readonly sourceVersion: string;
+  readonly sourceVersion: string | null;
   readonly downloadedAtUtc: string;
   readonly stale: boolean;
-  readonly sourceId: typeof SOTA_SUMMIT_SOURCE_ID;
-  readonly sourceName: typeof SOTA_SUMMIT_SOURCE_NAME;
-  readonly sourceUrl: typeof SOTA_SUMMIT_SOURCE_URL;
+  readonly sourceId: string;
+  readonly sourceName: string;
+  readonly sourceUrl: string;
 }
 
 export type SotaDatasetState = 'AVAILABLE' | 'STALE' | 'UNAVAILABLE';
@@ -33,7 +33,7 @@ export interface SotaCsvValidationIssue {
 }
 
 export type SotaCsvParseResult =
-  | { readonly status: 'valid'; readonly records: ReadonlyMap<string, SummitRecord> }
+  | { readonly status: 'valid'; readonly records: ReadonlyMap<string, SummitRecord>; readonly sourceVersion: string | null }
   | { readonly status: 'invalid'; readonly issues: readonly SotaCsvValidationIssue[] };
 
 const REQUIRED_HEADERS = [
@@ -56,7 +56,10 @@ export function parseSotaSummitCsv(input: string): SotaCsvParseResult {
   const meaningfulRows = rows.filter(row => row.some(value => value.trim() !== ''));
   if (meaningfulRows.length === 0) return { status: 'invalid', issues: [{ row: 1, message: 'CSV contains no header row.' }] };
 
-  const headers = meaningfulRows[0].map((value, index) => index === 0 ? value.replace(/^\uFEFF/, '').trim() : value.trim());
+  const sourceVersion = parseSourceVersion(meaningfulRows[0]);
+  const headerRow = sourceVersion ? meaningfulRows[1] : meaningfulRows[0];
+  if (!headerRow) return { status: 'invalid', issues: [{ row: 1, message: 'CSV contains no header row.' }] };
+  const headers = headerRow.map((value, index) => index === 0 ? value.replace(/^\uFEFF/, '').trim() : value.trim());
   const headerIndexes = new Map(headers.map((header, index) => [header, index]));
   const issues: SotaCsvValidationIssue[] = [];
   for (const header of REQUIRED_HEADERS) {
@@ -65,7 +68,8 @@ export function parseSotaSummitCsv(input: string): SotaCsvParseResult {
   if (issues.length > 0) return { status: 'invalid', issues };
 
   const records = new Map<string, SummitRecord>();
-  for (let rowIndex = 1; rowIndex < meaningfulRows.length; rowIndex += 1) {
+  const firstDataRow = sourceVersion ? 2 : 1;
+  for (let rowIndex = firstDataRow; rowIndex < meaningfulRows.length; rowIndex += 1) {
     const row = meaningfulRows[rowIndex];
     const rowNumber = rowIndex + 1;
     const value = (header: string) => row[headerIndexes.get(header) ?? -1]?.trim() ?? '';
@@ -97,17 +101,17 @@ export function parseSotaSummitCsv(input: string): SotaCsvParseResult {
       });
     }
   }
-  return issues.length > 0 ? { status: 'invalid', issues } : { status: 'valid', records };
+  return issues.length > 0 ? { status: 'invalid', issues } : { status: 'valid', records, sourceVersion };
 }
 
 export class LocalSotaSummitDataset {
   readonly state: SotaDatasetState;
 
   constructor(
-    private readonly records: ReadonlyMap<string, SummitRecord> | null,
+    private readonly recordsMap: ReadonlyMap<string, SummitRecord> | null,
     private readonly datasetMetadata: SotaDatasetMetadata | null,
   ) {
-    this.state = records === null || datasetMetadata === null ? 'UNAVAILABLE' : datasetMetadata.stale ? 'STALE' : 'AVAILABLE';
+    this.state = recordsMap === null || datasetMetadata === null ? 'UNAVAILABLE' : datasetMetadata.stale ? 'STALE' : 'AVAILABLE';
   }
 
   static unavailable(): LocalSotaSummitDataset {
@@ -118,8 +122,12 @@ export class LocalSotaSummitDataset {
     return this.datasetMetadata;
   }
 
+  get records(): ReadonlyMap<string, SummitRecord> | null {
+    return this.recordsMap;
+  }
+
   get(reference: string): SummitRecord | null {
-    return this.records?.get(normalizeSotaReference(reference) ?? '') ?? null;
+    return this.recordsMap?.get(normalizeSotaReference(reference) ?? '') ?? null;
   }
 }
 
@@ -151,4 +159,10 @@ function parseCsvRows(input: string): string[][] {
   if (quoted) throw new Error('Unterminated quoted CSV field.');
   if (field !== '' || row.length > 0) { row.push(field); rows.push(row); }
   return rows;
+}
+
+function parseSourceVersion(row: readonly string[]): string | null {
+  if (row.length !== 1) return null;
+  const match = /^SOTA Summits List \(Date=(\d{2}\/\d{2}\/\d{4})\)$/i.exec(row[0].replace(/^\uFEFF/, '').trim());
+  return match?.[1] ?? null;
 }

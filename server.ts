@@ -40,6 +40,9 @@ import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService 
 import { createPotaTargetRouter, PotaActivationTargetResolver } from './server/potaTargetResolver';
 import { createSmartDeployRouter, SmartDeployService } from './server/smartDeploy';
 import { SmartDeployBriefStore, getDefaultSmartDeployBriefPath } from './server/smartDeployBriefStore';
+import { createSotaSummitDataRouter } from './server/sotaSummitDataRouter';
+import { getDefaultSotaSummitDatasetPath, SotaSummitDataStore } from './server/sotaSummitDataStore';
+import { SotaActivationTargetResolver } from './server/sotaTargetResolver';
 
 async function startServer() {
   const app = express();
@@ -70,11 +73,14 @@ async function startServer() {
   app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
   app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
+  const sotaDataStore = new SotaSummitDataStore(getDefaultSotaSummitDatasetPath());
+  const sotaResolver = new SotaActivationTargetResolver(() => sotaDataStore.dataset);
+  app.use(createSotaSummitDataRouter(sotaDataStore));
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
   const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
   app.use(createSmartDeployRouter({
-    service: new SmartDeployService({ store: smartDeployBriefStore, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
+    service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
     store: smartDeployBriefStore,
   }));
   const propagationGuidanceService = new PropagationGuidanceService(

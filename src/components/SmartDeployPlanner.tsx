@@ -9,6 +9,7 @@ import { SmartDeployBriefView } from './SmartDeployBriefView';
 
 interface SmartDeployPlannerProps { operatingLocation: OperatingLocation; stationProfile?: StationProfile; }
 interface BriefListItem { briefId: string; generatedAtUtc: string; status: SmartDeployBrief['status']; activation: { reference: string; displayName?: string }; }
+interface SotaDataStatus { state: 'AVAILABLE' | 'STALE' | 'UNAVAILABLE'; metadata: { downloadedAtUtc: string; sourceVersion: string | null } | null; refreshError?: string; }
 
 export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatingLocation, stationProfile }) => {
   const profile = stationProfile ?? { mode: 'SSB' as const, transmitPowerWatts: 10, antenna: { type: 'EFHW' as const }, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } };
@@ -30,11 +31,20 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [warning, setWarning] = useState<string | null>(null);
+  const [sotaDataStatus, setSotaDataStatus] = useState<SotaDataStatus>({ state: 'UNAVAILABLE', metadata: null });
+  const [sotaRefreshBusy, setSotaRefreshBusy] = useState(false);
 
   const loadRecent = async () => {
     try { const response = await fetch('/api/smartdeploy/briefs'); if (!response.ok) throw new Error('Recent plans are unavailable.'); const payload = await response.json(); setRecent((payload.briefs || []).map(toBriefListItem)); } catch { setError('Recent plans could not be loaded.'); }
   };
-  useEffect(() => { void loadRecent(); }, []);
+  const loadSotaDataStatus = async () => {
+    try { const response = await fetch('/api/sota-data/status'); if (!response.ok) throw new Error('SOTA data status is unavailable.'); setSotaDataStatus(await response.json()); } catch { setSotaDataStatus({ state: 'UNAVAILABLE', metadata: null }); }
+  };
+  const refreshSotaData = async () => {
+    setSotaRefreshBusy(true);
+    try { const response = await fetch('/api/sota-data/refresh', { method: 'POST' }); const payload = await response.json(); setSotaDataStatus(payload); if (!response.ok) setError(payload.message || 'SOTA summit data refresh failed.'); } catch { setError('SOTA summit data refresh could not reach the local server.'); } finally { setSotaRefreshBusy(false); }
+  };
+  useEffect(() => { void Promise.all([loadRecent(), loadSotaDataStatus()]); }, []);
 
   const generate = async () => {
     setError(null); setWarning(null); setBrief(null);
@@ -64,6 +74,10 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
   const deploymentOptions = getDeploymentOptionsForAntenna(antenna);
 
   return <div id="smartdeploy-planner" className="space-y-4">
+    <div className="p-3 rounded-xl border border-cyan-700/60 bg-cyan-950/20 flex flex-wrap items-center justify-between gap-3">
+      <div className="text-[11px]"><strong className="text-cyan-200">SOTA DATA</strong><span className="block text-slate-400">{sotaDataStatus.state === 'AVAILABLE' ? 'Available' : sotaDataStatus.state === 'STALE' ? 'Stale' : 'Unavailable'}{sotaDataStatus.metadata?.downloadedAtUtc ? ` • updated ${sotaDataStatus.metadata.downloadedAtUtc}` : ''}</span>{sotaDataStatus.refreshError && <span className="block text-amber-300">{sotaDataStatus.refreshError}</span>}</div>
+      <button type="button" onClick={() => void refreshSotaData()} disabled={sotaRefreshBusy} className="px-3 py-2 rounded border border-cyan-600 text-cyan-200 font-bold text-[10px] disabled:opacity-50">{sotaRefreshBusy ? 'REFRESHING...' : 'REFRESH SOTA DATA'}</button>
+    </div>
     <div className="p-4 rounded-xl border border-amber-600/70 bg-amber-950/20 space-y-3">
       <div><h3 className="font-black text-sm uppercase text-amber-300">SMARTDEPLOY / POTA PLAN</h3><p className="text-[11px] text-slate-400 mt-1">Activation, mission window, operating location, station, then one intentional generation.</p></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div className="rounded-lg border border-cyan-700/60 bg-cyan-950/20 p-3 text-[11px]"><strong className="text-cyan-200">CURRENT DEVICE LOCATION</strong><span className="block text-slate-400">{operatingLocation.gridSquare || 'Unavailable'} ({operatingLocation.provenance})</span>{operatingLocation.coordinates && <span className="block font-mono text-slate-300">{operatingLocation.coordinates.lat.toFixed(5)}, {operatingLocation.coordinates.lon.toFixed(5)}</span>}<span className="block mt-1 text-slate-500">Current GPS is context only unless explicitly selected.</span></div><div className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px]"><label className="text-[10px] uppercase text-slate-400">Planned operating site<select aria-label="Planned operating site" value={plannedSiteSelection} onChange={event => setPlannedSiteSelection(event.target.value as PlannedOperatingLocationSelection)} className="mt-1 w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-amber-200"><option value="provider_reference">POTA reference location</option><option value="current_device" disabled={!operatingLocation.coordinates || operatingLocation.provenance === 'unavailable'}>Use current device location</option><option value="manual">Enter planned site</option></select></label><span className="block mt-1 text-slate-400">{plannedSiteSelection === 'current_device' ? 'Current device becomes the transmitter site.' : plannedSiteSelection === 'manual' ? 'Enter the station deployment point below.' : 'POTA reference; approximate planning point.'}</span></div></div>
