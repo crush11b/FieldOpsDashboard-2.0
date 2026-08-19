@@ -3,6 +3,7 @@ import { normalizeSmartDeployPlanningRequest, resolvePlannedOperatingLocation, t
 import type { OperatingLocation } from '../src/location/operatingLocation';
 import { composeMissionEvidence, type MissionEvidence } from './missionEvidence';
 import { executeMissionWindowPropagation, type MissionWindowPropagationResult } from './missionWindowPropagation';
+import { normalizeActivationTargetRequest, type ActivationTargetResolver } from './activationTargetResolver';
 import { PotaActivationTargetResolver, type PotaTargetResolution } from './potaTargetResolver';
 import { SpaceWeatherService } from './spaceWeather';
 import { ObservedRfService } from './observedRf';
@@ -13,7 +14,8 @@ import {
 } from './smartDeployBriefStore';
 
 export interface SmartDeployGenerationRequest {
-  readonly potaReference: unknown;
+  readonly targetRequest?: unknown;
+  readonly potaReference?: unknown;
   readonly activationTarget: unknown;
   readonly plannedOperatingLocation: unknown;
   readonly currentDeviceLocation?: unknown;
@@ -34,14 +36,14 @@ export interface SmartDeployGenerationSuccess {
 
 export interface SmartDeployGenerationFailure {
   readonly kind: 'smartdeploy_error';
-  readonly code: 'invalid_request' | 'pota_invalid' | 'pota_unknown' | 'pota_unavailable' | 'generation_failed';
+  readonly code: 'invalid_request' | 'unsupported_target_program' | 'pota_invalid' | 'pota_unknown' | 'pota_unavailable' | 'generation_failed';
   readonly message: string;
   readonly issues?: readonly { readonly path: string; readonly code: string; readonly message: string }[];
   readonly pota?: Pick<PotaTargetResolution, 'status' | 'reference' | 'refreshAttemptedAtUtc'>;
 }
 
 export interface SmartDeployServiceOptions {
-  readonly resolver?: PotaActivationTargetResolver;
+  readonly resolver?: ActivationTargetResolver;
   readonly spaceWeather?: SpaceWeatherService;
   readonly observedRf?: ObservedRfService;
   readonly store: SmartDeployBriefStore;
@@ -52,7 +54,7 @@ export interface SmartDeployServiceOptions {
 }
 
 export class SmartDeployService {
-  private readonly resolver: PotaActivationTargetResolver;
+  private readonly resolver: ActivationTargetResolver;
   private readonly spaceWeather: SpaceWeatherService;
   private readonly observedRf: ObservedRfService;
   private readonly now: () => Date;
@@ -73,7 +75,11 @@ export class SmartDeployService {
   async generateBrief(input: unknown): Promise<SmartDeployGenerationSuccess | SmartDeployGenerationFailure> {
     if (!isRecord(input)) return invalidFailure('Request must be an object.');
     const request = input as unknown as SmartDeployGenerationRequest;
-    const resolution = await this.resolver.resolve(request.potaReference);
+    const targetRequest = normalizeActivationTargetRequest(request.targetRequest)
+      ?? (request.potaReference !== undefined ? normalizeActivationTargetRequest({ program: 'POTA', reference: request.potaReference }) : null);
+    if (!targetRequest) return invalidFailure('A target program and reference are required.');
+    if (targetRequest.program !== 'POTA') return { kind: 'smartdeploy_error', code: 'unsupported_target_program', message: `The ${targetRequest.program} activation target is not supported yet.` };
+    const resolution = await this.resolver.resolve(targetRequest);
     if (resolution.status === 'invalid') return { kind: 'smartdeploy_error', code: 'pota_invalid', message: 'Enter a valid POTA park reference, such as US-1234.', pota: resolution };
     if (resolution.status === 'unknown') return { kind: 'smartdeploy_error', code: 'pota_unknown', message: 'The POTA park reference was not found.', pota: resolution };
     if (resolution.status === 'unavailable' || !resolution.target) return { kind: 'smartdeploy_error', code: 'pota_unavailable', message: 'The POTA source is currently unavailable. No brief was generated.', pota: resolution };

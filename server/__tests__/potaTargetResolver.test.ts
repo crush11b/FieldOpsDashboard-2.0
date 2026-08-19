@@ -43,6 +43,14 @@ describe('POTA activation target resolver', () => {
     expect(requestedUrl).toBe('https://api.pota.app/park/US-1234');
   });
 
+  it('accepts the provider-neutral POTA target request without changing normalization or provenance', async () => {
+    const result = await resolver(async input => jsonResponse(park)).resolve({ program: 'POTA', reference: ' us-1234 ' });
+    expect(result).toMatchObject({ status: 'live', reference: 'US-1234', target: {
+      program: 'POTA', reference: 'US-1234', coordinates: { lat: park.latitude, lon: park.longitude },
+      provenance: { kind: 'externally_resolved', source: { id: 'pota-api' }, resolvedAtUtc: NOW.toISOString() },
+    } });
+  });
+
   it('returns unknown for null and authoritative not-found responses without stale fallback', async () => {
     let mode: 'live' | 'unknown' = 'live';
     let now = NOW;

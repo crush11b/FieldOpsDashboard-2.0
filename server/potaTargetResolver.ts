@@ -3,6 +3,7 @@ import { latLonToGridSquare } from '../src/types';
 import { parseCoordinates, type Coordinates } from '../src/location/coordinates';
 import type { ActivationTarget, PlanningInputProvenance } from '../src/planning/smartDeployPlanning';
 import { getProductUserAgent } from '../src/productMetadata';
+import type { ActivationTargetRequest, ActivationTargetResolution, ActivationTargetResolver } from './activationTargetResolver';
 
 export const POTA_TARGET_ENDPOINT = 'https://api.pota.app/park';
 export const POTA_TARGET_TIMEOUT_MS = 5_000;
@@ -12,16 +13,9 @@ export const POTA_TARGET_SOURCE_ID = 'pota-api';
 export const POTA_TARGET_SOURCE_TYPE = 'pota_individual_park_api';
 export const POTA_TARGET_SOURCE_NAME = 'POTA individual park API';
 
-export type PotaTargetResolutionStatus = 'live' | 'cached' | 'stale' | 'unknown' | 'unavailable' | 'invalid';
+export type PotaTargetResolutionStatus = 'live' | 'cached' | 'stale' | 'unknown' | 'unavailable' | 'invalid' | 'unsupported';
 
-export interface PotaTargetResolution {
-  readonly status: PotaTargetResolutionStatus;
-  readonly reference: string;
-  readonly target?: ActivationTarget;
-  readonly retrievedAtUtc?: string;
-  readonly refreshAttemptedAtUtc?: string;
-  readonly error?: string;
-}
+export interface PotaTargetResolution extends ActivationTargetResolution { readonly status: PotaTargetResolutionStatus; }
 
 export interface PotaTargetResolverOptions {
   readonly fetcher?: typeof fetch;
@@ -34,7 +28,7 @@ interface CachedTarget {
   readonly retrievedAtUtc: string;
 }
 
-export class PotaActivationTargetResolver {
+export class PotaActivationTargetResolver implements ActivationTargetResolver {
   private readonly fetcher: typeof fetch;
   private readonly now: () => Date;
   private readonly timeoutMs: number;
@@ -46,8 +40,13 @@ export class PotaActivationTargetResolver {
     this.timeoutMs = options.timeoutMs ?? POTA_TARGET_TIMEOUT_MS;
   }
 
+  async resolve(request: ActivationTargetRequest): Promise<PotaTargetResolution>;
+  async resolve(input: unknown): Promise<PotaTargetResolution>;
   async resolve(input: unknown): Promise<PotaTargetResolution> {
-    const reference = normalizePotaReference(input);
+    if (isTargetRequest(input) && input.program !== 'POTA') {
+      return { status: 'unsupported', reference: input.reference, error: `The ${input.program} activation target is not supported.` };
+    }
+    const reference = normalizePotaReference(isTargetRequest(input) ? input.reference : input);
     if (!reference) return { status: 'invalid', reference: reference ?? StringValue(input) ?? '' };
 
     const cached = this.cache.get(reference);
@@ -175,4 +174,8 @@ function errorMessage(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function isTargetRequest(value: unknown): value is ActivationTargetRequest {
+  return isRecord(value) && typeof value.program === 'string' && typeof value.reference === 'string';
 }

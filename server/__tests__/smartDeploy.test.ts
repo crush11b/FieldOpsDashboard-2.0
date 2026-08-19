@@ -64,6 +64,28 @@ describe('SmartDeploy orchestration', () => {
     expect(save).toHaveBeenCalledWith(brief);
   });
 
+  it('accepts a provider-neutral POTA target request while preserving the existing pipeline', async () => {
+    const targetResolver = resolver('live');
+    const result = await service({ resolver: targetResolver }).generateBrief(request({
+      targetRequest: { program: 'pota', reference: ' us-1234 ' },
+      potaReference: undefined,
+    }));
+    expect(result).toMatchObject({ kind: 'smartdeploy_generation', brief });
+    expect(targetResolver.resolve).toHaveBeenCalledWith({ program: 'POTA', reference: 'us-1234' });
+  });
+
+  it('rejects unsupported target programs before resolver or evidence activity', async () => {
+    const targetResolver = resolver('live');
+    const propagate = vi.fn();
+    const result = await service({ resolver: targetResolver, propagate }).generateBrief(request({
+      targetRequest: { program: 'SOTA', reference: 'W4V/SH-001' },
+      potaReference: undefined,
+    }));
+    expect(result).toMatchObject({ kind: 'smartdeploy_error', code: 'unsupported_target_program' });
+    expect(targetResolver.resolve).not.toHaveBeenCalled();
+    expect(propagate).not.toHaveBeenCalled();
+  });
+
   it('defaults the planned site to the resolved provider reference without replacing current device context', async () => {
     const propagate = vi.fn(async value => {
       expect(value.planningRequest.plannedOperatingLocation.coordinates).toEqual(target.coordinates);
