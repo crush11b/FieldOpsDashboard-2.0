@@ -2,6 +2,9 @@ $scriptPath = Join-Path $PSScriptRoot '..\Test-FieldOpsInteractiveTrayLaunch.ps1
 
 function Invoke-DiagnosticScript {
     param([hashtable]$Parameters)
+    if (-not $Parameters.ContainsKey('TokenInspectionProvider')) {
+        $Parameters.TokenInspectionProvider = $script:tokenInspectionProvider
+    }
     & $scriptPath @Parameters
 }
 
@@ -29,6 +32,13 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
             [pscustomobject]@{ Status = 'Running'; ProcessId = 702; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; Account = $Account; Sid = $Sid; TrayPath = $Path }
         }.GetNewClosure()
         $script:privileges = { @([pscustomobject]@{ Privilege = 'SeAssignPrimaryTokenPrivilege'; State = 'Disabled' }, [pscustomobject]@{ Privilege = 'SeIncreaseQuotaPrivilege'; State = 'Disabled' }, [pscustomobject]@{ Privilege = 'SeImpersonatePrivilege'; State = 'Enabled' }) }
+        $tokenInspectionHolder = [pscustomobject]@{ Value = [pscustomobject]@{
+            SourceProcessSessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+            SourceToken = [pscustomobject]@{ Label = 'Source Explorer token'; TokenType = 'Primary'; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; UserSid = $script:operator.Sid; IntegrityLevel = 'High'; ElevationType = 'Full'; IsElevated = $true; VirtualizationAllowed = $false; VirtualizationEnabled = $false; IsRestricted = $false; HasLinkedToken = $false; RequestedAccessMask = 11; HandleAcquired = $true }
+            DuplicatedToken = [pscustomobject]@{ Label = 'Duplicated primary token'; TokenType = 'Primary'; SessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId; UserSid = $script:operator.Sid; IntegrityLevel = 'High'; ElevationType = 'Full'; IsElevated = $true; VirtualizationAllowed = $false; VirtualizationEnabled = $false; IsRestricted = $false; HasLinkedToken = $false; RequestedAccessMask = 11; HandleAcquired = $true }
+            GrantedAccessNote = 'injected diagnostic fixture'
+        } }
+        $script:tokenInspectionProvider = { $tokenInspectionHolder.Value }.GetNewClosure()
         $script:originalProgramFiles = $env:ProgramFiles
         $env:ProgramFiles = $TestDrive
         $script:expectedTray = Join-Path $TestDrive 'FieldOpsDashboard\Tray\FieldOps.Tray.exe'
@@ -81,6 +91,23 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         { Invoke-DiagnosticScript @{ OperatorResolver = $script:operatorResolver; SessionProvider = $script:sessionProvider; TrayProcessProvider = $script:processProvider; LaunchInvoker = $script:failure; PrivilegeProvider = $script:privileges } } | Should Throw 'CreateProcessWithTokenW failed. Win32 error 1314'
     }
 
+    It 'extracts source and duplicated token summaries with the documented access masks' {
+        $inspection = [FieldOpsDashboard.Deployment.InteractiveProcess]::InspectToken([uint32]$PID)
+
+        $inspection.SourceToken.TokenType | Should Be 'Primary'
+        $inspection.DuplicatedToken.TokenType | Should Be 'Primary'
+        $inspection.SourceToken.SessionId | Should Be ([Diagnostics.Process]::GetCurrentProcess().SessionId)
+        $inspection.DuplicatedToken.SessionId | Should Be ([Diagnostics.Process]::GetCurrentProcess().SessionId)
+        $inspection.SourceToken.UserSid | Should Not BeNullOrEmpty
+        $inspection.DuplicatedToken.UserSid | Should Be $inspection.SourceToken.UserSid
+        $inspection.SourceToken.IntegrityLevel | Should Not BeNullOrEmpty
+        $inspection.DuplicatedToken.IntegrityLevel | Should Be $inspection.SourceToken.IntegrityLevel
+        $inspection.SourceToken.RequestedAccessMask | Should Be 11
+        $inspection.DuplicatedToken.RequestedAccessMask | Should Be 11
+        $inspection.SourceToken.HandleAcquired | Should Be $true
+        $inspection.DuplicatedToken.HandleAcquired | Should Be $true
+    }
+
     It 'uses read-only privilege diagnostics and reports the selected launch API' {
         $source = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\FieldOps.TrayLaunch.psm1') -Raw
         $diagnostic = Get-Content -LiteralPath $scriptPath -Raw
@@ -88,6 +115,10 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
         $source | Should Not Match 'EnableForCreateProcessAsUser|AdjustTokenPrivileges|CreateProcessAsUser'
         $diagnostic | Should Match 'Launch API: CreateProcessWithTokenW'
         $diagnostic | Should Match 'Caller privilege state after launch'
+        $diagnostic | Should Match 'Source Explorer process session ID'
+        $diagnostic | Should Match 'DuplicateTokenEx requested access'
+        $diagnostic | Should Match 'Granted access diagnostic'
+        $diagnostic | Should Match 'Direct source-token CreateProcessWithTokenW probe: not attempted'
     }
 
     It 'handles the documented privilege states and native cleanup contract' {

@@ -7,7 +7,8 @@ param(
     [scriptblock]$SessionProvider = { Get-FieldOpsInteractiveSessionCandidates },
     [scriptblock]$TrayProcessProvider = { Get-FieldOpsTrayProcessCandidates },
     [scriptblock]$LaunchInvoker = { param($Path, $Account, $Sid, $Timeout) Start-FieldOpsTray -TrayPath $Path -OperatorAccount $Account -OperatorSid $Sid -SessionProvider $SessionProvider -TrayProcessProvider $TrayProcessProvider -TimeoutSeconds $Timeout },
-    [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeState }
+    [scriptblock]$PrivilegeProvider = { Get-FieldOpsCallerPrivilegeState },
+    [scriptblock]$TokenInspectionProvider = { param($ProcessId) [FieldOpsDashboard.Deployment.InteractiveProcess]::InspectToken([uint32]$ProcessId) }
 )
 
 Set-StrictMode -Version Latest
@@ -67,6 +68,15 @@ function Write-FieldOpsPrivilegeState {
     }
 }
 
+function Write-FieldOpsTokenSummary {
+    param([Parameter(Mandatory = $true)]$Summary)
+
+    Write-Output ('{0}: type {1}; session {2}; SID {3}; integrity {4}; elevation type {5}; elevated {6}; virtualization allowed {7}; virtualization enabled {8}; restricted {9}; linked token {10}; requested access 0x{11:X8}; handle acquired {12}' -f `
+        $Summary.Label, $Summary.TokenType, $Summary.SessionId, $Summary.UserSid, $Summary.IntegrityLevel, $Summary.ElevationType, `
+        $Summary.IsElevated, $Summary.VirtualizationAllowed, $Summary.VirtualizationEnabled, $Summary.IsRestricted, $Summary.HasLinkedToken, `
+        $Summary.RequestedAccessMask, $Summary.HandleAcquired)
+}
+
 function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
     $trayPath = Join-Path $env:ProgramFiles 'FieldOpsDashboard\Tray\FieldOps.Tray.exe'
     Write-Output ('Dashboard install path: {0}' -f ([IO.Path]::GetFullPath($InstallPath)))
@@ -90,6 +100,14 @@ function Invoke-FieldOpsInteractiveTrayLaunchDiagnostic {
     if ($callerSessionId -ne [int]$session.SessionId) {
         throw "Resolved operator '$($operator.Account)' is in interactive session $($session.SessionId), but the diagnostic caller is in session $callerSessionId. This single-operator deployment path does not support cross-session Tray launch."
     }
+    $tokenInspection = & $TokenInspectionProvider ([uint32]$session.ProcessId)
+    Write-Output ('Source Explorer process session ID: {0}' -f $tokenInspection.SourceProcessSessionId)
+    Write-Output ('Source token requested access: 0x{0:X8}' -f [uint32][FieldOpsDashboard.Deployment.InteractiveProcess]::SourceTokenAccessMask)
+    Write-Output ('DuplicateTokenEx requested access: 0x{0:X8}' -f [uint32][FieldOpsDashboard.Deployment.InteractiveProcess]::DuplicateTokenAccessMask)
+    Write-FieldOpsTokenSummary -Summary $tokenInspection.SourceToken
+    Write-FieldOpsTokenSummary -Summary $tokenInspection.DuplicatedToken
+    Write-Output ('Granted access diagnostic: {0}' -f $tokenInspection.GrantedAccessNote)
+    Write-Output 'Direct source-token CreateProcessWithTokenW probe: not attempted; it would create a diagnostic child process. Launch uses the duplicated primary token only.'
     Write-Output 'Caller privilege diagnostics (read-only):'
     Write-FieldOpsPrivilegeState -States (& $PrivilegeProvider)
 

@@ -152,6 +152,11 @@ Describe 'FieldOps immediate Tray launch integration' {
         $diagnostic | Should Match 'A required privilege is not held by the client'
     }
 
+    It 'preserves ERROR_ACCESS_DENIED diagnostics for CreateProcessWithTokenW' {
+        [FieldOpsDashboard.Deployment.InteractiveProcess]::FormatWin32Error(5, 'CreateProcessWithTokenW') |
+            Should Match '^CreateProcessWithTokenW failed\. Win32 error 5: Access is denied'
+    }
+
     It 'loads the helper after installer completion and preserves startup registration' {
         $updater | Should Match 'FieldOps\.TrayLaunch\.psm1'
         $updater | Should Match 'Start-FieldOpsTray'

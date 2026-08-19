@@ -21,6 +21,23 @@ namespace FieldOpsDashboard.Deployment
         public string State { get; internal set; }
     }
 
+    public sealed class TokenSummary
+    {
+        public string Label { get; internal set; }
+        public string TokenType { get; internal set; }
+        public uint SessionId { get; internal set; }
+        public string UserSid { get; internal set; }
+        public string IntegrityLevel { get; internal set; }
+        public string ElevationType { get; internal set; }
+        public bool IsElevated { get; internal set; }
+        public bool VirtualizationAllowed { get; internal set; }
+        public bool VirtualizationEnabled { get; internal set; }
+        public bool IsRestricted { get; internal set; }
+        public bool HasLinkedToken { get; internal set; }
+        public uint RequestedAccessMask { get; internal set; }
+        public bool HandleAcquired { get; internal set; }
+    }
+
     public static class CallerPrivileges
     {
         private const uint TokenQuery = 0x0008;
@@ -119,6 +136,18 @@ namespace FieldOpsDashboard.Deployment
         private const uint SecurityImpersonation = 2;
         private const uint TokenPrimary = 1;
 
+        public const uint SourceTokenAccessMask = TokenAssignPrimary | TokenDuplicate | TokenQuery;
+        public const uint DuplicateTokenAccessMask = TokenAssignPrimary | TokenDuplicate | TokenQuery;
+
+        public sealed class TokenInspection
+        {
+            public uint SourceProcessId { get; internal set; }
+            public uint SourceProcessSessionId { get; internal set; }
+            public TokenSummary SourceToken { get; internal set; }
+            public TokenSummary DuplicatedToken { get; internal set; }
+            public string GrantedAccessNote { get; internal set; }
+        }
+
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
         private struct StartupInfo
         {
@@ -181,6 +210,50 @@ namespace FieldOpsDashboard.Deployment
         [DllImport("kernel32.dll", SetLastError = true)]
         private static extern bool CloseHandle(IntPtr handle);
 
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool GetTokenInformation(IntPtr token, uint informationClass, IntPtr information, uint length, out uint returnLength);
+
+        [DllImport("advapi32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+        private static extern bool ConvertSidToStringSid(IntPtr sid, out IntPtr stringSid);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr LocalFree(IntPtr handle);
+
+        [DllImport("advapi32.dll")]
+        private static extern IntPtr GetSidSubAuthorityCount(IntPtr sid);
+
+        [DllImport("advapi32.dll")]
+        private static extern IntPtr GetSidSubAuthority(IntPtr sid, uint index);
+
+        public static TokenInspection InspectToken(uint sourceProcessId)
+        {
+            var process = OpenProcess(ProcessQueryLimitedInformation, false, sourceProcessId);
+            if (process == IntPtr.Zero) ThrowLastError("OpenProcess");
+            var sourceToken = IntPtr.Zero;
+            var primaryToken = IntPtr.Zero;
+            try
+            {
+                if (!OpenProcessToken(process, SourceTokenAccessMask, out sourceToken)) ThrowLastError("OpenProcessToken");
+                if (!DuplicateTokenEx(sourceToken, DuplicateTokenAccessMask, IntPtr.Zero, SecurityImpersonation, TokenPrimary, out primaryToken)) ThrowLastError("DuplicateTokenEx");
+                var sourceSummary = ReadTokenSummary("Source Explorer token", sourceToken, SourceTokenAccessMask);
+                var duplicateSummary = ReadTokenSummary("Duplicated primary token", primaryToken, DuplicateTokenAccessMask);
+                return new TokenInspection
+                {
+                    SourceProcessId = sourceProcessId,
+                    SourceProcessSessionId = sourceSummary.SessionId,
+                    SourceToken = sourceSummary,
+                    DuplicatedToken = duplicateSummary,
+                    GrantedAccessNote = "Documented Win32 token APIs expose the requested access mask, not the handle's granted mask. Successful handle acquisition confirms the requested rights were granted for this diagnostic handle."
+                };
+            }
+            finally
+            {
+                if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
+                if (sourceToken != IntPtr.Zero) CloseHandle(sourceToken);
+                CloseHandle(process);
+            }
+        }
+
         public static int Launch(string executablePath, string workingDirectory, uint sourceProcessId)
         {
             var process = OpenProcess(ProcessQueryLimitedInformation, false, sourceProcessId);
@@ -205,6 +278,118 @@ namespace FieldOpsDashboard.Deployment
                 if (primaryToken != IntPtr.Zero) CloseHandle(primaryToken);
                 if (sourceToken != IntPtr.Zero) CloseHandle(sourceToken);
                 CloseHandle(process);
+            }
+        }
+
+        private static TokenSummary ReadTokenSummary(string label, IntPtr token, uint requestedAccessMask)
+        {
+            var tokenType = ReadUInt32(token, 8, label + ": TokenType");
+            var elevationType = ReadUInt32(token, 18, label + ": TokenElevationType");
+            var linkedToken = ReadLinkedToken(token, label + ": TokenLinkedToken");
+            try
+            {
+                return new TokenSummary
+                {
+                    Label = label,
+                    TokenType = tokenType == TokenPrimary ? "Primary" : tokenType == 2 ? "Impersonation" : "Other (" + tokenType + ")",
+                    SessionId = ReadUInt32(token, 12, label + ": TokenSessionId"),
+                    UserSid = ReadUserSid(token, label + ": TokenUser"),
+                    IntegrityLevel = ReadIntegrityLevel(token, label + ": TokenIntegrityLevel"),
+                    ElevationType = elevationType == 1 ? "Default" : elevationType == 2 ? "Full" : elevationType == 3 ? "Limited" : "Other (" + elevationType + ")",
+                    IsElevated = ReadBoolean(token, 20, label + ": TokenElevation"),
+                    VirtualizationAllowed = ReadBoolean(token, 23, label + ": TokenVirtualizationAllowed"),
+                    VirtualizationEnabled = ReadBoolean(token, 24, label + ": TokenVirtualizationEnabled"),
+                    IsRestricted = ReadBoolean(token, 21, label + ": TokenHasRestrictions"),
+                    HasLinkedToken = linkedToken != IntPtr.Zero,
+                    RequestedAccessMask = requestedAccessMask,
+                    HandleAcquired = true
+                };
+            }
+            finally
+            {
+                if (linkedToken != IntPtr.Zero) CloseHandle(linkedToken);
+            }
+        }
+
+        private static uint ReadUInt32(IntPtr token, uint informationClass, string operation)
+        {
+            var buffer = Marshal.AllocHGlobal(4);
+            try
+            {
+                uint length;
+                if (!GetTokenInformation(token, informationClass, buffer, 4, out length)) ThrowLastError(operation);
+                return (uint)Marshal.ReadInt32(buffer);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        private static bool ReadBoolean(IntPtr token, uint informationClass, string operation)
+        {
+            return ReadUInt32(token, informationClass, operation) != 0;
+        }
+
+        private static IntPtr ReadLinkedToken(IntPtr token, string operation)
+        {
+            var buffer = Marshal.AllocHGlobal(IntPtr.Size);
+            try
+            {
+                uint length;
+                if (!GetTokenInformation(token, 19, buffer, (uint)IntPtr.Size, out length)) ThrowLastError(operation);
+                return Marshal.ReadIntPtr(buffer);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        private static string ReadUserSid(IntPtr token, string operation)
+        {
+            uint length = 0;
+            GetTokenInformation(token, 1, IntPtr.Zero, 0, out length);
+            var error = Marshal.GetLastWin32Error();
+            if (length == 0 && error != 122) ThrowLastError(operation);
+            var buffer = Marshal.AllocHGlobal((int)length);
+            try
+            {
+                if (!GetTokenInformation(token, 1, buffer, length, out length)) ThrowLastError(operation);
+                var sid = Marshal.ReadIntPtr(buffer);
+                IntPtr sidString;
+                if (!ConvertSidToStringSid(sid, out sidString)) ThrowLastError(operation + ": ConvertSidToStringSid");
+                try { return Marshal.PtrToStringUni(sidString); }
+                finally { LocalFree(sidString); }
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
+            }
+        }
+
+        private static string ReadIntegrityLevel(IntPtr token, string operation)
+        {
+            uint length = 0;
+            GetTokenInformation(token, 25, IntPtr.Zero, 0, out length);
+            var error = Marshal.GetLastWin32Error();
+            if (length == 0 && error != 122) ThrowLastError(operation);
+            var buffer = Marshal.AllocHGlobal((int)length);
+            try
+            {
+                if (!GetTokenInformation(token, 25, buffer, length, out length)) ThrowLastError(operation);
+                var sid = Marshal.ReadIntPtr(buffer);
+                var count = (byte)Marshal.ReadByte(GetSidSubAuthorityCount(sid));
+                var rid = Marshal.ReadInt32(GetSidSubAuthority(sid, (uint)(count - 1)));
+                if (rid >= 0x4000) return "System";
+                if (rid >= 0x3000) return "High";
+                if (rid >= 0x2000) return "Medium";
+                if (rid >= 0x1000) return "Low";
+                return "Untrusted";
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(buffer);
             }
         }
 
