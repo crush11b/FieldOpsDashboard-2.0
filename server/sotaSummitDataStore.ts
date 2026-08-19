@@ -20,6 +20,7 @@ export const SOTA_SUMMIT_DATA_DOCUMENT_VERSION = 1 as const;
 export const SOTA_SUMMIT_FRESH_MS = 30 * 24 * 60 * 60 * 1000;
 export const SOTA_SUMMIT_REFRESH_TIMEOUT_MS = 15_000;
 export const SOTA_SUMMIT_MAX_DOWNLOAD_BYTES = 50 * 1024 * 1024;
+const SOTA_SUMMIT_REDIRECT_URL = 'https://storage.sota.org.uk/summitslist.csv';
 
 interface SotaSummitDataDocument {
   readonly documentVersion: typeof SOTA_SUMMIT_DATA_DOCUMENT_VERSION;
@@ -119,13 +120,30 @@ export class SotaSummitDataStore {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
     try {
-      const response = await this.fetcher(SOTA_SUMMIT_SOURCE_URL, {
+      const requestOptions: RequestInit = {
         headers: { Accept: 'text/csv,text/plain', 'User-Agent': getProductUserAgent('SOTA summit CSV') },
         signal: controller.signal,
-        redirect: 'error',
-      });
-      if (!response.ok) throw new Error(`SOTA summit source returned HTTP ${response.status}.`);
-      const bytes = await response.arrayBuffer();
+        redirect: 'manual',
+      };
+      const response = await this.fetcher(SOTA_SUMMIT_SOURCE_URL, requestOptions);
+      let downloadResponse = response;
+      if (isRedirect(response.status)) {
+        const location = response.headers.get('location');
+        if (!isApprovedSotaRedirect(location)) {
+          throw new Error('SOTA source returned an unexpected redirect.');
+        }
+        try {
+          downloadResponse = await this.fetcher(SOTA_SUMMIT_REDIRECT_URL, requestOptions);
+        } catch (error) {
+          if (error instanceof Error && error.name === 'AbortError') throw error;
+          throw new Error(`SOTA redirected source request failed: ${errorMessage(error)}`);
+        }
+        if (isRedirect(downloadResponse.status)) throw new Error('SOTA source returned an unexpected second redirect.');
+        if (!downloadResponse.ok) throw new Error(`SOTA redirected source returned HTTP ${downloadResponse.status}.`);
+      } else if (!response.ok) {
+        throw new Error(`SOTA summit source returned HTTP ${response.status}.`);
+      }
+      const bytes = await downloadResponse.arrayBuffer();
       if (bytes.byteLength === 0) throw new Error('SOTA summit source returned an empty response.');
       if (bytes.byteLength > SOTA_SUMMIT_MAX_DOWNLOAD_BYTES) throw new Error('SOTA summit source exceeded the download size limit.');
       return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
@@ -226,4 +244,17 @@ function isRecord(value: unknown): value is Record<string, any> {
 
 function isNodeError(error: unknown): error is NodeJS.ErrnoException {
   return error instanceof Error;
+}
+
+function isRedirect(status: number): boolean {
+  return status >= 300 && status < 400;
+}
+
+function isApprovedSotaRedirect(location: string | null): boolean {
+  if (!location) return false;
+  try {
+    return new URL(location, SOTA_SUMMIT_SOURCE_URL).href === SOTA_SUMMIT_REDIRECT_URL;
+  } catch {
+    return false;
+  }
 }

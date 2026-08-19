@@ -16,8 +16,9 @@ function createStore(fetcher: typeof fetch, now = new Date('2026-08-20T00:00:00.
   return { store: new SotaSummitDataStore(path.join(directory, 'sota-summits.json'), { fetcher, now: () => now }), filePath: path.join(directory, 'sota-summits.json') };
 }
 
-function response(body: string, ok = true) {
-  return new Response(body, { status: ok ? 200 : 503 });
+function response(body: string, statusOrOk: number | boolean = 200, headers?: HeadersInit) {
+  const status = typeof statusOrOk === 'boolean' ? (statusOrOk ? 200 : 503) : statusOrOk;
+  return new Response(body, { status, headers });
 }
 
 describe('SOTA summit data store', () => {
@@ -41,5 +42,59 @@ describe('SOTA summit data store', () => {
     await expect(store.refresh()).resolves.toMatchObject({ status: 'refreshed' });
     await expect(store.refresh()).resolves.toMatchObject({ status: 'failed', state: 'AVAILABLE', message: 'network unavailable' });
     expect(store.dataset.get('W4V/SH-001')).not.toBeNull();
+  });
+
+  it('follows exactly the official SOTA delivery redirect', async () => {
+    const fetcher = vi.fn()
+      .mockResolvedValueOnce(response('', 302, { Location: 'https://storage.sota.org.uk/summitslist.csv' }))
+      .mockResolvedValueOnce(response(csv));
+    const { store } = createStore(fetcher);
+
+    await expect(store.refresh()).resolves.toMatchObject({ status: 'refreshed', recordCount: 1 });
+    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher.mock.calls[0]?.[0]).toBe(SOTA_SUMMIT_SOURCE_URL);
+    expect(fetcher.mock.calls[1]?.[0]).toBe('https://storage.sota.org.uk/summitslist.csv');
+    expect(fetcher.mock.calls[0]?.[1]).toMatchObject({ redirect: 'manual' });
+  });
+
+  it.each([
+    ['an arbitrary host', 'https://example.com/summitslist.csv'],
+    ['an HTTP delivery URL', 'http://storage.sota.org.uk/summitslist.csv'],
+    ['a wrong delivery path', 'https://storage.sota.org.uk/other.csv'],
+    ['a delivery URL with a query', 'https://storage.sota.org.uk/summitslist.csv?download=1'],
+  ])('rejects %s', async (_description, location) => {
+    const fetcher = vi.fn().mockResolvedValue(response('', 302, { Location: location }));
+    const { store } = createStore(fetcher);
+
+    await expect(store.refresh()).resolves.toMatchObject({ status: 'failed', message: 'SOTA source returned an unexpected redirect.' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(store.status.state).toBe('UNAVAILABLE');
+  });
+
+  it('rejects a second redirect and reports redirected-source failures', async () => {
+    const chainedFetcher = vi.fn()
+      .mockResolvedValueOnce(response('', 302, { Location: 'https://storage.sota.org.uk/summitslist.csv' }))
+      .mockResolvedValueOnce(response('', 302, { Location: 'https://storage.sota.org.uk/summitslist.csv' }));
+    const { store } = createStore(chainedFetcher);
+    await expect(store.refresh()).resolves.toMatchObject({ status: 'failed', message: 'SOTA source returned an unexpected second redirect.' });
+    expect(chainedFetcher).toHaveBeenCalledTimes(2);
+
+    const failedFetcher = vi.fn()
+      .mockResolvedValueOnce(response('', 302, { Location: 'https://storage.sota.org.uk/summitslist.csv' }))
+      .mockRejectedValueOnce(new Error('storage unavailable'));
+    const failedStore = createStore(failedFetcher).store;
+    await expect(failedStore.refresh()).resolves.toMatchObject({ status: 'failed', message: 'SOTA redirected source request failed: storage unavailable' });
+  });
+
+  it('times out a refresh and remains unavailable when no dataset exists', async () => {
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => await new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(new DOMException('The operation was aborted.', 'AbortError')));
+    }));
+    const directory = mkdtempSync(path.join(tmpdir(), 'fieldops-sota-'));
+    directories.push(directory);
+    const store = new SotaSummitDataStore(path.join(directory, 'sota-summits.json'), { fetcher, timeoutMs: 5 });
+
+    await expect(store.refresh()).resolves.toMatchObject({ status: 'failed', state: 'UNAVAILABLE', message: 'SOTA summit refresh timed out.' });
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });
