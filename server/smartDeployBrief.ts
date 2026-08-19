@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import type { SmartDeployPlanningRequest } from '../src/planning/smartDeployPlanning';
+import type { SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import type { MissionEvidence } from './missionEvidence';
 
 export const SMART_DEPLOY_BRIEF_SCHEMA_VERSION = 1 as const;
@@ -8,10 +8,10 @@ export type SmartDeployBriefStatus = 'complete' | 'partial' | 'unavailable';
 export type SmartDeployBriefSectionStatus = 'available' | 'derived' | 'complete' | 'partial' | 'unavailable' | 'stale' | 'observed' | 'notTemporallyApplicable';
 
 export interface SmartDeployBriefMissionSnapshot {
-  readonly activationTarget: SmartDeployPlanningRequest['activationTarget'];
-  readonly operatingLocation: SmartDeployPlanningRequest['operatingLocation'];
-  readonly missionWindow: SmartDeployPlanningRequest['missionWindow'];
-  readonly equipment: SmartDeployPlanningRequest['equipment'];
+  readonly activationTarget: SmartDeployExecutionRequest['activationTarget'];
+  readonly operatingLocation: SmartDeployExecutionRequest['operatingLocation'];
+  readonly missionWindow: SmartDeployExecutionRequest['missionWindow'];
+  readonly equipment: SmartDeployExecutionRequest['equipment'];
   readonly objective?: string;
 }
 
@@ -40,7 +40,7 @@ export interface SmartDeployBrief {
 }
 
 export interface GenerateSmartDeployBriefRequest {
-  readonly planningRequest: SmartDeployPlanningRequest;
+  readonly planningRequest: SmartDeployExecutionRequest;
   readonly missionEvidence: MissionEvidence;
 }
 
@@ -71,7 +71,7 @@ export function generateSmartDeployBrief(
   };
 }
 
-function snapshotMission(planning: SmartDeployPlanningRequest): SmartDeployBriefMissionSnapshot {
+function snapshotMission(planning: SmartDeployExecutionRequest): SmartDeployBriefMissionSnapshot {
   return {
     activationTarget: { ...planning.activationTarget },
     operatingLocation: { ...planning.operatingLocation },

@@ -1,17 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import { executeMissionWindowPropagation, missionSampleTimes } from '../missionWindowPropagation';
-import type { SmartDeployPlanningRequest } from '../../src/planning/smartDeployPlanning';
+import type { SmartDeployExecutionRequest } from '../../src/planning/smartDeployPlanning';
 
 const planningRequest = {
   activationTarget: {
     program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: { lat: 38, lon: -78 },
     provenance: { kind: 'externally_resolved' as const, source: { id: 'pota-api', type: 'pota_individual_park_api' }, resolvedAtUtc: '2026-08-18T00:00:00.000Z' },
   },
-  operatingLocation: { coordinates: { lat: 37, lon: -77 }, gridSquare: 'FM17', provenance: 'manual' as const, status: 'degraded' as const, source: { id: 'test', type: 'manual_location' } },
+  plannedOperatingLocation: { coordinates: { lat: 37, lon: -77 }, gridSquare: 'FM17', provenance: 'manual' as const, status: 'degraded' as const, source: { id: 'test', type: 'manual_location' } },
+  propagationObjective: { kind: 'regional' as const, regionId: 'western_us' as const },
   missionWindow: { start: '2026-08-18T14:00:00Z', end: '2026-08-18T18:00:00Z' },
   equipment: { radio: { name: 'Test Radio' }, antenna: { type: 'EFHW' as const }, modes: ['SSB', 'FT8'] as const, transmitPowerWatts: 10, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } },
   objective: 'Test mission',
-} satisfies SmartDeployPlanningRequest;
+  operatingLocation: { coordinates: { lat: 37, lon: -77 }, gridSquare: 'FM17', provenance: 'manual' as const, status: 'degraded' as const, source: { id: 'test', type: 'manual_location' } },
+} satisfies SmartDeployExecutionRequest;
 
 const success = (request: any, reliability = 60) => ({ ok: true as const, result: {
   sourceState: 'modeled' as const, model: 'ITU-R P.533' as const, modelVersion: 'P.533-14' as const, engine: 'ITU-R-HF v14.3' as const,

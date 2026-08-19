@@ -1,4 +1,4 @@
-import type { MissionWindow, SmartDeployPlanningRequest } from '../src/planning/smartDeployPlanning';
+import type { MissionWindow, SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import { isValidCoordinates } from '../src/propagation/domain';
 import {
   P533_BAND_FREQUENCIES,
@@ -16,7 +16,7 @@ export type MissionWindowSamplePosition = (typeof MISSION_WINDOW_SAMPLE_POSITION
 export type MissionWindowPropagationStatus = 'complete' | 'partial' | 'unavailable';
 
 export interface MissionWindowPropagationRequest {
-  readonly planningRequest: SmartDeployPlanningRequest;
+  readonly planningRequest: SmartDeployExecutionRequest;
   readonly ssn: number;
 }
 
@@ -128,7 +128,7 @@ function validateMissionPropagationRequest(request: MissionWindowPropagationRequ
   return null;
 }
 
-function stationProfileFromPlanning(planning: SmartDeployPlanningRequest): StationProfile | null {
+function stationProfileFromPlanning(planning: SmartDeployExecutionRequest): StationProfile | null {
   const equipment = planning.equipment;
   const mode = equipment.modes[0];
   if (!mode || !equipment.deployment) return null;
@@ -143,7 +143,7 @@ function stationProfileFromPlanning(planning: SmartDeployPlanningRequest): Stati
 async function executeSample(
   position: MissionWindowSamplePosition,
   modelDateTimeUtc: string,
-  planning: SmartDeployPlanningRequest,
+  planning: SmartDeployExecutionRequest,
   stationProfile: StationProfile,
   ssn: number,
   executeCircuit: MissionWindowP533Executor,

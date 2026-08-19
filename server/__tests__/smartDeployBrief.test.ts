@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { composeMissionEvidence } from '../missionEvidence';
 import { generateSmartDeployBrief } from '../smartDeployBrief';
-import type { SmartDeployPlanningRequest } from '../../src/planning/smartDeployPlanning';
+import type { SmartDeployExecutionRequest } from '../../src/planning/smartDeployPlanning';
 import type { MissionWindowPropagationResult } from '../missionWindowPropagation';
 import type { ObservedRfSnapshot } from '../../src/propagation/observedRf';
 import { latLonGrid4 } from '../../src/propagation/observedRf';
@@ -11,14 +11,17 @@ const targetCoordinates = { lat: 38, lon: -78 };
 const operatingGrid4 = latLonGrid4(operatingCoordinates.lat, operatingCoordinates.lon);
 const source = { id: 'pota:test', type: 'pota_catalog' as const, name: 'POTA catalog' };
 
-function planning(): SmartDeployPlanningRequest {
+function planning(): SmartDeployExecutionRequest {
   return {
     activationTarget: { program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: targetCoordinates, gridSquare: 'FM18', provenance: { kind: 'externally_resolved', source, resolvedAtUtc: '2026-08-18T12:00:00.000Z' } },
-    operatingLocation: { coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'manual', status: 'degraded', source: { id: 'manual:test', type: 'manual_location' } },
+    plannedOperatingLocation: { coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'manual', status: 'degraded', source: { id: 'manual:test', type: 'manual_location' } },
+    currentDeviceLocation: { coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'current', status: 'ok', source: { id: 'gps:test', type: 'serial_nmea' } },
+    propagationObjective: { kind: 'regional', regionId: 'western_us' },
     missionWindow: { start: '2026-08-18T14:00:00Z', end: '2026-08-18T18:00:00Z' },
     equipment: { radio: { name: 'Field Radio', model: 'Test-1' }, antenna: { type: 'EFHW' }, modes: ['SSB', 'FT8'], transmitPowerWatts: 10, deployment: { geometry: 'inverted_v', heightCategory: '15_to_30_ft' }, deploymentNotes: 'Use the south clearing.' },
     objective: 'Complete the activation',
-  } as SmartDeployPlanningRequest;
+    operatingLocation: { coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'manual', status: 'degraded', source: { id: 'manual:test', type: 'manual_location' } },
+  } as SmartDeployExecutionRequest;
 }
 
 function propagation(status: 'complete' | 'partial' | 'unavailable' = 'complete', strongest: ('20m' | '40m')[] = ['20m', '20m', '20m'], failedIndexes: readonly number[] = status === 'partial' ? [1] : status === 'unavailable' ? [0, 1, 2] : []): MissionWindowPropagationResult {
@@ -96,7 +99,7 @@ describe('SmartDeploy operations brief', () => {
   });
 
   it('marks foundational geometry failure unavailable while retaining serializable evidence', () => {
-    const invalidPlanning = { ...planning(), operatingLocation: { ...planning().operatingLocation, coordinates: null, provenance: 'unavailable' as const } } as SmartDeployPlanningRequest;
+    const invalidPlanning = { ...planning(), operatingLocation: { ...planning().operatingLocation, coordinates: null, provenance: 'unavailable' as const } } as SmartDeployExecutionRequest;
     const evidence = composeMissionEvidence({ planningRequest: invalidPlanning, propagation: propagation(), observedRf: null });
     const result = generateSmartDeployBrief({ planningRequest: invalidPlanning, missionEvidence: evidence }, { createBriefId: () => 'unavailable', now: () => new Date('2026-08-18T12:30:00Z') });
     expect(result.status).toBe('unavailable');

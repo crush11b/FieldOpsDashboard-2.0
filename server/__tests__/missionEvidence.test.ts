@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { latLonGrid4 } from '../../src/propagation/observedRf';
 import { calculateSolarEvents } from '../../src/location/solarEvents';
 import { composeMissionEvidence, MISSION_OBSERVED_RF_APPLICABILITY_WINDOW_MS } from '../missionEvidence';
-import type { SmartDeployPlanningRequest } from '../../src/planning/smartDeployPlanning';
+import type { SmartDeployExecutionRequest } from '../../src/planning/smartDeployPlanning';
 import type { MissionWindowPropagationResult } from '../missionWindowPropagation';
 import type { ObservedRfSnapshot } from '../../src/propagation/observedRf';
 
@@ -11,24 +11,27 @@ const activationCoordinates = { lat: 38, lon: -78 };
 const operatingGrid4 = latLonGrid4(operatingCoordinates.lat, operatingCoordinates.lon);
 const source = { id: 'pota:test', type: 'pota_catalog' as const, name: 'POTA catalog' };
 
-function planning(overrides: Partial<SmartDeployPlanningRequest> = {}): SmartDeployPlanningRequest {
+function planning(overrides: Partial<SmartDeployExecutionRequest> = {}): SmartDeployExecutionRequest {
   return {
     activationTarget: {
       program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: activationCoordinates,
       provenance: { kind: 'externally_resolved', source, resolvedAtUtc: '2026-08-18T12:00:00.000Z' },
     },
-    operatingLocation: {
+    plannedOperatingLocation: {
       coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'manual', status: 'degraded',
       source: { id: 'manual:test', type: 'manual_location' },
     },
+    currentDeviceLocation: { coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'current', status: 'ok', source: { id: 'gps:test', type: 'serial_nmea' } },
+    propagationObjective: { kind: 'regional', regionId: 'western_us' },
     missionWindow: { start: '2026-08-18T14:00:00Z', end: '2026-08-18T18:00:00Z' },
     equipment: {
       radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' }, modes: ['SSB', 'FT8'], transmitPowerWatts: 10,
       deployment: { geometry: 'inverted_v', heightCategory: '15_to_30_ft' },
     },
     objective: 'Test mission',
+    operatingLocation: { coordinates: operatingCoordinates, gridSquare: 'FM17', provenance: 'manual', status: 'degraded', source: { id: 'manual:test', type: 'manual_location' } },
     ...overrides,
-  } as SmartDeployPlanningRequest;
+  } as SmartDeployExecutionRequest;
 }
 
 const propagation = (status: 'complete' | 'partial' | 'unavailable' = 'complete'): MissionWindowPropagationResult => ({

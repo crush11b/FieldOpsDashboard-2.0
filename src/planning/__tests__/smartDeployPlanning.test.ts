@@ -12,7 +12,9 @@ const baseRequest = {
     program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: { lat: 38, lon: -78 }, gridSquare: 'FM18aa',
     provenance: { kind: 'externally_resolved' as const, source, resolvedAtUtc: '2026-08-18T12:00:00-04:00' },
   },
-  operatingLocation: location,
+  plannedOperatingLocation: location,
+  currentDeviceLocation: { ...location, coordinates: { lat: 38.1, lon: -78.1 }, gridSquare: 'FM18' },
+  propagationObjective: { kind: 'regional' as const, regionId: 'western_europe' as const },
   missionWindow: { start: '2026-08-18T12:00:00Z', end: '2026-08-18T18:00:00Z' },
   equipment: {
     radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' as const }, modes: ['SSB', 'FT8'] as const, transmitPowerWatts: 10,
@@ -37,8 +39,8 @@ describe('SmartDeploy Slice 1 planning contract', () => {
     expect(validate({ activationTarget: { ...baseRequest.activationTarget, program: 'SOTA' } }).valid).toBe(true);
   });
 
-  it('requires a usable operating location and preserves no fabricated defaults', () => {
-    expect(validate({ operatingLocation: { ...location, coordinates: null, provenance: 'unavailable' } }).issues.map(issue => issue.code)).toContain('invalid_coordinates');
+  it('requires a usable planned operating location and preserves no fabricated defaults', () => {
+    expect(validate({ plannedOperatingLocation: { ...location, coordinates: null, provenance: 'unavailable' } }).issues.map(issue => issue.code)).toContain('invalid_coordinates');
     const result = normalizeSmartDeployPlanningRequest({ ...baseRequest, activationTarget: { ...baseRequest.activationTarget, gridSquare: undefined, displayName: undefined } });
     expect(result.request?.activationTarget.gridSquare).toBeUndefined();
     expect(result.request?.activationTarget.displayName).toBeUndefined();
@@ -82,5 +84,36 @@ describe('SmartDeploy Slice 1 planning contract', () => {
   it('rejects malformed provenance and timestamps without network or UI dependencies', () => {
     expect(validate({ activationTarget: { ...baseRequest.activationTarget, provenance: { kind: 'unknown' } } }).issues).toContainEqual(expect.objectContaining({ path: 'activationTarget.provenance', code: 'invalid_provenance' }));
     expect(validate({ activationTarget: { ...baseRequest.activationTarget, provenance: { kind: 'externally_resolved', source, resolvedAtUtc: 'tomorrow' } } }).issues).toContainEqual(expect.objectContaining({ code: 'invalid_timestamp' }));
+  });
+
+  it('keeps planned, current, activation, propagation, and narrative objectives independent', () => {
+    const request = normalizeSmartDeployPlanningRequest(baseRequest);
+    expect(request.valid).toBe(true);
+    expect(request.request?.plannedOperatingLocation.coordinates).not.toEqual(request.request?.currentDeviceLocation?.coordinates);
+    expect(request.request?.activationTarget.coordinates).not.toEqual(request.request?.plannedOperatingLocation.coordinates);
+    expect(request.request?.propagationObjective).toEqual({ kind: 'regional', regionId: 'western_europe' });
+    expect(request.request?.objective).toBe('Complete the activation');
+  });
+
+  it('allows current device location to be omitted', () => {
+    expect(validate({ currentDeviceLocation: undefined }).valid).toBe(true);
+  });
+
+  it('rejects missing canonical fields deterministically', () => {
+    const result = validate({ plannedOperatingLocation: undefined, propagationObjective: undefined });
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'plannedOperatingLocation', code: 'required' }));
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'propagationObjective', code: 'required' }));
+  });
+
+  it('preserves coordinate, grid, and provenance values without fabrication', () => {
+    const result = normalizeSmartDeployPlanningRequest(baseRequest);
+    expect(result.request?.plannedOperatingLocation.gridSquare).toBe(location.gridSquare);
+    expect(result.request?.plannedOperatingLocation.provenance).toBe(location.provenance);
+    expect(result.request?.currentDeviceLocation?.gridSquare).toBe('FM18');
+  });
+
+  it('rejects an invalid propagation region without conflating it with the activation target', () => {
+    const result = validate({ propagationObjective: { kind: 'regional', regionId: 'US-1234' } });
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'propagationObjective.regionId', code: 'invalid_value' }));
   });
 });

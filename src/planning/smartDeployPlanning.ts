@@ -12,6 +12,7 @@ import {
   type DeploymentProfile,
   type PropagationMode,
 } from '../propagation/domain';
+import { isPropagationRegionId, type PropagationRegionId } from '../propagation/regionalDestinations';
 import { TELEMETRY_STATUSES, type TelemetrySource } from '../telemetry';
 
 export const SMART_DEPLOY_MAX_MISSION_DURATION_MS = 12 * 60 * 60 * 1000;
@@ -54,12 +55,28 @@ export interface EquipmentContext {
   readonly deploymentNotes?: string;
 }
 
+export interface SmartDeployPropagationObjective {
+  readonly kind: 'regional';
+  readonly regionId: PropagationRegionId;
+}
+
 export interface SmartDeployPlanningRequest {
   readonly activationTarget: ActivationTarget;
-  readonly operatingLocation: OperatingLocation;
+  readonly plannedOperatingLocation: OperatingLocation;
+  readonly currentDeviceLocation?: OperatingLocation;
+  readonly propagationObjective: SmartDeployPropagationObjective;
   readonly missionWindow: MissionWindow;
   readonly equipment: EquipmentContext;
   readonly objective?: string;
+}
+
+/** Transitional projection for schema-v1 execution and brief consumers. */
+export interface SmartDeployExecutionRequest extends SmartDeployPlanningRequest {
+  readonly operatingLocation: OperatingLocation;
+}
+
+export function toSmartDeployExecutionRequest(request: SmartDeployPlanningRequest): SmartDeployExecutionRequest {
+  return { ...request, operatingLocation: request.plannedOperatingLocation };
 }
 
 export type SmartDeployPlanningIssueCode =
@@ -140,7 +157,9 @@ function validateRequest(input: unknown): SmartDeployPlanningValidationResult {
   }
 
   validateTarget(input.activationTarget, issues);
-  validateOperatingLocation(input.operatingLocation, issues);
+  validateOperatingLocation(input.plannedOperatingLocation, 'plannedOperatingLocation', issues);
+  if (input.currentDeviceLocation !== undefined) validateOperatingLocation(input.currentDeviceLocation, 'currentDeviceLocation', issues);
+  validatePropagationObjective(input.propagationObjective, issues);
   validateMissionWindow(input.missionWindow, issues);
   validateEquipment(input.equipment, issues);
   validateOptionalText(input.objective, 'objective', SMART_DEPLOY_MAX_OBJECTIVE_LENGTH, issues);
@@ -162,21 +181,30 @@ function validateTarget(input: unknown, issues: SmartDeployPlanningIssue[]): voi
   validateProvenance(input.provenance, 'activationTarget.provenance', issues);
 }
 
-function validateOperatingLocation(input: unknown, issues: SmartDeployPlanningIssue[]): void {
+function validateOperatingLocation(input: unknown, path: string, issues: SmartDeployPlanningIssue[]): void {
   if (!isRecord(input)) {
-    addIssue(issues, 'operatingLocation', 'required', 'Operating location is required.');
+    addIssue(issues, path, 'required', `${path === 'plannedOperatingLocation' ? 'Planned operating location' : 'Current device location'} is required.`);
     return;
   }
   if (!isValidCoordinates(input.coordinates) || input.provenance === 'unavailable') {
-    addIssue(issues, 'operatingLocation.coordinates', 'invalid_coordinates', 'A valid, available operating location is required.');
+    addIssue(issues, `${path}.coordinates`, 'invalid_coordinates', `A valid, available ${path === 'plannedOperatingLocation' ? 'planned operating' : 'current device'} location is required.`);
   }
   if (typeof input.provenance !== 'string' || !['current', 'manual', 'stale', 'unavailable'].includes(input.provenance)) {
-    addIssue(issues, 'operatingLocation.provenance', 'invalid_provenance', 'Operating location provenance is invalid.');
+    addIssue(issues, `${path}.provenance`, 'invalid_provenance', 'Operating location provenance is invalid.');
   }
   if (typeof input.status !== 'string' || !(TELEMETRY_STATUSES as readonly string[]).includes(input.status)) {
-    addIssue(issues, 'operatingLocation.status', 'invalid_value', 'Operating location status is invalid.');
+    addIssue(issues, `${path}.status`, 'invalid_value', 'Operating location status is invalid.');
   }
-  if (!isTelemetrySource(input.source)) addIssue(issues, 'operatingLocation.source', 'invalid_provenance', 'Operating location source is invalid.');
+  if (!isTelemetrySource(input.source)) addIssue(issues, `${path}.source`, 'invalid_provenance', 'Operating location source is invalid.');
+}
+
+function validatePropagationObjective(input: unknown, issues: SmartDeployPlanningIssue[]): void {
+  if (!isRecord(input)) {
+    addIssue(issues, 'propagationObjective', 'required', 'Propagation objective is required.');
+    return;
+  }
+  if (input.kind !== 'regional') addIssue(issues, 'propagationObjective.kind', 'invalid_value', 'Propagation objective kind is invalid.');
+  if (!isPropagationRegionId(input.regionId)) addIssue(issues, 'propagationObjective.regionId', 'invalid_value', 'Propagation objective region is invalid.');
 }
 
 function validateMissionWindow(input: unknown, issues: SmartDeployPlanningIssue[]): void {

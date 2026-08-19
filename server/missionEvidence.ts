@@ -2,7 +2,7 @@ import { calculateDistanceKm, calculateInitialBearing, compassDirection } from '
 import { calculateSolarEvents, type SolarEventName, type SolarEvents } from '../src/location/solarEvents';
 import { latLonGrid4 } from '../src/propagation/observedRf';
 import type { ObservedRfSnapshot } from '../src/propagation/observedRf';
-import type { SmartDeployPlanningRequest } from '../src/planning/smartDeployPlanning';
+import type { SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import type { MissionWindowPropagationResult } from './missionWindowPropagation';
 
 export const MISSION_OBSERVED_RF_APPLICABILITY_WINDOW_MS = 15 * 60 * 1000;
@@ -14,8 +14,8 @@ export type MissionObservedRfStatus = 'observed' | 'unavailable' | 'stale' | 'no
 
 export interface MissionGeometryEvidence {
   readonly status: MissionGeometryStatus;
-  readonly originCoordinates: SmartDeployPlanningRequest['operatingLocation']['coordinates'];
-  readonly destinationCoordinates: SmartDeployPlanningRequest['activationTarget']['coordinates'];
+  readonly originCoordinates: SmartDeployExecutionRequest['operatingLocation']['coordinates'];
+  readonly destinationCoordinates: SmartDeployExecutionRequest['activationTarget']['coordinates'];
   readonly distanceKm: number | null;
   readonly initialBearingDegrees: number | null;
   readonly compassDirection: string | null;
@@ -40,7 +40,7 @@ export interface MissionSolarOverlapEvidence {
 export interface MissionSolarEvidence {
   readonly status: MissionSolarStatus;
   readonly site: 'activation_target';
-  readonly siteCoordinates: SmartDeployPlanningRequest['activationTarget']['coordinates'];
+  readonly siteCoordinates: SmartDeployExecutionRequest['activationTarget']['coordinates'];
   readonly missionDatesUtc: readonly string[];
   readonly days: readonly MissionSolarDayEvidence[];
   readonly overlap: MissionSolarOverlapEvidence;
@@ -64,7 +64,7 @@ export interface MissionObservedRfEvidence {
 
 export interface MissionEvidence {
   readonly status: MissionEvidenceStatus;
-  readonly planningRequest: SmartDeployPlanningRequest;
+  readonly planningRequest: SmartDeployExecutionRequest;
   readonly propagation: MissionWindowPropagationResult;
   readonly geometry: MissionGeometryEvidence;
   readonly solar: MissionSolarEvidence;
@@ -74,7 +74,7 @@ export interface MissionEvidence {
 }
 
 export interface ComposeMissionEvidenceRequest {
-  readonly planningRequest: SmartDeployPlanningRequest;
+  readonly planningRequest: SmartDeployExecutionRequest;
   readonly propagation: MissionWindowPropagationResult;
   readonly observedRf: ObservedRfSnapshot | null;
 }
@@ -108,7 +108,7 @@ export function composeMissionEvidence(
   };
 }
 
-function deriveGeometry(planning: SmartDeployPlanningRequest): MissionGeometryEvidence {
+function deriveGeometry(planning: SmartDeployExecutionRequest): MissionGeometryEvidence {
   const origin = planning.operatingLocation.coordinates;
   const destination = planning.activationTarget.coordinates;
   if (!origin || !destination || !Number.isFinite(origin.lat) || !Number.isFinite(origin.lon) || !Number.isFinite(destination.lat) || !Number.isFinite(destination.lon)) {
@@ -129,7 +129,7 @@ function deriveGeometry(planning: SmartDeployPlanningRequest): MissionGeometryEv
   };
 }
 
-function deriveSolar(planning: SmartDeployPlanningRequest, solarCalculator: MissionSolarCalculator): MissionSolarEvidence {
+function deriveSolar(planning: SmartDeployExecutionRequest, solarCalculator: MissionSolarCalculator): MissionSolarEvidence {
   const siteCoordinates = planning.activationTarget.coordinates;
   const missionDatesUtc = missionDates(planning.missionWindow.start, planning.missionWindow.end);
   const calculated = missionDatesUtc.map(date => solarCalculator(siteCoordinates, date));
@@ -151,7 +151,7 @@ function deriveSolar(planning: SmartDeployPlanningRequest, solarCalculator: Miss
   };
 }
 
-function deriveObservedRf(planning: SmartDeployPlanningRequest, snapshot: ObservedRfSnapshot | null): MissionObservedRfEvidence {
+function deriveObservedRf(planning: SmartDeployExecutionRequest, snapshot: ObservedRfSnapshot | null): MissionObservedRfEvidence {
   const expectedOperatingGrid4 = planning.operatingLocation.coordinates
     ? latLonGrid4(planning.operatingLocation.coordinates.lat, planning.operatingLocation.coordinates.lon)
     : null;

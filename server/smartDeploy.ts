@@ -1,5 +1,5 @@
 import express, { type Router } from 'express';
-import { normalizeSmartDeployPlanningRequest, type SmartDeployPlanningRequest } from '../src/planning/smartDeployPlanning';
+import { normalizeSmartDeployPlanningRequest, toSmartDeployExecutionRequest, type SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import { composeMissionEvidence, type MissionEvidence } from './missionEvidence';
 import { executeMissionWindowPropagation, type MissionWindowPropagationResult } from './missionWindowPropagation';
 import { PotaActivationTargetResolver, type PotaTargetResolution } from './potaTargetResolver';
@@ -15,6 +15,7 @@ export interface SmartDeployGenerationRequest {
   readonly potaReference: unknown;
   readonly missionWindow: unknown;
   readonly operatingLocation: unknown;
+  readonly propagationObjective?: unknown;
   readonly equipment: unknown;
   readonly objective?: unknown;
 }
@@ -41,9 +42,9 @@ export interface SmartDeployServiceOptions {
   readonly observedRf?: ObservedRfService;
   readonly store: SmartDeployBriefStore;
   readonly now?: () => Date;
-  readonly propagate?: (request: { readonly planningRequest: SmartDeployPlanningRequest; readonly ssn: number }) => Promise<MissionWindowPropagationResult>;
-  readonly compose?: (request: { readonly planningRequest: SmartDeployPlanningRequest; readonly propagation: MissionWindowPropagationResult; readonly observedRf: ReturnType<ObservedRfService['getSnapshot']> | null }, now: () => Date) => MissionEvidence;
-  readonly generate?: (request: { readonly planningRequest: SmartDeployPlanningRequest; readonly missionEvidence: MissionEvidence }, now: () => Date) => SmartDeployBrief;
+  readonly propagate?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly ssn: number }) => Promise<MissionWindowPropagationResult>;
+  readonly compose?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly propagation: MissionWindowPropagationResult; readonly observedRf: ReturnType<ObservedRfService['getSnapshot']> | null }, now: () => Date) => MissionEvidence;
+  readonly generate?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly missionEvidence: MissionEvidence }, now: () => Date) => SmartDeployBrief;
 }
 
 export class SmartDeployService {
@@ -75,7 +76,10 @@ export class SmartDeployService {
 
     const normalized = normalizeSmartDeployPlanningRequest({
       activationTarget: resolution.target,
-      operatingLocation: request.operatingLocation,
+      // Transitional v1 HTTP callers only provide current GPS; keep that mapping explicit until planned-site input exists.
+      plannedOperatingLocation: request.operatingLocation,
+      currentDeviceLocation: request.operatingLocation,
+      propagationObjective: request.propagationObjective ?? { kind: 'regional', regionId: 'local_nvis' },
       missionWindow: request.missionWindow,
       equipment: request.equipment,
       objective: request.objective,
@@ -91,7 +95,8 @@ export class SmartDeployService {
     }
 
     try {
-      this.observedRf.setOperatingLocation(normalized.request.operatingLocation);
+      const executionRequest = toSmartDeployExecutionRequest(normalized.request);
+      this.observedRf.setOperatingLocation(executionRequest.operatingLocation);
       const weather = await this.spaceWeather.getSnapshot();
       const modelSsn = weather.modelSsn;
       const hasLongLivedModelInput = modelSsn?.modelInput?.semanticBasis === 'noaa_smoothed_monthly_ssn'
@@ -99,9 +104,9 @@ export class SmartDeployService {
       const ssn = hasLongLivedModelInput && typeof modelSsn.value === 'number' && Number.isFinite(modelSsn.value)
         ? modelSsn.value
         : Number.NaN;
-      const propagation = await this.propagate({ planningRequest: normalized.request, ssn });
+      const propagation = await this.propagate({ planningRequest: executionRequest, ssn });
       const observedRf = this.observedRf.getSnapshot();
-      const baseEvidence = this.compose({ planningRequest: normalized.request, propagation, observedRf }, this.now);
+      const baseEvidence = this.compose({ planningRequest: executionRequest, propagation, observedRf }, this.now);
       const missionEvidence = {
         ...baseEvidence,
         limitations: [
@@ -110,7 +115,7 @@ export class SmartDeployService {
           ...(resolution.status === 'stale' ? ['POTA target data is stale and was used without a successful refresh.'] : []),
         ],
       };
-      const brief = this.generate({ planningRequest: normalized.request, missionEvidence }, this.now);
+      const brief = this.generate({ planningRequest: executionRequest, missionEvidence }, this.now);
       try {
         this.options.store.save(brief);
         return { kind: 'smartdeploy_generation', status: brief.status, brief, persistence: { status: 'saved' }, pota: resolution };
