@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { resolveOperatingLocation } from '../../location/operatingLocation';
-import { normalizeSmartDeployPlanningRequest, SMART_DEPLOY_MAX_MISSION_DURATION_MS, validateSmartDeployPlanningRequest, type SmartDeployPlanningRequest } from '../smartDeployPlanning';
+import { normalizeSmartDeployPlanningRequest, resolvePlannedOperatingLocation, SMART_DEPLOY_MAX_MISSION_DURATION_MS, validateSmartDeployPlanningRequest, type SmartDeployPlanningRequest } from '../smartDeployPlanning';
 
 const source = { id: 'pota:test', type: 'pota_catalog', name: 'POTA catalog' };
 const location = resolveOperatingLocation(
@@ -115,5 +115,18 @@ describe('SmartDeploy Slice 1 planning contract', () => {
   it('rejects an invalid propagation region without conflating it with the activation target', () => {
     const result = validate({ propagationObjective: { kind: 'regional', regionId: 'US-1234' } });
     expect(result.issues).toContainEqual(expect.objectContaining({ path: 'propagationObjective.regionId', code: 'invalid_value' }));
+  });
+
+  it('defaults planned operation to the activation provider reference with explicit semantics', () => {
+    const result = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation);
+    expect(result).toMatchObject({ status: 'resolved', location: { coordinates: baseRequest.activationTarget.coordinates, planningSemantics: 'provider_reference_default', provenance: 'manual' } });
+    expect((result as any).location.gridSquare).toBe('FM18aa');
+  });
+
+  it('requires an explicit current-device selection and fails honestly when unavailable', () => {
+    const selected = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'current_device');
+    expect(selected).toMatchObject({ status: 'resolved', location: { coordinates: baseRequest.currentDeviceLocation?.coordinates, planningSemantics: 'operator_selected_current_device' } });
+    const unavailable = resolvePlannedOperatingLocation(baseRequest.activationTarget, { ...location, coordinates: null, provenance: 'unavailable' }, 'current_device');
+    expect(unavailable).toEqual({ status: 'unavailable', reason: 'Current device location is unavailable.' });
   });
 });

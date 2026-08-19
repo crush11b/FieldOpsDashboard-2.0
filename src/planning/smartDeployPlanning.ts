@@ -1,4 +1,5 @@
 import type { OperatingLocation } from '../location/operatingLocation';
+import { latLonToGridSquare } from '../types';
 import type { Coordinates } from '../location/coordinates';
 import {
   isAntennaType,
@@ -76,7 +77,8 @@ export interface SmartDeployExecutionRequest extends SmartDeployPlanningRequest 
 }
 
 export function toSmartDeployExecutionRequest(request: SmartDeployPlanningRequest): SmartDeployExecutionRequest {
-  return { ...request, operatingLocation: request.plannedOperatingLocation };
+  // Task 2 compatibility: execution still uses current device context until Task 3 changes P.533/evidence semantics.
+  return { ...request, operatingLocation: request.currentDeviceLocation ?? request.plannedOperatingLocation };
 }
 
 export type SmartDeployPlanningIssueCode =
@@ -331,4 +333,35 @@ function addIssue(issues: SmartDeployPlanningIssue[], path: string, code: SmartD
 
 function isRecord(value: unknown): value is Record<string, any> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+export type PlannedOperatingLocationSelection = 'provider_reference' | 'current_device';
+
+export type PlannedOperatingLocationResolution =
+  | { readonly status: 'resolved'; readonly location: OperatingLocation }
+  | { readonly status: 'unavailable'; readonly reason: string };
+
+export function resolvePlannedOperatingLocation(
+  activationTarget: ActivationTarget,
+  currentDeviceLocation: OperatingLocation | undefined,
+  selection: PlannedOperatingLocationSelection = 'provider_reference',
+): PlannedOperatingLocationResolution {
+  if (selection === 'current_device') {
+    if (!currentDeviceLocation?.coordinates || currentDeviceLocation.provenance === 'unavailable') {
+      return { status: 'unavailable', reason: 'Current device location is unavailable.' };
+    }
+    return { status: 'resolved', location: { ...currentDeviceLocation, planningSemantics: 'operator_selected_current_device' } };
+  }
+
+  return {
+    status: 'resolved',
+    location: {
+      coordinates: activationTarget.coordinates,
+      gridSquare: activationTarget.gridSquare ?? (latLonToGridSquare(activationTarget.coordinates.lat, activationTarget.coordinates.lon) || null),
+      provenance: 'manual',
+      status: 'ok',
+      source: activationTarget.provenance.source ?? { id: 'activation-provider-reference', type: 'activation_provider_reference' },
+      planningSemantics: 'provider_reference_default',
+    },
+  };
 }

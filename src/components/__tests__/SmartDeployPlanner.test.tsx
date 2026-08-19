@@ -8,6 +8,7 @@ import type { SmartDeployBrief } from '../../../server/smartDeployBrief';
 
 const location = { coordinates: { lat: 37.4, lon: -77.4 }, gridSquare: 'FM17', provenance: 'current' as const, status: 'ok' as const, source: { id: 'gps', type: 'serial_nmea', name: 'GNSS' } };
 const profile = { mode: 'SSB' as const, transmitPowerWatts: 10, antenna: { type: 'EFHW' as const }, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } };
+const target = { program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: { lat: 38, lon: -78 }, gridSquare: 'FM18', provenance: { kind: 'externally_resolved', source: { id: 'pota', type: 'pota_api' }, resolvedAtUtc: '2026-08-18T11:00:00.000Z' } };
 
 const brief = {
   schemaVersion: 1,
@@ -31,6 +32,7 @@ function fillRequiredFields() {
   fireEvent.change(screen.getByLabelText('Radio'), { target: { value: 'Field Radio' } });
   fireEvent.change(screen.getByLabelText('Mission start'), { target: { value: '2026-08-18T08:00' } });
   fireEvent.change(screen.getByLabelText('Mission end'), { target: { value: '2026-08-18T10:00' } });
+  fireEvent.change(screen.getByLabelText('RF target region'), { target: { value: 'eastern_us' } });
 }
 
 afterEach(() => vi.unstubAllGlobals());
@@ -49,12 +51,14 @@ describe('SmartDeploy planner', () => {
     let resolveRequest!: (value: unknown) => void;
     vi.stubGlobal('fetch', vi.fn((input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
       ? Promise.resolve({ ok: true, json: async () => ({ briefs: [] }) })
+      : String(input).startsWith('/api/pota-target') ? Promise.resolve({ ok: true, json: async () => ({ target }) })
       : new Promise(resolve => { resolveRequest = resolve; })));
     render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
     fillRequiredFields();
     fireEvent.click(screen.getByText('GENERATE SMARTDEPLOY PLAN'));
     expect(screen.getByText('GENERATING SMARTDEPLOY PLAN...')).toBeTruthy();
     expect(screen.getByLabelText('POTA reference')).toHaveValue('US-1234');
+    await waitFor(() => expect(resolveRequest).toBeTypeOf('function'));
     resolveRequest({ ok: true, json: async () => ({ brief, persistence: { status: 'saved' } }) });
     await waitFor(() => expect(screen.getByText('OPERATIONS BRIEF')).toBeTruthy());
   });
@@ -62,6 +66,7 @@ describe('SmartDeploy planner', () => {
   it('renders structured server validation errors', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
       ? { ok: true, json: async () => ({ briefs: [] }) }
+      : String(input).startsWith('/api/pota-target') ? { ok: true, json: async () => ({ target }) }
       : { ok: false, json: async () => ({ message: 'The POTA park reference was not found.' }) }));
     render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
     fillRequiredFields();

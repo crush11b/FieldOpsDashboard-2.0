@@ -3,6 +3,8 @@ import type { SmartDeployBrief } from '../../server/smartDeployBrief';
 import { MODE_OPTIONS, ANTENNA_OPTIONS, getDeploymentOptionsForAntenna, getHeightOptionsForDeployment } from '../propagation/stationProfileCatalog';
 import type { StationProfile } from '../propagation/domain';
 import type { OperatingLocation } from '../location/operatingLocation';
+import { getPropagationRegionOptions } from '../propagation/regionalDestinations';
+import { resolvePlannedOperatingLocation, type ActivationTarget, type PlannedOperatingLocationSelection } from '../planning/smartDeployPlanning';
 import { SmartDeployBriefView } from './SmartDeployBriefView';
 
 interface SmartDeployPlannerProps { operatingLocation: OperatingLocation; stationProfile?: StationProfile; }
@@ -20,6 +22,8 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
   const [deploymentGeometry, setDeploymentGeometry] = useState(profile.deployment?.geometry || 'other');
   const [heightCategory, setHeightCategory] = useState(profile.deployment?.heightCategory || 'unknown');
   const [objective, setObjective] = useState('');
+  const [plannedSiteSelection, setPlannedSiteSelection] = useState<PlannedOperatingLocationSelection>('provider_reference');
+  const [propagationRegion, setPropagationRegion] = useState('');
   const [brief, setBrief] = useState<SmartDeployBrief | null>(null);
   const [recent, setRecent] = useState<BriefListItem[]>([]);
   const [busy, setBusy] = useState(false);
@@ -33,14 +37,20 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
 
   const generate = async () => {
     setError(null); setWarning(null); setBrief(null);
-    if (!operatingLocation.coordinates || operatingLocation.provenance === 'unavailable') { setError('Generation blocked: no valid operating coordinates are available.'); return; }
-    if (!potaReference.trim() || !start || !end || !radio.trim() || modes.length === 0) { setError('Enter a POTA reference, mission window, radio, and at least one mode.'); return; }
+    if (plannedSiteSelection === 'current_device' && (!operatingLocation.coordinates || operatingLocation.provenance === 'unavailable')) { setError('Generation blocked: current device location is unavailable for the selected planned site.'); return; }
+    if (!potaReference.trim() || !start || !end || !radio.trim() || modes.length === 0 || !propagationRegion) { setError('Enter a POTA reference, mission window, radio, mode, and RF target region.'); return; }
     const startUtc = toUtc(start);
     const endUtc = toUtc(end);
     if (!startUtc || !endUtc) { setError('Mission start and end must be valid local date/time values.'); return; }
     setBusy(true);
     try {
-      const response = await fetch('/api/smartdeploy/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ potaReference, missionWindow: { start: startUtc, end: endUtc }, operatingLocation, equipment: { radio: { name: radio.trim() }, antenna: { type: antenna }, modes, transmitPowerWatts: Number(power), deployment: { geometry: deploymentGeometry, heightCategory } }, ...(objective.trim() ? { objective: objective.trim() } : {}) }) });
+      const targetResponse = await fetch(`/api/pota-target?reference=${encodeURIComponent(potaReference.trim())}`);
+      const targetPayload = await targetResponse.json();
+      if (!targetResponse.ok || !targetPayload.target) { setError(targetPayload.message || 'The POTA target could not be resolved.'); return; }
+      const activationTarget = targetPayload.target as ActivationTarget;
+      const planned = resolvePlannedOperatingLocation(activationTarget, operatingLocation, plannedSiteSelection);
+      if (planned.status !== 'resolved') { setError(planned.reason); return; }
+      const response = await fetch('/api/smartdeploy/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ potaReference, activationTarget, plannedOperatingLocation: planned.location, ...(operatingLocation.coordinates && operatingLocation.provenance !== 'unavailable' ? { currentDeviceLocation: operatingLocation } : {}), plannedOperatingLocationSelection: plannedSiteSelection, propagationObjective: { kind: 'regional', regionId: propagationRegion }, missionWindow: { start: startUtc, end: endUtc }, equipment: { radio: { name: radio.trim() }, antenna: { type: antenna }, modes, transmitPowerWatts: Number(power), deployment: { geometry: deploymentGeometry, heightCategory } }, ...(objective.trim() ? { objective: objective.trim() } : {}) }) });
       const payload = await response.json();
       if (!response.ok) { setError(formatApiError(payload)); return; }
       setBrief(payload.brief as SmartDeployBrief); if (payload.persistence?.status === 'warning') setWarning(payload.persistence.warning); await loadRecent();
@@ -55,7 +65,7 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
   return <div id="smartdeploy-planner" className="space-y-4">
     <div className="p-4 rounded-xl border border-amber-600/70 bg-amber-950/20 space-y-3">
       <div><h3 className="font-black text-sm uppercase text-amber-300">SMARTDEPLOY / POTA PLAN</h3><p className="text-[11px] text-slate-400 mt-1">Activation, mission window, operating location, station, then one intentional generation.</p></div>
-      <div className="rounded-lg border border-cyan-700/60 bg-cyan-950/20 p-3 text-[11px]">OPERATING LOCATION: <strong className="text-cyan-200">{operatingLocation.gridSquare || 'Unavailable'}</strong> <span className="text-slate-400">({operatingLocation.provenance})</span>{operatingLocation.coordinates && <span className="block font-mono text-slate-300">{operatingLocation.coordinates.lat.toFixed(5)}, {operatingLocation.coordinates.lon.toFixed(5)}</span>}</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3"><div className="rounded-lg border border-cyan-700/60 bg-cyan-950/20 p-3 text-[11px]"><strong className="text-cyan-200">CURRENT DEVICE LOCATION</strong><span className="block text-slate-400">{operatingLocation.gridSquare || 'Unavailable'} ({operatingLocation.provenance})</span>{operatingLocation.coordinates && <span className="block font-mono text-slate-300">{operatingLocation.coordinates.lat.toFixed(5)}, {operatingLocation.coordinates.lon.toFixed(5)}</span>}</div><div className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px]"><label className="text-[10px] uppercase text-slate-400">Planned operating site<select aria-label="Planned operating site" value={plannedSiteSelection} onChange={event => setPlannedSiteSelection(event.target.value as PlannedOperatingLocationSelection)} className="mt-1 w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-amber-200"><option value="provider_reference">POTA reference location</option><option value="current_device" disabled={!operatingLocation.coordinates || operatingLocation.provenance === 'unavailable'}>Use current device location</option></select></label><span className="block mt-1 text-slate-400">{plannedSiteSelection === 'current_device' ? 'Explicit current-device selection' : 'Provider reference; not an exact station point'}</span></div></div>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         <label className="text-[10px] uppercase text-slate-400">POTA reference<input aria-label="POTA reference" value={potaReference} onChange={event => setPotaReference(event.target.value)} placeholder="US-1234" className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-amber-200 font-bold" /></label>
         <label className="text-[10px] uppercase text-slate-400">Radio<input aria-label="Radio" value={radio} onChange={event => setRadio(event.target.value)} placeholder="Radio model or name" className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-amber-200 font-bold" /></label>
@@ -63,6 +73,7 @@ export const SmartDeployPlanner: React.FC<SmartDeployPlannerProps> = ({ operatin
         <label className="text-[10px] uppercase text-slate-400">Mission end (local input)<input aria-label="Mission end" type="datetime-local" value={end} onChange={event => setEnd(event.target.value)} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-cyan-200 font-bold" /></label>
         <label className="text-[10px] uppercase text-slate-400">Antenna<select aria-label="Antenna" value={antenna} onChange={event => { const value = event.target.value as typeof antenna; setAntenna(value); setDeploymentGeometry(getDeploymentOptionsForAntenna(value)[0]?.id || 'other'); }} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-emerald-200 font-bold">{ANTENNA_OPTIONS.map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
         <label className="text-[10px] uppercase text-slate-400">TX power (W)<input aria-label="Transmit power" type="number" min="1" value={power} onChange={event => setPower(event.target.value)} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-emerald-200 font-bold" /></label>
+        <label className="text-[10px] uppercase text-slate-400">RF target region<select aria-label="RF target region" value={propagationRegion} onChange={event => setPropagationRegion(event.target.value)} className="mt-1 w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded text-cyan-200 font-bold"><option value="">Select region</option>{getPropagationRegionOptions().map(option => <option key={option.id} value={option.id}>{option.label}</option>)}</select></label>
       </div>
       {(start || end) && <div className="rounded-lg border border-slate-700 bg-slate-950/70 p-3 text-[10px] text-cyan-200">UTC WINDOW PREVIEW: {toUtc(start) || 'Start incomplete'} to {toUtc(end) || 'End incomplete'}</div>}
       <fieldset><legend className="text-[10px] uppercase text-slate-400 mb-1">Selected modes</legend><div className="flex flex-wrap gap-2">{MODE_OPTIONS.map(option => <label key={option.id} className="flex items-center gap-1 px-2 py-2 rounded border border-slate-700 bg-slate-900 text-[11px] text-slate-200"><input type="checkbox" checked={modes.includes(option.id)} onChange={() => toggleMode(option.id)} />{option.label}</label>)}</div></fieldset>

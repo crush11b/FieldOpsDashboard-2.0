@@ -15,6 +15,7 @@ export interface OperatingLocation {
   readonly status: TelemetryStatus;
   readonly source: TelemetrySource;
   readonly timestamps?: TelemetryTimestamps;
+  readonly planningSemantics?: 'provider_reference_default' | 'operator_selected_current_device';
 }
 
 export function resolveOperatingLocation(

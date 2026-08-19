@@ -1,5 +1,6 @@
 import express, { type Router } from 'express';
-import { normalizeSmartDeployPlanningRequest, toSmartDeployExecutionRequest, type SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
+import { normalizeSmartDeployPlanningRequest, resolvePlannedOperatingLocation, toSmartDeployExecutionRequest, type SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
+import type { OperatingLocation } from '../src/location/operatingLocation';
 import { composeMissionEvidence, type MissionEvidence } from './missionEvidence';
 import { executeMissionWindowPropagation, type MissionWindowPropagationResult } from './missionWindowPropagation';
 import { PotaActivationTargetResolver, type PotaTargetResolution } from './potaTargetResolver';
@@ -13,9 +14,12 @@ import {
 
 export interface SmartDeployGenerationRequest {
   readonly potaReference: unknown;
+  readonly activationTarget: unknown;
+  readonly plannedOperatingLocation: unknown;
+  readonly currentDeviceLocation?: unknown;
+  readonly plannedOperatingLocationSelection?: unknown;
   readonly missionWindow: unknown;
-  readonly operatingLocation: unknown;
-  readonly propagationObjective?: unknown;
+  readonly propagationObjective: unknown;
   readonly equipment: unknown;
   readonly objective?: unknown;
 }
@@ -74,12 +78,15 @@ export class SmartDeployService {
     if (resolution.status === 'unknown') return { kind: 'smartdeploy_error', code: 'pota_unknown', message: 'The POTA park reference was not found.', pota: resolution };
     if (resolution.status === 'unavailable' || !resolution.target) return { kind: 'smartdeploy_error', code: 'pota_unavailable', message: 'The POTA source is currently unavailable. No brief was generated.', pota: resolution };
 
+    const selection = request.plannedOperatingLocationSelection === 'current_device' ? 'current_device' : 'provider_reference';
+    const resolvedPlannedLocation = request.plannedOperatingLocation === undefined
+      ? resolvePlannedOperatingLocation(resolution.target, request.currentDeviceLocation as OperatingLocation | undefined, selection)
+      : { status: 'resolved' as const, location: request.plannedOperatingLocation };
     const normalized = normalizeSmartDeployPlanningRequest({
       activationTarget: resolution.target,
-      // Transitional v1 HTTP callers only provide current GPS; keep that mapping explicit until planned-site input exists.
-      plannedOperatingLocation: request.operatingLocation,
-      currentDeviceLocation: request.operatingLocation,
-      propagationObjective: request.propagationObjective ?? { kind: 'regional', regionId: 'local_nvis' },
+      plannedOperatingLocation: resolvedPlannedLocation.status === 'resolved' ? resolvedPlannedLocation.location : undefined,
+      currentDeviceLocation: request.currentDeviceLocation,
+      propagationObjective: request.propagationObjective,
       missionWindow: request.missionWindow,
       equipment: request.equipment,
       objective: request.objective,

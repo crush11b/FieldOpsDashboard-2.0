@@ -31,8 +31,11 @@ function store(save: (value: SmartDeployBrief) => void = vi.fn()) {
 function request(overrides: Record<string, unknown> = {}) {
   return {
     potaReference: ' us-1234 ',
+    activationTarget: target,
+    plannedOperatingLocation: { ...operatingLocation, planningSemantics: 'provider_reference_default' },
+    currentDeviceLocation: operatingLocation,
+    propagationObjective: { kind: 'regional', regionId: 'eastern_us' },
     missionWindow: { start: '2026-08-18T12:00:00Z', end: '2026-08-18T14:00:00Z' },
-    operatingLocation,
     equipment: { radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' }, modes: ['SSB', 'FT8'], transmitPowerWatts: 10, deployment: { geometry: 'inverted_v', heightCategory: '15_to_30_ft' } },
     objective: 'Test mission',
     ...overrides,
@@ -59,6 +62,36 @@ describe('SmartDeploy orchestration', () => {
     const result = await service({ store: store(save) }).generateBrief(request());
     expect(result).toMatchObject({ kind: 'smartdeploy_generation', status: 'partial', persistence: { status: 'saved' }, brief });
     expect(save).toHaveBeenCalledWith(brief);
+  });
+
+  it('defaults the planned site to the resolved provider reference without replacing current device context', async () => {
+    const propagate = vi.fn(async value => {
+      expect(value.planningRequest.plannedOperatingLocation.coordinates).toEqual(target.coordinates);
+      expect(value.planningRequest.plannedOperatingLocation.planningSemantics).toBe('provider_reference_default');
+      expect(value.planningRequest.currentDeviceLocation?.coordinates).toEqual(operatingLocation.coordinates);
+      expect(value.planningRequest.operatingLocation.coordinates).toEqual(operatingLocation.coordinates);
+      return propagation;
+    });
+    await service({ propagate }).generateBrief(request({ plannedOperatingLocation: undefined }));
+    expect(propagate).toHaveBeenCalledOnce();
+  });
+
+  it('honors an explicit current-device planned-site selection', async () => {
+    const propagate = vi.fn(async value => {
+      expect(value.planningRequest.plannedOperatingLocation.coordinates).toEqual(operatingLocation.coordinates);
+      expect(value.planningRequest.plannedOperatingLocation.planningSemantics).toBe('operator_selected_current_device');
+      expect(value.planningRequest.activationTarget.coordinates).toEqual(target.coordinates);
+      return propagation;
+    });
+    await service({ propagate }).generateBrief(request({ plannedOperatingLocation: undefined, plannedOperatingLocationSelection: 'current_device' }));
+    expect(propagate).toHaveBeenCalledOnce();
+  });
+
+  it('rejects an invalid explicit propagation region before execution', async () => {
+    const propagate = vi.fn();
+    const result = await service({ propagate }).generateBrief(request({ propagationObjective: { kind: 'regional', regionId: 'not-a-region' } }));
+    expect(result).toMatchObject({ kind: 'smartdeploy_error', code: 'invalid_request' });
+    expect(propagate).not.toHaveBeenCalled();
   });
 
   it.each([
