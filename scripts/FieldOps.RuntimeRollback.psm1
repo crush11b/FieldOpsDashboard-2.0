@@ -2,8 +2,10 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 $readinessModule = Join-Path $PSScriptRoot 'FieldOps.RuntimeReadiness.psm1'
+$trayDiscoveryModule = Join-Path $PSScriptRoot '..\agent\scripts\FieldOps.TrayProcessDiscovery.psm1'
 $trayLaunchModule = Join-Path $PSScriptRoot '..\agent\scripts\FieldOps.TrayScheduledLaunch.psm1'
 Import-Module $readinessModule -Force
+Import-Module $trayDiscoveryModule -Force
 Import-Module $trayLaunchModule -Force
 
 function Get-FieldOpsRollbackDashboardProcesses {

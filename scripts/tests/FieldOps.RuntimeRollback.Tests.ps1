@@ -48,6 +48,13 @@ Describe 'FieldOps runtime rollback state' {
         $snapshot.Revision | Should Be $null
     }
 
+    It 'resolves default Tray discovery providers from the rollback module scope' {
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Tray | Should Not Be $null
+        $snapshot.Tray.Running | Should Be $false
+    }
+
     It 'restores only previously running components' {
         $snapshot = [pscustomobject]@{
             Agent = [pscustomobject]@{ Exists = $true; Running = $true }
@@ -135,5 +142,15 @@ Describe 'FieldOps runtime rollback state' {
         $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
         $LASTEXITCODE | Should Be 0
         ($output -join "`n") | Should Match 'import-ok'
+    }
+
+    It 'imports the direct tray discovery dependency under Windows PowerShell 5.1' {
+        $powershell = Get-Command powershell.exe -ErrorAction Stop
+        $module = (Resolve-Path $modulePath).Path
+        $command = "Import-Module '$module' -Force; `$snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -TrayPath 'C:\Program Files\FieldOpsDashboard\Tray\FieldOps.Tray.exe' -OperatorAccount 'DESKTOP-88DQ68K\stick' -OperatorSid 'S-1-5-21-100-200-300-1001' -ServiceProvider { param(`$Name) `$null } -AgentProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider { param(`$Uri) throw 'offline' }; if (`$null -eq `$snapshot.Tray) { throw 'snapshot failed' }; 'discovery-ok'"
+        $encoded = [Convert]::ToBase64String([Text.Encoding]::Unicode.GetBytes($command))
+        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -EncodedCommand $encoded 2>&1
+        $LASTEXITCODE | Should Be 0
+        ($output -join "`n") | Should Match 'discovery-ok'
     }
 }
