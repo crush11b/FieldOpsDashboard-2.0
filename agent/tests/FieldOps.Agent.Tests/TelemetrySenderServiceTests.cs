@@ -173,17 +173,29 @@ public sealed class TelemetrySenderServiceTests
     {
         var transport = new InMemoryTelemetryTransport(capacity: 1);
         await transport.EnqueueAsync(Envelope("cancelled-source", new { value = 1 }));
+        var deliveryStarted = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseDelivery = new TaskCompletionSource<object?>(TaskCreationOptions.RunContinuationsAsynchronously);
         var destination = new DelegateDestination(async (_, _) =>
         {
-            await Task.Yield();
+            deliveryStarted.SetResult(null);
+            await releaseDelivery.Task;
             throw new OperationCanceledException("Destination cancelled independently.");
         });
         var logger = new RecordingLogger<TelemetrySenderService>();
         var service = CreateService(transport, destination, logger);
 
-        await service.StartAsync(CancellationToken.None).WaitAsync(TestTimeout);
-        await Assert.ThrowsAnyAsync<OperationCanceledException>(
-            async () => await service.ExecuteTask!.WaitAsync(TestTimeout));
+        try
+        {
+            await service.StartAsync(CancellationToken.None).WaitAsync(TestTimeout);
+            await deliveryStarted.Task.WaitAsync(TestTimeout);
+            releaseDelivery.SetResult(null);
+            await Assert.ThrowsAnyAsync<OperationCanceledException>(
+                async () => await service.ExecuteTask!.WaitAsync(TestTimeout));
+        }
+        finally
+        {
+            releaseDelivery.TrySetResult(null);
+        }
 
         var error = Assert.Single(logger.Entries, entry => entry.Level == LogLevel.Error);
         Assert.IsType<OperationCanceledException>(error.Exception);

@@ -131,6 +131,7 @@ public sealed class InstallerScriptTests
     public void DesktopUpdaterUsesCurrentPublishAndProductionInstallPath()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var runtimeReadiness = File.ReadAllText(FindScript("FieldOps.RuntimeReadiness.psm1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
         Assert.Contains("[string]$OperatorAccount", updater);
         Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
@@ -152,7 +153,13 @@ public sealed class InstallerScriptTests
         Assert.Contains("Install-FieldOpsAgent.ps1", updater);
         Assert.Contains("Provision-FieldOpsTelemetryCredential.ps1", updater);
         Assert.Contains("npm run build", updater);
-        Assert.Contains("ArgumentList 'start'", updater);
+        Assert.Contains("Import-Module (Join-Path $resolvedInstallPath 'scripts\\FieldOps.RuntimeReadiness.psm1')", updater);
+        Assert.Contains("Start-FieldOpsDashboardProcess -DashboardRoot $resolvedInstallPath", updater);
+        Assert.Contains("dist\\server.cjs", runtimeReadiness);
+        Assert.Contains("$node = & $NodeProvider 'node.exe'", runtimeReadiness);
+        Assert.Contains("$process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot", runtimeReadiness);
+        Assert.DoesNotContain("ArgumentList 'start'", updater);
+        Assert.DoesNotContain("Start-Process -FilePath 'npm.cmd'", updater);
         Assert.DoesNotContain("npm run dev", updater);
         var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
         Assert.Contains("UpdateDashboard.ps1", batch);

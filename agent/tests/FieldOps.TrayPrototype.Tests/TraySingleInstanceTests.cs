@@ -121,15 +121,39 @@ public sealed class TraySingleInstanceTests
     public void Abandoned_owner_does_not_permanently_block_later_acquisition()
     {
         var gate = CreateGate();
+        var ownerAcquired = new ManualResetEventSlim();
         TrayInstanceAcquisition? abandoned = null;
-        var owner = new Thread(() => abandoned = gate.TryAcquire());
+        var owner = new Thread(() =>
+        {
+            abandoned = gate.TryAcquire();
+            if (abandoned.State == TrayInstanceAcquisitionState.Acquired)
+            {
+                ownerAcquired.Set();
+            }
+        });
         owner.Start();
         Assert.True(owner.Join(TimeSpan.FromSeconds(5)));
         Assert.Equal(TrayInstanceAcquisitionState.Acquired, abandoned!.State);
+        Assert.True(ownerAcquired.IsSet);
 
-        var recovered = gate.TryAcquire();
+        var recoveryDeadline = DateTime.UtcNow + TimeSpan.FromSeconds(2);
+        TrayInstanceAcquisition? recovered = null;
+        while (DateTime.UtcNow < recoveryDeadline)
+        {
+            var attempt = gate.TryAcquire();
+            if (attempt.State == TrayInstanceAcquisitionState.Acquired)
+            {
+                recovered = attempt;
+                break;
+            }
 
-        Assert.Equal(TrayInstanceAcquisitionState.Acquired, recovered.State);
+            Assert.Equal(TrayInstanceAcquisitionState.Duplicate, attempt.State);
+            Thread.Sleep(10);
+        }
+
+        Assert.True(
+            recovered is not null,
+            "The abandoned mutex was not recoverable before the bounded deadline.");
         recovered.Lease!.Dispose();
         abandoned.Lease!.Dispose();
     }
