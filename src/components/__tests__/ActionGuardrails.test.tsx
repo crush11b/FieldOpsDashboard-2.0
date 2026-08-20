@@ -52,7 +52,7 @@ describe('misleading action guardrails', () => {
     expect(markup).not.toContain('btn-header-network-toggle');
   });
 
-  it('prevents keyboard activation of SOS and placeholder frequency guidance', () => {
+  it('prevents keyboard activation of SOS and keeps removed prototypes out of the touch menu', () => {
     const markup = renderToStaticMarkup(
       <TouchMenuDrawer
         isOpen
@@ -68,12 +68,15 @@ describe('misleading action guardrails', () => {
     );
 
     expect(markup).toMatch(/id="btn-emergency-sos"[^>]*disabled/);
-    expect(markup).toMatch(/id="drawer-btn-smart-freq"[^>]*disabled/);
     expect(markup).toContain('No emergency transmitter or mesh gateway is configured');
+    expect(markup).toContain('Activation planning and antenna length calculator');
+    expect(markup).not.toContain('SmartFrequency');
+    expect(markup).not.toContain('SmartLog+');
+    expect(markup).not.toContain('AI Radio Advisor');
     expect(markup).not.toContain('Broadcast alert sent');
   });
 
-  it('disables SmartFrequency and does not preload fabricated contacts', () => {
+  it('keeps the completed SmartDeploy workspace and antenna calculator visible without prototype entries', () => {
     const markup = renderToStaticMarkup(
       <RoadmapToolsModal
         theme="dark_tactical"
@@ -84,12 +87,19 @@ describe('misleading action guardrails', () => {
         gridSquare=""
         gps={gps}
         gpsProvenance={{ status: 'connecting', source: { id: 'gps:test', type: 'gps_acquisition' } }}
-        initialTab="smart_frequency"
+        initialTab="smart_deploy"
       />,
     );
 
-    expect(markup).toMatch(/id="tab-smart-frequency"[^>]*disabled/);
-    expect(markup).toContain('FIELD ANTENNA CUTTING');
+    expect(markup).toContain('SMARTDEPLOY');
+    expect(markup).toContain('ANTENNA LENGTH CALCULATOR');
+    expect(markup).toContain('GENERATE SMARTDEPLOY PLAN');
+    expect(markup).toContain('31.59 FT (9.63 METERS)');
+    expect(markup).toContain('15.80 FT (4.81 METERS)');
+    expect(markup).not.toContain('SmartFrequency');
+    expect(markup).not.toContain('SmartLog+');
+    expect(markup).not.toContain('POTA SPOTTER');
+    expect(markup).not.toContain('AI Field Radio Advisor');
     expect(markup).not.toContain('K7POTA');
     expect(markup).not.toContain('W6SOTA');
   });

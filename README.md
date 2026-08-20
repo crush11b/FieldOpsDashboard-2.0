@@ -67,7 +67,7 @@ The final sequence is being shaped by expected value on the next several field o
 
 ## SmartDeploy and activation-support direction
 
-Version 2.4 product-definition work has recovered the original SmartDeploy concept around POTA/SOTA mission planning. **SmartDeploy 2.0 is not implemented and is not a current release feature.**
+Version 2.4 product-definition work has recovered the original SmartDeploy concept as bounded POTA/SOTA activation planning. The current development branch supports retained offline planning briefs with propagation, path, and mission-time context, plus associated Activation Notes. It does not include Version 2.5 Field Operations Assistant behavior and is not presented as a released Version 2.4 feature.
 
 The future concept is:
 

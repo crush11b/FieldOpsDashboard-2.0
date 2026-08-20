@@ -244,39 +244,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
               activeTab === 'smart_deploy' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
             }`}
           >
-            <Wrench className="w-4 h-4" /> 🔧 SmartDeploy (ANTENNA CALCULATOR)
-          </button>
-
-          <button
-            id="tab-smart-frequency"
-            disabled
-            aria-describedby="smart-frequency-tab-reason"
-            className="py-2.5 px-4 font-bold text-xs border-b-2 border-transparent flex items-center gap-1.5 whitespace-nowrap text-slate-600 cursor-not-allowed"
-          >
-            <Radio className="w-4 h-4" /> SmartFrequency (UNAVAILABLE)
-          </button>
-          <span id="smart-frequency-tab-reason" className="sr-only">
-            Verified regional band-plan guidance is not yet implemented.
-          </span>
-
-          <button
-            id="tab-smart-log"
-            onClick={() => setActiveTab('smart_log')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'smart_log' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <BookOpen className="w-4 h-4" /> 📝 SmartLog+ (ADIF FIELD LOGGER)
-          </button>
-
-          <button
-            id="tab-smart-assistant"
-            onClick={() => setActiveTab('smart_assistant')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'smart_assistant' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            <Bot className="w-4 h-4 text-emerald-400" /> 🤖 AI Field Radio Advisor
+            <Wrench className="w-4 h-4" /> SmartDeploy
           </button>
         </div>
 
@@ -294,13 +262,13 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
             <SunTwilightTool operatingLocation={operatingLocation} />
           )}
           
-          {/* MODULE 1: SmartDeploy Antenna Calculator */}
+          {/* SmartDeploy activation planning and supporting calculator */}
           {activeTab === 'smart_deploy' && (
             <div className="space-y-4">
               <SmartDeployPlanner operatingLocation={operatingLocation} stationProfile={stationProfile} />
               <div className="p-3.5 rounded-xl border border-amber-600/60 bg-amber-950/20 space-y-3">
                 <h3 className="font-black text-xs uppercase text-amber-300 flex items-center gap-2">
-                  <Calculator className="w-4 h-4" /> FIELD ANTENNA CUTTING & NVIS TAKEOFF CALCULATOR
+                  <Calculator className="w-4 h-4" /> ANTENNA LENGTH CALCULATOR
                 </h3>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -596,7 +564,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         {/* Footer */}
         <div className="p-4 border-t border-current/15 flex items-center justify-between bg-black/40">
           <span className="text-[10px] text-slate-400">
-            SmartDeploy • SmartFrequency • SmartLog+ • FieldOps AI
+            Location • Distance / Bearing • Sun / Twilight • SmartDeploy
           </span>
           <button
             id="btn-close-roadmap-bottom"

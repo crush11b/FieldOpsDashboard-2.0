@@ -191,7 +191,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 ? 'border-slate-500 bg-amber-300 text-slate-900 hover:bg-amber-400' 
                 : 'border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
             }`}
-            title="Launch Field Tools (SmartDeploy, SmartLog+, AI Assistant)"
+            title="Launch Field Tools (SmartDeploy, location, distance, and solar tools)"
           >
             <Sparkles className="w-4 h-4 text-amber-400 animate-spin-slow" />
             <span className="hidden md:inline uppercase">FIELD TOOLS</span>
