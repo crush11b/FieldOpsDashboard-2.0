@@ -75,6 +75,50 @@ Describe 'FieldOps runtime shutdown' {
             Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeShutdown -Times 1 -Scope It -ParameterFilter { $Id -eq 102 }
         }
 
+    It 'treats a target process exiting before Stop-Process as already stopped' {
+            $global:FieldOpsTestServiceStatus = 'Stopped'
+            $global:FieldOpsTestProcesses = @([pscustomobject]@{
+                Name = 'FieldOps.Tray.exe'; ProcessId = 104; ExecutablePath = 'C:\Program Files\FieldOpsDashboard\Tray\FieldOps.Tray.exe'; CommandLine = 'FieldOps.Tray.exe'
+            })
+            Mock Stop-Process -ModuleName FieldOps.RuntimeShutdown {
+                $global:FieldOpsTestProcesses = @()
+                throw "Cannot find a process with the process identifier $Id."
+            }
+            Mock Get-Process -ModuleName FieldOps.RuntimeShutdown { $null }
+
+            $result = Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::FromSeconds(1))
+
+            $result.Status | Should Be 'quiescent'
+            Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeShutdown -Times 1 -Scope It -ParameterFilter { $Id -eq 104 }
+            Assert-MockCalled Get-Process -ModuleName FieldOps.RuntimeShutdown -Times 1 -Scope It -ParameterFilter { $Id -eq 104 }
+        }
+
+    It 'does not suppress a stop failure while the target process remains present' {
+            $global:FieldOpsTestServiceStatus = 'Stopped'
+            $global:FieldOpsTestProcesses = @([pscustomobject]@{
+                Name = 'FieldOps.Tray.exe'; ProcessId = 105; ExecutablePath = 'C:\Program Files\FieldOpsDashboard\Tray\FieldOps.Tray.exe'; CommandLine = 'FieldOps.Tray.exe'
+            })
+            Mock Stop-Process -ModuleName FieldOps.RuntimeShutdown { throw 'Access is denied.' }
+            Mock Get-Process -ModuleName FieldOps.RuntimeShutdown { [pscustomobject]@{ Id = $Id } }
+
+            { Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::FromSeconds(1)) } |
+                Should Throw 'Access is denied.'
+            Assert-MockCalled Get-Process -ModuleName FieldOps.RuntimeShutdown -Times 0 -Scope It
+        }
+
+    It 'does not suppress a missing-process error when the PID remains present' {
+            $global:FieldOpsTestServiceStatus = 'Stopped'
+            $global:FieldOpsTestProcesses = @([pscustomobject]@{
+                Name = 'FieldOps.Tray.exe'; ProcessId = 106; ExecutablePath = 'C:\Program Files\FieldOpsDashboard\Tray\FieldOps.Tray.exe'; CommandLine = 'FieldOps.Tray.exe'
+            })
+            Mock Stop-Process -ModuleName FieldOps.RuntimeShutdown { throw "Cannot find a process with the process identifier $Id." }
+            Mock Get-Process -ModuleName FieldOps.RuntimeShutdown { [pscustomobject]@{ Id = $Id } }
+
+            { Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::FromSeconds(1)) } |
+                Should Throw 'Cannot find a process with the process identifier 106.'
+            Assert-MockCalled Get-Process -ModuleName FieldOps.RuntimeShutdown -Times 1 -Scope It -ParameterFilter { $Id -eq 106 }
+        }
+
     It 'stops owned dashboard Node and cmd wrapper processes but preserves unrelated Node' {
             $global:FieldOpsTestServiceStatus = 'Stopped'
             $global:FieldOpsTestProcesses = @(
