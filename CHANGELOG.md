@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.4.0] - 2026-08-20
+
+### Added
+- **Coordinate Workspace**: GNSS and manual location handling with Maidenhead grid, distance, bearing, and source-aware states.
+- **Offline P.533 guidance**: Bundled, hash-verified propagation assets support modeled HF guidance without an Internet connection, alongside retained observed-RF evidence where available.
+- **SmartDeploy POTA/SOTA briefs**: Retained local planning briefs preserve propagation, path, mission-window, and operational context for field use.
+- **Activation Notes**: Local mission notes support activation preparation and field observations.
+- **Field Readiness Checklist**: Persistent readiness tracking supports repeatable ToughBook deployment preparation.
+- **Local/offline persistence**: Configuration, briefs, notes, and readiness state survive browser-origin changes, reboot, and intermittent connectivity.
+
+### Changed
+- **Field Tools release scope**: Coordinate and planning surfaces are now the current Version 2.4 product surface, with explicit live, cached, stale, unavailable, manual, and modeled status semantics.
+- **Updater and native runtime**: Exact-revision updater validation, native artifact packaging/publication contracts, and runtime-readiness checks were strengthened for the Windows Agent and Tray companion.
+- **ToughBook validation**: Field readiness, Activation Notes, updater behavior, and the Local/NVIS presentation correction were validated on the supported rugged deployment target.
+
+### Deferred
+- **Local/NVIS evaluator**: Local/NVIS remains visible but disabled in the destination presentation. Version 2.4 does not include NVIS prediction or recommendation logic, and no evaluator is claimed.
+- **Version 2.5 work**: Multi-user, fleet, remote-administration, signing, enterprise hardening, and broader Field Operations Assistant behavior remain outside this release.
+
+---
+
 ## [2.3.0] - 2026-08-14
 
 ### Added

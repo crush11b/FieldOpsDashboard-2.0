@@ -1,5 +1,5 @@
-// FieldOps Dashboard 2.3.0 — Single-Operator Field MVP - Offline Field Service Worker
-const CACHE_NAME = 'fieldops-2.3.0-shell-v1';
+// FieldOps Dashboard 2.4.0 — Field Tools - Offline Field Service Worker
+const CACHE_NAME = 'fieldops-2.4.0-shell-v1';
 
 const PRECACHE_URLS = [
   '/',

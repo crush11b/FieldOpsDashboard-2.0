@@ -2,8 +2,8 @@
 
 > A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-[![Version 2.3.0](https://img.shields.io/badge/version-2.3.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.3.0)
-[![Status](https://img.shields.io/badge/status-2.4%20Field%20Tools%20in%20development-C47F00?style=for-the-badge)](#current-development)
+[![Version 2.4.0](https://img.shields.io/badge/version-2.4.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.4.0)
+[![Status](https://img.shields.io/badge/status-2.4%20Field%20Tools%20current-2E7D32?style=for-the-badge)](#current-release)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
 
 ## What it is
@@ -20,11 +20,21 @@ The project prioritizes practical single-operator field usefulness, trustworthy 
 
 ## Current release
 
-**Version 2.3 - Single-Operator Field MVP**
+**Version 2.4.0 - Field Tools**
 
-The current release establishes a dependable Windows field baseline with local startup, the Windows Local Agent and Tray companion, real GNSS and system telemetry paths, application launching, persistent operator configuration, and operational deployment tooling.
+The current release adds the Coordinate Workspace and a practical set of field planning and readiness tools on top of the dependable Windows Local Agent and Tray baseline. It is designed for real ToughBook use with local and offline operation, honest source and freshness states, and retained operator work between sessions.
 
-See the [Version 2.3 changelog](CHANGELOG.md) and [MVP acceptance record](docs/validation/Version-2.3-Single-Operator-Field-MVP-Acceptance-2026-08-14.md).
+Field Tools includes:
+
+- **Coordinate Workspace**: GNSS or manual coordinates, Maidenhead grid, distance, bearing, and source-aware location states.
+- **Offline P.533 guidance**: Bundled and verified P.533 assets provide modeled HF propagation guidance when connectivity is unavailable; modeled results remain clearly distinct from observed RF evidence.
+- **Retained SmartDeploy briefs**: Bounded POTA/SOTA planning briefs retain propagation, path, mission-window, and operational context locally for later field use.
+- **Activation Notes**: Local notes connect mission context and operator observations to an activation without requiring a live service.
+- **Field Readiness Checklist**: A persistent pre-deployment checklist supports repeatable ToughBook field preparation.
+- **Local/offline persistence**: Configuration, planning briefs, notes, and readiness state are retained locally for intermittent or unavailable connectivity.
+- **Updater and native runtime improvements**: Exact-revision deployment checks, native artifact publication, transactional updater behavior, and runtime-readiness validation support the Windows Agent and Tray companion.
+
+See the [Version 2.4 changelog](CHANGELOG.md), [Activation Notes validation](docs/validation/Version-2.4-Activation-Notes-Field-Validation-2026-08-19.md), and [Field Readiness validation](docs/validation/Version-2.4-Field-Readiness-Checklist-Field-Validation-2026-08-20.md).
 
 ## What works today
 
@@ -57,17 +67,15 @@ FieldOps uses explicit source, freshness, and status semantics throughout the da
 
 An unavailable Internet source does not make a modeled result a measurement, and a valid zero is not silently treated as missing.
 
-## Current development
+## Version 2.5 boundary
 
-**Version 2.4 - Field Tools**
+Version 2.5 remains future work. Multi-user, fleet, remote-administration, signing, and broad enterprise hardening remain outside the current release boundary.
 
-Development is focused on making the operating-location workspace and field tools more useful during real outings. Current work includes coordinate and planning surfaces, propagation evidence and guidance, and product definition for future activation-support workflows.
+Local/NVIS remains an honest deferred presentation: the destination is visible but disabled, and no Local/NVIS evaluator, prediction, or recommendation capability exists in Version 2.4.
 
-The final sequence is being shaped by expected value on the next several field operations. Multi-user, fleet, remote-administration, signing, and broad enterprise hardening remain future directions rather than current product requirements.
+## SmartDeploy and activation-support scope
 
-## SmartDeploy and activation-support direction
-
-Version 2.4 product-definition work has recovered the original SmartDeploy concept as bounded POTA/SOTA activation planning. The current development branch supports retained offline planning briefs with propagation, path, and mission-time context, plus associated Activation Notes. It does not include Version 2.5 Field Operations Assistant behavior and is not presented as a released Version 2.4 feature.
+Version 2.4 recovers the original SmartDeploy concept as bounded POTA/SOTA activation planning. The released Field Tools scope supports retained offline planning briefs with propagation, path, and mission-time context, plus associated Activation Notes. It does not include Version 2.5 Field Operations Assistant behavior.
 
 The future concept is:
 
@@ -83,7 +91,7 @@ Equipment Inventory
 
 Future SmartDeploy work may synthesize POTA/SOTA mission context, an operating window, selected equipment and loadout, weather forecasts and hazards, space-weather outlooks, propagation modeling, antenna deployment considerations, power/endurance considerations, contingencies, and evidence-grounded operational recommendations.
 
-This is active product direction and design work. It does not mean that inventory, loadouts, mission planning, activation sequencing, or Operations Brief generation is available today.
+The retained brief workflow is available in the bounded Field Tools scope. Inventory, loadouts, activation sequencing, and broader Operations Brief automation remain future product direction.
 
 ## Architecture at a glance
 
@@ -174,7 +182,7 @@ The supported native artifact publisher and release mechanics are documented wit
 
 ## Project status
 
-FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.3 is the released single-operator baseline. Version 2.4 is focused on Field Tools and on defining, rather than prematurely implementing, future POTA/SOTA activation-support workflows.
+FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.4 is the current Field Tools release, while broader POTA/SOTA activation-support workflows and the Local/NVIS evaluator remain deferred.
 
 Some integrations require local hardware, installed radio applications, configured credentials, or live external services. Modeled, cached, stale, unavailable, and manual values should be interpreted according to their displayed status.
 
