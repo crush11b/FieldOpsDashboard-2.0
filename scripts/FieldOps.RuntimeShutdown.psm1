@@ -64,6 +64,21 @@ function Get-FieldOpsRuntimeState {
     }
 }
 
+function Test-FieldOpsProcessMissingError {
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [Parameter(Mandatory = $true)][System.Management.Automation.ErrorRecord]$ErrorRecord
+    )
+
+    $missingProcessError = [string]$ErrorRecord.FullyQualifiedErrorId -like 'NoProcessFoundForGivenId,*' -or
+        [string]$ErrorRecord.Exception.Message -match "process identifier\s+$ProcessId\b"
+    if (-not $missingProcessError) {
+        return $false
+    }
+
+    return $null -eq (Get-Process -Id $ProcessId -ErrorAction SilentlyContinue)
+}
+
 function Wait-FieldOpsServiceStopped {
     [CmdletBinding()]
     param(
@@ -94,7 +109,13 @@ function Stop-FieldOpsRuntimeProcesses {
 
     $processes = @(Get-FieldOpsOwnedRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot)
     foreach ($process in $processes) {
-        Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        try {
+            Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
+        } catch {
+            if (-not (Test-FieldOpsProcessMissingError -ProcessId $process.ProcessId -ErrorRecord $_)) {
+                throw
+            }
+        }
     }
     return $processes
 }
