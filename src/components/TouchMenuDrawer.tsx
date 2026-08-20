@@ -111,53 +111,8 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
             >
               <Wrench className="w-5 h-5 text-amber-400" />
               <div>
-                <span className="font-black block uppercase">SmartDeploy Antenna</span>
-                <span className="text-[10px] opacity-75">Dipole & EFHW Wire Calculator</span>
-              </div>
-            </button>
-
-            <button
-              id="drawer-btn-smart-freq"
-              disabled
-              aria-describedby="smart-frequency-unavailable"
-              className="w-full p-3 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-500 text-left flex items-center gap-3 cursor-not-allowed opacity-70"
-            >
-              <Radio className="w-5 h-5" />
-              <div>
-                <span className="font-black block uppercase">SmartFrequency Unavailable</span>
-                <span id="smart-frequency-unavailable" className="text-[10px] opacity-75">Verified band-plan data is not yet implemented.</span>
-              </div>
-            </button>
-
-            <button
-              id="drawer-btn-smart-log"
-              onClick={() => {
-                playTacticalClick(audioEnabled);
-                onOpenRoadmap('smart_log');
-                onClose();
-              }}
-              className={`w-full p-3 rounded-xl border text-left flex items-center gap-3 transition-all active:scale-95 touch-manipulation ${btnBg}`}
-            >
-              <BookOpen className="w-5 h-5 text-emerald-400" />
-              <div>
-                <span className="font-black block uppercase">SmartLog+ ADIF Logger</span>
-                <span className="text-[10px] opacity-75">Field Contact Logs & ADIF Export</span>
-              </div>
-            </button>
-
-            <button
-              id="drawer-btn-smart-assistant"
-              onClick={() => {
-                playTacticalClick(audioEnabled);
-                onOpenRoadmap('smart_assistant');
-                onClose();
-              }}
-              className={`w-full p-3 rounded-xl border text-left flex items-center gap-3 transition-all active:scale-95 touch-manipulation ${btnBg}`}
-            >
-              <Bot className="w-5 h-5 text-emerald-400" />
-              <div>
-                <span className="font-black block uppercase text-emerald-400">AI Radio Advisor</span>
-                <span className="text-[10px] opacity-75">Gemini Solar & Propagation Bot</span>
+                <span className="font-black block uppercase">SmartDeploy</span>
+                <span className="text-[10px] opacity-75">Activation planning and antenna length calculator</span>
               </div>
             </button>
 

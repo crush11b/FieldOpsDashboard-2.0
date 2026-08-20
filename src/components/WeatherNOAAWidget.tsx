@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
 import { ExternalDataStatus, NOAAAlert, UIThemeMode, WeatherData } from '../types';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
@@ -24,6 +24,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   const effectiveAlertsStatus = alertsStatus === 'live' && alerts === null ? 'unavailable' : alertsStatus;
   const [showAlertsDrawer, setShowAlertsDrawer] = useState(false);
   const [isAcknowledged, setIsAcknowledged] = useState(false);
+  const announcedAlertIds = useRef<Set<string>>(new Set());
 
   // Check persisted acknowledged alert IDs from localStorage
   useEffect(() => {
@@ -39,8 +40,9 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
       } else if (alertItems.length > 0) {
         setIsAcknowledged(false);
         // Only announce if there is a NEW unacknowledged alert
-        const unackAlert = alertItems.find(a => !ackIds.includes(a.id));
+        const unackAlert = alertItems.find(a => !ackIds.includes(a.id) && !announcedAlertIds.current.has(a.id));
         if (unackAlert) {
+          announcedAlertIds.current.add(unackAlert.id);
           speakNOAAAlert(unackAlert.title, unackAlert.area, audioEnabled);
         }
       }
@@ -91,6 +93,17 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     ? 'border-red-950 text-red-800'
     : 'border-zinc-800 bg-zinc-800/60 text-zinc-400';
 
+  const weatherStatusLabel = weatherStatus === 'live'
+    ? 'LIVE'
+    : weatherStatus === 'loading'
+    ? 'REFRESHING'
+    : 'LAST KNOWN / UPDATE UNAVAILABLE';
+  const weatherStatusClass = weatherStatus === 'live'
+    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+    : weatherStatus === 'loading'
+    ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
+    : 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+
   const hourlyList = weather?.hourlyForecast?.slice(0, 6) ?? [];
 
   return (
@@ -102,6 +115,14 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
             FIELD WEATHER SNAPSHOT & NOAA ALERTS
           </h3>
+          {weather && (
+            <span
+              data-testid="weather-freshness-status"
+              className={`px-1.5 py-0.5 rounded border text-[9px] font-black tracking-wider ${weatherStatusClass}`}
+            >
+              {weatherStatusLabel}
+            </span>
+          )}
         </div>
 
         {/* NOAA Alert Controls */}

@@ -131,8 +131,11 @@ public sealed class InstallerScriptTests
     public void DesktopUpdaterUsesCurrentPublishAndProductionInstallPath()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var runtimeReadiness = File.ReadAllText(FindScript("FieldOps.RuntimeReadiness.psm1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
-        Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("[string]$OperatorAccount", updater);
+        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("Resolve-FieldOpsInteractiveOperator", updater);
         Assert.Contains("[ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision", updater);
         Assert.Contains("Resolve-DeploymentRevision", updater);
         Assert.Contains("archive/$deploymentRevision.tar.gz", updater);
@@ -150,12 +153,59 @@ public sealed class InstallerScriptTests
         Assert.Contains("Install-FieldOpsAgent.ps1", updater);
         Assert.Contains("Provision-FieldOpsTelemetryCredential.ps1", updater);
         Assert.Contains("npm run build", updater);
-        Assert.Contains("ArgumentList 'start'", updater);
+        Assert.Contains("Import-Module (Join-Path $resolvedInstallPath 'scripts\\FieldOps.RuntimeReadiness.psm1')", updater);
+        Assert.Contains("Start-FieldOpsDashboardProcess -DashboardRoot $resolvedInstallPath", updater);
+        Assert.Contains("dist\\server.cjs", runtimeReadiness);
+        Assert.Contains("$node = & $NodeProvider 'node.exe'", runtimeReadiness);
+        Assert.Contains("$process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot", runtimeReadiness);
+        Assert.DoesNotContain("ArgumentList 'start'", updater);
+        Assert.DoesNotContain("Start-Process -FilePath 'npm.cmd'", updater);
         Assert.DoesNotContain("npm run dev", updater);
         var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
         Assert.Contains("UpdateDashboard.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
         Assert.Contains("Set-Location -LiteralPath $installParent", updater);
+    }
+
+    [Fact]
+    public void UpdaterTreatsP533RuntimeAsValidatedNativeArtifactInput()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var publisher = File.ReadAllText(FindScript("Publish-FieldOpsArtifacts.ps1"));
+        var builder = File.ReadAllText(FindScript("Build-FieldOpsNativePackage.ps1"));
+        var packageRequirements = updater.Substring(updater.IndexOf("$requiredPackageFiles", StringComparison.Ordinal), updater.IndexOf("$requiredDeploymentFiles", StringComparison.Ordinal) - updater.IndexOf("$requiredPackageFiles", StringComparison.Ordinal));
+        Assert.DoesNotContain("'p533-assets\\runtime\\provenance.json'", packageRequirements);
+        Assert.Contains("Assert-P533RuntimeArtifact", updater);
+        Assert.Contains("Copy-Item -Path (Join-Path $p533RuntimeRoot '*')", updater);
+        Assert.Contains("p533-assets\\runtime\\provenance.json", updater);
+        Assert.Contains("name = 'p533'", publisher);
+        Assert.Contains("p533-assets\\runtime\\provenance.json", builder);
+        Assert.Contains("Join-Path $source 'p533-assets'", builder);
+    }
+
+    [Fact]
+    public void RejectedCandidateCleanupIsBoundedAndCannotMaskValidationFailure()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        Assert.Contains("function Remove-TemporaryCandidate", updater);
+        Assert.Contains("StartsWith($root + [IO.Path]::DirectorySeparatorChar", updater);
+        Assert.Contains("cmd.exe /c rmdir /s /q", updater);
+        Assert.Contains("Rejected candidate cleanup was not completed", updater);
+        Assert.Contains("No download candidate contained a valid FieldOps Dashboard deployment package.", updater);
+        Assert.DoesNotContain("Remove-Item -LiteralPath $extractPath -Recurse -Force\n", updater);
+    }
+
+    [Fact]
+    public void P533RuntimeStagingPrecedesInstallTreeSwapAndRollback()
+    {
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var staging = updater.IndexOf("Assert-P533RuntimeArtifact", StringComparison.Ordinal);
+        var swap = updater.IndexOf("Move-Item -LiteralPath $stagePath -Destination $resolvedInstallPath", StringComparison.Ordinal);
+        var activation = updater.IndexOf("$deploymentStarted = $true", StringComparison.Ordinal);
+        Assert.True(staging >= 0 && activation >= 0 && swap >= 0);
+        Assert.True(staging < activation);
+        Assert.True(activation < swap);
+        Assert.Contains("Move-Item -LiteralPath $backupPath -Destination $resolvedInstallPath", updater);
     }
 
     [Fact]

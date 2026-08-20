@@ -1,439 +1,163 @@
-import React, { useState, useEffect, useRef } from 'react';
-import { Activity, Database, RefreshCw, Clock, Moon, Sun, Radio, MapPin, Sparkles, ChevronDown } from 'lucide-react';
-import { BandPropagation, GPSStatus, SolarData, UIThemeMode } from '../types';
-import { playTacticalClick } from '../utils/audio';
-import { parseCoordinates } from '../location/coordinates';
+import React, { useEffect, useRef, useState } from 'react';
+import { Activity, RefreshCw } from 'lucide-react';
+import type { DashboardConfig, UIThemeMode } from '../types';
+import type { OperatingLocation } from '../location/operatingLocation';
+import { fetchPropagationGuidance, confidenceLabel, observedRfSummaryLabel } from '../propagation/guidanceClient';
+import type { PropagationGuidanceResponse } from '../../server/propagationGuidance';
+import { PROPAGATION_GUIDANCE_BANDS, type PropagationConfidence, type PropagationRating, type StationProfile } from '../propagation/domain';
+import { PROPAGATION_REGION_CATALOG, type PropagationRegionId } from '../propagation/regionalDestinations';
+import { ANTENNA_OPTIONS, getDeploymentOptionsForAntenna, getHeightOptionsForDeployment, MODE_OPTIONS, normalizeStationProfile, POWER_PRESET_OPTIONS } from '../propagation/stationProfileCatalog';
 
-interface IonosondeStation {
-  code: string;
-  name: string;
-  lat: number;
-  lon: number;
-  foF2: number | null;
-  muf3000: number;
-  distKm: number;
-  distMiles: number;
-}
-
-interface IonosondeData {
-  status: 'live' | 'unavailable';
-  regionalMuf3000: number | null;
-  regionalFoF2: number | null;
-  nearestStation: IonosondeStation | null;
-  stations: IonosondeStation[];
-  sourceName: string;
-  lastUpdated: string;
-}
-
-interface VOACAPPropagationWidgetProps {
-  solar: SolarData;
-  bands: BandPropagation[];
+interface Props {
+  config: DashboardConfig;
+  operatingLocation: OperatingLocation;
   theme: UIThemeMode;
   audioEnabled: boolean;
-  location?: { lat: number; lon: number } | GPSStatus;
-  onRefreshSolar: () => void;
+  onPersistConfig: (updated: DashboardConfig) => Promise<DashboardConfig | null>;
 }
 
-export const VOACAPPropagationWidget: React.FC<VOACAPPropagationWidgetProps> = ({
-  solar,
-  bands,
-  theme,
-  audioEnabled,
-  location,
-  onRefreshSolar,
-}) => {
-  const [now, setNow] = useState(new Date());
-  const [userSelectedBandName, setUserSelectedBandName] = useState<string | null>(null);
-  const [ionosondeData, setIonosondeData] = useState<IonosondeData | null>(null);
-  const [isLoadingIonosonde, setIsLoadingIonosonde] = useState(false);
-  const [showStationsList, setShowStationsList] = useState(false);
-  const ionosondeRequestSequence = useRef(0);
-
-  // Fetch current KC2G ionosonde station data.
-  const fetchIonosonde = async (signal?: AbortSignal) => {
-    const requestSequence = ++ionosondeRequestSequence.current;
-    setIsLoadingIonosonde(true);
-    try {
-      const coordinates = parseCoordinates(location?.lat, location?.lon);
-      if (!coordinates) {
-        setIonosondeData(null);
-        return;
-      }
-      const { lat, lon } = coordinates;
-      const res = await fetch(`/api/ionosonde?lat=${lat}&lon=${lon}`, { signal });
-      if (signal?.aborted || requestSequence !== ionosondeRequestSequence.current) return;
-      if (res.ok) {
-        const data: IonosondeData = await res.json();
-        if (signal?.aborted || requestSequence !== ionosondeRequestSequence.current) return;
-        setIonosondeData(data.status === 'live' || data.status === 'unavailable' ? data : null);
-      } else {
-        setIonosondeData(null);
-      }
-    } catch (e) {
-      if (!signal?.aborted && requestSequence === ionosondeRequestSequence.current) {
-        setIonosondeData(null);
-        console.warn('KC2G ionosonde data unavailable');
-      }
-    } finally {
-      if (requestSequence === ionosondeRequestSequence.current) setIsLoadingIonosonde(false);
-    }
-  };
-
-  useEffect(() => {
-    const controller = new AbortController();
-    fetchIonosonde(controller.signal);
-    return () => controller.abort();
-  }, [location?.lat, location?.lon]);
-
-  // Live clock tick every 10 seconds
-  useEffect(() => {
-    const timer = setInterval(() => {
-      setNow(new Date());
-    }, 10000);
-    return () => clearInterval(timer);
-  }, []);
-
-  const isNight = theme === 'night_vision';
-  const isSunlight = theme === 'sunlight';
-
-  // 1. Calculate solar position & daylight factor
-  const localHour = now.getHours() + now.getMinutes() / 60;
-  const localTimeString = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-  const utcHourString = now.toISOString().substring(11, 19) + ' UTC';
-
-  const rad = ((localHour - 13 + 24) % 24) * (2 * Math.PI / 24);
-  const daylightFactor = Math.max(0, Math.min(1, (Math.cos(rad) + 1) / 2));
-  const isNightIonosphere = daylightFactor < 0.35;
-
-  const measuredRegionalMuf = ionosondeData?.status === 'live' ? ionosondeData.regionalMuf3000 : null;
-  const measuredFoF2 = ionosondeData?.status === 'live' ? ionosondeData.regionalFoF2 : null;
-  const modeledMuf = Math.round(((11.5 + solar.solarFlux / 22) * (1 - daylightFactor)
-    + (17.5 + solar.solarFlux / 9) * daylightFactor) * 10) / 10;
-  const guidanceMuf = measuredRegionalMuf ?? modeledMuf;
-
-  // Band center frequencies in MHz
-  const bandCenterFreqs: Record<string, number> = {
-    '160m': 1.9,
-    '80m': 3.65,
-    '60m': 5.35,
-    '40m': 7.15,
-    '30m': 10.125,
-    '20m': 14.175,
-    '17m': 18.12,
-    '15m': 21.225,
-    '12m': 24.94,
-    '10m': 28.85,
-    '6m': 50.125,
-  };
-
-  // Compute modeled propagation guidance for all HF bands.
-  const computedBands: BandPropagation[] = bands.map((b) => {
-    const centerFreq = bandCenterFreqs[b.band] || parseFloat(b.frequencyMHz) || 14.0;
-    const isBelowMuf = centerFreq <= guidanceMuf;
-
-    // Current probability interpolated dynamically based on daylight & MUF cutoff
-    let liveProb = Math.round(b.nightProb * (1 - daylightFactor) + b.dayProb * daylightFactor);
-
-    // Apply a model penalty when band frequency exceeds the guidance MUF.
-    if (!isBelowMuf) {
-      const overageRatio = centerFreq / guidanceMuf;
-      liveProb = Math.max(0, Math.round(liveProb / (overageRatio * 2.5)));
-    }
-
-    let liveStatus: 'Excellent' | 'Good' | 'Fair' | 'Poor' = 'Poor';
-    if (liveProb >= 80) liveStatus = 'Excellent';
-    else if (liveProb >= 55) liveStatus = 'Good';
-    else if (liveProb >= 30) liveStatus = 'Fair';
-
-    return {
-      ...b,
-      currentProb: liveProb,
-      currentMuf: guidanceMuf,
-      status: liveStatus,
-    };
-  });
-
-  // Top recommended band for RIGHT NOW
-  const topBandNow = [...computedBands].sort((a, b) => (b.currentProb || 0) - (a.currentProb || 0))[0];
-
-  // Active selected band
-  const activeBand = computedBands.find((b) => b.band === userSelectedBandName) || topBandNow || computedBands[0];
-
-  const cardBg = isNight
-    ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
-    : isSunlight
-    ? 'bg-white border-amber-400 text-slate-900 shadow-sm rounded-2xl p-4 sm:p-5'
-    : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg rounded-2xl p-4 sm:p-5';
-
-  const getStatusColor = (status: BandPropagation['status']) => {
-    switch (status) {
-      case 'Excellent':
-        return isNight ? 'text-red-400 border-red-700 bg-red-950/60' : 'text-emerald-400 border-emerald-500/30 bg-emerald-500/10';
-      case 'Good':
-        return isNight ? 'text-red-400 border-red-800 bg-red-950/40' : 'text-amber-400 border-amber-500/30 bg-amber-500/10';
-      case 'Fair':
-        return isNight ? 'text-red-500 border-red-900 bg-red-950/20' : 'text-amber-300 border-zinc-700 bg-zinc-800/60';
-      case 'Poor':
-      default:
-        return isNight ? 'text-red-800 border-red-950 bg-black' : 'text-zinc-500 border-zinc-800 bg-zinc-950/50';
-    }
-  };
-
-  return (
-    <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
-      {/* Widget header and measurement-source state. */}
-      <div className="flex flex-wrap items-center justify-between pb-3 border-b border-zinc-800/80 gap-2">
-        <div className="flex items-center gap-2">
-          <Activity className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-amber-400'} animate-pulse`} />
-          <div>
-            <h3 className="text-xs font-bold text-zinc-300 uppercase tracking-widest flex items-center gap-2">
-              <span>REGIONAL HF BAND GUIDANCE</span>
-            </h3>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2 text-[10px]">
-          <span className={`px-2 py-0.5 rounded border font-bold flex items-center gap-1 ${
-            isNight ? 'border-red-900 bg-red-950 text-red-400' : ionosondeData?.status === 'live'
-              ? 'border-emerald-700 bg-emerald-950/80 text-emerald-300'
-              : 'border-zinc-700 bg-zinc-950/80 text-zinc-300'
-          }`}>
-            <Database className="w-3 h-3 text-emerald-400" />
-            <span>{ionosondeData?.status === 'live' ? ionosondeData.sourceName : 'IONOSONDE UNAVAILABLE'}</span>
-          </span>
-
-          <button
-            id="btn-refresh-solar-data"
-            onClick={() => {
-              playTacticalClick(audioEnabled);
-              onRefreshSolar();
-              fetchIonosonde();
-            }}
-            className={`p-1 rounded border active:scale-95 ${
-              isNight ? 'border-red-900 bg-red-950 text-red-400' : 'border-slate-700 bg-slate-800 text-slate-200 hover:bg-slate-700'
-            }`}
-            title="Refresh ionosonde and solar data"
-          >
-            <RefreshCw className={`w-3 h-3 ${isLoadingIonosonde ? 'animate-spin text-amber-400' : ''}`} />
-          </button>
-        </div>
-      </div>
-
-      {/* Time, measured ionosonde values, and modeled guidance. */}
-      <div className={`p-2.5 rounded-xl border flex flex-wrap items-center justify-between gap-2 text-xs font-mono ${
-        isNightIonosphere
-          ? 'bg-indigo-950/40 border-indigo-500/30 text-indigo-200'
-          : 'bg-amber-950/30 border-amber-500/30 text-amber-200'
-      }`}>
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center gap-2">
-            <Clock className="w-4 h-4 text-cyan-400 shrink-0" />
-            <div>
-              <span className="font-black text-cyan-300 text-xs">{localTimeString}</span>
-              <span className="text-[10px] text-zinc-400 ml-1.5">({utcHourString})</span>
-            </div>
-          </div>
-
-          <div className="flex items-center gap-2 border-l border-zinc-700/60 pl-3 text-[11px]">
-            <span className="text-zinc-400">{measuredRegionalMuf === null ? 'MODELED GUIDANCE MUF:' : 'DERIVED REGIONAL MUF (3000 km):'}</span>
-            <span className="font-black text-amber-300 bg-amber-950/80 px-2 py-0.5 rounded border border-amber-500/50 text-xs">
-              {guidanceMuf} MHz
-            </span>
-            <span className="text-zinc-400 ml-1">MEASURED foF2:</span>
-            <span className="font-bold text-cyan-300">{measuredFoF2 === null ? 'Unavailable' : `${measuredFoF2} MHz`}</span>
-          </div>
-        </div>
-
-        <div className="flex items-center gap-2">
-          {ionosondeData?.nearestStation && (
-            <button
-              onClick={() => {
-                playTacticalClick(audioEnabled);
-                setShowStationsList(!showStationsList);
-              }}
-              className="text-[10px] px-2 py-1 rounded bg-zinc-950/80 hover:bg-zinc-900 border border-amber-500/40 text-amber-300 font-bold flex items-center gap-1 active:scale-95"
-              title="Click to toggle KC2G station network breakdown"
-            >
-              <Radio className="w-3 h-3 text-amber-400" />
-              <span>STN: {ionosondeData.nearestStation.name.split(',')[0]} ({ionosondeData.nearestStation.distMiles} mi)</span>
-              <ChevronDown className="w-3 h-3 opacity-70" />
-            </button>
-          )}
-
-          {topBandNow && (
-            <span className="text-[10px] px-2 py-0.5 bg-emerald-500/20 text-emerald-300 rounded border border-emerald-500/40 font-black uppercase flex items-center gap-1">
-              <Sparkles className="w-3 h-3 text-emerald-400" /> MODELED BEST: {topBandNow.band} ({topBandNow.currentProb}%)
-            </span>
-          )}
-        </div>
-      </div>
-
-      {/* KC2G measured station drawer. */}
-      {showStationsList && ionosondeData?.status === 'live' && (
-        <div className="p-3 rounded-xl border border-cyan-800/80 bg-zinc-950/90 text-zinc-200 text-xs font-mono space-y-2">
-          <div className="flex items-center justify-between border-b border-cyan-800/60 pb-1.5 font-bold">
-            <span className="text-cyan-300 flex items-center gap-1.5 uppercase">
-              <MapPin className="w-3.5 h-3.5 text-cyan-400" /> KC2G IONOSONDE STATION MEASUREMENTS
-            </span>
-            <span className="text-[10px] text-zinc-400">PROP.KC2G.COM FEED</span>
-          </div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-            {ionosondeData.stations.slice(0, 6).map((stn) => (
-              <div key={stn.code} className="p-2 rounded bg-zinc-900/80 border border-zinc-800 space-y-1">
-                <div className="flex items-center justify-between font-bold text-amber-300 text-[11px]">
-                  <span>{stn.name}</span>
-                  <span className="text-[10px] text-zinc-400">{stn.distMiles} mi</span>
-                </div>
-                <div className="flex items-center justify-between text-[10px] text-zinc-300">
-                  <span>MUF(3000): <strong className="text-emerald-400">{stn.muf3000} MHz</strong></span>
-                  <span>foF2: <strong className="text-cyan-300">{stn.foF2 ? `${stn.foF2} MHz` : 'N/A'}</strong></span>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Solar Parameters Bar (SFI, SSN, A-Index, K-Index) */}
-      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 mb-3 text-xs">
-        <div className={`p-2 rounded border text-center ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
-          <span className="text-[10px] uppercase opacity-70 block">SOLAR FLUX (SFI)</span>
-          <span className="font-black text-amber-400 text-sm">{solar.solarFlux}</span>
-        </div>
-
-        <div className={`p-2 rounded border text-center ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
-          <span className="text-[10px] uppercase opacity-70 block">SUNSPOT NO. (SSN)</span>
-          <span className="font-black text-cyan-400 text-sm">{solar.sunspotNumber}</span>
-        </div>
-
-        <div className={`p-2 rounded border text-center ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
-          <span className="text-[10px] uppercase opacity-70 block">A-INDEX</span>
-          <span className="font-black text-emerald-400 text-sm">{solar.aIndex}</span>
-        </div>
-
-        <div className={`p-2 rounded border text-center ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
-          <span className="text-[10px] uppercase opacity-70 block">K-INDEX</span>
-          <span className="font-black text-emerald-400 text-sm">{solar.kIndex} ({solar.kDescription})</span>
-        </div>
-
-        <div className={`col-span-2 sm:col-span-1 p-2 rounded border text-center ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
-          <span className="text-[10px] uppercase opacity-70 block">X-RAY FLARE</span>
-          <span className="font-black text-yellow-300 text-sm">{solar.xray}</span>
-        </div>
-      </div>
-
-      <p className="text-[10px] text-zinc-400">
-        Band percentages and recommendations are modeled guidance, not measured circuit predictions.
-      </p>
-
-      {/* Modeled HF band guidance grid. */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 mb-4">
-        {computedBands.map((b) => {
-          const isSelected = activeBand.band === b.band;
-          const statusStyle = getStatusColor(b.status);
-          const isTop = topBandNow?.band === b.band;
-
-          return (
-            <button
-              id={`btn-band-select-${b.band}`}
-              key={b.band}
-              onClick={() => {
-                playTacticalClick(audioEnabled);
-                setUserSelectedBandName(b.band);
-              }}
-              className={`p-3 rounded-xl border text-left transition-all active:scale-95 touch-manipulation flex flex-col justify-between space-y-2 min-h-[120px] ${statusStyle} ${
-                isSelected ? 'ring-2 ring-cyan-400 scale-[1.02] shadow-md' : 'hover:opacity-90'
-              }`}
-            >
-              {/* Line 1: Band Title & Freq */}
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5">
-                  <span className="font-black text-sm text-zinc-100 uppercase tracking-wider">{b.band}</span>
-                  <span className="text-[10px] text-zinc-400 font-mono font-normal">
-                    ({b.frequencyMHz.split(' ')[0]}M)
-                  </span>
-                </div>
-                {isTop && <span className="text-emerald-400 text-xs font-black tracking-tighter" title="Top Band Right Now">★ TOP</span>}
-              </div>
-
-              {/* Line 2: Reliability Status Badge */}
-              <div>
-                <span className="text-[10px] font-extrabold px-2 py-0.5 rounded bg-black/80 border border-current/40 uppercase tracking-wider inline-block">
-                  {b.status}
-                </span>
-              </div>
-
-              {/* Line 3: Now % */}
-              <div className="flex items-center justify-between border-t border-current/20 pt-1.5 text-xs font-bold">
-                <span className="opacity-70 text-[10px]">NOW:</span>
-                <span className="text-amber-300 font-black text-sm">{b.currentProb}%</span>
-              </div>
-
-              {/* Line 4: Day / Night % */}
-              <div className="flex items-center justify-between text-[10px] opacity-85 font-mono">
-                <span>DAY: <strong className="text-emerald-300">{b.dayProb}%</strong></span>
-                <span>NIGHT: <strong className="text-indigo-300">{b.nightProb}%</strong></span>
-              </div>
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Selected band guidance breakdown. */}
-      {activeBand && (
-        <div className={`p-3 rounded-xl border ${isNight ? 'border-red-900 bg-red-950/30' : isSunlight ? 'border-amber-300 bg-amber-100/60' : 'border-cyan-800/80 bg-cyan-950/30'} flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-xs`}>
-          <div className="space-y-1">
-            <div className="flex flex-wrap items-center gap-2">
-              <span className="font-black text-base text-cyan-300 uppercase">{activeBand.band} BAND ({activeBand.frequencyMHz})</span>
-              <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-900 text-cyan-200 font-bold font-mono">
-                {measuredRegionalMuf === null ? 'MODELED MUF' : 'DERIVED REGIONAL MUF'}: {activeBand.currentMuf} MHz
-              </span>
-              {topBandNow?.band === activeBand.band && (
-                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300 font-black uppercase">
-                  ★ MODELED TOP BAND
-                </span>
-              )}
-            </div>
-
-            <p className="text-[11px] opacity-90">
-              Recommended Modes: <span className="font-bold text-amber-300">{activeBand.recommendedModes.join(', ')}</span>
-            </p>
-
-            <p className="text-[10px] text-zinc-400 leading-normal">
-              {isNightIonosphere ? (
-                activeBand.band === '80m' || activeBand.band === '40m' || activeBand.band === '30m' ? (
-                  <span>🌙 <strong>Night Propagation Peak:</strong> Low solar absorption makes {activeBand.band} highly reliable for long distance contacts at {localTimeString}.</span>
-                ) : (
-                  <span>🌙 <strong>Night Ionosphere Guidance:</strong> The model estimates {activeBand.currentProb}% reliability against the {guidanceMuf} MHz guidance MUF.</span>
-                )
-              ) : (
-                activeBand.band === '20m' || activeBand.band === '17m' || activeBand.band === '15m' || activeBand.band === '10m' ? (
-                  <span>☀️ <strong>Daytime Ionospheric Peak:</strong> High solar ionization powers F2-layer long-haul propagation on {activeBand.band}.</span>
-                ) : (
-                  <span>☀️ <strong>Daytime D-Layer Absorption:</strong> D-layer ionization causes higher signal attenuation on lower frequencies ({activeBand.band}).</span>
-                )
-              )}
-            </p>
-          </div>
-
-          <div className="flex items-center gap-3 shrink-0 font-mono">
-            <div className="text-right p-2 rounded bg-zinc-950/60 border border-zinc-800">
-              <span className="text-[9px] uppercase opacity-70 block text-zinc-400">MODELED RELIABILITY</span>
-              <span className={`font-black text-sm ${
-                (activeBand.currentProb || 0) >= 80 ? 'text-emerald-400' :
-                (activeBand.currentProb || 0) >= 55 ? 'text-amber-400' :
-                (activeBand.currentProb || 0) >= 30 ? 'text-amber-300' : 'text-red-400'
-              }`}>{activeBand.currentProb}%</span>
-            </div>
-            <div className="text-right text-[10px] opacity-80 space-y-0.5">
-              <div>DAY REF: <span className="font-bold text-emerald-400">{activeBand.dayProb}%</span></div>
-              <div>NIGHT REF: <span className="font-bold text-amber-300">{activeBand.nightProb}%</span></div>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
-  );
+export const OPERATING_MODE_LABELS = {
+  online_live_enhanced: 'LIVE ENHANCED', online_partial: 'ONLINE / PARTIAL',
+  offline_cached_modeled: 'CACHED + MODEL', offline_modeled: 'OFFLINE / MODEL',
+  observed_only: 'OBSERVED ONLY', unavailable: 'UNAVAILABLE',
+} as const;
+export const RATING_LABELS = { EXCELLENT: 'Excellent', GOOD: 'Good', FAIR: 'Fair', POOR: 'Poor', UNAVAILABLE: 'Unavailable' } as const;
+export const CONFIDENCE_DISPLAY_LABELS: Record<PropagationConfidence, string> = {
+  high: 'HIGH', medium: 'MEDIUM', low: 'LOW', modeled_only: 'MODELED', unavailable: 'UNAVAILABLE',
 };
+const LOCAL_NVIS_DEFERRED_MESSAGE = 'Local / NVIS guidance is recognized but its evaluator is deferred; choose a supported destination for operational recommendations.';
 
+export function getBandRatingClasses(rating: PropagationRating, theme: UIThemeMode, selected: boolean): string {
+  const ratingClasses = theme === 'night_vision'
+    ? {
+      EXCELLENT: 'bg-red-950/70 border-red-500 text-red-100 font-bold',
+      GOOD: 'bg-red-950/45 border-red-700 text-red-200 font-semibold',
+      FAIR: 'bg-red-950/25 border-red-800 text-red-300 font-semibold',
+      POOR: 'bg-black border-red-950 text-red-400',
+      UNAVAILABLE: 'bg-black border-red-950/60 text-red-900',
+    }
+    : theme === 'sunlight'
+      ? {
+        EXCELLENT: 'bg-emerald-200 border-emerald-700 text-emerald-950 font-bold',
+        GOOD: 'bg-emerald-100 border-emerald-600 text-emerald-950 font-semibold',
+        FAIR: 'bg-amber-200 border-amber-700 text-amber-950 font-semibold',
+        POOR: 'bg-red-200 border-red-700 text-red-950',
+        UNAVAILABLE: 'bg-slate-200 border-slate-500 text-slate-700',
+      }
+      : {
+        EXCELLENT: 'bg-emerald-900/80 border-emerald-400 text-emerald-50 font-bold',
+        GOOD: 'bg-emerald-950/70 border-emerald-600 text-emerald-100 font-semibold',
+        FAIR: 'bg-amber-950/75 border-amber-500 text-amber-50 font-semibold',
+        POOR: 'bg-red-950/80 border-red-500 text-red-50',
+        UNAVAILABLE: 'bg-zinc-900/75 border-zinc-600 text-zinc-300',
+      };
+  const selectedClasses = selected
+    ? theme === 'night_vision' ? 'ring-2 ring-red-400 ring-offset-1 ring-offset-black' : 'ring-2 ring-cyan-400 ring-offset-1 ring-offset-transparent'
+    : '';
+  return `${ratingClasses[rating]} ${selectedClasses}`.trim();
+}
+
+export function normalizedProfileUpdate(profile: StationProfile, patch: Partial<StationProfile>): StationProfile {
+  return normalizeStationProfile({ ...profile, ...patch, antenna: patch.antenna ?? profile.antenna, deployment: patch.deployment ?? profile.deployment });
+}
+
+function ageLabel(value: string | null | undefined): string {
+  if (!value) return 'time unavailable';
+  const ageMinutes = Math.max(0, Math.round((Date.now() - Date.parse(value)) / 60000));
+  return ageMinutes < 1 ? 'just now' : `${ageMinutes} min ago`;
+}
+
+function labelModeCounts(modeCounts: Readonly<Record<string, number>>): string {
+  return Object.entries(modeCounts).filter(([, count]) => count > 0).map(([mode, count]) => `${mode} (${count})`).join(', ') || 'none reported';
+}
+
+export const VOACAPPropagationWidget: React.FC<Props> = ({ config, operatingLocation, theme, onPersistConfig }) => {
+  const profile = config.propagation.stationProfile;
+  const region = config.propagation.destinationRegion;
+  const [result, setResult] = useState<PropagationGuidanceResponse | null>(null);
+  const [selectedBand, setSelectedBand] = useState('20m');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const requestId = useRef(0);
+  const controller = useRef<AbortController | null>(null);
+  const persistenceId = useRef(0);
+
+  const refresh = async () => {
+    const id = ++requestId.current;
+    controller.current?.abort();
+    if (!operatingLocation.coordinates || operatingLocation.provenance === 'unavailable') {
+      setError('LOCATION REQUIRED');
+      setLoading(false);
+      return;
+    }
+    const next = new AbortController();
+    controller.current = next;
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await fetchPropagationGuidance(region, operatingLocation, next.signal);
+      if (!next.signal.aborted && id === requestId.current) {
+        setResult(response);
+        setSelectedBand(old => response.assessments.some(item => item.band === old) ? old : response.assessments[0].band);
+      }
+    } catch (reason) {
+      if (!next.signal.aborted && id === requestId.current) setError(reason instanceof Error ? reason.message : 'UPDATE UNAVAILABLE');
+    } finally {
+      if (id === requestId.current) setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refresh();
+    return () => controller.current?.abort();
+  }, [region, profile.mode, profile.transmitPowerWatts, profile.antenna.type, profile.deployment.geometry, profile.deployment.heightCategory, operatingLocation.coordinates?.lat, operatingLocation.coordinates?.lon, operatingLocation.provenance]);
+  useEffect(() => {
+    const timer = window.setInterval(() => void refresh(), 120000);
+    return () => window.clearInterval(timer);
+  }, [region, profile.mode, profile.transmitPowerWatts, profile.antenna.type, profile.deployment.geometry, profile.deployment.heightCategory, operatingLocation.coordinates?.lat, operatingLocation.coordinates?.lon, operatingLocation.provenance]);
+
+  const persist = async (updated: DashboardConfig) => {
+    const id = ++persistenceId.current;
+    const saved = await onPersistConfig(updated);
+    if (id !== persistenceId.current) return;
+    if (saved) setError(null);
+  };
+  const persistProfile = (patch: Partial<StationProfile>) => void persist({ ...config, propagation: { ...config.propagation, stationProfile: normalizedProfileUpdate(profile, patch) } });
+  const persistDestination = (destinationRegion: PropagationRegionId) => void persist({ ...config, propagation: { ...config.propagation, destinationRegion } });
+  const regionLabel = PROPAGATION_REGION_CATALOG.find(item => item.id === region)?.label ?? region;
+  const active = result?.assessments.find(item => item.band === selectedBand) ?? result?.assessments[0];
+  const modelSummary = result && active ? result.modelBandSummaries.find(item => item.band === active.band) : undefined;
+  const observedSummary = result && active
+    ? result.observedBandSummaries.find(item => item.band === active.band) ?? {
+      band: active.band,
+      sourceState: active.provenance.observedSourceState,
+      reportCount: 0,
+      uniquePathCount: 0,
+      uniqueRemoteCallsignCount: 0,
+      modeCounts: {},
+      newestReportAt: null,
+    }
+    : undefined;
+  const weather = result?.spaceWeather;
+  const card = theme === 'night_vision' ? 'bg-black border-red-900 text-red-500' : theme === 'sunlight' ? 'bg-white border-amber-400 text-slate-900' : 'bg-zinc-900/50 border-zinc-800 text-zinc-100';
+  const customPower = !POWER_PRESET_OPTIONS.some(item => item.watts === profile.transmitPowerWatts) ? { id: 'saved-custom', label: `${profile.transmitPowerWatts} W (saved)`, watts: profile.transmitPowerWatts } : null;
+  const powerOptions = customPower ? [customPower, ...POWER_PRESET_OPTIONS] : POWER_PRESET_OPTIONS;
+
+  return <div className={`border ${card} rounded-2xl p-4 sm:p-5 shadow-lg font-mono space-y-3`}>
+    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 pb-3"><div className="flex items-center gap-2"><Activity className="w-4 h-4 text-amber-400" /><h3 className="text-xs font-bold uppercase tracking-widest">REGIONAL HF BAND GUIDANCE</h3></div><div className="flex items-center gap-2 text-[10px]"><span className="rounded border px-2 py-1">{active ? OPERATING_MODE_LABELS[active.operatingMode] : loading ? 'CALCULATING' : 'UNAVAILABLE'}</span><button aria-label="Refresh propagation guidance" onClick={() => void refresh()} className="rounded border border-slate-700 bg-slate-800 p-2 touch-manipulation"><RefreshCw className={`w-3 h-3 ${loading ? 'animate-spin' : ''}`} /></button></div></div>
+    <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px]">
+      <label>Destination<select aria-label="Propagation destination" aria-describedby={region === 'local_nvis' ? 'local-nvis-deferred' : undefined} value={region} onChange={event => persistDestination(event.target.value as PropagationRegionId)} className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2">{PROPAGATION_REGION_CATALOG.map(item => <option key={item.id} value={item.id} disabled={item.id === 'local_nvis'}>{item.id === 'local_nvis' ? `${item.label} (evaluator deferred)` : item.label}</option>)}</select></label>
+      <label>Mode<select aria-label="Propagation mode" value={profile.mode} onChange={event => persistProfile({ mode: event.target.value as StationProfile['mode'] })} className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2">{MODE_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+      <label>Power<select aria-label="Transmit power" value={customPower?.id ?? POWER_PRESET_OPTIONS.find(item => item.watts === profile.transmitPowerWatts)?.id ?? 'custom'} onChange={event => { const watts = powerOptions.find(item => item.id === event.target.value)?.watts; if (watts) persistProfile({ transmitPowerWatts: watts }); }} className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2">{powerOptions.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+      <label>Antenna<select aria-label="Antenna type" value={profile.antenna.type} onChange={event => persistProfile({ antenna: { type: event.target.value as StationProfile['antenna']['type'] } })} className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2">{ANTENNA_OPTIONS.map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+      <label>Deployment<select aria-label="Deployment geometry" value={profile.deployment.geometry} onChange={event => persistProfile({ deployment: { ...profile.deployment, geometry: event.target.value as StationProfile['deployment']['geometry'] } })} className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2">{getDeploymentOptionsForAntenna(profile.antenna.type).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+      <label>Height<select aria-label="Antenna height" value={profile.deployment.heightCategory} onChange={event => persistProfile({ deployment: { ...profile.deployment, heightCategory: event.target.value as NonNullable<StationProfile['deployment']['heightCategory']> } })} className="w-full rounded border border-zinc-700 bg-zinc-950 px-2 py-2">{getHeightOptionsForDeployment(profile.deployment.geometry).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</select></label>
+    </div>
+    {region === 'local_nvis' && <p id="local-nvis-deferred" role="status" className="rounded border border-amber-500/40 bg-amber-950/20 p-3 text-xs text-amber-200">{LOCAL_NVIS_DEFERRED_MESSAGE}</p>}
+    <div className="flex flex-wrap gap-2 text-[10px]"><span className="rounded border px-2 py-1">MODEL: {result?.model.status ?? 'pending'}</span><span className="rounded border px-2 py-1">NOAA: {weather?.status ?? 'pending'}</span><span className="rounded border px-2 py-1">PSK: {observedSummary ? observedRfSummaryLabel(observedSummary.sourceState, observedSummary.reportCount) : 'pending'}</span><span className="rounded border px-2 py-1">DESTINATION: {regionLabel}</span></div>
+    {!result && loading && <p className="rounded border border-amber-500/30 p-3 text-xs">CALCULATING GUIDANCE...</p>}{result && loading && <p className="rounded border border-amber-500/30 p-3 text-xs">LAST RESULT - REFRESHING...</p>}{error && <p className="rounded border border-red-500/40 p-3 text-xs">{result && !loading ? 'UPDATE UNAVAILABLE - LAST RESULT RETAINED' : error}</p>}
+    {result && <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">{result.assessments.map(item => <button key={item.band} aria-pressed={selectedBand === item.band} onClick={() => setSelectedBand(item.band)} className={`min-h-[96px] rounded-xl border p-3 text-left touch-manipulation ${getBandRatingClasses(item.rating, theme, selectedBand === item.band)}`}><strong className="block text-sm">{item.band}</strong><span className="mt-2 block text-[10px] uppercase">{RATING_LABELS[item.rating]}</span><span className="mt-2 block text-[10px] font-normal">Confidence: {confidenceLabel(item.confidence)}</span></button>)}</div>}
+    {!result && !loading && !error && <p className="rounded border border-zinc-700 p-3 text-xs">LOCATION REQUIRED</p>}
+    {active && result && <div className="rounded-xl border border-cyan-800/80 bg-cyan-950/30 p-3 text-xs space-y-3"><div><strong className="text-base text-cyan-300">{active.band} BAND</strong><span className="ml-2 rounded bg-cyan-900 px-2 py-1">{RATING_LABELS[active.rating]} / {confidenceLabel(active.confidence)}</span><span className="ml-2 text-zinc-400">{OPERATING_MODE_LABELS[active.operatingMode]}</span></div><section><h4 className="font-bold text-cyan-200">WHY</h4><ul className="list-disc pl-5">{active.reasons.slice(0, 3).map(reason => <li key={reason.code}>{reason.text}</li>)}</ul></section>{active.cautions.length > 0 && <section><h4 className="font-bold text-amber-200">CAUTIONS</h4><ul className="list-disc pl-5 text-amber-100">{active.cautions.map(item => <li key={item.code}>{item.text}</li>)}</ul></section>}<section><h4 className="font-bold text-cyan-200">MODEL</h4><p>{active.band === '6m' ? 'Not supported by P.533.' : modelSummary ? `Median BCR ${modelSummary.medianBcrPercent ?? 'not available'}%; range ${modelSummary.minimumBcrPercent ?? 'not available'}-${modelSummary.maximumBcrPercent ?? 'not available'}%; ${modelSummary.successfulSampleCount}/${modelSummary.sampleCount} successful samples.` : 'P.533 model evidence unavailable.'}</p></section><section><h4 className="font-bold text-cyan-200">OBSERVED RF</h4><p>{observedSummary ? `${observedRfSummaryLabel(observedSummary.sourceState, observedSummary.reportCount)}. Reports: ${observedSummary.reportCount}; paths: ${observedSummary.uniquePathCount}; modes: ${labelModeCounts(observedSummary.modeCounts)}; newest: ${ageLabel(observedSummary.newestReportAt)}.` : 'OBSERVED RF UNAVAILABLE'}</p></section><section><h4 className="font-bold text-cyan-200">SPACE WEATHER</h4><p>Kp {weather?.products.kp.value ?? 'unavailable'} ({weather?.products.kp.state ?? 'unavailable'}); R-scale {weather?.products.rScale.value ?? 'unavailable'}; F10.7 {weather?.products.f107.value ?? 'unavailable'} SFU; CURRENT SSN: {weather?.products.ssn.value ?? 'unavailable'} ({weather?.products.ssn.state ?? 'unavailable'}).</p><p>P.533 MODEL SSN: {result.model.ssn.value ?? 'unavailable'} ({result.model.ssn.state}). Source: {weather?.products.kp.source.name ?? 'NOAA SWPC'}.</p></section><section><h4 className="font-bold text-cyan-200">PROFILE</h4><p>{profile.mode} / {profile.transmitPowerWatts} W / {profile.antenna.type} / {profile.deployment.geometry} / {profile.deployment.heightCategory}. Reference antenna limitation: P.533 uses its modeled reference antenna; this profile does not prove station-specific circuit success.</p></section><p className="text-[10px] text-zinc-500">Updated {new Date(result.evaluatedAtUtc).toLocaleTimeString()}</p></div>}
+  </div>;
+};

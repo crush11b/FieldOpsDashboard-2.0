@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { HeaderBar } from './components/HeaderBar';
 import { BatteryStatusWidget } from './components/BatteryStatusWidget';
 import { GPSGridWidget } from './components/GPSGridWidget';
@@ -8,11 +8,9 @@ import { AppLauncherGrid } from './components/AppLauncherGrid';
 import { ConfigModal } from './components/ConfigModal';
 import { RoadmapToolsModal } from './components/RoadmapToolsModal';
 import { TouchMenuDrawer } from './components/TouchMenuDrawer';
-import { SerialPortInventoryWidget } from './components/SerialPortInventoryWidget';
 
 import { 
   AppLauncherItem, 
-  BandPropagation, 
   DashboardConfig, 
   DualBatteryStatus, 
   ExternalDataStatus,
@@ -25,11 +23,13 @@ import {
   latLonToGridSquare,
   SystemTelemetry
 } from './types';
-import { DEFAULT_BAND_PROPAGATION, INITIAL_CONFIG } from './data/defaultConfig';
+import { INITIAL_CONFIG } from './data/defaultConfig';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
+import { resolveOperatingLocation } from './location/operatingLocation';
 import { toFiniteNumber } from './utils/numbers';
 import { formatNetworkDisplay, formatStorageDisplay } from './utils/systemTelemetryDisplay';
+import { hasMeaningfulWeatherMovement, NOAA_ALERT_REFRESH_INTERVAL_MS, WEATHER_REFRESH_INTERVAL_MS } from './utils/weatherRefreshPolicy';
 import { CONFIG_STORAGE_KEY, loadDashboardConfig, saveDashboardConfig } from './configPersistence';
 
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
@@ -99,6 +99,7 @@ export default function App() {
   const [config, setConfig] = useState<DashboardConfig>(INITIAL_CONFIG);
   const [configReady, setConfigReady] = useState(false);
   const [configPersistenceError, setConfigPersistenceError] = useState<string | null>(null);
+  const configPersistenceGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -126,6 +127,23 @@ export default function App() {
       try { localStorage.setItem(CONFIG_STORAGE_KEY, JSON.stringify(updated)); } catch { /* compatibility cache is best effort */ }
       setConfigPersistenceError('Dashboard configuration is active but was not saved to the local backend.');
     });
+  };
+
+  const persistConfig = async (updated: DashboardConfig): Promise<DashboardConfig | null> => {
+    const generation = ++configPersistenceGeneration.current;
+    setConfigPersistenceError(null);
+    try {
+      const saved = await saveDashboardConfig(updated);
+      if (generation !== configPersistenceGeneration.current) return null;
+      setConfig(saved);
+      return saved;
+    } catch (error) {
+      if (generation === configPersistenceGeneration.current) {
+        console.warn('Dashboard configuration persistence failed', error);
+        setConfigPersistenceError('Dashboard configuration was not saved; the previous settings remain active.');
+      }
+      return null;
+    }
   };
 
   // 2. Dual Battery Status
@@ -171,14 +189,15 @@ export default function App() {
   const [initialGpsState] = useState(loadInitialGpsState);
   const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
   const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
-  const operatingLocation = resolveGpsCoordinates(gps, gpsProvenance);
-  const operatingGridSquare = isCurrentOperatingLocation(operatingLocation) ? gps.gridSquare : '';
+  const operatingCoordinates = resolveGpsCoordinates(gps, gpsProvenance);
+  const operatingLocation = resolveOperatingLocation(gps, gpsProvenance);
+  const operatingGridSquare = isCurrentOperatingLocation(operatingCoordinates) ? gps.gridSquare : '';
 
   // Persist GPS changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
       try {
-        if (operatingLocation) {
+        if (operatingCoordinates) {
           localStorage.setItem(GPS_STORAGE_KEY, JSON.stringify(gps));
         }
       } catch (e) {
@@ -192,6 +211,13 @@ export default function App() {
   const [weatherStatus, setWeatherStatus] = useState<ExternalDataStatus>('loading');
   const [noaaAlerts, setNoaaAlerts] = useState<NOAAAlert[] | null>(null);
   const [alertsStatus, setAlertsStatus] = useState<ExternalDataStatus>('loading');
+  const weatherLocationRef = useRef<{ lat: number; lon: number } | null>(null);
+  const weatherTimersRef = useRef<{ weather: number | null; alerts: number | null }>({ weather: null, alerts: null });
+  const weatherRequestRef = useRef({ weather: false, alerts: false });
+  const weatherRequestGenerationRef = useRef({ weather: 0, alerts: 0 });
+  const weatherControllersRef = useRef<{ weather: AbortController | null; alerts: AbortController | null }>({ weather: null, alerts: null });
+  const refreshWeatherRef = useRef<(() => Promise<void>) | null>(null);
+  const refreshAlertsRef = useRef<(() => Promise<void>) | null>(null);
 
   // 6. Regional HF Band Guidance & Solar Flux Data
   const [solar, setSolar] = useState<SolarData>({
@@ -206,22 +232,15 @@ export default function App() {
     source: 'NOAA SWPC',
   });
 
-  const [bands, setBands] = useState<BandPropagation[]>(DEFAULT_BAND_PROPAGATION);
 
   // Modal / Drawer UI States
   const [configModalOpen, setConfigModalOpen] = useState(false);
   const [roadmapModalOpen, setRoadmapModalOpen] = useState(false);
-  const [roadmapActiveTab, setRoadmapActiveTab] = useState('smart_deploy');
+  const [roadmapActiveTab, setRoadmapActiveTab] = useState('coordinate');
   const [touchMenuOpen, setTouchMenuOpen] = useState(false);
   const [editingApp, setEditingApp] = useState<AppLauncherItem | null>(null);
 
-  // Fetch live weather and solar data from backend Express server APIs
-  useEffect(() => {
-    let cancelled = false;
-    const weatherController = new AbortController();
-    const alertsController = new AbortController();
-
-    const refreshSolar = async () => {
+  const refreshSolar = async () => {
       try {
         const solarRes = await fetch('/api/solar-data');
         if (solarRes.ok) {
@@ -242,71 +261,126 @@ export default function App() {
       }
     };
 
-    const fetchSolarAndWeather = async () => {
-      if (!isCurrentOperatingLocation(operatingLocation)) {
-        setWeather(null);
-        setWeatherStatus('unavailable');
-        setNoaaAlerts(null);
-        setAlertsStatus('unavailable');
-        await refreshSolar();
-        return;
+  // Weather and NOAA use explicit field intervals; GNSS jitter only updates the location reference.
+  useEffect(() => {
+    const usableLocation = isCurrentOperatingLocation(operatingCoordinates) ? operatingCoordinates : null;
+    if (!usableLocation) {
+      weatherLocationRef.current = null;
+      if (weatherTimersRef.current.weather !== null) window.clearInterval(weatherTimersRef.current.weather);
+      if (weatherTimersRef.current.alerts !== null) window.clearInterval(weatherTimersRef.current.alerts);
+      weatherTimersRef.current = { weather: null, alerts: null };
+      weatherControllersRef.current.weather?.abort();
+      weatherControllersRef.current.alerts?.abort();
+      setWeather(null);
+      setWeatherStatus('unavailable');
+      setNoaaAlerts(null);
+      setAlertsStatus('unavailable');
+      void refreshSolar();
+      return;
+    }
+
+    const changedLocation = hasMeaningfulWeatherMovement(weatherLocationRef.current, usableLocation);
+    const provenanceChanged = weatherLocationRef.current === null;
+    weatherLocationRef.current = { lat: usableLocation.lat, lon: usableLocation.lon };
+    if (changedLocation || provenanceChanged) {
+      weatherControllersRef.current.weather?.abort();
+      weatherControllersRef.current.alerts?.abort();
+      weatherRequestGenerationRef.current.weather += 1;
+      weatherRequestGenerationRef.current.alerts += 1;
+      weatherRequestRef.current = { weather: false, alerts: false };
+      void refreshWeatherRef.current?.();
+      void refreshAlertsRef.current?.();
+      void refreshSolar();
+    }
+  }, [gpsProvenance.status, gpsProvenance.source.type, operatingCoordinates?.provenance]);
+
+  useEffect(() => {
+    const usableLocation = isCurrentOperatingLocation(operatingCoordinates) ? operatingCoordinates : null;
+    if (!usableLocation || weatherLocationRef.current === null) return;
+    if (!hasMeaningfulWeatherMovement(weatherLocationRef.current, usableLocation)) return;
+    weatherLocationRef.current = { lat: usableLocation.lat, lon: usableLocation.lon };
+    weatherControllersRef.current.weather?.abort();
+    weatherControllersRef.current.alerts?.abort();
+    weatherRequestGenerationRef.current.weather += 1;
+    weatherRequestGenerationRef.current.alerts += 1;
+    weatherRequestRef.current = { weather: false, alerts: false };
+    void refreshWeatherRef.current?.();
+    void refreshAlertsRef.current?.();
+    void refreshSolar();
+  }, [gps.lat, gps.lon]);
+
+  useEffect(() => () => {
+    if (weatherTimersRef.current.weather !== null) window.clearInterval(weatherTimersRef.current.weather);
+    if (weatherTimersRef.current.alerts !== null) window.clearInterval(weatherTimersRef.current.alerts);
+    weatherControllersRef.current.weather?.abort();
+    weatherControllersRef.current.alerts?.abort();
+  }, []);
+
+  useEffect(() => {
+    if (!isCurrentOperatingLocation(operatingCoordinates)) return;
+    const refreshWeather = async () => {
+      if (weatherRequestRef.current.weather) return;
+      weatherRequestRef.current.weather = true;
+      const requestGeneration = weatherRequestGenerationRef.current.weather;
+      const controller = new AbortController();
+      weatherControllersRef.current.weather?.abort();
+      weatherControllersRef.current.weather = controller;
+      setWeatherStatus('loading');
+      try {
+        const location = weatherLocationRef.current;
+        if (!location) return;
+        const response = await fetch(`/api/weather/current?lat=${location.lat}&lon=${location.lon}`, { signal: controller.signal });
+        const data = response.ok ? await response.json() : null;
+        if (!controller.signal.aborted && requestGeneration === weatherRequestGenerationRef.current.weather) {
+          if (data?.weather) setWeather(data.weather);
+          setWeatherStatus(data?.weatherStatus === 'live' ? 'live' : 'unavailable');
+        }
+      } catch {
+        if (!controller.signal.aborted && requestGeneration === weatherRequestGenerationRef.current.weather) {
+          setWeatherStatus('unavailable');
+          console.warn('Field weather unavailable');
+        }
+      } finally {
+        if (requestGeneration === weatherRequestGenerationRef.current.weather) weatherRequestRef.current.weather = false;
       }
-
-      const coordinates = `lat=${operatingLocation.lat}&lon=${operatingLocation.lon}`;
-      const refreshWeather = async () => {
-        if (cancelled) return;
-        setWeather(null);
-        setWeatherStatus('loading');
-        try {
-          const response = await fetch(`/api/weather/current?${coordinates}`, {
-            signal: weatherController.signal,
-          });
-          const data = response.ok ? await response.json() : null;
-          if (!cancelled) {
-            setWeather(data?.weather ?? null);
-            setWeatherStatus(data?.weatherStatus === 'live' ? 'live' : 'unavailable');
-          }
-        } catch {
-          if (!cancelled) {
-            setWeather(null);
-            setWeatherStatus('unavailable');
-            console.warn('Field weather unavailable');
-          }
-        }
-      };
-
-      const refreshAlerts = async () => {
-        if (cancelled) return;
-        setNoaaAlerts(null);
-        setAlertsStatus('loading');
-        try {
-          const response = await fetch(`/api/weather/alerts?${coordinates}`, {
-            signal: alertsController.signal,
-          });
-          const data = response.ok ? await response.json() : null;
-          if (!cancelled) {
-            setNoaaAlerts(Array.isArray(data?.alerts) ? data.alerts : null);
-            setAlertsStatus(data?.alertsStatus === 'live' ? 'live' : 'unavailable');
-          }
-        } catch {
-          if (!cancelled) {
-            setNoaaAlerts(null);
-            setAlertsStatus('unavailable');
-            console.warn('NOAA alert status unavailable');
-          }
-        }
-      };
-
-      await Promise.allSettled([refreshSolar(), refreshWeather(), refreshAlerts()]);
     };
-
-    fetchSolarAndWeather();
+    const refreshAlerts = async () => {
+      if (weatherRequestRef.current.alerts) return;
+      weatherRequestRef.current.alerts = true;
+      const requestGeneration = weatherRequestGenerationRef.current.alerts;
+      const controller = new AbortController();
+      weatherControllersRef.current.alerts?.abort();
+      weatherControllersRef.current.alerts = controller;
+      setAlertsStatus('loading');
+      try {
+        const location = weatherLocationRef.current;
+        if (!location) return;
+        const response = await fetch(`/api/weather/alerts?lat=${location.lat}&lon=${location.lon}`, { signal: controller.signal });
+        const data = response.ok ? await response.json() : null;
+        if (!controller.signal.aborted && requestGeneration === weatherRequestGenerationRef.current.alerts) {
+          setNoaaAlerts(Array.isArray(data?.alerts) ? data.alerts : null);
+          setAlertsStatus(data?.alertsStatus === 'live' ? 'live' : 'unavailable');
+        }
+      } catch {
+        if (!controller.signal.aborted && requestGeneration === weatherRequestGenerationRef.current.alerts) {
+          setAlertsStatus('unavailable');
+          console.warn('NOAA alert status unavailable');
+        }
+      } finally {
+        if (requestGeneration === weatherRequestGenerationRef.current.alerts) weatherRequestRef.current.alerts = false;
+      }
+    };
+    refreshWeatherRef.current = refreshWeather;
+    refreshAlertsRef.current = refreshAlerts;
+    void refreshWeather();
+    void refreshAlerts();
+    if (weatherTimersRef.current.weather === null) weatherTimersRef.current.weather = window.setInterval(() => void refreshWeatherRef.current?.(), WEATHER_REFRESH_INTERVAL_MS);
+    if (weatherTimersRef.current.alerts === null) weatherTimersRef.current.alerts = window.setInterval(() => void refreshAlertsRef.current?.(), NOAA_ALERT_REFRESH_INTERVAL_MS);
     return () => {
-      cancelled = true;
-      weatherController.abort();
-      alertsController.abort();
+      refreshWeatherRef.current = null;
+      refreshAlertsRef.current = null;
     };
-  }, [gps.lat, gps.lon, gpsProvenance.status, gpsProvenance.source.type]);
+  }, [operatingCoordinates?.provenance]);
 
   // Toggle Favorite App
   const handleToggleFavorite = (appId: string) => {
@@ -369,6 +443,7 @@ export default function App() {
         onThemeChange={handleThemeChange}
         gps={{ ...gps, gridSquare: operatingGridSquare }}
         battery={battery}
+        systemTelemetry={systemTelemetry}
         audioEnabled={config.audioFeedback}
         onToggleAudio={() => updateConfig({ ...config, audioFeedback: !config.audioFeedback })}
         onOpenConfig={() => setConfigModalOpen(true)}
@@ -385,7 +460,6 @@ export default function App() {
         
         {/* System Status Bento Grid (Battery, GPS, Weather, Regional HF Band Guidance) */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <SerialPortInventoryWidget />
           {/* Dual Battery Status */}
           <BatteryStatusWidget
             battery={battery}
@@ -420,18 +494,11 @@ export default function App() {
 
           {/* Regional HF Band Guidance */}
           <VOACAPPropagationWidget
-            solar={solar}
-            bands={bands}
+            config={config}
+            operatingLocation={operatingLocation}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
-            location={isCurrentOperatingLocation(operatingLocation) ? operatingLocation : undefined}
-            onRefreshSolar={async () => {
-              const res = await fetch('/api/solar-data');
-              if (res.ok) {
-                const data = await res.json();
-                setSolar((prev) => ({ ...prev, ...data }));
-              }
-            }}
+            onPersistConfig={persistConfig}
           />
         </div>
 
@@ -519,6 +586,9 @@ export default function App() {
         onClose={() => setRoadmapModalOpen(false)}
         callsign={config.callsign}
         gridSquare={operatingGridSquare}
+        gps={gps}
+        gpsProvenance={gpsProvenance}
+        stationProfile={config.propagation.stationProfile}
         initialTab={roadmapActiveTab}
       />
 

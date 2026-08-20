@@ -167,12 +167,14 @@ public sealed class OperatorProvisioningScriptTests
     }
 
     [Fact]
-    public void DesktopUpdaterRequiresAndForwardsTheExplicitOperatorAccount()
+    public void DesktopUpdaterResolvesAndForwardsTheOperatorAccount()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
 
-        Assert.Contains("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Contains("[string]$OperatorAccount", updater);
+        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
         Assert.Contains("-OperatorAccount $OperatorAccount", updater);
+        Assert.Contains("Resolve-FieldOpsInteractiveOperator", updater);
         Assert.Contains("FieldOps.OperatorProvisioning.psm1", updater);
     }
 

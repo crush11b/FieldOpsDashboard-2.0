@@ -2,7 +2,7 @@ name: Native artifacts
 
 on:
   push:
-    branches: [main]
+    branches: [main, feature/2.4-field-tools-coordinate-workspace]
   workflow_dispatch:
 
 jobs:
@@ -10,9 +10,19 @@ jobs:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: 8.0.x
+      - name: Provision and verify P.533 runtime
+        shell: pwsh
+        run: |
+          npm ci
+          npm run p533:provision
+          npm run p533:verify
       - name: Restore, build, and test
         run: dotnet test agent/FieldOps.Agent.sln --configuration Release
       - name: Publish native artifacts

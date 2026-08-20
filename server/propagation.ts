@@ -1,4 +1,5 @@
 import { getProductUserAgent } from '../src/productMetadata';
+import { calculateDistanceKm } from '../src/location/geography';
 
 export interface IonosondeStation {
   readonly code: string;
@@ -72,7 +73,10 @@ export async function getIonosondeApiResponse(
 
     const stationsWithDistance = stations
       .map((station) => {
-        const distKm = Math.round(calculateDistanceKm(userLat, userLon, station.lat, station.lon));
+        const distKm = Math.round(calculateDistanceKm(
+          { lat: userLat, lon: userLon },
+          { lat: station.lat, lon: station.lon },
+        ));
         return { ...station, distKm, distMiles: Math.round(distKm * 0.621371) };
       })
       .sort((left, right) => left.distKm - right.distKm);
@@ -165,16 +169,6 @@ function calculateRegionalValues(stations: readonly IonosondeStation[]) {
     muf3000: Math.round((mufSum / weightSum) * 10) / 10,
     foF2: foF2WeightSum > 0 ? Math.round((foF2Sum / foF2WeightSum) * 10) / 10 : null,
   };
-}
-
-function calculateDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number) {
-  const earthRadiusKm = 6371;
-  const latitudeDelta = (lat2 - lat1) * Math.PI / 180;
-  const longitudeDelta = (lon2 - lon1) * Math.PI / 180;
-  const haversine = Math.sin(latitudeDelta / 2) ** 2
-    + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180)
-    * Math.sin(longitudeDelta / 2) ** 2;
-  return earthRadiusKm * 2 * Math.atan2(Math.sqrt(haversine), Math.sqrt(1 - haversine));
 }
 
 function finiteNumber(value: unknown): number | null {

@@ -13,4 +13,8 @@ The active product strategy is defined by:
 
 These documents preserve the existing architecture while reprioritizing delivery around a usable single-operator field product. Multi-user, enterprise, fleet, remote-administration, signing, and advanced hardening work remain documented future capabilities but do not block the current MVP.
 
+The POTA document is a non-authoritative research and design input. It records upstream findings for future POTA/SOTA product design and does not approve sequencing, workflow, UI contents, caching, acceptance criteria, or implementation.
+
+- [`planning/Version-2.4-POTA-Activation-Target-Decision.md`](planning/Version-2.4-POTA-Activation-Target-Decision.md) - non-authoritative research input; the approved Version 2.4 product boundary is recorded in the rebaseline
+
 The roadmap and engineering backlog remain authoritative for implementation sequencing after they are reconciled with the approved rebaseline.

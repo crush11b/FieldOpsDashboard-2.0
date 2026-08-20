@@ -33,6 +33,20 @@ import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
 import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
+import { SpaceWeatherService } from './server/spaceWeather';
+import { ObservedRfService } from './server/observedRf';
+import type { OperatingLocation } from './src/location/operatingLocation';
+import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
+import { createPotaTargetRouter, PotaActivationTargetResolver } from './server/potaTargetResolver';
+import { createSmartDeployRouter, SmartDeployService } from './server/smartDeploy';
+import { SmartDeployBriefStore, getDefaultSmartDeployBriefPath } from './server/smartDeployBriefStore';
+import { createSotaSummitDataRouter } from './server/sotaSummitDataRouter';
+import { getDefaultSotaSummitDatasetPath, SotaSummitDataStore } from './server/sotaSummitDataStore';
+import { SotaActivationTargetResolver } from './server/sotaTargetResolver';
+import { createActivationNotesRouter } from './server/activationNotesApi';
+import { ActivationNotesStore, getDefaultActivationNotesPath } from './server/activationNotesStore';
+import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChecklistApi';
+import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
 
 async function startServer() {
   const app = express();
@@ -60,14 +74,70 @@ async function startServer() {
 
   app.use(express.json());
   app.use(express.urlencoded({ extended: true }));
+  app.use((error: unknown, _request: express.Request, response: express.Response, next: express.NextFunction) => {
+    if (error instanceof SyntaxError && 'body' in error) {
+      response.status(400).json({ kind: 'request_error', code: 'malformed_json', message: 'The request body contains malformed JSON.' });
+      return;
+    }
+    next(error);
+  });
   app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
+  app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
+  const sotaDataStore = new SotaSummitDataStore(getDefaultSotaSummitDatasetPath());
+  const sotaResolver = new SotaActivationTargetResolver(() => sotaDataStore.dataset);
+  app.use(createSotaSummitDataRouter(sotaDataStore));
+  const spaceWeatherService = new SpaceWeatherService();
+  const observedRfService = new ObservedRfService();
+  const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
+  const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
+  const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
+  app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
+  app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
+  app.use(createSmartDeployRouter({
+    service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
+    store: smartDeployBriefStore,
+  }));
+  const propagationGuidanceService = new PropagationGuidanceService(
+    spaceWeatherService,
+    observedRfService,
+    new DashboardConfigStore(getDefaultDashboardConfigPath()),
+  );
+
+  app.post('/api/propagation-guidance', async (req, res) => {
+    const request = parseGuidanceRequest(req.body);
+    if (!request) {
+      res.status(400).json({ error: 'A valid destination region and operating location coordinates are required.' });
+      return;
+    }
+    try {
+      res.json(await propagationGuidanceService.evaluateGuidance(request));
+    } catch (error) {
+      if (error instanceof GuidanceRequestError) {
+        res.status(400).json({ error: error.message });
+        return;
+      }
+      res.status(503).json({ error: 'Propagation guidance is temporarily unavailable.' });
+    }
+  });
 
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
   app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
+  app.get('/api/observed-rf', async (_req, res) => {
+    const location = await readLocationTelemetryPipe();
+    const coordinates = parseCoordinates(location.latitude, location.longitude);
+    observedRfService.setOperatingLocation(coordinates ? {
+      coordinates,
+      gridSquare: null,
+      provenance: 'current',
+      status: 'ok',
+      source: { type: 'local_telemetry_agent' },
+    } as OperatingLocation : null);
+    res.json({ ...observedRfService.getSnapshot(), diagnostics: observedRfService.getDiagnostics() });
+  });
   app.get('/api/version', (_req, res) => {
     const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
     try {
@@ -137,6 +207,14 @@ async function startServer() {
       res.json(solarData);
     } catch (err: any) {
       res.status(500).json({ error: err.message || "Failed to fetch solar data" });
+    }
+  });
+
+  app.get('/api/space-weather', async (_req, res) => {
+    try {
+      res.json(await spaceWeatherService.getSnapshot());
+    } catch (error) {
+      res.status(503).json({ error: error instanceof Error ? error.message : 'NOAA space-weather evidence is unavailable.' });
     }
   });
 

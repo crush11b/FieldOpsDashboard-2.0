@@ -1,0 +1,17 @@
+FieldOps Dashboard offline P.533 runtime attribution
+
+Model and data:
+ITU-R P.533-14, ITU-R-HF v14.3
+Source: ITU-R Study Group 3, https://github.com/ITU-R-Study-Group-3/ITU-R-HF
+The ITU-R-HF v14.3 repository README describes the model implementation as
+available to implementers under permissive terms, provided AS IS. This notice
+does not modify the upstream terms.
+
+WASM build reference:
+OpenHamClock contributors, https://github.com/accius/openhamclock
+The build adaptation reference is revision
+39155675cfe5b6e07dc14388ad4bb51f08b8eddc. OpenHamClock is MIT licensed;
+the exact license text is available in its LICENSE file at that revision.
+The prebuilt bytes are pinned by the FieldOps manifest and release asset IDs.
+
+FieldOps does not use OpenHamClock or ITU-R network services at runtime.

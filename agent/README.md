@@ -24,7 +24,7 @@ The production-named `FieldOps.Tray.exe` and `FieldOps.ServiceControl.exe` outpu
 After running `UpdateDashboard.ps1`, open PowerShell as Administrator in the deployed dashboard directory and run:
 
 ```powershell
-.\agent\scripts\Install-FieldOpsAgent.ps1 -OperatorAccount '.\FieldOperator'
+.\agent\scripts\Install-FieldOpsAgent.ps1 -OperatorAccount '.\<normal-operator-name>'
 ```
 
 The installer registers `FieldOpsAgent` with automatic startup, configures restart-on-failure, creates a random health credential protected with Windows DPAPI, and starts the service. It also creates or safely adopts the local `FieldOps Operators` group, enrolls the explicitly named normal operator, and persists the resolved group SID in the SCM service environment as `Agent__NativeHealth__OperatorSid`. A newly enrolled operator must sign out and sign in once so the unelevated tray token contains the group SID.
@@ -130,8 +130,17 @@ ADR-003 documents the architecture decision and field-validation requirements. T
 Developers build the native bundle with `powershell -ExecutionPolicy Bypass -File .\agent\scripts\Build-FieldOpsNativePackage.ps1`. This writes `agent\artifacts\packages\fieldops-native-win-x64.zip`; upload it to the configured `mvp-native` release asset. The ToughBook updater downloads it automatically and does not require the .NET SDK.
 
 The repository-root `UpdateDashboard.bat` is the supported single-operator entry point. Copy
-`UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; when prompted for
-`OperatorAccount`, enter the normal Windows account that runs the tray (for example, `.\FieldOperator`). Future runs update
+`UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; the updater resolves
+the active interactive operator automatically. For an explicit override, pass
+`-OperatorAccount '.\stick'`. Future runs update
 `C:\FieldOpsDashboard`, publish the agent and tray, delegate installation/startup registration to
-the existing installer, provision the protected dashboard telemetry credential, and launch the
-production server with `npm start`. Do not use `npm run dev` for an installed deployment.
+the existing installer, provision the protected dashboard telemetry credential, and immediately
+launch the installed Tray through the resolved operator's explorer-owned primary token. This
+avoids Session 0 and elevated-administrator launches while preserving the per-SID Run registration
+for future logons. The launch is bounded and verified by executable path, operator SID, and session;
+an unavailable or exited Tray is reported as a failed deployment verification. The updater then
+launches the production server with `npm start`. Do not use `npm run dev` for an installed deployment.
+
+The BAT remains a deliberately small bootstrap and does not select a Git revision or native artifact.
+For a controlled offline update, select the intended 40-character revision and pass the matching local
+package explicitly with `-Revision` and `-NativeArtifactPath`; desktop bootstrap refinement is deferred.

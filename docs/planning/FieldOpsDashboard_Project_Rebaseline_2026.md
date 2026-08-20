@@ -174,6 +174,47 @@ After the Single-Operator Field MVP is released, the next release should be domi
 
 The final sequence should be chosen by expected use on the next several field outings.
 
+### Approved Version 2.4 product interpretation
+
+POTA/SOTA activation support remains the Version 2.4 Field Tools capability. **SmartDeploy is the bounded operator workflow through which activation support becomes useful; it does not replace POTA/SOTA and does not redefine Version 2.4 as the full Field Operations Assistant.**
+
+The first activation-planning implementation slice is **POTA-first** because an individual-target source has already been researched and provides a concrete workflow for field validation. This is implementation sequencing, not a permanent architectural limitation: the core planning concept must remain capable of supporting SOTA later.
+
+The operator problem for this slice is **activation planning**, not an isolated park lookup or propagation calculator. Target lookup is an input, and propagation is planning intelligence consumed by the workflow.
+
+### POTA Activation Planning / SmartDeploy Slice 1
+
+The candidate first slice is a coherent, reviewable activation-planning workflow:
+
+```text
+POTA target
+	-> operating location
+	-> mission start and end
+	-> operator-entered radio / antenna / mode / power context
+	-> mission-window propagation/model intelligence
+	-> distance and bearing
+	-> solar/twilight context
+	-> trust, provenance, and limitations
+	-> SmartDeploy planning brief
+	-> locally retained field-use result
+```
+
+Mission time is first-class. The workflow captures a bounded planned operating window with a start and end, and planning intelligence is evaluated for that window wherever the underlying capability supports it. Existing model-time inputs should eventually be supplied from the mission window rather than silently treating current time as mission time; this planning decision does not reopen or modify propagation implementation.
+
+The initial equipment context is deliberately thin: the operator states, “I am taking this equipment; build my plan around it.” It may include radio, antenna, allowed or preferred modes, intended transmit power, and deployment configuration only where meaningful and explicitly entered. Version 2.4 does not select, optimize, or recommend the operator's equipment.
+
+Planning may require connectivity, but field use of the generated plan must not require continuous connectivity. The first brief is therefore locally retained for later offline use. This establishes a product requirement without selecting a final persistence or database architecture.
+
+The slice should reuse existing coordinate, Maidenhead, distance/bearing, solar/twilight, observed-RF, P.533, station-profile, logging, and trustworthy-status capabilities. Observed-RF evidence is observational evidence only and must not be presented as a forecast for a future mission. New weather-forecast or space-weather-forecast provider work is not a prerequisite for this first slice; those intelligence classes may be added later without blocking it.
+
+The first brief is deterministic and evidence-grounded. Operator-entered antenna facts may be used as context, but unsupported exact azimuth, apex height, topology, or site-specific deployment advice is not generated. AI is not required; any later AI must synthesize structured evidence and must not supply operational facts of its own.
+
+### Version 2.4 and Version 2.5 boundary
+
+The following remain deferred to the later Field Operations Assistant work: persistent full equipment inventory, reusable loadouts, automatic equipment selection, loadout optimization, full mission lifecycle/state management, full power/endurance optimization, broad antenna deployment optimization, autonomous operating-plan generation, generalized AI operations assistance, true path prediction, activation submission or spotting, generalized provider platforms, and enterprise/multi-user/fleet architecture.
+
+Only the minimum bounded concepts required to complete the POTA activation-planning slice may be pulled forward. SmartDeploy Slice 1 is a planning workflow and locally retained brief, not authorization for the complete Version 2.5 assistant roadmap.
+
 ## Backlog scoring requirements
 
 Future backlog reviews should include:
@@ -225,3 +266,29 @@ The approved Version 2.3 sequence is complete:
 8. Perform operational ToughBook/ToughPad validation. **Complete**.
 
 Operational validation passed on the production Panasonic ToughBook CF-20. Version 2.3 is release-ready pending merge, tag, and release mechanics. Deferred enterprise and hardening work remains deferred under the approved rebaseline. The next planned product release is Version 2.4 - Field Tools.
+
+## Activation Notes / Quick Log Closure Note - 2026-08-19
+
+Activation Notes / Quick Log, the bounded SmartDeploy brief-associated timestamped note capability from the Version 2.4 candidate list, is complete for its approved scope:
+
+1. Schema and local persistence foundation. **Complete**.
+2. Server API and SmartDeploy brief association. **Complete**.
+3. Minimum operator UI. **Complete**.
+4. ToughBook deployment and field validation. **Complete**.
+
+Deployment and field validation passed at revision `384c0c8e4460c354614ac6ffc6553573161a0c43`. See [Version 2.4 Activation Notes Field Validation](../validation/Version-2.4-Activation-Notes-Field-Validation-2026-08-19.md) for the recorded evidence, including a deferred, non-blocking updater-hardening observation about non-elevated `UpdateDashboard.ps1` invocation.
+
+Activation Notes / Quick Log remains explicitly bounded: it is not a QSO logger, not ADIF, not spotting or submission, not an activation lifecycle framework, and not Version 2.5 Field Operations Assistant behavior. Selecting the next Version 2.4 Field Tools priority remains a separate decision.
+
+## Field Readiness Checklist Closure Note - 2026-08-20
+
+Field Readiness Checklist, the bounded SmartDeploy brief-associated operating checklist from the Version 2.4 candidate list, is complete for its approved scope:
+
+1. Checklist model and local persistence foundation. **Complete**.
+2. Server API and immutable SmartDeploy brief association. **Complete**.
+3. Minimum operator UI. **Complete**.
+4. ToughBook deployment and field validation. **Complete**.
+
+Deployment and field validation passed at revision `2272c5a3702d22a253bc52c8a3a434548a3f27ae`. See [Version 2.4 Field Readiness Checklist Field Validation](../validation/Version-2.4-Field-Readiness-Checklist-Field-Validation-2026-08-20.md) for the recorded evidence, including offline persistence, brief isolation, reset confirmation, and no observed SmartDeploy or Activation Notes regression.
+
+Field Readiness Checklist remains explicitly bounded: it is not mission lifecycle or status, equipment inventory or loadouts, QSO logging or ADIF, spotting or submission, user-authored checklist templates, or AI operations assistance. Selecting another Version 2.4 Field Tools priority remains a separate decision.

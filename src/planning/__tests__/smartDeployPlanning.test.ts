@@ -1,0 +1,167 @@
+import { describe, expect, it } from 'vitest';
+import { resolveOperatingLocation } from '../../location/operatingLocation';
+import { normalizeSmartDeployPlanningRequest, resolvePlannedOperatingLocation, SMART_DEPLOY_MAX_MISSION_DURATION_MS, validateSmartDeployPlanningRequest, type SmartDeployPlanningRequest } from '../smartDeployPlanning';
+
+const source = { id: 'pota:test', type: 'pota_catalog', name: 'POTA catalog' };
+const location = resolveOperatingLocation(
+  { lat: 37.4, lon: -77.4, gridSquare: '' },
+  { status: 'ok', source: { id: 'gps:test', type: 'serial_nmea', name: 'Test GNSS' } },
+);
+const baseRequest = {
+  activationTarget: {
+    program: 'POTA', reference: 'US-1234', displayName: 'Test Park', coordinates: { lat: 38, lon: -78 }, gridSquare: 'FM18aa',
+    provenance: { kind: 'externally_resolved' as const, source, resolvedAtUtc: '2026-08-18T12:00:00-04:00' },
+  },
+  plannedOperatingLocation: location,
+  currentDeviceLocation: { ...location, coordinates: { lat: 38.1, lon: -78.1 }, gridSquare: 'FM18' },
+  propagationObjective: { kind: 'regional' as const, regionId: 'western_europe' as const },
+  missionWindow: { start: '2026-08-18T12:00:00Z', end: '2026-08-18T18:00:00Z' },
+  equipment: {
+    radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' as const }, modes: ['SSB', 'FT8'] as const, transmitPowerWatts: 10,
+    deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const },
+  },
+  objective: 'Complete the activation',
+} satisfies SmartDeployPlanningRequest;
+
+function validate(overrides: Record<string, unknown> = {}) {
+  return validateSmartDeployPlanningRequest({ ...baseRequest, ...overrides });
+}
+
+describe('SmartDeploy Slice 1 planning contract', () => {
+  it('accepts a POTA-shaped target and normalizes strings and offset timestamps to UTC', () => {
+    const result = normalizeSmartDeployPlanningRequest({ ...baseRequest, objective: '  Complete the activation  ' });
+    expect(result.valid).toBe(true);
+    expect(result.request?.activationTarget.provenance.resolvedAtUtc).toBe('2026-08-18T16:00:00.000Z');
+    expect(result.request?.objective).toBe('Complete the activation');
+  });
+
+  it('does not structurally restrict a non-POTA provider', () => {
+    expect(validate({ activationTarget: { ...baseRequest.activationTarget, program: 'SOTA' } }).valid).toBe(true);
+  });
+
+  it('requires a usable planned operating location and preserves no fabricated defaults', () => {
+    expect(validate({ plannedOperatingLocation: { ...location, coordinates: null, provenance: 'unavailable' } }).issues.map(issue => issue.code)).toContain('invalid_coordinates');
+    const result = normalizeSmartDeployPlanningRequest({ ...baseRequest, activationTarget: { ...baseRequest.activationTarget, gridSquare: undefined, displayName: undefined } });
+    expect(result.request?.activationTarget.gridSquare).toBeUndefined();
+    expect(result.request?.activationTarget.displayName).toBeUndefined();
+  });
+
+  it('accepts same-day, midnight-crossing, and exactly twelve-hour windows', () => {
+    expect(validate().valid).toBe(true);
+    expect(validate({ missionWindow: { start: '2026-08-18T23:00:00Z', end: '2026-08-19T05:00:00Z' } }).valid).toBe(true);
+    expect(validate({ missionWindow: { start: '2026-08-18T06:00:00Z', end: new Date(Date.parse('2026-08-18T06:00:00Z') + SMART_DEPLOY_MAX_MISSION_DURATION_MS).toISOString() } }).valid).toBe(true);
+  });
+
+  it('accepts supported antenna geometry pairs through the planning contract', () => {
+    const pairs = [
+      ['vertical', 'vertical'], ['portable_whip', 'vertical'], ['loaded_vertical', 'vertical'],
+      ['EFHW', 'inverted_v'], ['EFHW', 'sloper'], ['EFHW', 'horizontal'],
+    ] as const;
+    for (const [antenna, geometry] of pairs) {
+      const heightCategory = geometry === 'vertical' ? 'not_applicable' : '15_to_30_ft';
+      expect(validate({ equipment: { ...baseRequest.equipment, antenna: { type: antenna }, deployment: { geometry, heightCategory } } })).toMatchObject({ valid: true, issues: [] });
+    }
+  });
+
+  it('rejects unsupported geometry and height pairs with deterministic diagnostics', () => {
+    expect(validate({ equipment: { ...baseRequest.equipment, antenna: { type: 'vertical' }, deployment: { geometry: 'horizontal', heightCategory: '15_to_30_ft' } } }).issues).toContainEqual(expect.objectContaining({ message: "Deployment geometry 'horizontal' is not compatible with antenna 'vertical'." }));
+    expect(validate({ equipment: { ...baseRequest.equipment, antenna: { type: 'EFHW' }, deployment: { geometry: 'vertical', heightCategory: '15_to_30_ft' } } }).issues).toContainEqual(expect.objectContaining({ message: "Height category '15_to_30_ft' is not valid for deployment geometry 'vertical'." }));
+  });
+
+  it('rejects invalid, equal, reversed, and overlong windows', () => {
+    expect(validate({ missionWindow: { start: 'not-a-date', end: '2026-08-18T18:00:00Z' } }).issues).toContainEqual(expect.objectContaining({ path: 'missionWindow.start', code: 'invalid_timestamp' }));
+    expect(validate({ missionWindow: { start: '2026-08-18T12:00:00Z', end: '2026-08-18T12:00:00Z' } }).valid).toBe(false);
+    expect(validate({ missionWindow: { start: '2026-08-18T18:00:00Z', end: '2026-08-18T12:00:00Z' } }).valid).toBe(false);
+    expect(validate({ missionWindow: { start: '2026-08-18T00:00:00Z', end: '2026-08-18T12:01:00Z' } }).issues).toContainEqual(expect.objectContaining({ code: 'duration_exceeded' }));
+  });
+
+  it('accepts multiple modes and deterministically removes duplicate modes', () => {
+    const result = normalizeSmartDeployPlanningRequest({ ...baseRequest, equipment: { ...baseRequest.equipment, modes: [' SSB ', 'SSB', 'FT8'] } });
+    expect(result.valid).toBe(true);
+    expect(result.request?.equipment.modes).toEqual(['SSB', 'FT8']);
+    const deduplicated = normalizeSmartDeployPlanningRequest({ ...baseRequest, equipment: { ...baseRequest.equipment, modes: ['SSB', 'SSB', 'FT8'] } });
+    expect(deduplicated.valid).toBe(true);
+    expect(deduplicated.request?.equipment.modes).toEqual(['SSB', 'FT8']);
+  });
+
+  it('rejects empty modes, invalid power, and bad coordinates', () => {
+    expect(validate({ equipment: { ...baseRequest.equipment, modes: [] } }).valid).toBe(false);
+    for (const power of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      expect(validate({ equipment: { ...baseRequest.equipment, transmitPowerWatts: power } }).issues).toContainEqual(expect.objectContaining({ path: 'equipment.transmitPowerWatts' }));
+    }
+    expect(validate({ activationTarget: { ...baseRequest.activationTarget, coordinates: { lat: 91, lon: -78 } } }).issues).toContainEqual(expect.objectContaining({ code: 'invalid_coordinates' }));
+  });
+
+  it('handles optional objectives and enforces whitespace and length rules', () => {
+    expect(normalizeSmartDeployPlanningRequest({ ...baseRequest, objective: '   ' }).request?.objective).toBeUndefined();
+    expect(validate({ objective: 'x'.repeat(257) }).issues).toContainEqual(expect.objectContaining({ path: 'objective', code: 'too_long' }));
+  });
+
+  it('rejects malformed provenance and timestamps without network or UI dependencies', () => {
+    expect(validate({ activationTarget: { ...baseRequest.activationTarget, provenance: { kind: 'unknown' } } }).issues).toContainEqual(expect.objectContaining({ path: 'activationTarget.provenance', code: 'invalid_provenance' }));
+    expect(validate({ activationTarget: { ...baseRequest.activationTarget, provenance: { kind: 'externally_resolved', source, resolvedAtUtc: 'tomorrow' } } }).issues).toContainEqual(expect.objectContaining({ code: 'invalid_timestamp' }));
+  });
+
+  it('keeps planned, current, activation, propagation, and narrative objectives independent', () => {
+    const request = normalizeSmartDeployPlanningRequest(baseRequest);
+    expect(request.valid).toBe(true);
+    expect(request.request?.plannedOperatingLocation.coordinates).not.toEqual(request.request?.currentDeviceLocation?.coordinates);
+    expect(request.request?.activationTarget.coordinates).not.toEqual(request.request?.plannedOperatingLocation.coordinates);
+    expect(request.request?.propagationObjective).toEqual({ kind: 'regional', regionId: 'western_europe' });
+    expect(request.request?.objective).toBe('Complete the activation');
+  });
+
+  it('allows current device location to be omitted', () => {
+    expect(validate({ currentDeviceLocation: undefined }).valid).toBe(true);
+  });
+
+  it('rejects missing canonical fields deterministically', () => {
+    const result = validate({ plannedOperatingLocation: undefined, propagationObjective: undefined });
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'plannedOperatingLocation', code: 'required' }));
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'propagationObjective', code: 'required' }));
+  });
+
+  it('preserves coordinate, grid, and provenance values without fabrication', () => {
+    const result = normalizeSmartDeployPlanningRequest(baseRequest);
+    expect(result.request?.plannedOperatingLocation.gridSquare).toBe(location.gridSquare);
+    expect(result.request?.plannedOperatingLocation.provenance).toBe(location.provenance);
+    expect(result.request?.currentDeviceLocation?.gridSquare).toBe('FM18');
+  });
+
+  it('rejects an invalid propagation region without conflating it with the activation target', () => {
+    const result = validate({ propagationObjective: { kind: 'regional', regionId: 'US-1234' } });
+    expect(result.issues).toContainEqual(expect.objectContaining({ path: 'propagationObjective.regionId', code: 'invalid_value' }));
+  });
+
+  it('defaults planned operation to the activation provider reference with explicit semantics', () => {
+    const result = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation);
+    expect(result).toMatchObject({ status: 'resolved', location: { coordinates: baseRequest.activationTarget.coordinates, planningSemantics: 'provider_reference_default', provenance: 'manual' } });
+    expect((result as any).location.gridSquare).toBe('FM18aa');
+  });
+
+  it('requires an explicit current-device selection and fails honestly when unavailable', () => {
+    const selected = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'current_device');
+    expect(selected).toMatchObject({ status: 'resolved', location: { coordinates: baseRequest.currentDeviceLocation?.coordinates, planningSemantics: 'operator_selected_current_device' } });
+    const unavailable = resolvePlannedOperatingLocation(baseRequest.activationTarget, { ...location, coordinates: null, provenance: 'unavailable' }, 'current_device');
+    expect(unavailable).toEqual({ status: 'unavailable', reason: 'Current device location is unavailable.' });
+  });
+
+  it('resolves a manual Maidenhead planned site without using activation or current-device coordinates', () => {
+    const result = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07pk' });
+    expect(result).toMatchObject({ status: 'resolved', location: { gridSquare: 'FM07PK', provenance: 'manual', planningSemantics: 'operator_planned_override', source: { type: 'manual_planned_site_grid' } } });
+    expect(result.status === 'resolved' && result.location.coordinates).not.toEqual(baseRequest.activationTarget.coordinates);
+    expect(result.status === 'resolved' && result.location.coordinates).not.toEqual(baseRequest.currentDeviceLocation?.coordinates);
+  });
+
+  it('resolves a manual latitude/longitude planned site and derives one grid', () => {
+    const result = resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { latitude: '37.40000', longitude: '-77.40000' });
+    expect(result).toMatchObject({ status: 'resolved', location: { coordinates: { lat: 37.4, lon: -77.4 }, gridSquare: 'FM17hj' } });
+  });
+
+  it('rejects incomplete or conflicting manual planned-site input without fallback', () => {
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { latitude: '37.4' })).toEqual({ status: 'unavailable', reason: 'Enter both planned-site latitude and longitude.' });
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'not-a-grid' })).toEqual({ status: 'unavailable', reason: 'The planned-site Maidenhead grid is invalid.' });
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07zz' })).toEqual({ status: 'unavailable', reason: 'The planned-site Maidenhead grid is invalid.' });
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07pk', latitude: '37.4', longitude: '-77.4' })).toEqual({ status: 'unavailable', reason: 'The planned-site grid and coordinates do not identify the same location.' });
+  });
+});
