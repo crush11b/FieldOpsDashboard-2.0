@@ -266,3 +266,16 @@ The approved Version 2.3 sequence is complete:
 8. Perform operational ToughBook/ToughPad validation. **Complete**.
 
 Operational validation passed on the production Panasonic ToughBook CF-20. Version 2.3 is release-ready pending merge, tag, and release mechanics. Deferred enterprise and hardening work remains deferred under the approved rebaseline. The next planned product release is Version 2.4 - Field Tools.
+
+## Activation Notes / Quick Log Closure Note - 2026-08-19
+
+Activation Notes / Quick Log, the bounded SmartDeploy brief-associated timestamped note capability from the Version 2.4 candidate list, is complete for its approved scope:
+
+1. Schema and local persistence foundation. **Complete**.
+2. Server API and SmartDeploy brief association. **Complete**.
+3. Minimum operator UI. **Complete**.
+4. ToughBook deployment and field validation. **Complete**.
+
+Deployment and field validation passed at revision `384c0c8e4460c354614ac6ffc6553573161a0c43`. See [Version 2.4 Activation Notes Field Validation](../validation/Version-2.4-Activation-Notes-Field-Validation-2026-08-19.md) for the recorded evidence, including a deferred, non-blocking updater-hardening observation about non-elevated `UpdateDashboard.ps1` invocation.
+
+Activation Notes / Quick Log remains explicitly bounded: it is not a QSO logger, not ADIF, not spotting or submission, not an activation lifecycle framework, and not Version 2.5 Field Operations Assistant behavior. Selecting the next Version 2.4 Field Tools priority remains a separate decision.
