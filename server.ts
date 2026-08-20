@@ -45,6 +45,8 @@ import { getDefaultSotaSummitDatasetPath, SotaSummitDataStore } from './server/s
 import { SotaActivationTargetResolver } from './server/sotaTargetResolver';
 import { createActivationNotesRouter } from './server/activationNotesApi';
 import { ActivationNotesStore, getDefaultActivationNotesPath } from './server/activationNotesStore';
+import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChecklistApi';
+import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
 
 async function startServer() {
   const app = express();
@@ -89,7 +91,9 @@ async function startServer() {
   const observedRfService = new ObservedRfService();
   const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
   const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
+  const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
+  app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
     store: smartDeployBriefStore,
