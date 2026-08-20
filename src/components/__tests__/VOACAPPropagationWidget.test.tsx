@@ -86,6 +86,25 @@ describe('Regional HF Band Guidance production UI', () => {
     expect(markup).not.toContain('Confidence:');
   });
 
+  it('presents Local/NVIS as an accessible deferred destination without changing supported choices', () => {
+    const config = { ...INITIAL_CONFIG, propagation: { ...INITIAL_CONFIG.propagation, destinationRegion: 'local_nvis' as const } };
+    const markup = renderToStaticMarkup(
+      <VOACAPPropagationWidget
+        config={config}
+        operatingLocation={{ coordinates: null, gridSquare: null, provenance: 'unavailable', status: 'unavailable', source: { id: 'test-location', type: 'manual_location' } }}
+        theme="dark_tactical"
+        audioEnabled={false}
+        onPersistConfig={async value => value}
+      />,
+    );
+
+    expect(markup).toContain('Local / NVIS (evaluator deferred)');
+    expect(markup).toContain('disabled=""');
+    expect(markup).toContain('aria-describedby="local-nvis-deferred"');
+    expect(markup).toContain('Local / NVIS guidance is recognized but its evaluator is deferred');
+    expect(markup).toContain('<option value="western_europe">Western Europe</option>');
+  });
+
   it('maps confidence and observed zero-report states truthfully', () => {
     expect(CONFIDENCE_DISPLAY_LABELS).toEqual({ high: 'HIGH', medium: 'MEDIUM', low: 'LOW', modeled_only: 'MODELED', unavailable: 'UNAVAILABLE' });
     expect(observedRfSummaryLabel('live', 0)).toContain('LIVE - NO MATCHING');

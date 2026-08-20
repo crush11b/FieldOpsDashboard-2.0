@@ -30,6 +30,8 @@ Current NOAA Kp, R-scale, X-ray, F10.7, and current SSN changes do not invalidat
 
 The response preserves source state and errors. A cached NOAA model input can support modeled guidance; a cold offline request without numeric model SSN does not attempt P.533. `local_nvis` returns ten unavailable assessments with `model.cache: not_applicable` because local/NVIS evaluation is deferred to a separate mechanism.
 
+The propagation UI keeps the recognized destination visible but disables it as an operational choice and explains the deferred state. A future Local/NVIS evaluator requires a separately approved technical contract; this slice does not define bands, antenna suitability, distance calculations, ionospheric predictions, or propagation recommendations.
+
 The response status is `complete` only when at least one assessment is available and the model result is complete. It is `partial` when evidence produces assessments but the model is partial or unavailable. It is `unavailable` when no band can be rated.
 
 ## Response shape
