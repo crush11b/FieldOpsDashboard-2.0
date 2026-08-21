@@ -90,12 +90,14 @@ describe('buildOperationsReadinessSummary', () => {
     ['at end', '2026-08-20T16:00:00.000Z', 'Evaluation is within the retained mission window.', 'ready'],
     ['after', '2026-08-20T16:00:00.001Z', 'The retained mission window has ended.', 'attention'],
   ] as const)('classifies mission window at %s deterministically', (_label, evaluatedAtUtc, message, status) => {
-    const result = buildOperationsReadinessSummary({ ...baseInput(), evaluatedAtUtc });
-    expect(result.findings.find(f => f.id === 'mission-window')).toMatchObject({ message, status });
+    const finding = buildOperationsReadinessSummary({ ...baseInput(), evaluatedAtUtc }).findings.find(f => f.id === 'mission-window');
+    expect(finding).toMatchObject({ message, status });
+    expect(finding).not.toHaveProperty('observedAtUtc');
   });
   it('keeps malformed mission timestamps unknown and recommends a current window after completion', () => {
     const malformed = buildOperationsReadinessSummary({ ...baseInput(), plan: { ...baseInput().plan, brief: { ...brief(), missionWindow: { start: 'not-a-date', midpoint: evaluatedAtUtc, end: evaluatedAtUtc } } } });
     expect(malformed.findings.find(f => f.id === 'mission-window')).toMatchObject({ status: 'unknown' });
+    expect(malformed.findings.find(f => f.id === 'mission-window')).not.toHaveProperty('observedAtUtc');
     const completed = buildOperationsReadinessSummary({ ...baseInput(), evaluatedAtUtc: '2026-08-20T16:00:00.001Z' }).findings.find(f => f.id === 'mission-window');
     expect(completed?.recommendedAction).toContain('current operating window');
     expect(completed?.message).not.toMatch(/safety|legality|permission|go-no-go/i);

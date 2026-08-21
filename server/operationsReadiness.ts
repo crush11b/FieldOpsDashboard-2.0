@@ -145,14 +145,14 @@ function addMissionWindowFinding(brief: SmartDeployBriefV2, evaluatedAtUtc: stri
     return;
   }
   if (evaluated < start) {
-    add({ id: 'mission-window', status: 'ready', priority: 'low', message: 'The retained mission window is upcoming.', source: SOURCE.evaluator, observedAtUtc: brief.missionWindow.start });
+    add({ id: 'mission-window', status: 'ready', priority: 'low', message: 'The retained mission window is upcoming.', source: SOURCE.evaluator });
     return;
   }
   if (evaluated <= end) {
-    add({ id: 'mission-window', status: 'ready', priority: 'low', message: 'Evaluation is within the retained mission window.', source: SOURCE.evaluator, observedAtUtc: brief.missionWindow.start });
+    add({ id: 'mission-window', status: 'ready', priority: 'low', message: 'Evaluation is within the retained mission window.', source: SOURCE.evaluator });
     return;
   }
-  add({ id: 'mission-window', status: 'attention', priority: 'medium', message: 'The retained mission window has ended.', source: SOURCE.evaluator, observedAtUtc: brief.missionWindow.end, recommendedAction: 'Review, update, or create a plan with a current operating window.' });
+  add({ id: 'mission-window', status: 'attention', priority: 'medium', message: 'The retained mission window has ended.', source: SOURCE.evaluator, recommendedAction: 'Review, update, or create a plan with a current operating window.' });
 }
 
 function priorityRank(priority: ReadinessPriority): number { return priority === 'high' ? 0 : priority === 'medium' ? 1 : 2; }
