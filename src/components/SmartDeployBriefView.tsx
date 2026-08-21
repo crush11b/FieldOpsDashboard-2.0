@@ -31,6 +31,8 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
       </div>
     </div>
 
+    <OperationsReadinessWorkspace brief={brief} />
+
     {brief.currentDeviceLocation && brief.plannedOperatingSite.source !== 'operator_selected_current_device' && <BriefSection title="CURRENT DEVICE">
       <p className="text-[11px] text-slate-200">{brief.currentDeviceLocation.gridSquare || formatCoordinates(brief.currentDeviceLocation.coordinates)}</p>
       <p className="text-[10px] text-slate-400">Context only; this location was not used as the modeled transmitter site.</p>
@@ -47,7 +49,6 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     {brief.limitations.filter(isPrimaryLimitation).length > 0 && <BriefSection title="IMPORTANT NOTES"><ul className="list-disc pl-5 space-y-1 text-[11px] text-amber-200">{brief.limitations.filter(isPrimaryLimitation).map(limitation => <li key={limitation.code}>{limitation.message}</li>)}</ul></BriefSection>}
 
     <FieldReadinessChecklistPanel brief={brief} />
-    <OperationsReadinessWorkspace brief={brief} />
     <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3 space-y-2"><Detail label="SCHEMA / BRIEF" value={`${brief.schemaVersion} / ${brief.briefId}`} /><Detail label="GENERATED" value={formatUtc(brief.generatedAtUtc)} /><Detail label="MISSION UTC" value={`${brief.missionWindow.start} / ${brief.missionWindow.midpoint} / ${brief.missionWindow.end}`} /><Detail label="ACTIVATION COORDINATES" value={`${formatCoordinates(brief.activation.coordinates)} / ${brief.activation.gridSquare || 'Grid unavailable'}`} /><Detail label="PLANNED COORDINATES / PROVENANCE" value={`${formatCoordinates(brief.plannedOperatingSite.location.coordinates)} / ${brief.plannedOperatingSite.description} / raw location provenance: ${brief.plannedOperatingSite.location.provenance} / planning source: ${brief.plannedOperatingSite.source}`} /><Detail label="RF REGION" value={`${brief.propagationObjective.regionId} / ${brief.propagationObjective.regionLabel}`} /><Detail label="OBSERVED RF WINDOW / STATUS" value={`${observedRf.evidence.observationWindow.startsAt ? `${formatUtc(observedRf.evidence.observationWindow.startsAt)} to ${formatUtc(observedRf.evidence.observationWindow.endsAt)}` : 'Unavailable'} / ${observedRf.status}`} /><Detail label="MODEL" value="ITU-R P.533 representative regional paths; long-lived solar-cycle model input; no mission-time forecast." /><h4 className="pt-2 text-[10px] font-black uppercase text-amber-300">Structured limitations</h4><ul className="list-disc pl-5 space-y-1 text-[10px] text-slate-300">{brief.limitations.map(limitation => <li key={limitation.code}><strong>{limitation.code}:</strong> {limitation.message}</li>)}</ul></div></details>
     <ActivationNotesPanel brief={brief} />
   </section>;

@@ -68,7 +68,7 @@ describe('OperationsReadinessWorkspace', () => {
     await waitFor(() => expect(screen.getByText('Current weather and alerts are not loaded; readiness is using local retained evidence only.')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'LOAD LIVE WEATHER FOR PLANNED SITE' }));
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Planned-site provider unavailable.'));
-    expect(screen.getByText('READINESS POSTURE')).toBeTruthy();
+    expect(screen.queryByText('READINESS POSTURE')).toBeNull();
     expect(screen.getByText('Current weather and alerts are not loaded; readiness is using local retained evidence only.')).toBeTruthy();
   });
 

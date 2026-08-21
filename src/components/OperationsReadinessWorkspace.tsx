@@ -115,12 +115,6 @@ const ReadinessContent: React.FC<{
   const checklist = summary.findings.find(finding => finding.id === 'field-readiness-checklist');
   const notes = summary.findings.find(finding => finding.id === 'activation-notes');
   return <>
-    <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
-      <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-[11px] uppercase text-cyan-300">READINESS POSTURE</strong><StatusLabel status={summary.plan.status} /></div>
-      <p className="text-[11px] text-slate-200">{postureText(summary.plan.status)}</p>
-      <p className="text-[10px] text-slate-400">Evaluated <time dateTime={summary.evaluatedAtUtc}>{formatUtc(summary.evaluatedAtUtc)}</time>. Decision support only; this is not a safety, permission, legality, or go/no-go determination.</p>
-    </div>
-
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <EvidenceSection title="OPERATION / PLANNED SITE"><Detail label="ACTIVATION" value={`${brief.activation.reference}${brief.activation.displayName ? ` - ${brief.activation.displayName}` : ''}`} /><Detail label="PLANNED SITE" value={brief.plannedOperatingSite.description} /><Detail label="COORDINATES / GRID" value={`${formatCoordinates(brief.plannedOperatingSite.location.coordinates)} / ${brief.plannedOperatingSite.location.gridSquare || 'Grid unavailable'}`} /><Detail label="PLANNING SOURCE" value={`${brief.plannedOperatingSite.source} / ${brief.plannedOperatingSite.location.planningSemantics || brief.plannedOperatingSite.location.source?.type || 'unknown'}`} /></EvidenceSection>
       <EvidenceSection title="CURRENT LOCATION / CLOCK"><Detail label="CURRENT DEVICE" value={`${formatCoordinates(brief.currentDeviceLocation?.coordinates)} / ${brief.currentDeviceLocation?.gridSquare || 'Grid unavailable'}`} /><Detail label="LOCATION STATUS" value={findingMessage(summary, 'current-location')} /><FindingMetadata finding={findFinding(summary, 'current-location')} /><Detail label="CLOCK" value={findingMessage(summary, 'clock-synchronization')} /><FindingMetadata finding={findFinding(summary, 'clock-synchronization')} /></EvidenceSection>
@@ -162,7 +156,6 @@ const StatusLabel: React.FC<{ status: ReadinessStatus | string; text?: string }>
 
 function findFinding(summary: OperationsReadinessSummary, id: string): ReadinessFinding | undefined { return summary.findings.find(finding => finding.id === id); }
 function findingMessage(summary: OperationsReadinessSummary, id: string): string { return findFinding(summary, id)?.message || 'Unknown'; }
-function postureText(status: ReadinessStatus): string { return status === 'ready' ? 'The retained plan is available for review.' : status === 'attention' ? 'Review the listed limitations and incomplete evidence.' : status === 'blocked' ? 'A required retained planning prerequisite is missing.' : `Readiness is ${status}; the available evidence does not support a stronger conclusion.`; }
 function statusClass(status: string): string { return status === 'ready' || status === 'live' ? 'border-emerald-700 text-emerald-200' : status === 'attention' || status === 'stale' ? 'border-amber-700 text-amber-200' : status === 'blocked' || status === 'unavailable' ? 'border-red-700 text-red-200' : 'border-slate-600 text-slate-300'; }
 function formatDuration(seconds: number): string { const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`; }
 function formatUtc(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? 'Unknown time' : date.toISOString().replace('T', ' ').replace('.000Z', ' UTC'); }
