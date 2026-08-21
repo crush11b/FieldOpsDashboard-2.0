@@ -35,6 +35,60 @@ Describe 'FieldOps runtime rollback state' {
         $snapshot.Revision.NativeRevision | Should Be $script:revision
     }
 
+    It 'ignores Agent records with null, whitespace, and missing paths' {
+        $script:agentProcess = @(
+            [pscustomobject]@{ ExecutablePath = $null; ProcessId = 201 },
+            [pscustomobject]@{ ExecutablePath = '   '; ProcessId = 202 },
+            [pscustomobject]@{ ProcessId = 203 }
+        )
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid -ServiceProvider { param($Name) $null } -AgentProcessProvider $script:agentProvider -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Agent.ProcessRunning | Should Be $false
+    }
+
+    It 'keeps a valid Agent match when invalid pathless records are present' {
+        $script:agentProcess = @(
+            [pscustomobject]@{ ExecutablePath = $null; ProcessId = 204 },
+            [pscustomobject]@{ ProcessId = 205 },
+            [pscustomobject]@{ ExecutablePath = 'C:\Other\FieldOps.Agent.exe'; ProcessId = 206 },
+            [pscustomobject]@{ ExecutablePath = $script:nativeRoot + '\Agent\FieldOps.Agent.exe'; ProcessId = 207 }
+        )
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid -ServiceProvider { param($Name) $null } -AgentProcessProvider $script:agentProvider -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Agent.ProcessRunning | Should Be $true
+    }
+
+    It 'keeps nonblank Agent provider failures visible' {
+        $thrown = $false
+        try { $ErrorActionPreference = 'Stop'; Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid -ServiceProvider { param($Name) $null } -AgentProcessProvider { throw 'Agent provider failed' } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' } | Out-Null } catch { $thrown = $true }
+        $thrown | Should Be $true
+    }
+
+    It 'ignores Tray records with null, whitespace, and missing paths' {
+        $script:trayProcess = @(
+            [pscustomobject]@{ ExecutablePath = $null; Sid = $script:sid; SessionId = 1; ProcessId = 209 },
+            [pscustomobject]@{ ExecutablePath = '   '; Sid = $script:sid; SessionId = 1; ProcessId = 210 },
+            [pscustomobject]@{ Sid = $script:sid; SessionId = 1; ProcessId = 211 }
+        )
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider $script:sessionProvider -TrayProcessProvider $script:trayProvider -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Tray.Running | Should Be $false
+    }
+
+    It 'keeps a valid Tray match when invalid pathless records are present' {
+        $script:trayProcess = @(
+            [pscustomobject]@{ ExecutablePath = $null; Sid = $script:sid; SessionId = 1; ProcessId = 212 },
+            [pscustomobject]@{ ExecutablePath = '   '; Sid = $script:sid; SessionId = 1; ProcessId = 213 },
+            [pscustomobject]@{ ExecutablePath = 'C:\Other\FieldOps.Tray.exe'; Sid = $script:sid; SessionId = 1; ProcessId = 214 },
+            [pscustomobject]@{ ExecutablePath = $script:trayPath; Sid = $script:sid; SessionId = 1; ProcessId = 215 }
+        )
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider $script:sessionProvider -TrayProcessProvider $script:trayProvider -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Tray.Running | Should Be $true
+    }
+
+    It 'keeps nonblank Tray provider failures visible' {
+        $thrown = $false
+        try { $ErrorActionPreference = 'Stop'; Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider $script:sessionProvider -TrayProcessProvider { throw 'Tray provider failed' } -DashboardProcessProvider { @() } -HttpProvider { param($Uri) throw 'offline' } | Out-Null } catch { $thrown = $true }
+        $thrown | Should Be $true
+    }
+
     It 'captures stopped Agent and absent Tray and Dashboard' {
         $script:service = [pscustomobject]@{ State = 'Stopped'; StartMode = 'Auto'; PathName = '"C:\Program Files\FieldOpsDashboard\Agent\FieldOps.Agent.exe"' }
         $script:agentProcess = @()

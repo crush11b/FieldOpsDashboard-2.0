@@ -28,6 +28,20 @@ function Get-FieldOpsRollbackVersion {
     }
 }
 
+function Test-FieldOpsRuntimeProcessPath {
+    param(
+        [Parameter(Mandatory = $true)]$Process,
+        [Parameter(Mandatory = $true)][string]$ExpectedPath
+    )
+
+    $pathProperty = $Process.PSObject.Properties['ExecutablePath']
+    if ($null -eq $pathProperty -or [string]::IsNullOrWhiteSpace([string]$pathProperty.Value)) {
+        return $false
+    }
+
+    return ([IO.Path]::GetFullPath([string]$pathProperty.Value)).ToLowerInvariant() -eq $ExpectedPath
+}
+
 function Get-FieldOpsRuntimeSnapshot {
     [CmdletBinding()]
     param(
@@ -46,17 +60,25 @@ function Get-FieldOpsRuntimeSnapshot {
 
     $service = @(& $ServiceProvider 'FieldOpsAgent') | Select-Object -First 1
     $agentPath = ([IO.Path]::GetFullPath((Join-Path $NativeRoot 'Agent\FieldOps.Agent.exe'))).ToLowerInvariant()
-    $agentProcesses = @(& $AgentProcessProvider | Where-Object { ([IO.Path]::GetFullPath([string]$_.ExecutablePath)).ToLowerInvariant() -eq $agentPath })
+    $agentProcesses = @()
+    foreach ($process in @(& $AgentProcessProvider)) {
+        if (Test-FieldOpsRuntimeProcessPath -Process $process -ExpectedPath $agentPath) {
+            $agentProcesses += $process
+        }
+    }
     $sessions = @(& $SessionProvider | Where-Object {
         [string]::Equals([string]$_.Account, $OperatorAccount, [StringComparison]::OrdinalIgnoreCase) -and
         [string]::Equals([string]$_.Sid, $OperatorSid, [StringComparison]::OrdinalIgnoreCase)
     })
     $trayPathNormalized = ([IO.Path]::GetFullPath($TrayPath)).ToLowerInvariant()
-    $trayProcesses = @(& $TrayProcessProvider | Where-Object {
-        ([IO.Path]::GetFullPath([string]$_.ExecutablePath)).ToLowerInvariant() -eq $trayPathNormalized -and
-        [string]::Equals([string]$_.Sid, $OperatorSid, [StringComparison]::OrdinalIgnoreCase) -and
-        $sessions.Count -eq 1 -and [int]$_.SessionId -eq [int]$sessions[0].SessionId
-    })
+    $trayProcesses = @()
+    foreach ($process in @(& $TrayProcessProvider)) {
+        if ((Test-FieldOpsRuntimeProcessPath -Process $process -ExpectedPath $trayPathNormalized) -and
+            [string]::Equals([string]$process.Sid, $OperatorSid, [StringComparison]::OrdinalIgnoreCase) -and
+            $sessions.Count -eq 1 -and [int]$process.SessionId -eq [int]$sessions[0].SessionId) {
+            $trayProcesses += $process
+        }
+    }
     $dashboardProcesses = @(Get-FieldOpsRollbackDashboardProcesses -DashboardRoot $DashboardRoot -ProcessProvider $DashboardProcessProvider)
     $version = Get-FieldOpsRollbackVersion -HttpProvider $HttpProvider
     $revision = if ($null -ne $version -and
