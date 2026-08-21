@@ -2,7 +2,7 @@ import express from 'express';
 import http from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import { createOperationsReadinessRouter } from '../operationsReadinessApi';
-import type { OperationsReadinessAssemblyResult } from '../operationsReadinessAssembly';
+import type { OperationsReadinessAssemblyOptions, OperationsReadinessAssemblyResult } from '../operationsReadinessAssembly';
 
 function appFor(result: OperationsReadinessAssemblyResult) {
   const app = express();
@@ -10,7 +10,7 @@ function appFor(result: OperationsReadinessAssemblyResult) {
   return app;
 }
 
-function appForAssembly(assembly: (briefId: string) => Promise<OperationsReadinessAssemblyResult>) {
+function appForAssembly(assembly: (briefId: string, options?: OperationsReadinessAssemblyOptions) => Promise<OperationsReadinessAssemblyResult>) {
   const app = express();
   app.use(createOperationsReadinessRouter({ assembly }));
   return app;
@@ -73,6 +73,27 @@ describe('Operations Readiness API', () => {
     }), '/api/operations-readiness/brief%3Aone');
     expect(result.status).toBe(200);
     expect(receivedBriefId).toBe('brief:one');
+  });
+
+  it.each([
+    ['omitted', '', false],
+    ['empty', '?includeLiveWeather=', false],
+    ['false', '?includeLiveWeather=false', false],
+    ['one', '?includeLiveWeather=1', false],
+    ['yes', '?includeLiveWeather=yes', false],
+    ['uppercase', '?includeLiveWeather=TRUE', false],
+    ['repeated values', '?includeLiveWeather=true&includeLiveWeather=false', false],
+    ['array-like value', '?includeLiveWeather[]=true', false],
+    ['object-like value', '?includeLiveWeather[enabled]=true', false],
+    ['exact lowercase true', '?includeLiveWeather=true', true],
+  ] as const)('uses live weather only for %s', async (_label, query, expected) => {
+    let received: boolean | undefined;
+    const result = await requestApp(appForAssembly(async (_briefId, options) => {
+      received = options?.includeLiveWeather;
+      return { status: 'ok', summary: {} as never, diagnostics: [] };
+    }), `/api/operations-readiness/brief-1${query}`);
+    expect(result.status).toBe(200);
+    expect(received).toBe(expected);
   });
 
   it('returns 200 when optional evidence is diagnosed but summary assembly succeeds', async () => {

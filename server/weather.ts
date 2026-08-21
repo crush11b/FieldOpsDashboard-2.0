@@ -227,7 +227,7 @@ function conditionLabel(code: number): string {
 }
 
 function normalizeSeverity(value: unknown): NOAAAlert['severity'] {
-  return value === 'Extreme' || value === 'Severe' || value === 'Minor' ? value : 'Moderate';
+  return value === 'Extreme' || value === 'Severe' || value === 'Moderate' || value === 'Minor' ? value : 'Unknown';
 }
 
 function formatAlertTime(value: unknown, fallback: string): string {

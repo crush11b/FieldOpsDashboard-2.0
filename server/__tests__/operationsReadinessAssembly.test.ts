@@ -60,6 +60,39 @@ describe('Operations Readiness assembly', () => {
     expect(deps.briefStore.get).toHaveBeenCalledWith('brief-1');
   });
 
+  it('keeps the default assembly local-only and performs opt-in enrichment on the retained planned site', async () => {
+    const enrichWeather = vi.fn(async () => ({
+      weather: { status: 'live' as const, source: { id: 'weather', type: 'provider' } },
+      alerts: { status: 'live' as const, active: [], source: { id: 'alerts', type: 'provider' } },
+      diagnostics: [],
+    }));
+    const deps = dependencies({ enrichWeather });
+    const local = await assembleOperationsReadiness('brief-1', deps);
+    expect(local.status).toBe('ok');
+    expect(enrichWeather).not.toHaveBeenCalled();
+    if (local.status === 'ok') expect(local.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
+
+    const enriched = await assembleOperationsReadiness('brief-1', deps, { includeLiveWeather: true });
+    expect(enrichWeather).toHaveBeenCalledWith(expect.objectContaining({ briefId: 'brief-1' }));
+    expect(enriched.status).toBe('ok');
+    if (enriched.status === 'ok') {
+      expect(enriched.summary.findings.find(finding => finding.id === 'weather')).toMatchObject({ status: 'ready', source: { id: 'weather' } });
+      expect(enriched.summary.findings.find(finding => finding.id === 'weather-alerts')).toMatchObject({ status: 'ready', source: { id: 'alerts' } });
+    }
+  });
+
+  it('keeps readiness successful when opted-in weather enrichment fails', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      enrichWeather: vi.fn(async () => { throw new Error('raw timeout provider detail'); }),
+    }), { includeLiveWeather: true });
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
+      expect(JSON.stringify(result)).not.toContain('raw timeout');
+      expect(result.diagnostics).toContainEqual({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
+    }
+  });
+
   it('does not synthesize runtime from charge percentage', async () => {
     const result = await assembleOperationsReadiness('brief-1', dependencies({
       readSystem: vi.fn(async () => ({ status: 'Available', observedAtUtc: evaluatedAtUtc, source: 'WindowsPowerStatus', chargePercent: 80, charging: false, powerSource: 'Battery', remainingRuntimeSeconds: null })) as never,

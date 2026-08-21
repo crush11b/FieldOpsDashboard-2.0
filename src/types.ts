@@ -125,7 +125,7 @@ export interface WeatherData {
 
 export interface NOAAAlert {
   id: string;
-  severity: 'Extreme' | 'Severe' | 'Moderate' | 'Minor';
+  severity: 'Extreme' | 'Severe' | 'Moderate' | 'Minor' | 'Unknown';
   title: string;
   description: string;
   area: string;

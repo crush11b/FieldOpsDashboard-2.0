@@ -48,6 +48,7 @@ import { ActivationNotesStore, getDefaultActivationNotesPath } from './server/ac
 import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChecklistApi';
 import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
+import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 
 async function startServer() {
   const app = express();
@@ -103,6 +104,7 @@ async function startServer() {
       activationNotesStore,
       readLocation: readLocationTelemetryPipe,
       readSystem: readSystemTelemetry,
+      enrichWeather: brief => enrichOperationsReadinessWeather(brief),
       now: () => new Date(),
     },
   }));
