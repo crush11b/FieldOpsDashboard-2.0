@@ -57,6 +57,7 @@ export interface OperationsReadinessSummary {
 
 const SOURCE = {
   evaluator: { id: 'operations-readiness-evaluator', type: 'derived', name: 'Operations Readiness evaluator' },
+  clockSyncUnverified: { id: 'clock-sync-unverified', type: 'derived', name: 'Clock synchronization unverified' },
   unsupported: { id: 'unsupported', type: 'unsupported', name: 'Unsupported capability' },
 } as const satisfies Record<string, TelemetrySource>;
 
@@ -87,7 +88,8 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
   const weather = input.weather;
   add({ id: 'weather', status: weather?.status === 'live' ? 'ready' : weather?.status === 'stale' ? 'stale' : 'unavailable', priority: weather?.status === 'live' ? 'low' : 'medium', message: weather?.status === 'live' ? 'Current weather is available.' : weather?.status === 'stale' ? 'Weather information is stale.' : 'Weather information is unavailable.', source: weather?.source ?? SOURCE.evaluator, ...(weather?.observedAtUtc ? { observedAtUtc: weather.observedAtUtc } : {}), freshness: weather?.status === 'live' ? 'fresh' : weather?.status === 'stale' ? 'stale' : 'unavailable' });
   const alerts = input.alerts;
-  const highestAlert = alerts?.active.slice().sort(compareAlerts)[0];
+  const consideredAlerts = alerts && alerts.status !== 'unavailable' ? alerts.active : [];
+  const highestAlert = consideredAlerts.slice().sort(compareAlerts)[0];
   const significantAlert = highestAlert && (highestAlert.severity === 'Extreme' || highestAlert.severity === 'Severe');
   const alertStatus: ReadinessStatus = !alerts || alerts.status === 'unavailable'
     ? 'unavailable'
@@ -116,7 +118,7 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
   add({ id: 'field-readiness-checklist', status: !checklist ? 'unknown' : checklistComplete ? 'ready' : 'attention', priority: !checklist || !checklistComplete ? 'medium' : 'low', message: !checklist ? 'Field Readiness Checklist has not been created.' : checklistComplete ? `Field Readiness Checklist is complete (${checklist.completedItems}/${checklist.totalItems}).` : `Field Readiness Checklist is incomplete (${checklist.completedItems}/${checklist.totalItems}).`, source: checklist?.source ?? SOURCE.evaluator, ...(checklist?.updatedAtUtc ? { observedAtUtc: checklist.updatedAtUtc } : {}), limitation: 'Checklist completion is a readiness indicator, not proof of safety, permission, legality, or equipment presence.', recommendedAction: !checklist || !checklistComplete ? 'Review and complete the readiness checklist.' : undefined });
   const notes = input.activationNotes;
   add({ id: 'activation-notes', status: notes ? 'ready' : 'unknown', priority: notes ? 'low' : 'medium', message: notes ? `Activation Notes are available (${notes.count} recorded).` : 'Activation Notes metadata is unavailable.', source: notes?.source ?? SOURCE.evaluator, ...(notes?.updatedAtUtc ? { observedAtUtc: notes.updatedAtUtc } : {}), freshness: notes ? 'fresh' : 'unavailable', recommendedAction: notes ? undefined : 'Confirm the activation notes collection is available.' });
-  add({ id: 'clock-synchronization', status: 'unknown', priority: 'medium', message: 'Clock synchronization cannot currently be verified.', source: SOURCE.unsupported, limitation: 'No Windows clock-synchronization telemetry is available; system time, GPS time, and checklist state are not evidence.' });
+  add({ id: 'clock-synchronization', status: 'unknown', priority: 'medium', message: 'Clock synchronization cannot currently be verified.', source: SOURCE.clockSyncUnverified, limitation: 'No Windows clock-synchronization telemetry is available; system time, GPS time, and checklist state are not evidence.' });
   add({ id: 'local-nvis', status: 'unsupported', priority: 'low', message: 'Local/NVIS evaluation is unsupported.', source: SOURCE.unsupported, limitation: 'No Local/NVIS prediction or recommendation is implemented.' });
 
   const ordered = [...findings].sort((left, right) => priorityRank(left.priority) - priorityRank(right.priority) || left.id.localeCompare(right.id));
