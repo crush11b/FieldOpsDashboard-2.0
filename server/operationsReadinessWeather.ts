@@ -1,4 +1,5 @@
-import type { OperationsReadinessDisplayEvidence, OperationsReadinessInput } from './operationsReadiness';
+import type { OperationsReadinessDisplayEvidence } from './operationsReadinessDisplayEvidence';
+import type { OperationsReadinessInput } from './operationsReadiness';
 import type { SmartDeployBriefV2 } from './smartDeployBrief';
 import {
   getActiveAlertsApiResponse,

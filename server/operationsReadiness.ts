@@ -1,5 +1,5 @@
 import type { SmartDeployBriefV2 } from './smartDeployBrief';
-import type { NOAAAlert, SystemTelemetry, WeatherData } from '../src/types';
+import type { SystemTelemetry } from '../src/types';
 import type { OperatingLocation } from '../src/location/operatingLocation';
 import type { TelemetrySource } from '../src/telemetry';
 
@@ -43,23 +43,6 @@ export interface OperationsReadinessInput {
   readonly propagation: { readonly status: 'modeled' | 'partial' | 'observed-only' | 'stale' | 'unavailable'; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly limitation?: string };
   readonly checklist?: { readonly completedItems: number; readonly totalItems: number; readonly source: TelemetrySource; readonly updatedAtUtc?: string };
   readonly activationNotes?: { readonly count: number; readonly source: TelemetrySource; readonly updatedAtUtc?: string };
-}
-
-export interface OperationsReadinessDisplayEvidence {
-  readonly weather: {
-    readonly status: 'not_requested' | 'live' | 'unavailable';
-    readonly data: WeatherData | null;
-    readonly retrievedAtUtc: string | null;
-    readonly source: TelemetrySource;
-    readonly limitation?: string;
-  };
-  readonly alerts: {
-    readonly status: 'not_requested' | 'live' | 'unavailable';
-    readonly active: readonly NOAAAlert[];
-    readonly retrievedAtUtc: string | null;
-    readonly source: TelemetrySource;
-    readonly limitation?: string;
-  };
 }
 
 export interface OperationsReadinessSummary {

@@ -1,5 +1,6 @@
 import type { ActivationNotesStore } from './activationNotesStore';
-import { buildOperationsReadinessSummary, type OperationsReadinessDisplayEvidence, type OperationsReadinessInput, type OperationsReadinessSummary } from './operationsReadiness';
+import { buildOperationsReadinessSummary, type OperationsReadinessInput, type OperationsReadinessSummary } from './operationsReadiness';
+import type { OperationsReadinessDisplayEvidence } from './operationsReadinessDisplayEvidence';
 import type { FieldReadinessChecklist } from './fieldReadinessChecklist';
 import type { FieldReadinessChecklistStore } from './fieldReadinessChecklistStore';
 import type { LocationTelemetry } from './locationTelemetryPipe';
