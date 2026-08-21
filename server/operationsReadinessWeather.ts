@@ -1,4 +1,4 @@
-import type { OperationsReadinessInput } from './operationsReadiness';
+import type { OperationsReadinessDisplayEvidence, OperationsReadinessInput } from './operationsReadiness';
 import type { SmartDeployBriefV2 } from './smartDeployBrief';
 import {
   getActiveAlertsApiResponse,
@@ -20,6 +20,7 @@ export interface OperationsReadinessWeatherDiagnostic {
 export interface OperationsReadinessWeatherEnrichment {
   readonly weather: NonNullable<OperationsReadinessInput['weather']>;
   readonly alerts: NonNullable<OperationsReadinessInput['alerts']>;
+  readonly displayEvidence: OperationsReadinessDisplayEvidence;
   readonly diagnostics: readonly OperationsReadinessWeatherDiagnostic[];
 }
 
@@ -74,6 +75,7 @@ export async function enrichOperationsReadinessWeather(
     message: 'Live weather alerts for the retained planned operating site are unavailable.',
   });
   const provenanceLimitation = plannedSiteProvenanceLimitation(brief);
+  const retrievedAtUtc = validTimestamp(now) ? now.toISOString() : null;
 
   return {
     weather: {
@@ -86,6 +88,22 @@ export async function enrichOperationsReadinessWeather(
       active: alertsResult.alerts ?? [],
       source: ALERTS_SOURCE,
       limitation: joinLimitations(evidenceLimitation(alertsResult.alertsStatus), provenanceLimitation),
+    },
+    displayEvidence: {
+      weather: {
+        status: weatherResult.weatherStatus,
+        data: weatherResult.weather,
+        retrievedAtUtc,
+        source: WEATHER_SOURCE,
+        limitation: joinLimitations(evidenceLimitation(weatherResult.weatherStatus), provenanceLimitation),
+      },
+      alerts: {
+        status: alertsResult.alertsStatus,
+        active: alertsResult.alerts ?? [],
+        retrievedAtUtc,
+        source: ALERTS_SOURCE,
+        limitation: joinLimitations(evidenceLimitation(alertsResult.alertsStatus), provenanceLimitation),
+      },
     },
     diagnostics,
   };
@@ -119,8 +137,16 @@ function unavailableEnrichment(
   return {
     weather: { status: 'unavailable', source: WEATHER_SOURCE, ...(limitation ? { limitation } : {}) },
     alerts: { status: 'unavailable', active: [], source: ALERTS_SOURCE, ...(limitation ? { limitation } : {}) },
+    displayEvidence: {
+      weather: { status: 'unavailable', data: null, retrievedAtUtc: null, source: WEATHER_SOURCE, ...(limitation ? { limitation } : {}) },
+      alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, source: ALERTS_SOURCE, ...(limitation ? { limitation } : {}) },
+    },
     diagnostics,
   };
+}
+
+function validTimestamp(value: Date): boolean {
+  return value instanceof Date && Number.isFinite(value.getTime());
 }
 
 function withTimeout(fetcher: typeof fetch, timeoutMs: number): typeof fetch {

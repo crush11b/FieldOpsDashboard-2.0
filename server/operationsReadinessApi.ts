@@ -33,7 +33,7 @@ export function createOperationsReadinessRouter(options: OperationsReadinessApiO
         response.status(503).json(errorPayload('readiness_unavailable', 'Operations Readiness could not be evaluated from the retained local evidence.', result.diagnostics));
         return;
       }
-      response.json({ kind: 'operations_readiness', briefId, summary: result.summary, diagnostics: result.diagnostics });
+      response.json({ kind: 'operations_readiness', briefId, summary: result.summary, displayEvidence: result.displayEvidence, diagnostics: result.diagnostics });
     } catch {
       response.status(500).json(errorPayload('readiness_internal_error', 'Operations Readiness encountered an unexpected internal error.'));
     }

@@ -1,5 +1,5 @@
 import type { ActivationNotesStore } from './activationNotesStore';
-import { buildOperationsReadinessSummary, type OperationsReadinessInput, type OperationsReadinessSummary } from './operationsReadiness';
+import { buildOperationsReadinessSummary, type OperationsReadinessDisplayEvidence, type OperationsReadinessInput, type OperationsReadinessSummary } from './operationsReadiness';
 import type { FieldReadinessChecklist } from './fieldReadinessChecklist';
 import type { FieldReadinessChecklistStore } from './fieldReadinessChecklistStore';
 import type { LocationTelemetry } from './locationTelemetryPipe';
@@ -49,7 +49,7 @@ export interface OperationsReadinessAssemblyOptions {
 }
 
 export type OperationsReadinessAssemblyResult =
-  | { readonly status: 'ok'; readonly summary: OperationsReadinessSummary; readonly diagnostics: readonly OperationsReadinessDiagnostic[] }
+  | { readonly status: 'ok'; readonly summary: OperationsReadinessSummary; readonly displayEvidence: OperationsReadinessDisplayEvidence; readonly diagnostics: readonly OperationsReadinessDiagnostic[] }
   | { readonly status: 'notFound'; readonly diagnostics: readonly OperationsReadinessDiagnostic[] }
   | { readonly status: 'unsupported'; readonly diagnostics: readonly OperationsReadinessDiagnostic[] }
   | { readonly status: 'unavailable'; readonly diagnostics: readonly OperationsReadinessDiagnostic[] };
@@ -93,7 +93,9 @@ export async function assembleOperationsReadiness(
   const activationNotes = readActivationNotes(dependencies.activationNotesStore, briefId, diagnostics);
   let weather: OperationsReadinessInput['weather'] = { status: 'unavailable', source: SOURCE.evaluator };
   let alerts: OperationsReadinessInput['alerts'] = { status: 'unavailable', active: [], source: SOURCE.evaluator };
+  let displayEvidence = notRequestedDisplayEvidence();
   if (options.includeLiveWeather) {
+    displayEvidence = unavailableDisplayEvidence();
     if (!dependencies.enrichWeather) {
       diagnostics.push({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
     } else {
@@ -101,6 +103,7 @@ export async function assembleOperationsReadiness(
         const enrichment = await dependencies.enrichWeather(briefResult.brief);
         weather = enrichment.weather;
         alerts = enrichment.alerts;
+        displayEvidence = enrichment.displayEvidence;
         for (const diagnostic of enrichment.diagnostics) diagnostics.push(diagnostic);
       } catch {
         diagnostics.push({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
@@ -120,7 +123,21 @@ export async function assembleOperationsReadiness(
     ...(activationNotes ? { activationNotes } : {}),
   });
   if (!options.includeLiveWeather) diagnostics.push({ code: 'local_weather_alerts_unavailable', message: 'Current weather and alerts are not retained by this local readiness assembly; no live weather request was performed.' });
-  return { status: 'ok', summary, diagnostics };
+  return { status: 'ok', summary, displayEvidence, diagnostics };
+}
+
+function notRequestedDisplayEvidence(): OperationsReadinessDisplayEvidence {
+  return {
+    weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: SOURCE.evaluator },
+    alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: SOURCE.evaluator },
+  };
+}
+
+function unavailableDisplayEvidence(): OperationsReadinessDisplayEvidence {
+  return {
+    weather: { status: 'unavailable', data: null, retrievedAtUtc: null, source: SOURCE.evaluator },
+    alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, source: SOURCE.evaluator },
+  };
 }
 
 function readDataset(reader: () => LocalSotaSummitDataset, diagnostics: OperationsReadinessDiagnostic[]): OperationsReadinessInput['plan']['sotaDataset'] {

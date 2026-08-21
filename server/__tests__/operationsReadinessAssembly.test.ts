@@ -57,6 +57,10 @@ describe('Operations Readiness assembly', () => {
     expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
     expect(result.summary.findings.find(finding => finding.id === 'propagation-evidence')?.status).toBe('attention');
     expect(result.summary.findings.some(finding => finding.limitation?.includes('Retained only.'))).toBe(true);
+    expect(result.displayEvidence).toMatchObject({
+      weather: { status: 'not_requested', data: null, retrievedAtUtc: null },
+      alerts: { status: 'not_requested', active: [], retrievedAtUtc: null },
+    });
     expect(deps.briefStore.get).toHaveBeenCalledWith('brief-1');
   });
 
@@ -64,6 +68,10 @@ describe('Operations Readiness assembly', () => {
     const enrichWeather = vi.fn(async () => ({
       weather: { status: 'live' as const, source: { id: 'weather', type: 'provider' } },
       alerts: { status: 'live' as const, active: [], source: { id: 'alerts', type: 'provider' } },
+      displayEvidence: {
+        weather: { status: 'live' as const, data: { tempF: 41 } as never, retrievedAtUtc: evaluatedAtUtc, source: { id: 'weather', type: 'provider' } },
+        alerts: { status: 'live' as const, active: [{ id: 'alert-1', severity: 'Severe' as const, title: 'Wind', description: 'Strong winds.', area: 'Test County', issued: '2026-08-20T11:00:00.000Z', expires: '2026-08-20T15:00:00.000Z' }], retrievedAtUtc: evaluatedAtUtc, source: { id: 'alerts', type: 'provider' } },
+      },
       diagnostics: [],
     }));
     const deps = dependencies({ enrichWeather });
@@ -78,6 +86,8 @@ describe('Operations Readiness assembly', () => {
     if (enriched.status === 'ok') {
       expect(enriched.summary.findings.find(finding => finding.id === 'weather')).toMatchObject({ status: 'ready', source: { id: 'weather' } });
       expect(enriched.summary.findings.find(finding => finding.id === 'weather-alerts')).toMatchObject({ status: 'ready', source: { id: 'alerts' } });
+      expect(enriched.displayEvidence.weather.data).toMatchObject({ tempF: 41 });
+      expect(enriched.displayEvidence.alerts.active[0]).toMatchObject({ severity: 'Severe', description: 'Strong winds.', area: 'Test County' });
     }
   });
 
@@ -88,6 +98,10 @@ describe('Operations Readiness assembly', () => {
     expect(result.status).toBe('ok');
     if (result.status === 'ok') {
       expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
+      expect(result.displayEvidence).toMatchObject({
+        weather: { status: 'unavailable', data: null, retrievedAtUtc: null },
+        alerts: { status: 'unavailable', active: [], retrievedAtUtc: null },
+      });
       expect(JSON.stringify(result)).not.toContain('raw timeout');
       expect(result.diagnostics).toContainEqual({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
     }

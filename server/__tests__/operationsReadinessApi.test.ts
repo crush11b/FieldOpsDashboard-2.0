@@ -44,7 +44,7 @@ async function requestApp(app: express.Express, path: string) {
 
 describe('Operations Readiness API', () => {
   it('rejects malformed brief IDs before assembly', async () => {
-    const result = await request({ status: 'ok', summary: {} as never, diagnostics: [] }, '/api/operations-readiness/%5Cbad');
+    const result = await request({ status: 'ok', summary: {} as never, displayEvidence: {} as never, diagnostics: [] }, '/api/operations-readiness/%5Cbad');
     expect(result.status).toBe(400);
     expect(result.body).toMatchObject({ kind: 'operations_readiness_error', code: 'invalid_id' });
   });
@@ -60,16 +60,16 @@ describe('Operations Readiness API', () => {
   });
 
   it('returns the read-only summary envelope', async () => {
-    const result = await request({ status: 'ok', summary: { evaluatedAtUtc: '2026-08-19T12:00:00.000Z' } as never, diagnostics: [] }, '/api/operations-readiness/brief-1');
+    const result = await request({ status: 'ok', summary: { evaluatedAtUtc: '2026-08-19T12:00:00.000Z' } as never, displayEvidence: { weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: { id: 'local', type: 'derived' } }, alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: { id: 'local', type: 'derived' } } }, diagnostics: [] }, '/api/operations-readiness/brief-1');
     expect(result.status).toBe(200);
-    expect(result.body).toMatchObject({ kind: 'operations_readiness', briefId: 'brief-1', summary: { evaluatedAtUtc: '2026-08-19T12:00:00.000Z' }, diagnostics: [] });
+    expect(result.body).toMatchObject({ kind: 'operations_readiness', briefId: 'brief-1', summary: { evaluatedAtUtc: '2026-08-19T12:00:00.000Z' }, displayEvidence: { weather: { status: 'not_requested', data: null }, alerts: { status: 'not_requested', active: [] } }, diagnostics: [] });
   });
 
   it('passes the decoded valid brief ID to the assembly', async () => {
     let receivedBriefId = '';
     const result = await requestApp(appForAssembly(async briefId => {
       receivedBriefId = briefId;
-      return { status: 'ok', summary: {} as never, diagnostics: [] };
+      return { status: 'ok', summary: {} as never, displayEvidence: {} as never, diagnostics: [] };
     }), '/api/operations-readiness/brief%3Aone');
     expect(result.status).toBe(200);
     expect(receivedBriefId).toBe('brief:one');
@@ -90,14 +90,14 @@ describe('Operations Readiness API', () => {
     let received: boolean | undefined;
     const result = await requestApp(appForAssembly(async (_briefId, options) => {
       received = options?.includeLiveWeather;
-      return { status: 'ok', summary: {} as never, diagnostics: [] };
+      return { status: 'ok', summary: {} as never, displayEvidence: {} as never, diagnostics: [] };
     }), `/api/operations-readiness/brief-1${query}`);
     expect(result.status).toBe(200);
     expect(received).toBe(expected);
   });
 
   it('returns 200 when optional evidence is diagnosed but summary assembly succeeds', async () => {
-    const result = await request({ status: 'ok', summary: {} as never, diagnostics: [{ code: 'checklist_unavailable', message: 'Checklist evidence is unavailable.' }] }, '/api/operations-readiness/brief-1');
+    const result = await request({ status: 'ok', summary: {} as never, displayEvidence: {} as never, diagnostics: [{ code: 'checklist_unavailable', message: 'Checklist evidence is unavailable.' }] }, '/api/operations-readiness/brief-1');
     expect(result.status).toBe(200);
     expect(result.body).toMatchObject({ kind: 'operations_readiness', diagnostics: [{ code: 'checklist_unavailable' }] });
   });
@@ -117,7 +117,7 @@ describe('Operations Readiness API', () => {
   });
 
   it('does not invoke assembly for a malformed ID', async () => {
-    const assembly = async () => ({ status: 'ok', summary: {} as never, diagnostics: [] } as OperationsReadinessAssemblyResult);
+    const assembly = async () => ({ status: 'ok', summary: {} as never, displayEvidence: {} as never, diagnostics: [] } as OperationsReadinessAssemblyResult);
     const spy = vi.fn(assembly);
     const result = await requestApp(appForAssembly(spy), '/api/operations-readiness/%5Cbad');
     expect(result.status).toBe(400);

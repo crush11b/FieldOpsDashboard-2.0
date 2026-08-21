@@ -55,6 +55,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ urls }), now: NOW });
     expect(result.weather.status).toBe('live');
     expect(result.alerts.active[0]).toMatchObject({ severity: 'Unknown' });
+    expect(result.displayEvidence.weather).toMatchObject({ status: 'live', retrievedAtUtc: NOW.toISOString(), data: { tempF: 41 } });
+    expect(result.displayEvidence.alerts).toMatchObject({ status: 'live', retrievedAtUtc: NOW.toISOString(), active: [{ description: 'Strong winds expected.', area: 'Test County' }] });
     expect(urls.every(url => url.includes('37.0000,-77.0000') || url.includes('latitude=37&longitude=-77'))).toBe(true);
     expect(urls.some(url => url.includes('40.0000,-80.0000'))).toBe(false);
   });
@@ -64,6 +66,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const result = await enrichOperationsReadinessWeather(brief(null), { fetcher: fetchSpy, now: NOW });
     expect(result.weather.status).toBe('unavailable');
     expect(result.alerts.status).toBe('unavailable');
+    expect(result.displayEvidence.weather).toMatchObject({ status: 'unavailable', data: null, retrievedAtUtc: null });
+    expect(result.displayEvidence.alerts).toMatchObject({ status: 'unavailable', active: [], retrievedAtUtc: null });
     expect(result.diagnostics[0].code).toBe('planned_site_coordinates_unavailable');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -108,10 +112,14 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const weatherUnavailable = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ weatherOk: false }), now: NOW });
     expect(weatherUnavailable.weather.status).toBe('unavailable');
     expect(weatherUnavailable.alerts.status).toBe('live');
+    expect(weatherUnavailable.displayEvidence.weather.status).toBe('unavailable');
+    expect(weatherUnavailable.displayEvidence.alerts.status).toBe('live');
 
     const alertsUnavailable = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ alertsOk: false }), now: NOW });
     expect(alertsUnavailable.weather.status).toBe('live');
     expect(alertsUnavailable.alerts.status).toBe('unavailable');
+    expect(alertsUnavailable.displayEvidence.weather.status).toBe('live');
+    expect(alertsUnavailable.displayEvidence.alerts.status).toBe('unavailable');
   });
 
   it('times out current weather without preventing alerts from succeeding', async () => {
