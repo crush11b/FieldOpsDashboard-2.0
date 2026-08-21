@@ -37,7 +37,10 @@ function fetcher(options: { weatherOk?: boolean; alertsOk?: boolean; alertsEmpty
     options.urls?.push(url);
     if (url.includes('/alerts/')) return options.alertsOk === false ? new Response(null, { status: 503 }) : json({ features: options.alertsEmpty ? [] : [alert()] });
     if (url.includes('/points/')) return json({ properties: { relativeLocation: { properties: { city: 'Elkins', state: 'WV' } } } });
-    return options.weatherOk === false ? new Response(null, { status: 503 }) : json({ current: { temperature_2m: 41, relative_humidity_2m: 70, pressure_msl: 1012, wind_speed_10m: 12, wind_direction_10m: 270, wind_gusts_10m: 18, weather_code: 3, uv_index: 1 }, hourly: { time: [] } });
+    return options.weatherOk === false ? new Response(null, { status: 503 }) : json({
+      current: { temperature_2m: 41, relative_humidity_2m: 70, pressure_msl: 1012, wind_speed_10m: 12, wind_direction_10m: 270, wind_gusts_10m: 18, weather_code: 3, uv_index: 1 },
+      hourly: { time: ['2026-08-20T12:00:00Z'], temperature_2m: [42], weather_code: [2], precipitation_probability: [20], wind_speed_10m: [10] },
+    });
   };
 }
 
@@ -55,8 +58,39 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ urls }), now: NOW });
     expect(result.weather.status).toBe('live');
     expect(result.alerts.active[0]).toMatchObject({ severity: 'Unknown' });
-    expect(result.displayEvidence.weather).toMatchObject({ status: 'live', retrievedAtUtc: NOW.toISOString(), data: { tempF: 41 } });
-    expect(result.displayEvidence.alerts).toMatchObject({ status: 'live', retrievedAtUtc: NOW.toISOString(), active: [{ description: 'Strong winds expected.', area: 'Test County' }] });
+    expect(result.displayEvidence.weather).toMatchObject({
+      status: 'live',
+      retrievedAtUtc: NOW.toISOString(),
+      data: {
+        tempF: 41,
+        tempC: 5,
+        humidity: 70,
+        pressureInHg: 29.88,
+        pressureHpa: 1012,
+        windMph: 12,
+        windGustMph: 18,
+        windDir: 'W',
+        condition: 'Partly Cloudy',
+        locationName: 'Elkins, WV',
+        dewPointF: 30,
+        uvIndex: 1,
+        lastUpdated: NOW.toISOString(),
+        cached: false,
+        hourlyForecast: [{ tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2, time: expect.any(String) }],
+      },
+    });
+    expect(result.displayEvidence.alerts).toMatchObject({
+      status: 'live',
+      retrievedAtUtc: NOW.toISOString(),
+      active: [{ id: 'alert-1', severity: 'Unknown', title: 'High Wind Warning', description: 'Strong winds expected.', area: 'Test County', issued: 'Recently', expires: 'Until further notice' }],
+    });
+    const hourly = result.displayEvidence.weather.data?.hourlyForecast?.[0];
+    expect(hourly?.time).toEqual(expect.any(String));
+    expect(hourly?.time).not.toBe('');
+    expect(urls).toHaveLength(3);
+    expect(urls.filter(url => url.includes('api.open-meteo.com'))).toHaveLength(1);
+    expect(urls.filter(url => url.includes('/points/'))).toHaveLength(1);
+    expect(urls.filter(url => url.includes('/alerts/'))).toHaveLength(1);
     expect(urls.every(url => url.includes('37.0000,-77.0000') || url.includes('latitude=37&longitude=-77'))).toBe(true);
     expect(urls.some(url => url.includes('40.0000,-80.0000'))).toBe(false);
   });
@@ -174,6 +208,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const gridCenter = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }, { lat: 40, lon: -80 }, 'manual_planned_site_grid'), { fetcher: fetcher(), now: NOW });
     expect(gridCenter.weather.limitation).toContain('center of the entered Maidenhead grid');
     expect(gridCenter.alerts.limitation).toContain('center of the entered Maidenhead grid');
+    expect(gridCenter.displayEvidence.weather.limitation).toContain('center of the entered Maidenhead grid');
+    expect(gridCenter.displayEvidence.alerts.limitation).toContain('center of the entered Maidenhead grid');
   });
 });
 

@@ -65,6 +65,56 @@ describe('Operations Readiness API', () => {
     expect(result.body).toMatchObject({ kind: 'operations_readiness', briefId: 'brief-1', summary: { evaluatedAtUtc: '2026-08-19T12:00:00.000Z' }, displayEvidence: { weather: { status: 'not_requested', data: null }, alerts: { status: 'not_requested', active: [] } }, diagnostics: [] });
   });
 
+  it('serializes complete live display evidence without invoking providers', async () => {
+    const retrievedAtUtc = '2026-08-20T12:00:00.000Z';
+    const result = await request({
+      status: 'ok',
+      summary: {} as never,
+      displayEvidence: {
+        weather: {
+          status: 'live',
+          data: {
+            tempF: 41, tempC: 5, humidity: 70, pressureInHg: 29.88, pressureHpa: 1012,
+            windMph: 12, windGustMph: 18, windDir: 'W', condition: 'Partly Cloudy', icon: 'sun',
+            locationName: 'Elkins, WV', dewPointF: 30, uvIndex: 1, lastUpdated: retrievedAtUtc,
+            cached: false, hourlyForecast: [{ time: '12 PM', tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2 }],
+          },
+          retrievedAtUtc,
+          source: { id: 'open-meteo-current-weather', type: 'weather_provider', name: 'Open-Meteo current weather' },
+          limitation: 'Provider request succeeded, but no freshness threshold or provider observation timestamp is established.',
+        },
+        alerts: {
+          status: 'live',
+          active: [{ id: 'alert-1', severity: 'Unknown', title: 'High Wind Warning', description: 'Strong winds expected.', area: 'Test County', issued: 'Recently', expires: 'Until further notice' }],
+          retrievedAtUtc,
+          source: { id: 'noaa-nws-active-alerts', type: 'weather_alert_provider', name: 'NOAA/NWS active alerts' },
+          limitation: 'Provider request succeeded, but no freshness threshold or provider observation timestamp is established.',
+        },
+      },
+      diagnostics: [],
+    }, '/api/operations-readiness/brief-1');
+    expect(result.status).toBe(200);
+    expect(result.body).toMatchObject({
+      kind: 'operations_readiness',
+      displayEvidence: {
+        weather: {
+          status: 'live',
+          data: { tempF: 41, pressureHpa: 1012, locationName: 'Elkins, WV', hourlyForecast: [{ tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2 }] },
+          retrievedAtUtc,
+          source: { id: 'open-meteo-current-weather' },
+          limitation: expect.stringContaining('no freshness threshold'),
+        },
+        alerts: {
+          status: 'live',
+          active: [{ id: 'alert-1', severity: 'Unknown', title: 'High Wind Warning', description: 'Strong winds expected.', area: 'Test County', issued: 'Recently', expires: 'Until further notice' }],
+          retrievedAtUtc,
+          source: { id: 'noaa-nws-active-alerts' },
+          limitation: expect.stringContaining('no freshness threshold'),
+        },
+      },
+    });
+  });
+
   it('passes the decoded valid brief ID to the assembly', async () => {
     let receivedBriefId = '';
     const result = await requestApp(appForAssembly(async briefId => {
