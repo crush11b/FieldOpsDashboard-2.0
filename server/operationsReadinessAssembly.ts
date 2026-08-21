@@ -180,7 +180,7 @@ function readActivationNotes(store: Pick<ActivationNotesStore, 'getByBriefId'>, 
       return undefined;
     }
     const collection = result.collections[0];
-    return collection ? { count: collection.notes.length, source: notesSource(briefId), updatedAtUtc: collection.updatedAtUtc } : undefined;
+    return collection ? { count: collection.notes.length, source: notesSource(briefId), updatedAtUtc: collection.updatedAtUtc } : { count: 0, source: notesSource(briefId) };
   } catch {
     diagnostics.push({ code: 'activation_notes_unavailable', message: 'Activation Notes evidence is unavailable.' });
     return undefined;

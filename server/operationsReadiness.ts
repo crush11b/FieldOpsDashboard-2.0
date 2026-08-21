@@ -67,14 +67,17 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
   const brief = input.plan.brief;
 
   if (!brief) {
-    add({ id: 'sota-plan-missing', status: 'blocked', priority: 'high', message: 'No retained SOTA SmartDeploy plan is available.', source: SOURCE.evaluator, recommendedAction: 'Create or retain a SOTA SmartDeploy plan before field departure.' });
+    add({ id: 'plan-missing', status: 'blocked', priority: 'high', message: 'No retained SmartDeploy plan is available.', source: SOURCE.evaluator, recommendedAction: 'Create or retain a SmartDeploy plan before field departure.' });
   } else {
-    add({ id: 'sota-plan-retained', status: brief.status === 'complete' ? 'ready' : 'attention', priority: brief.status === 'complete' ? 'low' : 'medium', message: brief.status === 'complete' ? 'A retained SOTA SmartDeploy plan is available.' : `A retained SOTA SmartDeploy plan is available with ${brief.status} evidence.`, source: SOURCE.evaluator, limitation: brief.status === 'complete' ? undefined : 'The retained plan contains incomplete evidence.', recommendedAction: brief.status === 'complete' ? undefined : 'Review the plan limitations before departure.' });
+    const program = brief.activation.program.trim().toUpperCase();
+    const planLabel = program === 'SOTA' ? 'SOTA SmartDeploy plan' : program === 'POTA' ? 'POTA SmartDeploy plan' : 'SmartDeploy plan';
+    add({ id: 'plan-retained', status: brief.status === 'complete' ? 'ready' : 'attention', priority: brief.status === 'complete' ? 'low' : 'medium', message: brief.status === 'complete' ? `A retained ${planLabel} is available.` : `A retained ${planLabel} is available with ${brief.status} evidence.`, source: SOURCE.evaluator, limitation: brief.status === 'complete' ? undefined : 'The retained plan contains incomplete evidence.', recommendedAction: brief.status === 'complete' ? undefined : 'Review the plan limitations before departure.' });
+    addMissionWindowFinding(brief, input.evaluatedAtUtc, add);
     for (const limitation of brief.limitations) add({ id: `plan-limitation-${limitation.code}`, status: 'attention', priority: 'low', message: limitation.message, source: SOURCE.evaluator, limitation: limitation.message });
   }
 
   const dataset = input.plan.sotaDataset;
-  add({ id: 'sota-dataset-state', status: dataset.status === 'available' ? 'ready' : dataset.status === 'stale' ? 'stale' : 'unavailable', priority: dataset.status === 'available' ? 'low' : 'medium', message: dataset.status === 'available' ? 'SOTA summit data is available.' : dataset.status === 'stale' ? 'SOTA summit data is stale but usable for planning.' : 'SOTA summit data is unavailable.', source: dataset.source, ...(dataset.downloadedAtUtc ? { observedAtUtc: dataset.downloadedAtUtc } : {}), freshness: dataset.status === 'available' ? 'fresh' : dataset.status === 'stale' ? 'stale' : 'unavailable', recommendedAction: dataset.status === 'stale' ? 'Refresh SOTA data when connectivity is available.' : dataset.status === 'unavailable' ? 'Refresh SOTA data before relying on summit lookup.' : undefined });
+  if (brief?.activation.program.trim().toUpperCase() === 'SOTA') add({ id: 'sota-dataset-state', status: dataset.status === 'available' ? 'ready' : dataset.status === 'stale' ? 'stale' : 'unavailable', priority: dataset.status === 'available' ? 'low' : 'medium', message: dataset.status === 'available' ? 'SOTA summit data is available.' : dataset.status === 'stale' ? 'SOTA summit data is stale but usable for planning.' : 'SOTA summit data is unavailable.', source: dataset.source, ...(dataset.downloadedAtUtc ? { observedAtUtc: dataset.downloadedAtUtc } : {}), freshness: dataset.status === 'available' ? 'fresh' : dataset.status === 'stale' ? 'stale' : 'unavailable', recommendedAction: dataset.status === 'stale' ? 'Refresh SOTA data when connectivity is available.' : dataset.status === 'unavailable' ? 'Refresh SOTA data before relying on summit lookup.' : undefined });
 
   const locationStatus: ReadinessStatus = input.currentLocation.status === 'current' ? 'ready' : input.currentLocation.status === 'manual' ? 'attention' : input.currentLocation.status === 'stale' ? 'stale' : 'unavailable';
   add({ id: 'current-location', status: locationStatus, priority: locationStatus === 'unavailable' ? 'high' : locationStatus === 'ready' ? 'low' : 'medium', message: locationStatus === 'ready' ? 'Current operating location is available.' : locationStatus === 'attention' ? 'Current operating location is manually entered.' : locationStatus === 'stale' ? 'Current operating location is stale.' : 'Current operating location is unavailable.', source: input.currentLocation.source, ...(input.currentLocation.observedAtUtc ? { observedAtUtc: input.currentLocation.observedAtUtc } : {}), freshness: locationStatus === 'ready' || locationStatus === 'attention' ? 'fresh' : locationStatus === 'stale' ? 'stale' : 'unavailable', limitation: 'Current device location is separate from the planned operating site.', recommendedAction: locationStatus === 'unavailable' ? 'Acquire GNSS or enter a planned location.' : locationStatus === 'stale' ? 'Confirm the operating location before deployment.' : undefined });
@@ -117,7 +120,7 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
   const checklistComplete = checklist && checklist.totalItems > 0 && checklist.completedItems >= checklist.totalItems;
   add({ id: 'field-readiness-checklist', status: !checklist ? 'unknown' : checklistComplete ? 'ready' : 'attention', priority: !checklist || !checklistComplete ? 'medium' : 'low', message: !checklist ? 'Field Readiness Checklist has not been created.' : checklistComplete ? `Field Readiness Checklist is complete (${checklist.completedItems}/${checklist.totalItems}).` : `Field Readiness Checklist is incomplete (${checklist.completedItems}/${checklist.totalItems}).`, source: checklist?.source ?? SOURCE.evaluator, ...(checklist?.updatedAtUtc ? { observedAtUtc: checklist.updatedAtUtc } : {}), limitation: 'Checklist completion is a readiness indicator, not proof of safety, permission, legality, or equipment presence.', recommendedAction: !checklist || !checklistComplete ? 'Review and complete the readiness checklist.' : undefined });
   const notes = input.activationNotes;
-  add({ id: 'activation-notes', status: notes ? 'ready' : 'unknown', priority: notes ? 'low' : 'medium', message: notes ? `Activation Notes are available (${notes.count} recorded).` : 'Activation Notes metadata is unavailable.', source: notes?.source ?? SOURCE.evaluator, ...(notes?.updatedAtUtc ? { observedAtUtc: notes.updatedAtUtc } : {}), freshness: notes ? 'fresh' : 'unavailable', recommendedAction: notes ? undefined : 'Confirm the activation notes collection is available.' });
+  add({ id: 'activation-notes', status: notes ? 'ready' : 'unknown', priority: notes ? 'low' : 'medium', message: notes ? notes.count === 0 ? 'No Activation Notes have been recorded for this brief.' : `Activation Notes are available (${notes.count} recorded).` : 'Activation Notes metadata is unavailable.', source: notes?.source ?? SOURCE.evaluator, ...(notes?.updatedAtUtc ? { observedAtUtc: notes.updatedAtUtc } : {}), freshness: notes ? 'fresh' : 'unavailable', recommendedAction: notes ? undefined : 'Confirm the activation notes collection is available.' });
   add({ id: 'clock-synchronization', status: 'unknown', priority: 'medium', message: 'Clock synchronization cannot currently be verified.', source: SOURCE.clockSyncUnverified, limitation: 'No Windows clock-synchronization telemetry is available; system time, GPS time, and checklist state are not evidence.' });
   add({ id: 'local-nvis', status: 'unsupported', priority: 'low', message: 'Local/NVIS evaluation is unsupported.', source: SOURCE.unsupported, limitation: 'No Local/NVIS prediction or recommendation is implemented.' });
 
@@ -131,6 +134,25 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
     findings: ordered,
     nextActions: ordered.filter(finding => finding.recommendedAction).map(finding => finding.recommendedAction!),
   };
+}
+
+function addMissionWindowFinding(brief: SmartDeployBriefV2, evaluatedAtUtc: string, add: (finding: Omit<ReadinessFinding, 'evaluatedAtUtc'>) => void): void {
+  const start = Date.parse(brief.missionWindow.start);
+  const end = Date.parse(brief.missionWindow.end);
+  const evaluated = Date.parse(evaluatedAtUtc);
+  if (![start, end, evaluated].every(Number.isFinite) || end < start) {
+    add({ id: 'mission-window', status: 'unknown', priority: 'medium', message: 'The retained mission window is unavailable or malformed.', source: SOURCE.evaluator, limitation: 'Mission-window timing cannot be determined from the retained timestamps.' });
+    return;
+  }
+  if (evaluated < start) {
+    add({ id: 'mission-window', status: 'ready', priority: 'low', message: 'The retained mission window is upcoming.', source: SOURCE.evaluator, observedAtUtc: brief.missionWindow.start });
+    return;
+  }
+  if (evaluated <= end) {
+    add({ id: 'mission-window', status: 'ready', priority: 'low', message: 'Evaluation is within the retained mission window.', source: SOURCE.evaluator, observedAtUtc: brief.missionWindow.start });
+    return;
+  }
+  add({ id: 'mission-window', status: 'attention', priority: 'medium', message: 'The retained mission window has ended.', source: SOURCE.evaluator, observedAtUtc: brief.missionWindow.end, recommendedAction: 'Review, update, or create a plan with a current operating window.' });
 }
 
 function priorityRank(priority: ReadinessPriority): number { return priority === 'high' ? 0 : priority === 'medium' ? 1 : 2; }

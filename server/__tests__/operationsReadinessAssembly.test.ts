@@ -309,7 +309,7 @@ describe('Operations Readiness assembly', () => {
     expect(result.status).toBe('ok');
     if (result.status === 'ok') {
       expect(result.summary.findings.find(finding => finding.id === 'field-readiness-checklist')?.message).toContain('2/3');
-      expect(result.summary.findings.find(finding => finding.id === 'activation-notes')?.message).toContain('(0 recorded)');
+      expect(result.summary.findings.find(finding => finding.id === 'activation-notes')?.message).toBe('No Activation Notes have been recorded for this brief.');
       expect(result.diagnostics).toContainEqual({ code: 'local_weather_alerts_unavailable', message: expect.any(String) });
     }
   });
@@ -343,6 +343,22 @@ describe('Operations Readiness assembly', () => {
       expect(result.summary.findings.find(finding => finding.id === 'weather')).toMatchObject({ status: 'unavailable' });
       expect(result.summary.findings.find(finding => finding.id === 'weather-alerts')).toMatchObject({ status: 'unavailable' });
       expect(result.diagnostics.find(diagnostic => diagnostic.code === 'local_weather_alerts_unavailable')?.message).toContain('no live weather request was performed');
+    }
+  });
+  it('treats a missing healthy notes store as known zero notes without writing', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies());
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') expect(result.summary.findings.find(finding => finding.id === 'activation-notes')).toMatchObject({ status: 'ready', message: 'No Activation Notes have been recorded for this brief.' });
+  });
+  it('keeps actual notes store failures unavailable with a bounded diagnostic', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      activationNotesStore: { getByBriefId: () => ({ status: 'invalid', collections: [], diagnostics: [{ code: 'corrupt', message: 'private store detail' }] }) } as never,
+    }));
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.summary.findings.find(finding => finding.id === 'activation-notes')).toMatchObject({ status: 'unknown', message: 'Activation Notes metadata is unavailable.' });
+      expect(result.diagnostics).toContainEqual({ code: 'activation_notes_unavailable', message: 'Activation Notes evidence is unavailable.' });
+      expect(JSON.stringify(result)).not.toContain('private store detail');
     }
   });
 });
