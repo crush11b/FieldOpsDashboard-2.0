@@ -4,7 +4,13 @@ import { getOperationsReadinessForBrief, OperationsReadinessApiError } from '../
 const validResponse = (overrides: Record<string, unknown> = {}) => ({
   kind: 'operations_readiness',
   briefId: 'brief/1',
-  summary: { evaluatedAtUtc: '2026-08-21T04:00:00.000Z', findings: [], nextActions: [] },
+  summary: {
+    evaluatedAtUtc: '2026-08-21T04:00:00.000Z',
+    plan: { status: 'ready', briefId: 'brief/1', activationReference: 'US-1234', plannedSite: 'Test site' },
+    toughBook: { status: 'ready', chargePercent: 80, powerSource: 'AC', charging: true, runtimeEstimateSeconds: 3600 },
+    findings: [],
+    nextActions: [],
+  },
   displayEvidence: {
     weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: { id: 'weather', type: 'derived' } },
     alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: { id: 'alerts', type: 'derived' } },
@@ -49,8 +55,12 @@ describe('operations readiness API', () => {
 
   it.each([
     ['summary', validResponse({ summary: { findings: [], nextActions: [] } })],
-    ['findings', validResponse({ summary: { evaluatedAtUtc: '2026-08-21T04:00:00.000Z', findings: 'bad', nextActions: [] } })],
+    ['plan', validResponse({ summary: { ...validResponse().summary, plan: { status: 'ready' } } })],
+    ['ToughBook', validResponse({ summary: { ...validResponse().summary, toughBook: { status: 'ready', chargePercent: 80, powerSource: 'AC', charging: true, runtimeEstimateSeconds: -1 } } })],
+    ['finding', validResponse({ summary: { ...validResponse().summary, findings: [{ id: 'finding', status: 'ready', priority: 'low', message: 'message', source: null, evaluatedAtUtc: '2026-08-21T04:00:00.000Z' }] } })],
     ['display evidence', validResponse({ displayEvidence: { weather: {}, alerts: {} } })],
+    ['weather data', validResponse({ displayEvidence: { ...validResponse().displayEvidence, weather: { ...validResponse().displayEvidence.weather, status: 'live', retrievedAtUtc: '2026-08-21T04:00:00.000Z', data: { tempF: 72 } } } })],
+    ['alerts', validResponse({ displayEvidence: { ...validResponse().displayEvidence, alerts: { ...validResponse().displayEvidence.alerts, active: [{ id: 'alert', severity: 'Unknown' }] } } })],
     ['status', validResponse({ displayEvidence: { weather: { status: 'fresh', source: { id: 'weather', type: 'derived' } }, alerts: validResponse().displayEvidence.alerts } })],
     ['JSON', null],
   ])('rejects malformed %s payloads', async (_label, payload) => {
@@ -74,6 +84,11 @@ describe('operations readiness API', () => {
 
   it('uses the fixed fallback for unknown backend errors', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => response({ code: 'unknown', message: 'raw backend message' }, false)));
-    await expect(getOperationsReadinessForBrief('brief/1')).rejects.toMatchObject({ message: 'Operations Readiness could not be loaded from the local server.' });
+    await expect(getOperationsReadinessForBrief('brief/1')).rejects.toMatchObject({ code: 'request_failed', message: 'Operations Readiness could not be loaded from the local server.' });
+  });
+
+  it('uses the fixed contract error for malformed successful responses', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ code: 'unsupported_brief_schema', message: 'raw malformed response' })));
+    await expect(getOperationsReadinessForBrief('brief/1')).rejects.toMatchObject({ code: 'request_failed', message: 'Operations Readiness could not be loaded from the local server.' });
   });
 });
