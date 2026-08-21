@@ -47,6 +47,7 @@ import { createActivationNotesRouter } from './server/activationNotesApi';
 import { ActivationNotesStore, getDefaultActivationNotesPath } from './server/activationNotesStore';
 import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChecklistApi';
 import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
+import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 
 async function startServer() {
   const app = express();
@@ -94,6 +95,17 @@ async function startServer() {
   const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
+  app.use(createOperationsReadinessRouter({
+    dependencies: {
+      briefStore: smartDeployBriefStore,
+      sotaDatasetReader: () => sotaDataStore.dataset,
+      checklistStore: fieldReadinessChecklistStore,
+      activationNotesStore,
+      readLocation: readLocationTelemetryPipe,
+      readSystem: readSystemTelemetry,
+      now: () => new Date(),
+    },
+  }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
     store: smartDeployBriefStore,
