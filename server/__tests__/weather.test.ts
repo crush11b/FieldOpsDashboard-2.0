@@ -131,7 +131,7 @@ describe('weather and NOAA partial-failure semantics', () => {
 
     expect(result.alertsStatus).toBe('live');
     expect(result.alerts).toHaveLength(1);
-    expect(result.alerts?.[0]).toMatchObject({ id: 'active', expires: 'Until further notice' });
+    expect(result.alerts?.[0]).toMatchObject({ id: 'active', severity: 'Unknown', expires: 'Until further notice' });
   });
 });
 

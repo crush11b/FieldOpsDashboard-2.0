@@ -1,15 +1,15 @@
 import express, { type Router } from 'express';
 import { isValidActivationNotesId } from './activationNotes';
-import { assembleOperationsReadiness, type OperationsReadinessAssemblyDependencies, type OperationsReadinessAssemblyResult } from './operationsReadinessAssembly';
+import { assembleOperationsReadiness, type OperationsReadinessAssemblyDependencies, type OperationsReadinessAssemblyOptions, type OperationsReadinessAssemblyResult } from './operationsReadinessAssembly';
 
 export interface OperationsReadinessApiOptions {
-  readonly assembly?: (briefId: string) => Promise<OperationsReadinessAssemblyResult>;
+  readonly assembly?: (briefId: string, options?: OperationsReadinessAssemblyOptions) => Promise<OperationsReadinessAssemblyResult>;
   readonly dependencies?: OperationsReadinessAssemblyDependencies;
 }
 
 export function createOperationsReadinessRouter(options: OperationsReadinessApiOptions): Router {
   if (!options.assembly && !options.dependencies) throw new Error('Operations Readiness API requires an assembly or dependencies.');
-  const assembly = options.assembly ?? ((briefId: string) => assembleOperationsReadiness(briefId, options.dependencies!));
+  const assembly = options.assembly ?? ((briefId: string, assemblyOptions?: OperationsReadinessAssemblyOptions) => assembleOperationsReadiness(briefId, options.dependencies!, assemblyOptions));
   const router = express.Router();
 
   router.get('/api/operations-readiness/:briefId', async (request, response) => {
@@ -19,7 +19,8 @@ export function createOperationsReadinessRouter(options: OperationsReadinessApiO
       return;
     }
     try {
-      const result = await assembly(briefId);
+      const includeLiveWeather = request.query.includeLiveWeather === 'true';
+      const result = await assembly(briefId, { includeLiveWeather });
       if (result.status === 'notFound') {
         response.status(404).json(errorPayload('brief_not_found', 'The retained SmartDeploy brief was not found.', result.diagnostics));
         return;

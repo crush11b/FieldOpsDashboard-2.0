@@ -38,8 +38,8 @@ export interface OperationsReadinessInput {
     readonly source: TelemetrySource;
     readonly observedAtUtc: string;
   };
-  readonly weather?: { readonly status: 'live' | 'stale' | 'unavailable'; readonly source: TelemetrySource; readonly observedAtUtc?: string };
-  readonly alerts?: { readonly status: 'live' | 'stale' | 'unavailable'; readonly active: readonly { readonly id: string; readonly severity: 'Extreme' | 'Severe' | 'Moderate' | 'Minor'; readonly title: string }[]; readonly source: TelemetrySource; readonly observedAtUtc?: string };
+  readonly weather?: { readonly status: 'live' | 'stale' | 'unavailable'; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly limitation?: string };
+  readonly alerts?: { readonly status: 'live' | 'stale' | 'unavailable'; readonly active: readonly { readonly id: string; readonly severity: 'Extreme' | 'Severe' | 'Moderate' | 'Minor' | 'Unknown'; readonly title: string }[]; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly limitation?: string };
   readonly propagation: { readonly status: 'modeled' | 'partial' | 'observed-only' | 'stale' | 'unavailable'; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly limitation?: string };
   readonly checklist?: { readonly completedItems: number; readonly totalItems: number; readonly source: TelemetrySource; readonly updatedAtUtc?: string };
   readonly activationNotes?: { readonly count: number; readonly source: TelemetrySource; readonly updatedAtUtc?: string };
@@ -86,7 +86,7 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
   add({ id: 'station-endurance', status: 'unknown', priority: 'low', message: 'Radio and station endurance are unknown.', source: SOURCE.evaluator, limitation: 'ToughBook runtime does not measure radio, battery-pack, or station endurance.' });
 
   const weather = input.weather;
-  add({ id: 'weather', status: weather?.status === 'live' ? 'ready' : weather?.status === 'stale' ? 'stale' : 'unavailable', priority: weather?.status === 'live' ? 'low' : 'medium', message: weather?.status === 'live' ? 'Current weather is available.' : weather?.status === 'stale' ? 'Weather information is stale.' : 'Weather information is unavailable.', source: weather?.source ?? SOURCE.evaluator, ...(weather?.observedAtUtc ? { observedAtUtc: weather.observedAtUtc } : {}), freshness: weather?.status === 'live' ? 'fresh' : weather?.status === 'stale' ? 'stale' : 'unavailable' });
+  add({ id: 'weather', status: weather?.status === 'live' ? 'ready' : weather?.status === 'stale' ? 'stale' : 'unavailable', priority: weather?.status === 'live' ? 'low' : 'medium', message: weather?.status === 'live' ? 'Current weather is available.' : weather?.status === 'stale' ? 'Weather information is stale.' : 'Weather information is unavailable.', source: weather?.source ?? SOURCE.evaluator, ...(weather?.observedAtUtc ? { observedAtUtc: weather.observedAtUtc } : {}), ...(weather?.status === 'stale' ? { freshness: 'stale' as const } : weather?.status === 'unavailable' ? { freshness: 'unavailable' as const } : {}), ...(weather?.limitation ? { limitation: weather.limitation } : {}) });
   const alerts = input.alerts;
   const consideredAlerts = alerts && alerts.status !== 'unavailable' ? alerts.active : [];
   const highestAlert = consideredAlerts.slice().sort(compareAlerts)[0];
@@ -108,7 +108,7 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
       : highestAlert
         ? `Active ${highestAlert.severity.toLowerCase()} weather alert: ${highestAlert.title}.`
         : 'No active weather alerts are present in the available alert set.';
-  add({ id: 'weather-alerts', status: alertStatus, priority: alertPriority, message: alertMessage, source: alerts?.source ?? SOURCE.evaluator, ...(alerts?.observedAtUtc ? { observedAtUtc: alerts.observedAtUtc } : {}), freshness: alerts?.status === 'live' ? 'fresh' : alerts?.status === 'stale' ? 'stale' : 'unavailable', recommendedAction: significantAlert ? 'Review the alert and current conditions before operating.' : alertStatus === 'stale' ? 'Refresh authoritative weather information before operating.' : undefined });
+  add({ id: 'weather-alerts', status: alertStatus, priority: alertPriority, message: alertMessage, source: alerts?.source ?? SOURCE.evaluator, ...(alerts?.observedAtUtc ? { observedAtUtc: alerts.observedAtUtc } : {}), ...(alerts?.status === 'stale' ? { freshness: 'stale' as const } : alerts?.status === 'unavailable' ? { freshness: 'unavailable' as const } : {}), ...(alerts?.limitation ? { limitation: alerts.limitation } : {}), recommendedAction: significantAlert ? 'Review the alert and current conditions before operating.' : alertStatus === 'stale' ? 'Refresh authoritative weather information before operating.' : undefined });
 
   const propagationStatus: ReadinessStatus = input.propagation.status === 'modeled' ? 'attention' : input.propagation.status === 'partial' || input.propagation.status === 'observed-only' ? 'attention' : input.propagation.status === 'stale' ? 'stale' : 'unavailable';
   add({ id: 'propagation-evidence', status: propagationStatus, priority: propagationStatus === 'unavailable' ? 'medium' : 'low', message: input.propagation.status === 'modeled' ? 'Propagation guidance is modeled and is not a guarantee.' : input.propagation.status === 'partial' ? 'Propagation guidance is partial.' : input.propagation.status === 'observed-only' ? 'Propagation evidence is observational only.' : input.propagation.status === 'stale' ? 'Propagation evidence is stale.' : 'Propagation guidance is unavailable.', source: input.propagation.source, ...(input.propagation.observedAtUtc ? { observedAtUtc: input.propagation.observedAtUtc } : {}), freshness: input.propagation.status === 'stale' ? 'stale' : input.propagation.status === 'unavailable' ? 'unavailable' : 'fresh', limitation: input.propagation.limitation ?? 'Propagation evidence does not guarantee operating success.' });
@@ -135,7 +135,7 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
 
 function priorityRank(priority: ReadinessPriority): number { return priority === 'high' ? 0 : priority === 'medium' ? 1 : 2; }
 function compareAlerts(left: OperationsReadinessInput['alerts'] extends { active: infer Alerts } ? Alerts extends readonly (infer Alert)[] ? Alert : never : never, right: OperationsReadinessInput['alerts'] extends { active: infer Alerts } ? Alerts extends readonly (infer Alert)[] ? Alert : never : never): number {
-  const severityOrder = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3 } as const;
+  const severityOrder = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 } as const;
   return severityOrder[left.severity] - severityOrder[right.severity] || left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 }
 function formatDuration(seconds: number): string { const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`; }

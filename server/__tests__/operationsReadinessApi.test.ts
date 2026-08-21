@@ -2,7 +2,7 @@ import express from 'express';
 import http from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import { createOperationsReadinessRouter } from '../operationsReadinessApi';
-import type { OperationsReadinessAssemblyResult } from '../operationsReadinessAssembly';
+import type { OperationsReadinessAssemblyOptions, OperationsReadinessAssemblyResult } from '../operationsReadinessAssembly';
 
 function appFor(result: OperationsReadinessAssemblyResult) {
   const app = express();
@@ -10,7 +10,7 @@ function appFor(result: OperationsReadinessAssemblyResult) {
   return app;
 }
 
-function appForAssembly(assembly: (briefId: string) => Promise<OperationsReadinessAssemblyResult>) {
+function appForAssembly(assembly: (briefId: string, options?: OperationsReadinessAssemblyOptions) => Promise<OperationsReadinessAssemblyResult>) {
   const app = express();
   app.use(createOperationsReadinessRouter({ assembly }));
   return app;
@@ -73,6 +73,26 @@ describe('Operations Readiness API', () => {
     }), '/api/operations-readiness/brief%3Aone');
     expect(result.status).toBe(200);
     expect(receivedBriefId).toBe('brief:one');
+  });
+
+  it('passes live weather only for the exact opt-in query value', async () => {
+    const received: boolean[] = [];
+    const result = await requestApp(appForAssembly(async (_briefId, options) => {
+      received.push(options?.includeLiveWeather === true);
+      return { status: 'ok', summary: {} as never, diagnostics: [] };
+    }), '/api/operations-readiness/brief-1?includeLiveWeather=true');
+    expect(result.status).toBe(200);
+    expect(received).toEqual([true]);
+
+    await requestApp(appForAssembly(async (_briefId, options) => {
+      received.push(options?.includeLiveWeather === true);
+      return { status: 'ok', summary: {} as never, diagnostics: [] };
+    }), '/api/operations-readiness/brief-1?includeLiveWeather=1');
+    await requestApp(appForAssembly(async (_briefId, options) => {
+      received.push(options?.includeLiveWeather === true);
+      return { status: 'ok', summary: {} as never, diagnostics: [] };
+    }), '/api/operations-readiness/brief-1');
+    expect(received).toEqual([true, false, false]);
   });
 
   it('returns 200 when optional evidence is diagnosed but summary assembly succeeds', async () => {
