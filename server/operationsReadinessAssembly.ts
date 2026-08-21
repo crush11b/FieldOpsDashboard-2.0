@@ -56,8 +56,6 @@ export async function assembleOperationsReadiness(
   briefId: string,
   dependencies: OperationsReadinessAssemblyDependencies,
 ): Promise<OperationsReadinessAssemblyResult> {
-  const evaluatedAtUtc = readEvaluationTime(dependencies.now);
-  if (!evaluatedAtUtc) return unavailable('evaluation_clock_unavailable', 'The Operations Readiness evaluation clock is unavailable.');
   let briefResult: ReturnType<SmartDeployBriefStore['get']>;
   try {
     briefResult = dependencies.briefStore.get(briefId);
@@ -71,6 +69,8 @@ export async function assembleOperationsReadiness(
       : { status: 'notFound', diagnostics: [] };
   }
   if (briefResult.brief.schemaVersion !== 2) return { status: 'unsupported', diagnostics: [{ code: 'unsupported_brief_schema', message: 'The retained SmartDeploy brief schema is unsupported for Operations Readiness.' }] };
+  const evaluatedAtUtc = readEvaluationTime(dependencies.now);
+  if (!evaluatedAtUtc) return unavailable('evaluation_clock_unavailable', 'The Operations Readiness evaluation clock is unavailable.');
 
   const diagnostics: OperationsReadinessDiagnostic[] = [];
   const [location, system] = await Promise.all([
@@ -142,8 +142,8 @@ async function readLocation(reader: () => Promise<LocationTelemetry>, diagnostic
     const value = await reader();
     const source = { ...SOURCE.localLocation, id: typeof value.source === 'string' && value.source ? value.source : SOURCE.localLocation.id };
     const observedAtUtc = validTimestamp(value.timestampUtc) ? value.timestampUtc! : undefined;
-    if (value.status === 'Available' && finiteCoordinate(value.latitude, -90, 90) && finiteCoordinate(value.longitude, -180, 180)) return { status: 'current', provenance: 'current', source, ...(observedAtUtc ? { observedAtUtc } : {}) };
-    if (value.status === 'Available') diagnostics.push({ code: 'malformed_location_telemetry', message: 'Location telemetry reported Available without valid coordinates.' });
+    if (value.status === 'Available' && finiteCoordinate(value.latitude, -90, 90) && finiteCoordinate(value.longitude, -180, 180) && observedAtUtc) return { status: 'current', provenance: 'current', source, observedAtUtc };
+    if (value.status === 'Available') diagnostics.push({ code: 'malformed_location_telemetry', message: 'Location telemetry reported Available without valid coordinates or observation timestamp.' });
     else if (value.status === 'Error') diagnostics.push({ code: 'malformed_location_telemetry', message: 'Location telemetry returned an error or invalid coordinates.' });
     else diagnostics.push({ code: 'location_telemetry_unavailable', message: 'Current location telemetry is unavailable.' });
     return { status: 'unavailable', provenance: 'unavailable', source, ...(observedAtUtc ? { observedAtUtc } : {}) };
@@ -158,17 +158,28 @@ async function readSystem(reader: () => Promise<SystemTelemetry>, diagnostics: O
     const value = await reader();
     const status = value.status === 'Available' || value.status === 'Unavailable' || value.status === 'Error' ? value.status : 'Unavailable';
     const validCharge = status === 'Available' && typeof value.chargePercent === 'number' && Number.isFinite(value.chargePercent) && value.chargePercent >= 0 && value.chargePercent <= 100 ? value.chargePercent : null;
+    const validPowerSource = value.powerSource === 'AC' || value.powerSource === 'Battery' || value.powerSource === 'Unknown';
+    const validCharging = typeof value.charging === 'boolean';
     const validRuntime = status === 'Available' && typeof value.remainingRuntimeSeconds === 'number' && Number.isFinite(value.remainingRuntimeSeconds) && value.remainingRuntimeSeconds >= 0;
     const validObservedAtUtc = validTimestamp(value.observedAtUtc);
     if (value.status !== 'Available' && value.status !== 'Unavailable' && value.status !== 'Error') diagnostics.push({ code: 'malformed_system_telemetry', message: 'System telemetry returned an invalid status.' });
-    if (status === 'Available' && !validObservedAtUtc) diagnostics.push({ code: 'malformed_system_telemetry', message: 'Available system telemetry has no valid hardware-observation timestamp.' });
+    const malformedAvailableField = status === 'Available' && (
+      (value.chargePercent !== null && validCharge === null)
+      || !validPowerSource
+      || (value.charging !== null && !validCharging)
+      || (value.remainingRuntimeSeconds !== null && !validRuntime)
+    );
+    if (status === 'Available' && (!validObservedAtUtc || malformedAvailableField)) diagnostics.push({ code: 'malformed_system_telemetry', message: !validObservedAtUtc ? 'Available system telemetry has no valid hardware-observation timestamp.' : 'Available system telemetry contains one or more malformed power fields.' });
+    if (status === 'Available' && !validObservedAtUtc) {
+      diagnostics.push({ code: 'system_observation_timestamp_unavailable', message: 'No valid hardware-observation timestamp was available for the unavailable system telemetry.' });
+      return { status: 'Unavailable', chargePercent: null, powerSource: 'Unknown', charging: null, runtimeSeconds: null, runtimeValid: false, source: SOURCE.localSystem, observedAtUtc: evaluatedAtUtc };
+    }
     if (status !== 'Available') {
       diagnostics.push({ code: 'system_telemetry_unavailable', message: 'ToughBook system telemetry is unavailable.' });
       if (!validObservedAtUtc) diagnostics.push({ code: 'system_observation_timestamp_unavailable', message: 'No valid hardware-observation timestamp was available for the unavailable system telemetry.' });
       return { status, chargePercent: null, powerSource: 'Unknown', charging: null, runtimeSeconds: null, runtimeValid: false, source: SOURCE.localSystem, observedAtUtc: validObservedAtUtc ? value.observedAtUtc : evaluatedAtUtc };
     }
-    if (!validRuntime && value.remainingRuntimeSeconds !== null) diagnostics.push({ code: 'malformed_system_telemetry', message: 'The Windows runtime estimate is invalid.' });
-    return { status, chargePercent: validCharge, powerSource: value.powerSource === 'AC' || value.powerSource === 'Battery' || value.powerSource === 'Unknown' ? value.powerSource : 'Unknown', charging: typeof value.charging === 'boolean' ? value.charging : null, runtimeSeconds: validRuntime ? value.remainingRuntimeSeconds : null, runtimeValid: validRuntime, source: { ...SOURCE.localSystem, id: typeof value.source === 'string' && value.source ? value.source : SOURCE.localSystem.id }, observedAtUtc: validObservedAtUtc ? value.observedAtUtc : evaluatedAtUtc };
+    return { status, chargePercent: validCharge, powerSource: validPowerSource ? value.powerSource : 'Unknown', charging: validCharging ? value.charging : null, runtimeSeconds: validRuntime ? value.remainingRuntimeSeconds : null, runtimeValid: validRuntime, source: { ...SOURCE.localSystem, id: typeof value.source === 'string' && value.source ? value.source : SOURCE.localSystem.id }, observedAtUtc: value.observedAtUtc };
   } catch {
     diagnostics.push({ code: 'system_telemetry_unavailable', message: 'ToughBook system telemetry is unavailable.' });
     diagnostics.push({ code: 'system_observation_timestamp_unavailable', message: 'No valid hardware-observation timestamp was available for the unavailable system telemetry.' });

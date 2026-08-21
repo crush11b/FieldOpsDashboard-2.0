@@ -90,12 +90,41 @@ describe('Operations Readiness assembly', () => {
     expect(checklist).not.toHaveBeenCalled();
   });
 
+  it('selects missing or unsupported briefs before requiring the evaluation clock', async () => {
+    const missingNow = vi.fn(() => { throw new Error('clock unavailable'); });
+    const missing = await assembleOperationsReadiness('missing', dependencies({
+      now: missingNow,
+      briefStore: { get: () => ({ status: 'notFound', diagnostics: [{ code: 'missing', message: 'No store.' }] }) } as never,
+    }));
+    expect(missing.status).toBe('notFound');
+    expect(missingNow).not.toHaveBeenCalled();
+
+    const unsupportedNow = vi.fn(() => { throw new Error('clock unavailable'); });
+    const unsupported = await assembleOperationsReadiness('brief-v1', dependencies({
+      now: unsupportedNow,
+      briefStore: { get: () => ({ status: 'found', brief: brief('brief-v1', 1), diagnostics: [] }) } as never,
+    }));
+    expect(unsupported.status).toBe('unsupported');
+    expect(unsupportedNow).not.toHaveBeenCalled();
+  });
+
   it('maps an unavailable location to an unavailable finding without claiming coordinates', async () => {
     const result = await assembleOperationsReadiness('brief-1', dependencies({
       readLocation: vi.fn(async () => ({ status: 'NoFix', latitude: null, longitude: null, timestampUtc: null, source: 'SerialNmea' })) as never,
     }));
     expect(result.status).toBe('ok');
     if (result.status === 'ok') expect(result.summary.currentLocation.status).toBe('unavailable');
+  });
+
+  it.each([null, 'not-a-timestamp'])('does not classify valid coordinates as current without a valid location timestamp', async timestampUtc => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readLocation: vi.fn(async () => ({ status: 'Available', latitude: 42, longitude: -71, timestampUtc, source: 'SerialNmea' })) as never,
+    }));
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.summary.currentLocation.status).toBe('unavailable');
+      expect(result.diagnostics.some(diagnostic => diagnostic.code === 'malformed_location_telemetry')).toBe(true);
+    }
   });
 
   it.each([
@@ -160,7 +189,41 @@ describe('Operations Readiness assembly', () => {
       readSystem: vi.fn(async () => ({ status: 'Available', observedAtUtc, source: 'WindowsPowerStatus', chargePercent: 50, charging: false, powerSource: 'Battery', remainingRuntimeSeconds: 10 })) as never,
     }));
     expect(result.status).toBe('ok');
-    if (result.status === 'ok') expect(result.diagnostics.some(diagnostic => diagnostic.code === 'malformed_system_telemetry')).toBe(true);
+    if (result.status === 'ok') {
+      expect(result.summary.toughBook).toMatchObject({ status: 'unknown', chargePercent: null, powerSource: 'Unknown', charging: null, runtimeEstimateSeconds: null });
+      expect(result.diagnostics.some(diagnostic => diagnostic.code === 'malformed_system_telemetry')).toBe(true);
+      expect(result.diagnostics.some(diagnostic => diagnostic.code === 'system_observation_timestamp_unavailable')).toBe(true);
+    }
+  });
+
+  it.each([
+    ['charge below range', { chargePercent: -1 }],
+    ['charge above range', { chargePercent: 101 }],
+    ['charge NaN', { chargePercent: Number.NaN }],
+    ['charge Infinity', { chargePercent: Number.POSITIVE_INFINITY }],
+    ['invalid power source', { powerSource: 'USB' }],
+    ['invalid charging', { charging: 'yes' }],
+    ['negative runtime', { remainingRuntimeSeconds: -1 }],
+    ['NaN runtime', { remainingRuntimeSeconds: Number.NaN }],
+    ['Infinity runtime', { remainingRuntimeSeconds: Number.POSITIVE_INFINITY }],
+  ] as const)('diagnoses %s without discarding timestamped valid power fields', async (_label, malformed) => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readSystem: vi.fn(async () => ({ status: 'Available', observedAtUtc: evaluatedAtUtc, source: 'WindowsPowerStatus', chargePercent: 80, charging: false, powerSource: 'Battery', remainingRuntimeSeconds: 3600, ...malformed })) as never,
+    }));
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.summary.toughBook.status).toBe('chargePercent' in malformed ? 'unknown' : 'ready');
+      expect(result.summary.toughBook.chargePercent).toBe('chargePercent' in malformed ? null : 80);
+      expect(result.diagnostics.filter(diagnostic => diagnostic.code === 'malformed_system_telemetry')).toHaveLength(1);
+    }
+  });
+
+  it('accepts null runtime as a valid absent Windows estimate', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readSystem: vi.fn(async () => ({ status: 'Available', observedAtUtc: evaluatedAtUtc, source: 'WindowsPowerStatus', chargePercent: 0, charging: false, powerSource: 'Battery', remainingRuntimeSeconds: null })) as never,
+    }));
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') expect(result.diagnostics.filter(diagnostic => diagnostic.code === 'malformed_system_telemetry')).toHaveLength(0);
   });
 
   it.each([
