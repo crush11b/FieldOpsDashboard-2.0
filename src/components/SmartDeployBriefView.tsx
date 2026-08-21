@@ -2,6 +2,7 @@ import React from 'react';
 import type { SmartDeployBrief, SmartDeployBriefV1, SmartDeployBriefV2 } from '../../server/smartDeployBrief';
 import { ActivationNotesPanel } from './ActivationNotesPanel';
 import { FieldReadinessChecklistPanel } from './FieldReadinessChecklistPanel';
+import { OperationsReadinessWorkspace } from './OperationsReadinessWorkspace';
 
 interface SmartDeployBriefViewProps {
   brief: SmartDeployBrief;
@@ -29,6 +30,8 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
         <PrimaryField label="RF PATH RANGE" value={geometry} detail="Across representative regional paths" />
       </div>
     </div>
+
+    <OperationsReadinessWorkspace brief={brief} />
 
     {brief.currentDeviceLocation && brief.plannedOperatingSite.source !== 'operator_selected_current_device' && <BriefSection title="CURRENT DEVICE">
       <p className="text-[11px] text-slate-200">{brief.currentDeviceLocation.gridSquare || formatCoordinates(brief.currentDeviceLocation.coordinates)}</p>
