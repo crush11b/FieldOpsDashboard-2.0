@@ -1,6 +1,6 @@
 /* @vitest-environment jsdom */
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { OperationsReadinessWorkspace } from '../OperationsReadinessWorkspace';
 import type { SmartDeployBriefV2 } from '../../../server/smartDeployBrief';
@@ -82,12 +82,15 @@ describe('OperationsReadinessWorkspace', () => {
   });
 
   it('shows factual plan status, runtime wording, ordered actions, findings, and exact controls', async () => {
-    const runtimeSummary = { ...summary, toughBook: { ...summary.toughBook, runtimeEstimateSeconds: 0 }, nextActions: ['First action', 'Second action'], findings: [{ ...summary.findings[0], status: 'attention', priority: 'high', source: { id: 'gps', type: 'serial_nmea', name: 'GNSS' }, observedAtUtc: '2026-08-21T03:00:00.000Z', limitation: 'Check the location.' }] };
+    const runtimeSummary = { ...summary, toughBook: { ...summary.toughBook, runtimeEstimateSeconds: 0 }, nextActions: ['First action', 'Second action'], findings: [{ ...summary.findings[0], status: 'attention', priority: 'high', source: { id: 'gps', type: 'serial_nmea', name: 'GNSS' }, observedAtUtc: '2026-08-21T03:00:00.000Z', limitation: 'Check the location.' }, { id: 'toughbook-runtime-estimate', status: 'ready', priority: 'low', message: 'Windows reports an estimated 0m remaining for the ToughBook.', source: { id: 'windows', type: 'local_telemetry_pipe', name: 'Windows power' }, evaluatedAtUtc: '2026-08-21T04:00:00.000Z', limitation: 'This is a Windows-provided ToughBook estimate, not radio or station endurance.' }] };
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', runtimeSummary) })));
     render(<OperationsReadinessWorkspace brief={brief} />);
     await waitFor(() => expect(screen.getByText('RETAINED PLAN STATUS')).toBeTruthy());
     expect(screen.getByText('Decision support only. This is not a safety, permission, legality, or go/no-go determination.')).toBeTruthy();
     expect(screen.getByText('Windows estimates approximately 0m remaining.')).toBeTruthy();
+    const toughBookSection = screen.getByRole('heading', { name: 'TOUGHBOOK POWER' }).closest('section');
+    expect(toughBookSection).not.toBeNull();
+    expect(within(toughBookSection!).getAllByText(/This is a Windows-provided ToughBook estimate, not radio or station endurance\./)).toHaveLength(1);
     expect(screen.getByText('Radio and station endurance unknown.')).toBeTruthy();
     expect(screen.getByText('First action')).toBeTruthy();
     expect(screen.getByText('Second action')).toBeTruthy();
