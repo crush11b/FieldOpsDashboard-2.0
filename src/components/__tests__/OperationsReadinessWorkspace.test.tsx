@@ -29,10 +29,11 @@ const summary = {
   nextActions: ['Review the propagation limitation.'],
 };
 
-const response = (weatherStatus: 'not_requested' | 'live' | 'unavailable' = 'not_requested') => ({
-  kind: 'operations_readiness', briefId: brief.briefId, summary, diagnostics: [], displayEvidence: {
+const response = (weatherStatus: 'not_requested' | 'live' | 'unavailable' = 'not_requested', summaryValue = summary, evidenceOverrides: Record<string, unknown> = {}) => ({
+  kind: 'operations_readiness', briefId: brief.briefId, summary: summaryValue, diagnostics: [], displayEvidence: {
     weather: { status: weatherStatus, data: weatherStatus === 'live' ? { tempF: 72, condition: 'Clear', humidity: 45, windMph: 4, windDir: 'NW', pressureInHg: 30, uvIndex: 3, locationName: 'Planned park site', hourlyForecast: [] } : null, retrievedAtUtc: weatherStatus === 'live' ? '2026-08-21T04:01:00.000Z' : null, source: { id: 'weather-provider', type: 'weather_api', name: 'Planned-site weather provider' } },
     alerts: { status: weatherStatus, active: [], retrievedAtUtc: weatherStatus === 'live' ? '2026-08-21T04:01:00.000Z' : null, source: { id: 'alert-provider', type: 'weather_alert_api', name: 'Planned-site alert provider' } },
+    ...evidenceOverrides,
   },
 });
 
@@ -67,7 +68,8 @@ describe('OperationsReadinessWorkspace', () => {
     render(<OperationsReadinessWorkspace brief={brief} />);
     await waitFor(() => expect(screen.getByText('Current weather and alerts are not loaded; readiness is using local retained evidence only.')).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'LOAD LIVE WEATHER FOR PLANNED SITE' }));
-    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Planned-site provider unavailable.'));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('Live weather and alerts could not be loaded for the planned site. Local readiness evidence is preserved.'));
+    expect(screen.queryByText('Planned-site provider unavailable.')).toBeNull();
     expect(screen.queryByText('READINESS POSTURE')).toBeNull();
     expect(screen.getByText('Current weather and alerts are not loaded; readiness is using local retained evidence only.')).toBeTruthy();
   });
@@ -77,5 +79,39 @@ describe('OperationsReadinessWorkspace', () => {
     render(<OperationsReadinessWorkspace brief={brief} />);
     await waitFor(() => expect(screen.getByText('Operations Readiness is unsupported for this retained SmartDeploy brief schema.')).toBeTruthy());
     expect(screen.queryByRole('button', { name: 'RETRY' })).toBeNull();
+  });
+
+  it('shows factual plan status, runtime wording, ordered actions, findings, and exact controls', async () => {
+    const runtimeSummary = { ...summary, toughBook: { ...summary.toughBook, runtimeEstimateSeconds: 0 }, nextActions: ['First action', 'Second action'], findings: [{ ...summary.findings[0], status: 'attention', priority: 'high', source: { id: 'gps', type: 'serial_nmea', name: 'GNSS' }, observedAtUtc: '2026-08-21T03:00:00.000Z', limitation: 'Check the location.' }] };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', runtimeSummary) })));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText('RETAINED PLAN STATUS')).toBeTruthy());
+    expect(screen.getByText('Decision support only. This is not a safety, permission, legality, or go/no-go determination.')).toBeTruthy();
+    expect(screen.getByText('Windows estimates approximately 0m remaining.')).toBeTruthy();
+    expect(screen.getByText('Radio and station endurance unknown.')).toBeTruthy();
+    expect(screen.getByText('First action')).toBeTruthy();
+    expect(screen.getByText('Second action')).toBeTruthy();
+    expect(screen.getByText(/Status: attention \| Priority: high \| Source: GNSS/)).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'OPEN FIELD READINESS CHECKLIST' })).toHaveAttribute('href', '#field-readiness-checklist');
+    expect(screen.getByRole('link', { name: 'OPEN ACTIVATION NOTES' })).toHaveAttribute('href', '#activation-notes');
+  });
+
+  it('renders missing runtime and empty actions without deriving runtime from charge', async () => {
+    const missingRuntimeSummary = { ...summary, toughBook: { ...summary.toughBook, chargePercent: 99, runtimeEstimateSeconds: null }, nextActions: [] };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', missingRuntimeSummary) })));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText('Windows runtime estimate unavailable.')).toBeTruthy());
+    expect(screen.getByText('No additional action is identified by the available readiness evidence.')).toBeTruthy();
+    expect(screen.queryByText(/99% remaining/)).toBeNull();
+  });
+
+  it('renders partial weather and alert results independently, including Unknown alerts', async () => {
+    const alert = { id: 'alert-1', severity: 'Unknown', title: 'Unclassified condition', description: 'Review details.', area: 'Planned site', issued: '2026-08-21T03:00:00.000Z', expires: '2026-08-21T05:00:00.000Z' };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('unavailable', summary, { alerts: { status: 'live', active: [alert], retrievedAtUtc: '2026-08-21T04:01:00.000Z', source: { id: 'alerts', type: 'weather_alert_api' } } }) })));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText('Live weather for the retained planned site is unavailable. Local readiness evidence is preserved.')).toBeTruthy());
+    expect(screen.getByText('Unknown: Unclassified condition')).toBeTruthy();
+    expect(screen.getByText('Weather alerts are advisory evidence and do not constitute a universal operational block.')).toBeTruthy();
+    expect(screen.getByText('Uses the retained planned-site coordinates. Current-device location is not used as a fallback. Network access is required.')).toBeTruthy();
   });
 });

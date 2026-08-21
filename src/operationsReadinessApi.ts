@@ -29,14 +29,10 @@ export async function getOperationsReadinessForBrief(
   const payload = await readPayload(response);
   if (!response.ok || !isReadinessPayload(payload)) {
     const record = isRecord(payload) ? payload : null;
-    throw new OperationsReadinessApiError(
-      typeof record?.message === 'string' ? record.message : includeLiveWeather
-        ? 'Live Operations Readiness evidence could not be loaded.'
-        : 'Operations Readiness could not be loaded from the local server.',
-      typeof record?.code === 'string' ? record.code : 'request_failed',
-    );
+    const code = typeof record?.code === 'string' ? record.code : 'request_failed';
+    throw new OperationsReadinessApiError(errorMessage(code, includeLiveWeather), code);
   }
-  if (payload.briefId !== briefId) throw new OperationsReadinessApiError('The Operations Readiness response did not match this SmartDeploy brief.', 'brief_mismatch');
+  if (payload.briefId !== briefId) throw new OperationsReadinessApiError('Operations Readiness could not be loaded from the local server.', 'brief_mismatch');
   return payload;
 }
 
@@ -47,10 +43,50 @@ async function readPayload(response: Response): Promise<unknown> {
 function isReadinessPayload(value: unknown): value is OperationsReadinessApiResponse {
   return isRecord(value)
     && value.kind === 'operations_readiness'
-    && typeof value.briefId === 'string'
-    && isRecord(value.summary)
-    && isRecord(value.displayEvidence)
-    && Array.isArray(value.diagnostics);
+    && isNonemptyString(value.briefId, 128)
+    && isSummary(value.summary)
+    && isDisplayEvidence(value.displayEvidence)
+    && isDiagnostics(value.diagnostics);
+}
+
+function isSummary(value: unknown): boolean {
+  return isRecord(value)
+    && isNonemptyString(value.evaluatedAtUtc, 64)
+    && Array.isArray(value.findings)
+    && Array.isArray(value.nextActions)
+    && value.nextActions.every(action => isNonemptyString(action, 500));
+}
+
+function isDisplayEvidence(value: unknown): boolean {
+  return isRecord(value) && isEvidenceBranch(value.weather) && isEvidenceBranch(value.alerts);
+}
+
+function isEvidenceBranch(value: unknown): boolean {
+  return isRecord(value)
+    && (value.status === 'not_requested' || value.status === 'live' || value.status === 'unavailable')
+    && isSource(value.source)
+    && (value.retrievedAtUtc === null || isNonemptyString(value.retrievedAtUtc, 64));
+}
+
+function isSource(value: unknown): boolean {
+  return isRecord(value) && isNonemptyString(value.id, 128) && isNonemptyString(value.type, 128)
+    && (value.name === undefined || isNonemptyString(value.name, 256));
+}
+
+function isDiagnostics(value: unknown): boolean {
+  return Array.isArray(value) && value.every(item => isRecord(item) && isNonemptyString(item.code, 128) && isNonemptyString(item.message, 500));
+}
+
+function isNonemptyString(value: unknown, maximum: number): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= maximum;
+}
+
+function errorMessage(code: string, includeLiveWeather: boolean): string {
+  if (code === 'brief_not_found') return 'This SmartDeploy brief is no longer retained.';
+  if (code === 'unsupported_brief_schema') return 'This retained brief uses an unsupported legacy schema for Operations Readiness.';
+  if (code === 'readiness_unavailable' && !includeLiveWeather) return 'Local readiness evidence is temporarily unavailable. The retained SmartDeploy brief remains available.';
+  if (includeLiveWeather) return 'Live weather and alerts could not be loaded for the planned site. Local readiness evidence is preserved.';
+  return 'Operations Readiness could not be loaded from the local server.';
 }
 
 function isRecord(value: unknown): value is Record<string, any> {
