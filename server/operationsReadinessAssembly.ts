@@ -63,6 +63,9 @@ const SOURCE = {
   sotaDataset: { id: 'sota-summit-database', type: 'sota_official_summit_csv', name: 'Official Summits on the Air summit database' },
 } as const satisfies Record<string, TelemetrySource>;
 
+const LOCAL_ONLY_LIMITATION = 'No live provider request was performed; Operations Readiness is using local retained evidence only.';
+const LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION = 'Live weather and alerts enrichment is unavailable; no live provider evidence was retrieved.';
+
 export async function assembleOperationsReadiness(
   briefId: string,
   dependencies: OperationsReadinessAssemblyDependencies,
@@ -98,6 +101,7 @@ export async function assembleOperationsReadiness(
   if (options.includeLiveWeather) {
     displayEvidence = unavailableDisplayEvidence();
     if (!dependencies.enrichWeather) {
+      displayEvidence = unavailableDisplayEvidence(LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION);
       diagnostics.push({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
     } else {
       try {
@@ -107,6 +111,7 @@ export async function assembleOperationsReadiness(
         displayEvidence = enrichment.displayEvidence;
         for (const diagnostic of enrichment.diagnostics) diagnostics.push(diagnostic);
       } catch {
+        displayEvidence = unavailableDisplayEvidence(LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION);
         diagnostics.push({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
       }
     }
@@ -129,15 +134,15 @@ export async function assembleOperationsReadiness(
 
 function notRequestedDisplayEvidence(): OperationsReadinessDisplayEvidence {
   return {
-    weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: SOURCE.evaluator },
-    alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: SOURCE.evaluator },
+    weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: SOURCE.evaluator, limitation: LOCAL_ONLY_LIMITATION },
+    alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: SOURCE.evaluator, limitation: LOCAL_ONLY_LIMITATION },
   };
 }
 
-function unavailableDisplayEvidence(): OperationsReadinessDisplayEvidence {
+function unavailableDisplayEvidence(limitation?: string): OperationsReadinessDisplayEvidence {
   return {
-    weather: { status: 'unavailable', data: null, retrievedAtUtc: null, source: SOURCE.evaluator },
-    alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, source: SOURCE.evaluator },
+    weather: { status: 'unavailable', data: null, retrievedAtUtc: null, source: SOURCE.evaluator, ...(limitation ? { limitation } : {}) },
+    alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, source: SOURCE.evaluator, ...(limitation ? { limitation } : {}) },
   };
 }
 

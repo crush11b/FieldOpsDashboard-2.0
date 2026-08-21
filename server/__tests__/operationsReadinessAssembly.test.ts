@@ -58,8 +58,8 @@ describe('Operations Readiness assembly', () => {
     expect(result.summary.findings.find(finding => finding.id === 'propagation-evidence')?.status).toBe('attention');
     expect(result.summary.findings.some(finding => finding.limitation?.includes('Retained only.'))).toBe(true);
     expect(result.displayEvidence).toMatchObject({
-      weather: { status: 'not_requested', data: null, retrievedAtUtc: null },
-      alerts: { status: 'not_requested', active: [], retrievedAtUtc: null },
+      weather: { status: 'not_requested', data: null, retrievedAtUtc: null, limitation: expect.stringContaining('No live provider request was performed') },
+      alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, limitation: expect.stringContaining('No live provider request was performed') },
     });
     expect(deps.briefStore.get).toHaveBeenCalledWith('brief-1');
   });
@@ -99,11 +99,22 @@ describe('Operations Readiness assembly', () => {
     if (result.status === 'ok') {
       expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
       expect(result.displayEvidence).toMatchObject({
-        weather: { status: 'unavailable', data: null, retrievedAtUtc: null },
-        alerts: { status: 'unavailable', active: [], retrievedAtUtc: null },
+        weather: { status: 'unavailable', data: null, retrievedAtUtc: null, limitation: expect.stringContaining('no live provider evidence') },
+        alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, limitation: expect.stringContaining('no live provider evidence') },
       });
       expect(JSON.stringify(result)).not.toContain('raw timeout');
       expect(result.diagnostics).toContainEqual({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
+    }
+  });
+
+  it('reports bounded unavailable display evidence when live enrichment is not configured', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies(), { includeLiveWeather: true });
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.displayEvidence).toMatchObject({
+        weather: { status: 'unavailable', data: null, retrievedAtUtc: null, limitation: expect.stringContaining('no live provider evidence') },
+        alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, limitation: expect.stringContaining('no live provider evidence') },
+      });
     }
   });
 

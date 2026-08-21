@@ -54,10 +54,11 @@ export async function enrichOperationsReadinessWeather(
   const coordinates = brief.plannedOperatingSite.location.coordinates;
   const parsed = parseWeatherCoordinates(coordinates?.lat, coordinates?.lon);
   if (!parsed) {
+    const limitation = 'The retained planned operating site has no valid coordinates; live weather and alerts were not requested.';
     return unavailableEnrichment([{
       code: 'planned_site_coordinates_unavailable',
-      message: 'The retained planned operating site has no valid coordinates; live weather and alerts were not requested.',
-      }], undefined);
+      message: limitation,
+    }], limitation);
   }
 
   const fetcher = withTimeout(options.fetcher ?? fetch, options.timeoutMs ?? OPERATIONS_READINESS_WEATHER_TIMEOUT_MS);
@@ -94,14 +95,14 @@ export async function enrichOperationsReadinessWeather(
       weather: {
         status: weatherResult.weatherStatus,
         data: weatherResult.weather,
-        retrievedAtUtc,
+        retrievedAtUtc: weatherResult.weatherStatus === 'live' ? retrievedAtUtc : null,
         source: WEATHER_SOURCE,
         limitation: joinLimitations(evidenceLimitation(weatherResult.weatherStatus), provenanceLimitation),
       },
       alerts: {
         status: alertsResult.alertsStatus,
         active: alertsResult.alerts ?? [],
-        retrievedAtUtc,
+        retrievedAtUtc: alertsResult.alertsStatus === 'live' ? retrievedAtUtc : null,
         source: ALERTS_SOURCE,
         limitation: joinLimitations(evidenceLimitation(alertsResult.alertsStatus), provenanceLimitation),
       },

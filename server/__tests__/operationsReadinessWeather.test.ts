@@ -31,11 +31,11 @@ function brief(
   } as SmartDeployBriefV2;
 }
 
-function fetcher(options: { weatherOk?: boolean; alertsOk?: boolean; urls?: string[] } = {}): typeof fetch {
+function fetcher(options: { weatherOk?: boolean; alertsOk?: boolean; alertsEmpty?: boolean; urls?: string[] } = {}): typeof fetch {
   return async input => {
     const url = String(input);
     options.urls?.push(url);
-    if (url.includes('/alerts/')) return options.alertsOk === false ? new Response(null, { status: 503 }) : json({ features: [alert()] });
+    if (url.includes('/alerts/')) return options.alertsOk === false ? new Response(null, { status: 503 }) : json({ features: options.alertsEmpty ? [] : [alert()] });
     if (url.includes('/points/')) return json({ properties: { relativeLocation: { properties: { city: 'Elkins', state: 'WV' } } } });
     return options.weatherOk === false ? new Response(null, { status: 503 }) : json({ current: { temperature_2m: 41, relative_humidity_2m: 70, pressure_msl: 1012, wind_speed_10m: 12, wind_direction_10m: 270, wind_gusts_10m: 18, weather_code: 3, uv_index: 1 }, hourly: { time: [] } });
   };
@@ -61,6 +61,12 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     expect(urls.some(url => url.includes('40.0000,-80.0000'))).toBe(false);
   });
 
+  it('retains a successful retrieval timestamp for zero active alerts', async () => {
+    const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ alertsEmpty: true }), now: NOW });
+    expect(result.alerts.status).toBe('live');
+    expect(result.displayEvidence.alerts).toMatchObject({ status: 'live', active: [], retrievedAtUtc: NOW.toISOString() });
+  });
+
   it('does not call providers when planned-site coordinates are missing', async () => {
     const fetchSpy = vi.fn(fetcher());
     const result = await enrichOperationsReadinessWeather(brief(null), { fetcher: fetchSpy, now: NOW });
@@ -68,6 +74,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     expect(result.alerts.status).toBe('unavailable');
     expect(result.displayEvidence.weather).toMatchObject({ status: 'unavailable', data: null, retrievedAtUtc: null });
     expect(result.displayEvidence.alerts).toMatchObject({ status: 'unavailable', active: [], retrievedAtUtc: null });
+    expect(result.displayEvidence.weather.limitation).toContain('no valid coordinates');
+    expect(result.displayEvidence.alerts.limitation).toContain('no valid coordinates');
     expect(result.diagnostics[0].code).toBe('planned_site_coordinates_unavailable');
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -114,12 +122,18 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     expect(weatherUnavailable.alerts.status).toBe('live');
     expect(weatherUnavailable.displayEvidence.weather.status).toBe('unavailable');
     expect(weatherUnavailable.displayEvidence.alerts.status).toBe('live');
+    expect(weatherUnavailable.displayEvidence.weather.retrievedAtUtc).toBeNull();
+    expect(weatherUnavailable.displayEvidence.alerts.retrievedAtUtc).toBe(NOW.toISOString());
+    expect(weatherUnavailable.displayEvidence.weather.limitation).toContain('did not return usable data');
 
     const alertsUnavailable = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ alertsOk: false }), now: NOW });
     expect(alertsUnavailable.weather.status).toBe('live');
     expect(alertsUnavailable.alerts.status).toBe('unavailable');
     expect(alertsUnavailable.displayEvidence.weather.status).toBe('live');
     expect(alertsUnavailable.displayEvidence.alerts.status).toBe('unavailable');
+    expect(alertsUnavailable.displayEvidence.weather.retrievedAtUtc).toBe(NOW.toISOString());
+    expect(alertsUnavailable.displayEvidence.alerts.retrievedAtUtc).toBeNull();
+    expect(alertsUnavailable.displayEvidence.alerts.limitation).toContain('did not return usable data');
   });
 
   it('times out current weather without preventing alerts from succeeding', async () => {
@@ -130,6 +144,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     });
     expect(result.weather.status).toBe('unavailable');
     expect(result.alerts.status).toBe('live');
+    expect(result.displayEvidence.weather.retrievedAtUtc).toBeNull();
+    expect(result.displayEvidence.alerts.retrievedAtUtc).toBe(NOW.toISOString());
     expect(result.diagnostics).toEqual([{ code: 'planned_site_weather_unavailable', message: 'Live weather for the retained planned operating site is unavailable.' }]);
     expect(JSON.stringify(result)).not.toContain('raw timeout');
   });
@@ -142,6 +158,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     });
     expect(result.weather.status).toBe('live');
     expect(result.alerts.status).toBe('unavailable');
+    expect(result.displayEvidence.weather.retrievedAtUtc).toBe(NOW.toISOString());
+    expect(result.displayEvidence.alerts.retrievedAtUtc).toBeNull();
     expect(result.diagnostics).toEqual([{ code: 'planned_site_alerts_unavailable', message: 'Live weather alerts for the retained planned operating site are unavailable.' }]);
     expect(JSON.stringify(result)).not.toContain('raw timeout');
   });
@@ -150,6 +168,8 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const providerReference = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }, { lat: 40, lon: -80 }, 'activation_provider_reference', 'provider_reference_default'), { fetcher: fetcher(), now: NOW });
     expect(providerReference.weather.limitation).toContain('provider reference coordinate');
     expect(providerReference.alerts.limitation).toContain('provider reference coordinate');
+    expect(providerReference.displayEvidence.weather.limitation).toContain('provider reference coordinate');
+    expect(providerReference.displayEvidence.alerts.limitation).toContain('provider reference coordinate');
 
     const gridCenter = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }, { lat: 40, lon: -80 }, 'manual_planned_site_grid'), { fetcher: fetcher(), now: NOW });
     expect(gridCenter.weather.limitation).toContain('center of the entered Maidenhead grid');
