@@ -44,4 +44,33 @@ describe('buildOperationsReadinessSummary', () => {
   it('keeps stale and unavailable severe alerts from becoming current active alerts', () => { const severe = [{ id: 'alert-1', severity: 'Severe' as const, title: 'High Wind Warning' }]; const stale = buildOperationsReadinessSummary({ ...baseInput(), alerts: { ...baseInput().alerts!, status: 'stale', active: severe } }).findings.find(f => f.id === 'weather-alerts'); const unavailable = buildOperationsReadinessSummary({ ...baseInput(), alerts: { ...baseInput().alerts!, status: 'unavailable', active: severe } }).findings.find(f => f.id === 'weather-alerts'); expect(stale).toMatchObject({ status: 'stale', priority: 'high' }); expect(stale?.message).toContain('not confirmed current'); expect(unavailable).toMatchObject({ status: 'unavailable', priority: 'medium' }); expect(unavailable?.message).toBe('Weather alerts are unavailable.'); expect(unavailable?.recommendedAction).toBeUndefined(); expect(unavailable?.message).not.toContain('High Wind Warning'); });
   it('reports live Extreme alerts as advisory attention', () => { const result = buildOperationsReadinessSummary({ ...baseInput(), alerts: { ...baseInput().alerts!, active: [{ id: 'alert-1', severity: 'Extreme', title: 'Tornado Warning' }] } }); expect(result.findings.find(f => f.id === 'weather-alerts')).toMatchObject({ status: 'attention', priority: 'high' }); });
   it('reports live Moderate and Minor alerts deterministically', () => { const result = buildOperationsReadinessSummary({ ...baseInput(), alerts: { ...baseInput().alerts!, active: [{ id: 'minor', severity: 'Minor', title: 'Minor Advisory' }, { id: 'moderate', severity: 'Moderate', title: 'Flood Watch' }] } }); const finding = result.findings.find(f => f.id === 'weather-alerts'); expect(finding).toMatchObject({ status: 'attention', priority: 'medium' }); expect(finding?.message).toContain('Flood Watch'); });
+  it('selects Unknown ahead of Minor while keeping Moderate ahead of Unknown', () => {
+    const result = buildOperationsReadinessSummary({ ...baseInput(), alerts: { ...baseInput().alerts!, active: [
+      { id: 'minor', severity: 'Minor', title: 'Minor Advisory' },
+      { id: 'unknown', severity: 'Unknown', title: 'Unclassified Alert' },
+      { id: 'moderate', severity: 'Moderate', title: 'Flood Watch' },
+    ] } });
+    const finding = result.findings.find(f => f.id === 'weather-alerts');
+    expect(finding).toMatchObject({ status: 'attention', priority: 'medium' });
+    expect(finding?.message).toContain('Flood Watch');
+
+    const unknownOnly = buildOperationsReadinessSummary({ ...baseInput(), alerts: { ...baseInput().alerts!, active: [{ id: 'unknown', severity: 'Unknown', title: 'Unclassified Alert' }] } });
+    const unknownFinding = unknownOnly.findings.find(f => f.id === 'weather-alerts');
+    expect(unknownFinding).toMatchObject({ status: 'attention', priority: 'medium' });
+    expect(unknownFinding?.message.toLowerCase()).toContain('unknown');
+    expect(unknownFinding?.status).not.toBe('blocked');
+  });
+
+  it('orders equal-severity alerts deterministically after severity ordering', () => {
+    const alerts = [
+      { id: 'unknown-b', severity: 'Unknown' as const, title: 'Beta' },
+      { id: 'unknown-a', severity: 'Unknown' as const, title: 'Alpha' },
+      { id: 'minor', severity: 'Minor' as const, title: 'Minor Advisory' },
+    ];
+    const input = { ...baseInput(), alerts: { ...baseInput().alerts!, active: alerts } };
+    const first = buildOperationsReadinessSummary(input).findings.find(f => f.id === 'weather-alerts');
+    const second = buildOperationsReadinessSummary(input).findings.find(f => f.id === 'weather-alerts');
+    expect(first?.message).toBe(second?.message);
+    expect(first?.message).toContain('Alpha');
+  });
 });

@@ -135,7 +135,7 @@ export function buildOperationsReadinessSummary(input: OperationsReadinessInput)
 
 function priorityRank(priority: ReadinessPriority): number { return priority === 'high' ? 0 : priority === 'medium' ? 1 : 2; }
 function compareAlerts(left: OperationsReadinessInput['alerts'] extends { active: infer Alerts } ? Alerts extends readonly (infer Alert)[] ? Alert : never : never, right: OperationsReadinessInput['alerts'] extends { active: infer Alerts } ? Alerts extends readonly (infer Alert)[] ? Alert : never : never): number {
-  const severityOrder = { Extreme: 0, Severe: 1, Moderate: 2, Minor: 3, Unknown: 4 } as const;
+  const severityOrder = { Extreme: 0, Severe: 1, Moderate: 2, Unknown: 3, Minor: 4 } as const;
   return severityOrder[left.severity] - severityOrder[right.severity] || left.title.localeCompare(right.title) || left.id.localeCompare(right.id);
 }
 function formatDuration(seconds: number): string { const hours = Math.floor(seconds / 3600); const minutes = Math.floor((seconds % 3600) / 60); return hours > 0 ? `${hours}h ${minutes}m` : `${minutes}m`; }

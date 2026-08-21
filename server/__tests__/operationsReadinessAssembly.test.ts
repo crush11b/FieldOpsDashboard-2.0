@@ -81,6 +81,18 @@ describe('Operations Readiness assembly', () => {
     }
   });
 
+  it('keeps readiness successful when opted-in weather enrichment fails', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      enrichWeather: vi.fn(async () => { throw new Error('raw timeout provider detail'); }),
+    }), { includeLiveWeather: true });
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
+      expect(JSON.stringify(result)).not.toContain('raw timeout');
+      expect(result.diagnostics).toContainEqual({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
+    }
+  });
+
   it('does not synthesize runtime from charge percentage', async () => {
     const result = await assembleOperationsReadiness('brief-1', dependencies({
       readSystem: vi.fn(async () => ({ status: 'Available', observedAtUtc: evaluatedAtUtc, source: 'WindowsPowerStatus', chargePercent: 80, charging: false, powerSource: 'Battery', remainingRuntimeSeconds: null })) as never,

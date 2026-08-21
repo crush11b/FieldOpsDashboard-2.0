@@ -75,24 +75,25 @@ describe('Operations Readiness API', () => {
     expect(receivedBriefId).toBe('brief:one');
   });
 
-  it('passes live weather only for the exact opt-in query value', async () => {
-    const received: boolean[] = [];
+  it.each([
+    ['omitted', '', false],
+    ['empty', '?includeLiveWeather=', false],
+    ['false', '?includeLiveWeather=false', false],
+    ['one', '?includeLiveWeather=1', false],
+    ['yes', '?includeLiveWeather=yes', false],
+    ['uppercase', '?includeLiveWeather=TRUE', false],
+    ['repeated values', '?includeLiveWeather=true&includeLiveWeather=false', false],
+    ['array-like value', '?includeLiveWeather[]=true', false],
+    ['object-like value', '?includeLiveWeather[enabled]=true', false],
+    ['exact lowercase true', '?includeLiveWeather=true', true],
+  ] as const)('uses live weather only for %s', async (_label, query, expected) => {
+    let received: boolean | undefined;
     const result = await requestApp(appForAssembly(async (_briefId, options) => {
-      received.push(options?.includeLiveWeather === true);
+      received = options?.includeLiveWeather;
       return { status: 'ok', summary: {} as never, diagnostics: [] };
-    }), '/api/operations-readiness/brief-1?includeLiveWeather=true');
+    }), `/api/operations-readiness/brief-1${query}`);
     expect(result.status).toBe(200);
-    expect(received).toEqual([true]);
-
-    await requestApp(appForAssembly(async (_briefId, options) => {
-      received.push(options?.includeLiveWeather === true);
-      return { status: 'ok', summary: {} as never, diagnostics: [] };
-    }), '/api/operations-readiness/brief-1?includeLiveWeather=1');
-    await requestApp(appForAssembly(async (_briefId, options) => {
-      received.push(options?.includeLiveWeather === true);
-      return { status: 'ok', summary: {} as never, diagnostics: [] };
-    }), '/api/operations-readiness/brief-1');
-    expect(received).toEqual([true, false, false]);
+    expect(received).toBe(expected);
   });
 
   it('returns 200 when optional evidence is diagnosed but summary assembly succeeds', async () => {

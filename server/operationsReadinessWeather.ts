@@ -26,7 +26,10 @@ export interface OperationsReadinessWeatherEnrichment {
 export interface OperationsReadinessWeatherOptions {
   readonly fetcher?: typeof fetch;
   readonly now?: Date;
+  readonly timeoutMs?: number;
 }
+
+export const OPERATIONS_READINESS_WEATHER_TIMEOUT_MS = 10_000;
 
 const WEATHER_SOURCE: TelemetrySource = {
   id: 'open-meteo-current-weather',
@@ -52,10 +55,10 @@ export async function enrichOperationsReadinessWeather(
     return unavailableEnrichment([{
       code: 'planned_site_coordinates_unavailable',
       message: 'The retained planned operating site has no valid coordinates; live weather and alerts were not requested.',
-    }]);
+      }], undefined);
   }
 
-  const fetcher = options.fetcher ?? fetch;
+  const fetcher = withTimeout(options.fetcher ?? fetch, options.timeoutMs ?? OPERATIONS_READINESS_WEATHER_TIMEOUT_MS);
   const now = options.now ?? new Date();
   const [weatherResult, alertsResult] = await Promise.all([
     getCurrentWeatherApiResponse(parsed.latitude, parsed.longitude, fetcher, now),
@@ -70,18 +73,19 @@ export async function enrichOperationsReadinessWeather(
     code: 'planned_site_alerts_unavailable',
     message: 'Live weather alerts for the retained planned operating site are unavailable.',
   });
+  const provenanceLimitation = plannedSiteProvenanceLimitation(brief);
 
   return {
     weather: {
       status: weatherResult.weatherStatus,
       source: WEATHER_SOURCE,
-      limitation: evidenceLimitation(weatherResult.weatherStatus),
+      limitation: joinLimitations(evidenceLimitation(weatherResult.weatherStatus), provenanceLimitation),
     },
     alerts: {
       status: alertsResult.alertsStatus,
       active: alertsResult.alerts ?? [],
       source: ALERTS_SOURCE,
-      limitation: evidenceLimitation(alertsResult.alertsStatus),
+      limitation: joinLimitations(evidenceLimitation(alertsResult.alertsStatus), provenanceLimitation),
     },
     diagnostics,
   };
@@ -93,12 +97,40 @@ function evidenceLimitation(status: 'live' | 'unavailable'): string {
     : 'The provider did not return usable data for the retained planned operating site.';
 }
 
+function plannedSiteProvenanceLimitation(brief: SmartDeployBriefV2): string | undefined {
+  const location = brief.plannedOperatingSite.location;
+  if (location.planningSemantics === 'provider_reference_default') {
+    return 'The planned site uses a provider reference coordinate and may not be the exact station setup point.';
+  }
+  if (location.source?.type === 'manual_planned_site_grid') {
+    return 'The planned site was derived from the center of the entered Maidenhead grid and may not be the exact station setup point.';
+  }
+  return undefined;
+}
+
+function joinLimitations(primary: string, secondary: string | undefined): string {
+  return secondary ? `${primary} ${secondary}` : primary;
+}
+
 function unavailableEnrichment(
   diagnostics: readonly OperationsReadinessWeatherDiagnostic[],
+  limitation: string | undefined,
 ): OperationsReadinessWeatherEnrichment {
   return {
-    weather: { status: 'unavailable', source: WEATHER_SOURCE },
-    alerts: { status: 'unavailable', active: [], source: ALERTS_SOURCE },
+    weather: { status: 'unavailable', source: WEATHER_SOURCE, ...(limitation ? { limitation } : {}) },
+    alerts: { status: 'unavailable', active: [], source: ALERTS_SOURCE, ...(limitation ? { limitation } : {}) },
     diagnostics,
+  };
+}
+
+function withTimeout(fetcher: typeof fetch, timeoutMs: number): typeof fetch {
+  return async (input, init) => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetcher(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
   };
 }
