@@ -101,7 +101,7 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
     {loadState === 'loading' && <p role="status" className="text-[11px] text-slate-400">Loading local Operations Readiness...</p>}
     {loadState === 'unsupported' && <p role="status" className="text-[11px] text-amber-200">This retained brief uses an unsupported legacy schema for Operations Readiness.</p>}
     {loadState === 'error' && <div role="alert" className="space-y-2"><p className="text-[11px] text-red-200">{message}</p><button type="button" onClick={retry} className="px-3 py-2 rounded border border-amber-700 text-amber-200 text-[10px] font-bold">RETRY LOCAL READINESS</button></div>}
-    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent brief={brief} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} onLoadLiveWeather={() => void loadLiveWeather()} />}
+    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} onLoadLiveWeather={() => void loadLiveWeather()} />}
   </section>;
 };
 
@@ -115,6 +115,9 @@ const ReadinessContent: React.FC<{
 }> = ({ brief, summary, displayEvidence, liveLoading, message, onLoadLiveWeather }) => {
   const checklist = summary.findings.find(finding => finding.id === 'field-readiness-checklist');
   const notes = summary.findings.find(finding => finding.id === 'activation-notes');
+  const findingSummary = summarizeFindingStatuses(summary.findings);
+  const findingsId = 'operations-readiness-findings';
+  const [findingsExpanded, setFindingsExpanded] = useState(false);
   return <>
     <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-[11px] uppercase text-cyan-300">RETAINED PLAN STATUS</strong><StatusLabel status={summary.plan.status} /></div>
@@ -134,7 +137,16 @@ const ReadinessContent: React.FC<{
 
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><LinkedEvidence title="FIELD READINESS CHECKLIST" finding={checklist} href="#field-readiness-checklist" /><LinkedEvidence title="ACTIVATION NOTES" finding={notes} href="#activation-notes" /></div>
     <EvidenceSection title="NEXT ACTIONS">{summary.nextActions.length > 0 ? <ol className="list-decimal pl-5 space-y-1 text-[11px] text-amber-100">{summary.nextActions.map(action => <li key={action}>{action}</li>)}</ol> : <p className="text-[11px] text-slate-300">No additional action is identified by the available readiness evidence.</p>}</EvidenceSection>
-    <EvidenceSection title="FINDINGS"><div className="space-y-2">{summary.findings.map(finding => <FindingRow key={finding.id} finding={finding} />)}</div></EvidenceSection>
+    <section className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 space-y-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="font-black text-[10px] uppercase text-amber-300">FINDINGS ({summary.findings.length})</h4>
+          {findingSummary && <p className="text-[10px] text-slate-400">{findingSummary}</p>}
+        </div>
+        {summary.findings.length > 0 && <button type="button" className="min-h-11 px-3 py-2 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" aria-expanded={findingsExpanded} aria-controls={findingsId} onClick={() => setFindingsExpanded(expanded => !expanded)}>{findingsExpanded ? 'Hide findings' : 'Show findings'}</button>}
+      </div>
+      {findingsExpanded && <div id={findingsId} className="space-y-2">{summary.findings.map(finding => <FindingRow key={finding.id} finding={finding} />)}</div>}
+    </section>
     {message && <p role="alert" className="text-[11px] text-amber-200">{message}</p>}
   </>;
 };
@@ -162,6 +174,7 @@ const LinkedEvidence: React.FC<{ title: string; finding?: ReadinessFinding; href
 const FindingMetadata: React.FC<{ finding?: ReadinessFinding }> = ({ finding }) => finding ? <EvidenceMetadata label="Finding" source={finding.source} timestampLabel="Observed" retrievedAtUtc={finding.observedAtUtc} limitation={finding.limitation} /> : null;
 const EvidenceMetadata: React.FC<{ label: string; source: { id: string; type: string; name?: string }; timestampLabel?: string; retrievedAtUtc?: string | null; limitation?: string }> = ({ label, source, timestampLabel = 'Retrieved', retrievedAtUtc, limitation }) => <div className="space-y-0.5 text-[10px] text-slate-400"><span className="block">{label} source: {formatSource(source)}</span><span className="block">{timestampLabel}: {retrievedAtUtc ? <time dateTime={retrievedAtUtc}>{formatUtc(retrievedAtUtc)}</time> : 'Not available'}</span>{limitation && <span className="block">Limitation: {limitation}</span>}</div>;
 const FindingRow: React.FC<{ finding: ReadinessFinding }> = ({ finding }) => <div className="border-t border-slate-800 pt-2 text-[10px] text-slate-400"><p><strong className="text-slate-200">{finding.message}</strong></p><p>Status: {finding.status} | Priority: {finding.priority} | Source: {formatSource(finding.source)}</p>{finding.observedAtUtc && <p>Observed: <time dateTime={finding.observedAtUtc}>{formatUtc(finding.observedAtUtc)}</time></p>}{finding.limitation && <p>Limitation: {finding.limitation}</p>}</div>;
+function summarizeFindingStatuses(findings: readonly ReadinessFinding[]): string { return (['blocked', 'unavailable', 'stale', 'attention', 'unknown'] as const).flatMap(status => { const count = findings.filter(finding => finding.status === status).length; return count > 0 ? [`${count} ${status}`] : []; }).join(' · '); }
 const StatusLabel: React.FC<{ status: ReadinessStatus | string; text?: string }> = ({ status, text }) => <span className={`inline-block rounded border px-1.5 py-0.5 text-[9px] font-black uppercase ${statusClass(status)}`}>{text || status}</span>;
 
 function findFinding(summary: OperationsReadinessSummary, id: string): ReadinessFinding | undefined { return summary.findings.find(finding => finding.id === id); }
