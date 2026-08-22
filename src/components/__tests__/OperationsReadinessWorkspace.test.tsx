@@ -29,6 +29,18 @@ const summary = {
   nextActions: ['Review the propagation limitation.'],
 };
 
+const findingsWithAllStates = {
+  ...summary,
+  findings: [
+    ...summary.findings,
+    { id: 'blocked', status: 'blocked', priority: 'high', message: 'Blocked finding.', source: { id: 'blocked', type: 'test', name: 'Blocked' }, evaluatedAtUtc: summary.evaluatedAtUtc },
+    { id: 'unavailable', status: 'unavailable', priority: 'medium', message: 'Unavailable finding.', source: { id: 'unavailable', type: 'test', name: 'Unavailable' }, evaluatedAtUtc: summary.evaluatedAtUtc },
+    { id: 'stale', status: 'stale', priority: 'medium', message: 'Stale finding.', source: { id: 'stale', type: 'test', name: 'Stale' }, evaluatedAtUtc: summary.evaluatedAtUtc },
+    { id: 'unsupported', status: 'unsupported', priority: 'low', message: 'Unsupported finding.', source: { id: 'unsupported', type: 'test', name: 'Unsupported' }, evaluatedAtUtc: summary.evaluatedAtUtc },
+    { id: 'ready', status: 'ready', priority: 'low', message: 'Ready finding.', source: { id: 'ready', type: 'test', name: 'Ready' }, evaluatedAtUtc: summary.evaluatedAtUtc },
+  ],
+};
+
 const response = (weatherStatus: 'not_requested' | 'live' | 'unavailable' = 'not_requested', summaryValue = summary, evidenceOverrides: Record<string, unknown> = {}, responseBriefId = brief.briefId) => ({
   kind: 'operations_readiness', briefId: responseBriefId, summary: summaryValue, diagnostics: [], displayEvidence: {
     weather: { status: weatherStatus, data: weatherStatus === 'live' ? { tempF: 72, condition: 'Clear', humidity: 45, windMph: 4, windDir: 'NW', pressureInHg: 30, uvIndex: 3, locationName: 'Planned park site', hourlyForecast: [] } : null, retrievedAtUtc: weatherStatus === 'live' ? '2026-08-21T04:01:00.000Z' : null, source: { id: 'weather-provider', type: 'weather_api', name: 'Planned-site weather provider' } },
@@ -94,9 +106,49 @@ describe('OperationsReadinessWorkspace', () => {
     expect(screen.getByText('Radio and station endurance unknown.')).toBeTruthy();
     expect(screen.getByText('First action')).toBeTruthy();
     expect(screen.getByText('Second action')).toBeTruthy();
+    expect(screen.queryByText(/Status: attention \| Priority: high \| Source: GNSS/)).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Show findings' }));
     expect(screen.getByText(/Status: attention \| Priority: high \| Source: GNSS/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'OPEN FIELD READINESS CHECKLIST' })).toHaveAttribute('href', '#field-readiness-checklist');
     expect(screen.getByRole('link', { name: 'OPEN ACTIVATION NOTES' })).toHaveAttribute('href', '#activation-notes');
+  });
+
+  it('collapses findings by default, summarizes unresolved states, and preserves next actions', async () => {
+    const collapsedSummary = { ...findingsWithAllStates, nextActions: ['First action', 'Second action'] };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', collapsedSummary) })));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'FINDINGS (10)' })).toBeTruthy());
+    expect(screen.getByText('1 blocked · 1 unavailable · 1 stale · 1 attention · 3 unknown')).toBeTruthy();
+    expect(screen.getByText('First action')).toBeTruthy();
+    expect(screen.queryByText('Blocked finding.')).toBeNull();
+    const control = screen.getByRole('button', { name: 'Show findings' });
+    expect(control).toHaveAttribute('aria-expanded', 'false');
+    expect(control).toHaveAttribute('aria-controls', 'operations-readiness-findings');
+    fireEvent.click(control);
+    expect(control).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.getByText('Blocked finding.')).toBeTruthy();
+    expect(screen.getByText('Unsupported finding.')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Hide findings' }));
+    expect(screen.queryByText('Blocked finding.')).toBeNull();
+  });
+
+  it('resets findings collapsed when the brief changes', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => ({ ok: true, json: async () => response('not_requested', summary, {}, String(input).includes('brief-readiness-2') ? 'brief-readiness-2' : brief.briefId) })));
+    const { rerender } = render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Show findings' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'Show findings' }));
+    expect(screen.getByRole('button', { name: 'Hide findings' })).toBeTruthy();
+    rerender(<OperationsReadinessWorkspace brief={{ ...brief, briefId: 'brief-readiness-2' } as SmartDeployBriefV2} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Show findings' })).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'Show findings' })).toHaveAttribute('aria-expanded', 'false');
+    expect(screen.queryByText(/Status: unknown \| Priority: medium \| Source: Clock check/)).toBeNull();
+  });
+
+  it('renders a bounded zero-findings state without a disclosure control', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', { ...summary, findings: [] }) })));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'FINDINGS (0)' })).toBeTruthy());
+    expect(screen.queryByRole('button', { name: 'Show findings' })).toBeNull();
   });
 
   it('renders missing runtime and empty actions without deriving runtime from charge', async () => {
