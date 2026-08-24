@@ -22,5 +22,6 @@ echo [+] Access URL: http://localhost:3000
 echo [+] Press Ctrl+C in this window to stop the server.
 echo.
 
+set "NODE_ENV=production"
 call npm run dev
 pause

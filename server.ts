@@ -49,10 +49,12 @@ import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChec
 import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
+import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 
 async function startServer() {
   const app = express();
   const PORT = 3000;
+  const distPath = path.join(process.cwd(), 'dist');
 
   const telemetryCredentialPath = getDefaultTelemetryCredentialPath();
   const telemetryCredentialRepository = telemetryCredentialPath
@@ -108,6 +110,7 @@ async function startServer() {
       now: () => new Date(),
     },
   }));
+  app.use(createDashboardReadinessRouter({ distPath, baseUrl: `http://127.0.0.1:${PORT}` }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
     store: smartDeployBriefStore,
@@ -1155,8 +1158,10 @@ Context provided: ${JSON.stringify(context || {})}`;
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
     app.use(express.static(distPath));
+    app.get('/assets/*', (_req, res) => {
+      res.status(404).json({ error: 'Dashboard asset not found.' });
+    });
     app.get("*", (req, res) => {
       res.sendFile(path.join(distPath, "index.html"));
     });

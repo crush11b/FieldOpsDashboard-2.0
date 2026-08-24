@@ -2,6 +2,7 @@ import type { DashboardConfig } from './types';
 import { INITIAL_CONFIG } from './data/defaultConfig';
 
 export const CONFIG_STORAGE_KEY = 'fieldops_dashboard_config_v115';
+export const CONFIG_LOAD_TIMEOUT_MS = 5000;
 
 export interface ConfigLoadResult {
   config: DashboardConfig;
@@ -12,11 +13,12 @@ export interface ConfigLoadResult {
 export async function loadDashboardConfig(
   fetcher: typeof fetch = fetch,
   storage: Pick<Storage, 'getItem' | 'removeItem'> | undefined = typeof window === 'undefined' ? undefined : window.localStorage,
+  timeoutMs = CONFIG_LOAD_TIMEOUT_MS,
 ): Promise<ConfigLoadResult> {
-  const response = await fetcher('/api/config');
+  const response = await fetchWithTimeout(fetcher, '/api/config', undefined, timeoutMs);
   if (response.ok) {
     const payload = await response.json() as { config?: DashboardConfig };
-    if (!payload.config) throw new Error('Dashboard configuration response was invalid.');
+    if (!isUsableDashboardConfig(payload.config)) throw new Error('Dashboard configuration response was invalid.');
     return { config: payload.config, migrated: false };
   }
 
@@ -24,11 +26,11 @@ export async function loadDashboardConfig(
   const legacy = readLegacyConfig(storage);
   if (!legacy) return { config: INITIAL_CONFIG, migrated: false };
 
-  const migratedResponse = await fetcher('/api/config', {
+  const migratedResponse = await fetchWithTimeout(fetcher, '/api/config', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(legacy),
-  });
+  }, timeoutMs);
   if (!migratedResponse.ok) {
     return {
       config: INITIAL_CONFIG,
@@ -37,9 +39,17 @@ export async function loadDashboardConfig(
     };
   }
   const migratedPayload = await migratedResponse.json() as { config?: DashboardConfig };
-  if (!migratedPayload.config) throw new Error('Migrated Dashboard configuration response was invalid.');
+  if (!isUsableDashboardConfig(migratedPayload.config)) throw new Error('Migrated Dashboard configuration response was invalid.');
   storage?.removeItem(CONFIG_STORAGE_KEY);
   return { config: migratedPayload.config, migrated: true };
+}
+
+export function isUsableDashboardConfig(value: unknown): value is DashboardConfig {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const config = value as Partial<DashboardConfig>;
+  return (config.theme === 'dark_tactical' || config.theme === 'night_vision' || config.theme === 'sunlight')
+    && typeof config.audioFeedback === 'boolean'
+    && Array.isArray(config.apps);
 }
 
 export async function saveDashboardConfig(config: DashboardConfig, fetcher: typeof fetch = fetch): Promise<DashboardConfig> {
@@ -52,6 +62,27 @@ export async function saveDashboardConfig(config: DashboardConfig, fetcher: type
   const payload = await response.json() as { config?: DashboardConfig };
   if (!payload.config) throw new Error('Dashboard configuration response was invalid.');
   return payload.config;
+}
+
+async function fetchWithTimeout(
+  fetcher: typeof fetch,
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  timeoutMs: number,
+): Promise<Response> {
+  const controller = new AbortController();
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  const timeoutPromise = new Promise<Response>((_resolve, reject) => {
+    timeout = setTimeout(() => {
+      controller.abort();
+      reject(new Error('Dashboard configuration request timed out.'));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([fetcher(input, { ...init, signal: controller.signal }), timeoutPromise]);
+  } finally {
+    if (timeout !== undefined) clearTimeout(timeout);
+  }
 }
 
 function readLegacyConfig(storage: Pick<Storage, 'getItem'> | undefined): unknown | null {

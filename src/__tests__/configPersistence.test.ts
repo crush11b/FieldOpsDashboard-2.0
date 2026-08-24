@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { INITIAL_CONFIG } from '../data/defaultConfig';
-import { CONFIG_STORAGE_KEY, loadDashboardConfig, saveDashboardConfig } from '../configPersistence';
+import { CONFIG_LOAD_TIMEOUT_MS, CONFIG_STORAGE_KEY, loadDashboardConfig, saveDashboardConfig } from '../configPersistence';
 
 function storage(value: string | null): Storage {
   return {
@@ -46,6 +46,19 @@ describe('Dashboard configuration browser migration', () => {
 
     expect(result.config).toEqual(INITIAL_CONFIG);
     expect(result.migrated).toBe(false);
+  });
+
+  it('rejects a malformed persisted configuration response', async () => {
+    const fetcher = vi.fn().mockResolvedValue(new Response(JSON.stringify({ config: { theme: 'dark_tactical' } }), { status: 200 }));
+
+    await expect(loadDashboardConfig(fetcher, storage(null))).rejects.toThrow('response was invalid');
+  });
+
+  it('bounds a configuration request that never settles', async () => {
+    const fetcher = vi.fn(() => new Promise<Response>(() => {}));
+
+    await expect(loadDashboardConfig(fetcher, storage(null), 1)).rejects.toThrow('timed out');
+    expect(CONFIG_LOAD_TIMEOUT_MS).toBe(5000);
   });
 
   it('surfaces a migration persistence failure without claiming migration succeeded', async () => {
