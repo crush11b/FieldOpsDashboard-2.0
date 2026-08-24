@@ -3,6 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { checkDashboardReadiness } from '../dashboardReadiness';
+import { INITIAL_CONFIG } from '../../src/data/defaultConfig';
 
 const originalNodeEnv = process.env.NODE_ENV;
 
@@ -38,9 +39,10 @@ describe('Dashboard bootstrap readiness', () => {
       distPath,
       baseUrl: 'http://127.0.0.1:3000',
       fetcher: fetcher({
+        '/': new Response('<script type="module" src="/assets/app.js"></script><link rel="stylesheet" href="/assets/app.css">', { headers: { 'content-type': 'text/html' } }),
         '/assets/app.js': new Response('console.log(1);', { headers: { 'content-type': 'text/javascript' } }),
         '/assets/app.css': new Response('body{}', { headers: { 'content-type': 'text/css' } }),
-        '/api/config': new Response(JSON.stringify({ config: { theme: 'dark_tactical', audioFeedback: true, apps: [] } }), { headers: { 'content-type': 'application/json' } }),
+        '/api/config': new Response(JSON.stringify({ config: INITIAL_CONFIG }), { headers: { 'content-type': 'application/json' } }),
       }),
     });
     expect(result).toMatchObject({ status: 'ready', checks: { runtime: 'production', html: 'ready', assets: 'ready', configuration: 'ready' } });
@@ -53,9 +55,10 @@ describe('Dashboard bootstrap readiness', () => {
       distPath,
       baseUrl: 'http://127.0.0.1:3000',
       fetcher: fetcher({
+        '/': new Response('<script type="module" src="/assets/app.js"></script><link rel="stylesheet" href="/assets/app.css">', { headers: { 'content-type': 'text/html' } }),
         '/assets/app.js': new Response('<html></html>', { headers: { 'content-type': 'text/html' } }),
         '/assets/app.css': new Response('body{}', { headers: { 'content-type': 'text/css' } }),
-        '/api/config': new Response(JSON.stringify({ config: { theme: 'dark_tactical', audioFeedback: true, apps: [] } })),
+        '/api/config': new Response(JSON.stringify({ config: INITIAL_CONFIG })),
       }),
     });
     expect(result.status).toBe('unavailable');

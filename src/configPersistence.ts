@@ -1,5 +1,6 @@
 import type { DashboardConfig } from './types';
 import { INITIAL_CONFIG } from './data/defaultConfig';
+import { isUsableDashboardConfig } from './dashboardConfigValidation';
 
 export const CONFIG_STORAGE_KEY = 'fieldops_dashboard_config_v115';
 export const CONFIG_LOAD_TIMEOUT_MS = 5000;
@@ -42,14 +43,6 @@ export async function loadDashboardConfig(
   if (!isUsableDashboardConfig(migratedPayload.config)) throw new Error('Migrated Dashboard configuration response was invalid.');
   storage?.removeItem(CONFIG_STORAGE_KEY);
   return { config: migratedPayload.config, migrated: true };
-}
-
-export function isUsableDashboardConfig(value: unknown): value is DashboardConfig {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
-  const config = value as Partial<DashboardConfig>;
-  return (config.theme === 'dark_tactical' || config.theme === 'night_vision' || config.theme === 'sunlight')
-    && typeof config.audioFeedback === 'boolean'
-    && Array.isArray(config.apps);
 }
 
 export async function saveDashboardConfig(config: DashboardConfig, fetcher: typeof fetch = fetch): Promise<DashboardConfig> {

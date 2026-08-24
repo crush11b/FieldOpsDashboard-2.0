@@ -50,6 +50,7 @@ import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } f
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
+import { createProductionStaticRouter } from './server/productionStatic';
 
 async function startServer() {
   const app = express();
@@ -1158,13 +1159,7 @@ Context provided: ${JSON.stringify(context || {})}`;
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(distPath));
-    app.get('/assets/*', (_req, res) => {
-      res.status(404).json({ error: 'Dashboard asset not found.' });
-    });
-    app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
-    });
+    app.use(createProductionStaticRouter(distPath));
   }
 
   app.listen(PORT, "127.0.0.1", () => {

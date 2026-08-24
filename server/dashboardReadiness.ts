@@ -1,7 +1,6 @@
-import fs from 'node:fs/promises';
-import path from 'node:path';
 import type { Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
+import { isUsableDashboardConfig } from '../src/dashboardConfigValidation';
 
 export interface DashboardReadinessOptions {
   readonly distPath: string;
@@ -37,12 +36,18 @@ export async function checkDashboardReadiness(options: DashboardReadinessOptions
     return unavailable('The Dashboard is not running in production mode.', 'non-production', 'unavailable', 'unavailable', 'unavailable');
   }
 
-  let html: string;
+  const fetcher = options.fetcher ?? fetch;
+  let htmlResponse: Response;
   try {
-    html = await fs.readFile(path.join(options.distPath, 'index.html'), 'utf8');
+    htmlResponse = await fetchWithTimeout(fetcher, new URL('/', options.baseUrl));
   } catch {
     return unavailable('The production Dashboard HTML is unavailable.', 'production', 'unavailable', 'unavailable', 'unavailable');
   }
+  const htmlType = htmlResponse.headers.get('content-type')?.toLowerCase() ?? '';
+  if (!htmlResponse.ok || !htmlType.includes('text/html')) {
+    return unavailable('The production Dashboard HTML is unavailable or has an incorrect content type.', 'production', 'unavailable', 'unavailable', 'unavailable');
+  }
+  const html = await htmlResponse.text();
 
   const assets = [...html.matchAll(ASSET_PATTERN)].map(match => match[1]);
   const javascript = assets.find(asset => asset.endsWith('.js'));
@@ -51,7 +56,6 @@ export async function checkDashboardReadiness(options: DashboardReadinessOptions
     return unavailable('The production Dashboard HTML does not reference its required assets.', 'production', 'ready', 'unavailable', 'unavailable');
   }
 
-  const fetcher = options.fetcher ?? fetch;
   const [javascriptResponse, stylesheetResponse, configurationResponse] = await Promise.all([
     fetchAsset(fetcher, options.baseUrl, javascript, 'javascript'),
     fetchAsset(fetcher, options.baseUrl, stylesheet, 'stylesheet'),

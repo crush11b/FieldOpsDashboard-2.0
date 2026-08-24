@@ -278,23 +278,40 @@ internal sealed class ProductionDashboardBackendProbe(HttpClient httpClient) : I
     {
         try
         {
-            using var response = await httpClient.GetAsync("http://127.0.0.1:3000/api/readiness", cancellationToken);
-            if (response.StatusCode == HttpStatusCode.NotFound)
+            using var versionResponse = await httpClient.GetAsync("http://127.0.0.1:3000/api/version", cancellationToken);
+            if (versionResponse.StatusCode == HttpStatusCode.NotFound)
             {
                 return new(DashboardBackendProbeState.Incompatible, "Port 3000 is occupied by an incompatible HTTP service.");
             }
 
-            if (response.StatusCode == HttpStatusCode.ServiceUnavailable)
+            if (!versionResponse.IsSuccessStatusCode)
+            {
+                return new(DashboardBackendProbeState.Incompatible, "Port 3000 responded without a healthy FieldOps Dashboard identity.");
+            }
+
+            var version = await versionResponse.Content.ReadFromJsonAsync<DashboardVersionResponse>(cancellationToken);
+            if (version?.SourceRevision is null || !IsCommitSha(version.SourceRevision))
+            {
+                return new(DashboardBackendProbeState.Incompatible, "Port 3000 responded without a compatible FieldOps Dashboard identity.");
+            }
+
+            using var readinessResponse = await httpClient.GetAsync("http://127.0.0.1:3000/api/readiness", cancellationToken);
+            if (readinessResponse.StatusCode == HttpStatusCode.ServiceUnavailable)
             {
                 return new(DashboardBackendProbeState.NotListening, "The Dashboard application is not ready to bootstrap.");
             }
 
-            if (!response.IsSuccessStatusCode)
+            if (readinessResponse.StatusCode == HttpStatusCode.NotFound)
             {
-                return new(DashboardBackendProbeState.Incompatible, "Port 3000 responded without a healthy FieldOps Dashboard endpoint.");
+                return new(DashboardBackendProbeState.Incompatible, "Port 3000 is occupied by an incompatible HTTP service.");
             }
 
-            var readiness = await response.Content.ReadFromJsonAsync<DashboardReadinessResponse>(cancellationToken);
+            if (!readinessResponse.IsSuccessStatusCode)
+            {
+                return new(DashboardBackendProbeState.Incompatible, "Port 3000 responded without a healthy FieldOps Dashboard readiness endpoint.");
+            }
+
+            var readiness = await readinessResponse.Content.ReadFromJsonAsync<DashboardReadinessResponse>(cancellationToken);
             if (readiness?.Status != "ready")
             {
                 return new(DashboardBackendProbeState.Incompatible, "The Dashboard application is not ready to bootstrap.");
@@ -318,6 +335,11 @@ internal sealed class ProductionDashboardBackendProbe(HttpClient httpClient) : I
 
     private sealed record DashboardReadinessResponse(
         [property: JsonPropertyName("status")] string? Status);
+
+    private static bool IsCommitSha(string value) => value.Length == 40 && value.All(Uri.IsHexDigit);
+
+    private sealed record DashboardVersionResponse(
+        [property: JsonPropertyName("sourceRevision")] string? SourceRevision);
 }
 
 internal sealed class ProductionDashboardBackendProcessFactory : IDashboardBackendProcessFactory
