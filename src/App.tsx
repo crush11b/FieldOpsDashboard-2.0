@@ -98,11 +98,14 @@ export default function App() {
   // 1. Dashboard Persistent Config
   const [config, setConfig] = useState<DashboardConfig>(INITIAL_CONFIG);
   const [configReady, setConfigReady] = useState(false);
+  const [configBootstrapError, setConfigBootstrapError] = useState<string | null>(null);
+  const [configAttempt, setConfigAttempt] = useState(0);
   const [configPersistenceError, setConfigPersistenceError] = useState<string | null>(null);
   const configPersistenceGeneration = useRef(0);
 
   useEffect(() => {
     let cancelled = false;
+    setConfigBootstrapError(null);
     loadDashboardConfig().then(result => {
       if (cancelled) return;
       setConfig(result.config);
@@ -111,11 +114,10 @@ export default function App() {
     }).catch(error => {
       if (cancelled) return;
       console.warn('Dashboard configuration load failed', error);
-      setConfigPersistenceError('Dashboard configuration could not be loaded from the local backend.');
-      setConfigReady(true);
+      setConfigBootstrapError('Dashboard configuration is unavailable. Check the local server and retry.');
     });
     return () => { cancelled = true; };
-  }, []);
+  }, [configAttempt]);
 
   const updateConfig = (updated: DashboardConfig) => {
     setConfig(updated);
@@ -414,6 +416,14 @@ export default function App() {
     });
   };
 
+  if (configBootstrapError) {
+    return (
+      <main className="min-h-screen bg-[#0F1115] text-amber-400 flex flex-col items-center justify-center gap-4 p-6 font-mono text-sm text-center">
+        <p>{configBootstrapError}</p>
+        <button type="button" onClick={() => { setConfigReady(false); setConfigAttempt(attempt => attempt + 1); }} className="border border-amber-400 px-4 py-2 hover:bg-amber-400 hover:text-black">Retry</button>
+      </main>
+    );
+  }
   if (!configReady) {
     return <div className="min-h-screen bg-[#0F1115] text-amber-400 flex items-center justify-center font-mono text-sm">LOADING DASHBOARD CONFIGURATION...</div>;
   }

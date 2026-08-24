@@ -9,7 +9,12 @@
     <title>FieldOps Dashboard 2.4.0 — Field Tools</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root">
+      <div id="fieldops-startup" role="status" style="box-sizing:border-box;min-height:100vh;padding:3rem 1.5rem;background:#0f1115;color:#fbbf24;font:600 14px/1.5 monospace;text-align:center">
+        <p>Starting FieldOps Dashboard...</p>
+        <button type="button" onclick="location.reload()" style="padding:.6rem 1rem;border:1px solid #fbbf24;background:transparent;color:inherit;font:inherit;cursor:pointer">Retry</button>
+      </div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

@@ -6,6 +6,7 @@ import type { AppCategory, AppLauncherItem, DashboardConfig } from '../src/types
 import { INITIAL_CONFIG } from '../src/data/defaultConfig';
 import { normalizeStationProfile } from '../src/propagation/stationProfileCatalog';
 import { PROPAGATION_REGION_IDS, type PropagationRegionId } from '../src/propagation/regionalDestinations';
+import { isUsableDashboardConfig } from '../src/dashboardConfigValidation';
 
 const CONFIG_FILE_NAME = 'dashboard-config.json';
 const MAX_TEXT_LENGTH = 512;
@@ -45,7 +46,7 @@ export function normalizeDashboardConfig(input: unknown): DashboardConfig {
     theme: source.theme === 'night_vision' || source.theme === 'sunlight' ? source.theme : defaultConfig.theme,
     audioFeedback: typeof source.audioFeedback === 'boolean' ? source.audioFeedback : defaultConfig.audioFeedback,
     autoGps: typeof source.autoGps === 'boolean' ? source.autoGps : defaultConfig.autoGps,
-    appGridColumns: source.appGridColumns === 2 || source.appGridColumns === 4 || source.appGridColumns === 6 ? source.appGridColumns : defaultConfig.appGridColumns,
+    appGridColumns: source.appGridColumns === 2 || source.appGridColumns === 3 || source.appGridColumns === 4 || source.appGridColumns === 6 ? source.appGridColumns : defaultConfig.appGridColumns,
     showRoadmapTools: typeof source.showRoadmapTools === 'boolean' ? source.showRoadmapTools : defaultConfig.showRoadmapTools,
     favoriteCategoryOnly: typeof source.favoriteCategoryOnly === 'boolean' ? source.favoriteCategoryOnly : defaultConfig.favoriteCategoryOnly,
     callsign: boundedString(source.callsign, defaultConfig.callsign).trim().toUpperCase(),
@@ -66,7 +67,8 @@ export function parseDashboardConfigJson(json: string): DashboardConfig | null {
   try {
     const parsed: unknown = JSON.parse(json);
     if (!isRecord(parsed)) return null;
-    return normalizeDashboardConfig(parsed);
+    const config = normalizeDashboardConfig(parsed);
+    return isUsableDashboardConfig(config) ? config : null;
   } catch {
     return null;
   }
