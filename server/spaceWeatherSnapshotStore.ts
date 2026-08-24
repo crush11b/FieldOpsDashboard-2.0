@@ -1,0 +1,20 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import os from 'node:os';
+import { RETAINED_SPACE_WEATHER_SCHEMA_VERSION, type RetainedSpaceWeatherSnapshot } from './spaceWeatherSnapshot';
+
+const FILE_NAME = 'space-weather-snapshots.json';
+interface StoreDocument { readonly storeVersion: 1; readonly records: readonly RetainedSpaceWeatherSnapshot[]; }
+export interface SpaceWeatherStoreDiagnostic { readonly code: 'missing' | 'corrupt' | 'io_error' | 'invalid_record'; readonly message: string; }
+export type SpaceWeatherStoreResult = { readonly status: 'found'; readonly record: RetainedSpaceWeatherSnapshot; readonly diagnostics: readonly SpaceWeatherStoreDiagnostic[] } | { readonly status: 'notFound'; readonly diagnostics: readonly SpaceWeatherStoreDiagnostic[] };
+
+export function getDefaultSpaceWeatherSnapshotPath(environment: NodeJS.ProcessEnv = process.env, homeDirectory = os.homedir()): string { return path.join(environment.LOCALAPPDATA || path.join(homeDirectory, 'AppData', 'Local'), 'FieldOpsDashboard', FILE_NAME); }
+export class SpaceWeatherSnapshotStore {
+  constructor(private readonly filePath: string) {}
+  getByBriefId(briefId: string): SpaceWeatherStoreResult { const loaded = this.load(); const record = loaded.records.find(item => item.briefId === briefId); return record ? { status: 'found', record, diagnostics: loaded.diagnostics } : { status: 'notFound', diagnostics: loaded.diagnostics }; }
+  save(record: RetainedSpaceWeatherSnapshot): void { const loaded = this.load(); const records = [record, ...loaded.records.filter(item => item.briefId !== record.briefId)].sort((left, right) => right.updatedAtUtc.localeCompare(left.updatedAtUtc)).slice(0, 10); this.write({ storeVersion: 1, records }); }
+  private load(): { readonly records: readonly RetainedSpaceWeatherSnapshot[]; readonly diagnostics: readonly SpaceWeatherStoreDiagnostic[] } { let parsed: unknown; try { parsed = JSON.parse(fs.readFileSync(this.filePath, 'utf8')); } catch (error) { return (error as NodeJS.ErrnoException).code === 'ENOENT' ? { records: [], diagnostics: [{ code: 'missing', message: 'No retained space-weather snapshot exists yet.' }] } : { records: [], diagnostics: [{ code: 'io_error', message: 'The retained space-weather snapshot could not be read.' }] }; } if (!isRecord(parsed) || parsed.storeVersion !== 1 || !Array.isArray(parsed.records)) return { records: [], diagnostics: [{ code: 'corrupt', message: 'The retained space-weather snapshot store is malformed.' }] }; const records = parsed.records.filter(isSnapshot).filter((record, index, all) => all.findIndex(candidate => candidate.briefId === record.briefId) === index); return { records, diagnostics: records.length === parsed.records.length ? [] : [{ code: 'invalid_record', message: 'One or more retained space-weather records were skipped.' }] }; }
+  private write(document: StoreDocument): void { fs.mkdirSync(path.dirname(this.filePath), { recursive: true }); const temporaryPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`; try { fs.writeFileSync(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }); fs.renameSync(temporaryPath, this.filePath); } finally { try { fs.rmSync(temporaryPath, { force: true }); } catch {} } }
+}
+function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function isSnapshot(value: unknown): value is RetainedSpaceWeatherSnapshot { return isRecord(value) && value.schemaVersion === RETAINED_SPACE_WEATHER_SCHEMA_VERSION && typeof value.briefId === 'string' && isRecord(value.activation) && typeof value.activation.reference === 'string' && isRecord(value.missionWindow) && typeof value.missionWindow.start === 'string' && typeof value.missionWindow.end === 'string' && typeof value.retrievedAtUtc === 'string' && isRecord(value.interpretation) && typeof value.updatedAtUtc === 'string'; }
