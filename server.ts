@@ -34,6 +34,8 @@ import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/laun
 import { DEFAULT_APPS } from './src/data/defaultConfig';
 import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
 import { SpaceWeatherService } from './server/spaceWeather';
+import { SpaceWeatherSnapshotStore, getDefaultSpaceWeatherSnapshotPath } from './server/spaceWeatherSnapshotStore';
+import { createSpaceWeatherSnapshotRouter } from './server/spaceWeatherSnapshotApi';
 import { ObservedRfService } from './server/observedRf';
 import type { OperatingLocation } from './src/location/operatingLocation';
 import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
@@ -47,6 +49,8 @@ import { createActivationNotesRouter } from './server/activationNotesApi';
 import { ActivationNotesStore, getDefaultActivationNotesPath } from './server/activationNotesStore';
 import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChecklistApi';
 import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
+import { createMissionForecastRouter } from './server/missionForecastApi';
+import { getDefaultMissionForecastPath, MissionForecastStore } from './server/missionForecastStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
@@ -97,8 +101,12 @@ async function startServer() {
   const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
   const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
   const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
+  const missionForecastStore = new MissionForecastStore(getDefaultMissionForecastPath());
+  const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
+  app.use(createMissionForecastRouter({ briefStore: smartDeployBriefStore, store: missionForecastStore }));
+  app.use(createSpaceWeatherSnapshotRouter({ briefStore: smartDeployBriefStore, store: spaceWeatherSnapshotStore, service: spaceWeatherService }));
   app.use(createOperationsReadinessRouter({
     dependencies: {
       briefStore: smartDeployBriefStore,

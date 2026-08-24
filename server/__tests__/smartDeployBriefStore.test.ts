@@ -8,6 +8,8 @@ import {
   SmartDeployBriefStore,
   getDefaultSmartDeployBriefPath,
 } from '../smartDeployBriefStore';
+import { MissionForecastStore } from '../missionForecastStore';
+import type { MissionForecastRecord } from '../missionForecast';
 
 const temporaryDirectories: string[] = [];
 
@@ -70,6 +72,16 @@ function createStore(): { store: SmartDeployBriefStore; directory: string; fileP
 }
 
 describe('SmartDeployBriefStore', () => {
+  it('does not cascade deletion into the independent mission forecast store', () => {
+    const { store, directory } = createStore();
+    const brief = createManualV2Brief('brief-with-forecast');
+    store.save(brief);
+    const forecastStore = new MissionForecastStore(path.join(directory, 'mission-forecasts.json'));
+    forecastStore.save({ schemaVersion: 1, briefId: brief.briefId, activation: { program: 'POTA', reference: 'US-1234' }, plannedSite: { latitude: 37.4, longitude: -77.4, gridSquare: 'FM17hj', provenance: 'manual' }, missionWindow: { start: '2026-08-18T12:00:00.000Z', end: '2026-08-18T14:00:00.000Z' }, provider: { id: 'open-meteo-mission-forecast', name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-18T11:00:00.000Z', periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', temperatureF: 0, precipitationProbability: 0, windSpeedMph: 0, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }], status: 'live', sourceUrl: 'https://api.open-meteo.com/v1/forecast', limitations: [], diagnostics: [], updatedAtUtc: '2026-08-18T11:00:00.000Z' } satisfies MissionForecastRecord);
+    expect(store.delete(brief.briefId).status).toBe('deleted');
+    expect(forecastStore.getByBriefId(brief.briefId).status).toBe('found');
+    expect(fs.existsSync(path.join(directory, 'mission-forecasts.json'))).toBe(true);
+  });
   it('uses the product local app-data location and treats first run as empty', () => {
     expect(getDefaultSmartDeployBriefPath({ LOCALAPPDATA: 'C:\\Users\\Operator\\AppData\\Local' }, 'C:\\Users\\Operator'))
       .toBe('C:\\Users\\Operator\\AppData\\Local\\FieldOpsDashboard\\smartdeploy-briefs.json');

@@ -1,1 +1,31 @@
 @import "tailwindcss";
+
+@media print {
+	.no-print,
+	header,
+	nav,
+	[role="navigation"] {
+		display: none !important;
+	}
+
+	details:not([open]) {
+		display: none !important;
+	}
+
+	body {
+		background: white !important;
+		color: #111827 !important;
+	}
+
+	#smartdeploy-brief,
+	#smartdeploy-brief * {
+		color: #111827 !important;
+		border-color: #9ca3af !important;
+		background: white !important;
+		box-shadow: none !important;
+	}
+
+	#smartdeploy-brief {
+		max-width: none !important;
+	}
+}
