@@ -2,8 +2,8 @@
 
 > A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-[![Version 2.4.0](https://img.shields.io/badge/version-2.4.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.4.0)
-[![Status](https://img.shields.io/badge/status-2.4%20Field%20Tools%20current-2E7D32?style=for-the-badge)](#current-release)
+[![Version 2.5.0](https://img.shields.io/badge/version-2.5.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.5.0)
+[![Status](https://img.shields.io/badge/status-2.5%20release%20candidate-C47F00?style=for-the-badge)](#current-release)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
 
 ## What it is
@@ -20,11 +20,11 @@ The project prioritizes practical single-operator field usefulness, trustworthy 
 
 ## Current release
 
-**Version 2.4.0 - Field Tools**
+**Version 2.5.0 - Operations Assistant release candidate**
 
-The current release adds the Coordinate Workspace and a practical set of field planning and readiness tools on top of the dependable Windows Local Agent and Tray baseline. It is designed for real ToughBook use with local and offline operation, honest source and freshness states, and retained operator work between sessions.
+This release candidate adds brief-anchored Operations Readiness on top of the dependable Windows Local Agent and Tray baseline. It is designed for ToughBook validation with local and offline operation, honest source and freshness states, and retained operator work between sessions. It has not been published, and ToughBook validation has not passed yet.
 
-Field Tools includes:
+Operations Assistant includes:
 
 - **Coordinate Workspace**: GNSS or manual coordinates, Maidenhead grid, distance, bearing, and source-aware location states.
 - **Offline P.533 guidance**: Bundled and verified P.533 assets provide modeled HF propagation guidance when connectivity is unavailable; modeled results remain clearly distinct from observed RF evidence.
@@ -33,6 +33,9 @@ Field Tools includes:
 - **Field Readiness Checklist**: A persistent pre-deployment checklist supports repeatable ToughBook field preparation.
 - **Local/offline persistence**: Configuration, planning briefs, notes, and readiness state are retained locally for intermittent or unavailable connectivity.
 - **Updater and native runtime improvements**: Exact-revision deployment checks, native artifact publication, transactional updater behavior, and runtime-readiness validation support the Windows Agent and Tray companion.
+- **Operations Readiness**: Brief-anchored operation context includes station, antenna, mode, checklist, Activation Notes, planned/current location separation, day-of live weather and alerts, collapsible Findings, and Print / Save PDF.
+- **Mission-window evidence**: Retained terrestrial forecasts, brief-scoped space-weather evidence, and an offline P.533 band outlook remain available across restart and offline use; forecasts and propagation are not guarantees.
+- **ToughBook runtime semantics**: The release candidate documents power behavior and Windows bootstrap/static-serving readiness for validation.
 
 See the [Version 2.4 changelog](CHANGELOG.md), [Activation Notes validation](docs/validation/Version-2.4-Activation-Notes-Field-Validation-2026-08-19.md), and [Field Readiness validation](docs/validation/Version-2.4-Field-Readiness-Checklist-Field-Validation-2026-08-20.md).
 
@@ -69,9 +72,9 @@ An unavailable Internet source does not make a modeled result a measurement, and
 
 ## Version 2.5 boundary
 
-Version 2.5 remains future work. Multi-user, fleet, remote-administration, signing, and broad enterprise hardening remain outside the current release boundary.
+Version 2.5.0 remains a release candidate pending ToughBook validation. Clock synchronization is Unknown/unverified, radio/station endurance is unknown, and live providers require connectivity.
 
-Local/NVIS remains an honest deferred presentation: the destination is visible but disabled, and no Local/NVIS evaluator, prediction, or recommendation capability exists in Version 2.4.
+Local/NVIS remains unsupported. There is no logging/ADIF, spotting, Winlink, APRS, Meshtastic, inventory/loadouts, AI, or full mission lifecycle.
 
 ## SmartDeploy and activation-support scope
 

@@ -35,7 +35,7 @@ describe('product version presentation', () => {
       />,
     );
 
-    expect(markup).toContain('Version 2.4.0');
+    expect(markup).toContain('Version 2.5.0');
     expect(markup).not.toContain('v2.1');
   });
 });

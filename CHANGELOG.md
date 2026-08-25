@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.5.0] - Release candidate
+
+Version 2.5.0 is a release candidate pending ToughBook validation. It is not yet published.
+
+### Added
+- **Operations Readiness**: Brief-anchored readiness keeps operation, station, antenna, mode, checklist, Activation Notes, and field workflow context together.
+- **Mission-window evidence**: Retained terrestrial weather and brief-scoped space-weather evidence remain available after restart and offline; forecasts and propagation are not guarantees.
+- **Planning and day-of separation**: Planned locations remain distinct from current/live locations, with existing provider-reference, current-device, manual coordinate, and Maidenhead controls retained.
+- **P.533 outlook**: The planning workflow includes a bounded band outlook from the offline P.533 runtime.
+- **Field workflow**: Reorganized operation, planning, readiness, day-of live weather/alerts, and troubleshooting surfaces include collapsible Findings and Print / Save PDF.
+- **Hardened bootstrap**: Production Dashboard bootstrap and static-serving readiness are included in the release candidate package.
+
+### Limitations
+- Clock synchronization remains Unknown/unverified, and radio/station endurance remains unknown.
+- Live providers require connectivity; retained and modeled evidence can be stale or unavailable.
+- Local/NVIS remains unsupported. There is no logging/ADIF, spotting, Winlink, APRS, Meshtastic, inventory/loadouts, AI, or full mission lifecycle.
+- ToughBook power behavior and Windows runtime semantics are documented for validation, but ToughBook validation has not passed yet.
+
+---
+
 ## [2.4.0] - 2026-08-20
 
 ### Added
