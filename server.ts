@@ -55,6 +55,7 @@ import { createOperationsReadinessRouter } from './server/operationsReadinessApi
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
+import { getDashboardRuntimeMode } from './server/runtimeMode';
 
 async function startServer() {
   const app = express();
@@ -1159,8 +1160,9 @@ Context provided: ${JSON.stringify(context || {})}`;
     }
   });
 
-  // Vite middleware for development vs production serving
-  if (process.env.NODE_ENV !== "production") {
+  const runtimeMode = getDashboardRuntimeMode(process.env.NODE_ENV);
+  // Vite is available only when development was explicitly requested.
+  if (runtimeMode === 'development') {
     const vite = await createViteServer({
       server: { middlewareMode: true },
       appType: "spa",

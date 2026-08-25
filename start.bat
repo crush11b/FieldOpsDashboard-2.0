@@ -17,7 +17,7 @@ echo [+] Press Ctrl+C in this window to stop the server.
 echo.
 
 set "NODE_ENV=production"
-call npm run dev
+node dist\server.cjs
 pause
 exit /b %errorlevel%
 
