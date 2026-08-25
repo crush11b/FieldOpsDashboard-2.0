@@ -90,7 +90,13 @@ function Get-FieldOpsDashboardProcessCandidates {
         if ($null -eq $node) { $node = & $NodeProvider 'node' }
         if ($null -eq $node) { throw 'Node.js executable was not found on PATH.' }
         $serverPath = [IO.Path]::GetFullPath((Join-Path $DashboardRoot 'dist\server.cjs'))
-        $process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot
+        $previousNodeEnv = [Environment]::GetEnvironmentVariable('NODE_ENV', 'Process')
+        try {
+            [Environment]::SetEnvironmentVariable('NODE_ENV', 'production', 'Process')
+            $process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot
+        } finally {
+            [Environment]::SetEnvironmentVariable('NODE_ENV', $previousNodeEnv, 'Process')
+        }
         & $SleepProvider $StartupProbeMilliseconds
         $process.Refresh()
         if ($process.HasExited) {

@@ -1,6 +1,7 @@
 import type { Request, Response as ExpressResponse, Router } from 'express';
 import express from 'express';
 import { isUsableDashboardConfig } from '../src/dashboardConfigValidation';
+import { getDashboardRuntimeMode } from './runtimeMode';
 
 export interface DashboardReadinessOptions {
   readonly distPath: string;
@@ -32,7 +33,7 @@ export function createDashboardReadinessRouter(options: DashboardReadinessOption
 }
 
 export async function checkDashboardReadiness(options: DashboardReadinessOptions): Promise<DashboardReadinessResult> {
-  if (process.env.NODE_ENV !== 'production') {
+  if (getDashboardRuntimeMode(process.env.NODE_ENV) !== 'production') {
     return unavailable('The Dashboard is not running in production mode.', 'non-production', 'unavailable', 'unavailable', 'unavailable');
   }
 

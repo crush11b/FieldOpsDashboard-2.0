@@ -6,7 +6,7 @@
   "scripts": {
     "metadata:sync": "node scripts/sync-product-metadata.mjs",
     "metadata:check": "node scripts/sync-product-metadata.mjs --check",
-    "dev": "tsx server.ts",
+    "dev": "set NODE_ENV=development&& tsx server.ts",
     "p533:provision": "node scripts/p533-assets.mjs",
     "p533:verify": "node scripts/p533-assets.mjs --verify-only",
     "p533:verify:dist": "node scripts/p533-assets.mjs --verify-only --bundle=dist/p533",

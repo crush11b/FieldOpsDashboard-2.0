@@ -70,16 +70,18 @@ Describe 'FieldOps runtime readiness' {
     }
 
     It 'starts production Dashboard directly with node and an absolute server path' {
-        $calls = [pscustomobject]@{ FilePath = $null; ArgumentList = $null; WorkingDirectory = $null }
+        $calls = [pscustomobject]@{ FilePath = $null; ArgumentList = $null; WorkingDirectory = $null; NodeEnv = $null }
         $process = New-Object psobject -Property @{ Id = 701; HasExited = $false; ExitCode = $null }
         $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
         $nodeProvider = { param($Name) [pscustomobject]@{ Source = 'C:\Program Files\nodejs\node.exe' } }
-        $starter = { param($FilePath, $ArgumentList, $WorkingDirectory) $calls.FilePath = $FilePath; $calls.ArgumentList = @($ArgumentList); $calls.WorkingDirectory = $WorkingDirectory; $process }
+        $starter = { param($FilePath, $ArgumentList, $WorkingDirectory) $calls.FilePath = $FilePath; $calls.ArgumentList = @($ArgumentList); $calls.WorkingDirectory = $WorkingDirectory; $calls.NodeEnv = [Environment]::GetEnvironmentVariable('NODE_ENV', 'Process'); $process }
         $result = Start-FieldOpsDashboardProcess -DashboardRoot 'C:\FieldOpsDashboard' -NodeProvider $nodeProvider -ProcessStarter $starter -SleepProvider { param($Milliseconds) }
         $result.Id | Should Be 701
         $calls.FilePath | Should Be 'C:\Program Files\nodejs\node.exe'
         $calls.ArgumentList[0] | Should Be 'C:\FieldOpsDashboard\dist\server.cjs'
         $calls.WorkingDirectory | Should Be 'C:\FieldOpsDashboard'
+        $calls.NodeEnv | Should Be 'production'
+        $env:NODE_ENV | Should BeNullOrEmpty
         (Get-Content -LiteralPath $updaterPath -Raw) | Should Not Match "Start-Process -FilePath 'npm\.cmd' -ArgumentList 'start'"
     }
 
