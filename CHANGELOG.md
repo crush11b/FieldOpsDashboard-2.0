@@ -7,9 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
-## [2.5.0] - Release candidate
+## [2.5.0] - 2026-08-24
 
-Version 2.5.0 is a release candidate pending ToughBook validation. It is not yet published.
+Version 2.5.0 was field-accepted on the supported ToughBook deployment and published.
 
 ### Added
 - **Operations Readiness**: Brief-anchored readiness keeps operation, station, antenna, mode, checklist, Activation Notes, and field workflow context together.
@@ -23,7 +23,7 @@ Version 2.5.0 is a release candidate pending ToughBook validation. It is not yet
 - Clock synchronization remains Unknown/unverified, and radio/station endurance remains unknown.
 - Live providers require connectivity; retained and modeled evidence can be stale or unavailable.
 - Local/NVIS remains unsupported. There is no logging/ADIF, spotting, Winlink, APRS, Meshtastic, inventory/loadouts, AI, or full mission lifecycle.
-- ToughBook power behavior and Windows runtime semantics are documented for validation, but ToughBook validation has not passed yet.
+- ToughBook power behavior and Windows runtime semantics remain documented limitations; the released package passed the supported ToughBook validation.
 
 ---
 

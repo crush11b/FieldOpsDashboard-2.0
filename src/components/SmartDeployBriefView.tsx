@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { SmartDeployBrief, SmartDeployBriefV1, SmartDeployBriefV2 } from '../../server/smartDeployBrief';
 import { ActivationNotesPanel } from './ActivationNotesPanel';
 import { FieldReadinessChecklistPanel } from './FieldReadinessChecklistPanel';
+import { ActivationFoundationPanel } from './ActivationFoundationPanel';
 import { OperationsReadinessWorkspace } from './OperationsReadinessWorkspace';
 
 interface SmartDeployBriefViewProps {
@@ -37,6 +38,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     <BriefSection title="LIVE BAND ACTIVITY"><p className="text-[11px] text-slate-200">{observedRfPrimary(observedRf.status)}</p></BriefSection>
 
     <OperationsReadinessWorkspace brief={brief} />
+    <ActivationFoundationPanel brief={brief} />
 
     {brief.currentDeviceLocation && brief.plannedOperatingSite.source !== 'operator_selected_current_device' && <BriefSection title="CURRENT DEVICE">
       <p className="text-[11px] text-slate-200">{brief.currentDeviceLocation.gridSquare || formatCoordinates(brief.currentDeviceLocation.coordinates)}</p>
