@@ -2,14 +2,16 @@ using System.IO.Pipes;
 using System.Text.Json.Serialization;
 using FieldOps.Agent.Health;
 using FieldOps.Agent.Location;
+using FieldOps.Agent.Clock;
 using FieldOps.NativeHealth;
 
 namespace FieldOps.Agent.Location;
 
-internal sealed record LocationTelemetryRequest([property: JsonPropertyName("command")] string Command);
+internal sealed record LocationTelemetryRequest([property: JsonPropertyName("command")] string Command, [property: JsonPropertyName("confirmed")] bool Confirmed = false);
 internal sealed class LocationTelemetryPipeServer(
     NativeHealthAuthorizationPolicy authorizationPolicy,
     ISerialNmeaLocationService service,
+    GpsClockSynchronizer synchronizer,
     ILogger<LocationTelemetryPipeServer> logger)
 {
     internal const string PipeName = "FieldOps.LocationTelemetry.v1";
@@ -26,9 +28,15 @@ internal sealed class LocationTelemetryPipeServer(
                 await pipe.WaitForConnectionAsync(stoppingToken);
                 using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); requestTimeout.CancelAfter(RequestTimeout);
                 var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, requestTimeout.Token);
-                if (request.Command != "GetLocation") throw new InvalidDataException("Unsupported location request.");
+                if (request.Command is not ("GetLocation" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock")) throw new InvalidDataException("Unsupported location request.");
                 using var acquisitionTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); acquisitionTimeout.CancelAfter(AcquisitionTimeout);
-                var observation = await service.AcquireAsync(acquisitionTimeout.Token);
+                object observation = request.Command switch
+                {
+                    "GetLocation" => await service.AcquireAsync(acquisitionTimeout.Token),
+                    "GetGnssTime" => await service.AcquireTimeAsync(acquisitionTimeout.Token),
+                    "GetClockStatus" => synchronizer.GetEvidence(),
+                    _ => await synchronizer.SynchronizeAsync(request.Confirmed, acquisitionTimeout.Token),
+                };
                 using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); responseTimeout.CancelAfter(ResponseTimeout);
                 await NativeHealthMessageFraming.WriteAsync(pipe, observation, responseTimeout.Token);
             }

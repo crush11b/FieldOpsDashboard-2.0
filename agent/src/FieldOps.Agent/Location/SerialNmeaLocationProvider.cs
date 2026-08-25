@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Microsoft.Extensions.Logging;
 
 namespace FieldOps.Agent.Location;
@@ -11,6 +12,8 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     private readonly Func<INmeaSerialReader> readerFactory;
     private readonly object stateLock = new();
     private LocationObservation latest = LocationObservation.WithoutTelemetry(LocationStatus.Initializing) with { Source = "SerialNmea" };
+    private NmeaTimeEvidence latestTime = new(NmeaTimeStatus.Unavailable, null, "RMC");
+    private long latestTimeReceivedAt;
     private CancellationTokenSource? sessionCancellation;
     private Task? sessionTask;
     private bool disposed;
@@ -45,6 +48,17 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
         lock (stateLock) return Task.FromResult(latest);
     }
 
+    public Task<NmeaTimeEvidence> GetTimeEvidenceAsync(CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        lock (stateLock)
+        {
+            if (latestTime.Status == NmeaTimeStatus.Available && Stopwatch.GetElapsedTime(latestTimeReceivedAt) > TimeSpan.FromSeconds(15))
+                return Task.FromResult(latestTime with { Status = NmeaTimeStatus.Unavailable, Error = "GNSS UTC evidence is stale." });
+            return Task.FromResult(latestTime);
+        }
+    }
+
     private async Task RunSessionAsync(CancellationToken cancellationToken)
     {
         while (!cancellationToken.IsCancellationRequested)
@@ -59,7 +73,10 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                 while (!cancellationToken.IsCancellationRequested)
                 {
                     var line = await port.ReadLineAsync(cancellationToken);
-                    if (line is null || !NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
+                    if (line is null) continue;
+                    var time = NmeaParser.ParseTime(line.Trim());
+                    if (time.Status != NmeaTimeStatus.Unavailable) lock (stateLock) { latestTime = time; latestTimeReceivedAt = Stopwatch.GetTimestamp(); }
+                    if (!NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
                     current = Merge(current, parsed);
                     SetLatest(parsed.HasFix ? ToObservation(current) : LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
                 }

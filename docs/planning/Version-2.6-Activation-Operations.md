@@ -21,6 +21,12 @@ Implemented on the consolidated `feature/2.6-activation-operations` branch. Acti
 
 The slice supports POTA, SOTA, and General activations; optional planned coordinates, Maidenhead grid, mission window, title, and reference; planned, active, and completed lifecycle states; corrupt-data diagnostics; and a minimal SmartDeploy-integrated operator panel.
 
+## 2.6-02 status
+
+Implemented on the same branch. The .NET Local Agent remains the sole COM6 owner and exposes RMC-derived GNSS UTC independently of geographic fix validity. Freshness is based on monotonic receipt age, while UTC syntax/date validity is checked separately. The operator can explicitly synchronize Windows time through the Agent; the operation enables only `SeSystemtimePrivilege` for that call, rejects corrections over five minutes, and reports unavailable, stale, malformed, privilege, native, and unsafe-offset outcomes without changing the service identity.
+
+Operations Readiness now consumes synchronization evidence without treating a historical success as continuously synchronized. Offline Preparation independently evaluates retained plan/location/readiness evidence and requests live weather/alerts, returning per-check states and partial diagnostics rather than a global GO/NO-GO decision. The NMEA clock source is not PPS-disciplined and does not claim sub-second or FT8/FT4 timing suitability; that remains a field-validation concern.
+
 ## Explicit exclusions
 
-The following are not part of 2.6-01: GPS or Windows clock synchronization, Offline Preparation, QSO logging, ADIF workflow, Activation Review, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, and AI features.
+The following are not part of 2.6-02: continuous clock steering, NTP/PPS discipline, QSO logging, ADIF workflow, Activation Review, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, and AI features.

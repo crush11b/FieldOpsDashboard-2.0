@@ -1,7 +1,8 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import { execFile, execSync } from "child_process";
+import { promisify } from "node:util";
 import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -28,7 +29,7 @@ import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coo
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
-import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { readClockStatusPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
@@ -54,10 +55,14 @@ import { getDefaultMissionForecastPath, MissionForecastStore } from './server/mi
 import { createActivationRouter } from './server/activationApi';
 import { ActivationStore, getDefaultActivationPath } from './server/activationStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
+import { createClockRouter } from './server/clockApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
 import { getDashboardRuntimeMode } from './server/runtimeMode';
+
+const execFileAsync = promisify(execFile);
+const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['scripts/p533-assets.mjs', '--verify-only'], { cwd: process.cwd() }); return { files: 27 }; };
 
 async function startServer() {
   const app = express();
@@ -119,11 +124,14 @@ async function startServer() {
       checklistStore: fieldReadinessChecklistStore,
       activationNotesStore,
       readLocation: readLocationTelemetryPipe,
+      readClockStatus: readClockStatusPipe,
       readSystem: readSystemTelemetry,
       enrichWeather: brief => enrichOperationsReadinessWeather(brief),
       now: () => new Date(),
     },
+    offlineEvidence: { readGnssTime: readGnssTimePipe, readMissionForecast: briefId => missionForecastStore.getByBriefId(briefId), verifyP533: () => verifyP533Assets() },
   }));
+  app.use(createClockRouter());
   app.use(createDashboardReadinessRouter({ distPath, baseUrl: `http://127.0.0.1:${PORT}` }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),

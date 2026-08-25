@@ -3,6 +3,8 @@ import type { OperationsReadinessDisplayEvidence } from '../../server/operations
 import type { OperationsReadinessSummary, ReadinessFinding, ReadinessStatus } from '../../server/operationsReadiness';
 import type { SmartDeployBriefV2 } from '../../server/smartDeployBrief';
 import { getOperationsReadinessForBrief, OperationsReadinessApiError } from '../operationsReadinessApi';
+import { synchronizeClock } from '../clockApi';
+import { prepareForOfflineOperation, type OfflinePreparationResult } from '../offlinePreparationApi';
 
 interface OperationsReadinessWorkspaceProps { readonly brief: SmartDeployBriefV2; }
 type LoadState = 'loading' | 'ready' | 'error' | 'unsupported';
@@ -101,7 +103,7 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
     {loadState === 'loading' && <p role="status" className="text-[11px] text-slate-400">Loading local Operations Readiness...</p>}
     {loadState === 'unsupported' && <p role="status" className="text-[11px] text-amber-200">This retained brief uses an unsupported legacy schema for Operations Readiness.</p>}
     {loadState === 'error' && <div role="alert" className="space-y-2"><p className="text-[11px] text-red-200">{message}</p><button type="button" onClick={retry} className="px-3 py-2 rounded border border-amber-700 text-amber-200 text-[10px] font-bold">RETRY LOCAL READINESS</button></div>}
-    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} onLoadLiveWeather={() => void loadLiveWeather()} />}
+    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} onLoadLiveWeather={() => void loadLiveWeather()} onSynchronizeClock={async () => { setMessage(null); try { await synchronizeClock(true); retry(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Clock synchronization failed.'); } }} />}
   </section>;
 };
 
@@ -112,12 +114,17 @@ const ReadinessContent: React.FC<{
   liveLoading: boolean;
   message: string | null;
   onLoadLiveWeather: () => void;
-}> = ({ brief, summary, displayEvidence, liveLoading, message, onLoadLiveWeather }) => {
+  onSynchronizeClock: () => void;
+}> = ({ brief, summary, displayEvidence, liveLoading, message, onLoadLiveWeather, onSynchronizeClock }) => {
   const checklist = summary.findings.find(finding => finding.id === 'field-readiness-checklist');
   const notes = summary.findings.find(finding => finding.id === 'activation-notes');
   const findingSummary = summarizeFindingStatuses(summary.findings);
   const findingsId = 'operations-readiness-findings';
   const [findingsExpanded, setFindingsExpanded] = useState(false);
+  const [clockConfirmed, setClockConfirmed] = useState(false);
+  const [offlinePreparation, setOfflinePreparation] = useState<OfflinePreparationResult | null>(null);
+  const [offlineLoading, setOfflineLoading] = useState(false);
+  const [offlineMessage, setOfflineMessage] = useState<string | null>(null);
   return <>
     <div className="rounded-lg border border-slate-700 bg-slate-950/60 p-3 space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-[11px] uppercase text-cyan-300">RETAINED PLAN STATUS</strong><StatusLabel status={summary.plan.status} /></div>
@@ -127,12 +134,13 @@ const ReadinessContent: React.FC<{
     </div>
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
       <EvidenceSection title="OPERATION / PLANNED SITE"><Detail label="ACTIVATION" value={`${brief.activation.reference}${brief.activation.displayName ? ` - ${brief.activation.displayName}` : ''}`} /><Detail label="PLANNED SITE" value={brief.plannedOperatingSite.description} /><Detail label="COORDINATES / GRID" value={`${formatCoordinates(brief.plannedOperatingSite.location.coordinates)} / ${brief.plannedOperatingSite.location.gridSquare || 'Grid unavailable'}`} /><Detail label="PLANNING SOURCE" value={`${brief.plannedOperatingSite.source} / ${brief.plannedOperatingSite.location.planningSemantics || brief.plannedOperatingSite.location.source?.type || 'unknown'}`} /></EvidenceSection>
-      <EvidenceSection title="CURRENT LOCATION / CLOCK"><Detail label="CURRENT DEVICE" value={`${formatCoordinates(brief.currentDeviceLocation?.coordinates)} / ${brief.currentDeviceLocation?.gridSquare || 'Grid unavailable'}`} /><Detail label="LOCATION STATUS" value={findingMessage(summary, 'current-location')} /><FindingMetadata finding={findFinding(summary, 'current-location')} /><Detail label="CLOCK" value={findingMessage(summary, 'clock-synchronization')} /><p className="text-[10px] text-amber-200">Before leaving coverage, synchronize Windows time and confirm the clock manually. FieldOps does not verify or correct system time.</p><FindingMetadata finding={findFinding(summary, 'clock-synchronization')} /></EvidenceSection>
+      <EvidenceSection title="CURRENT LOCATION / CLOCK"><Detail label="CURRENT DEVICE" value={`${formatCoordinates(brief.currentDeviceLocation?.coordinates)} / ${brief.currentDeviceLocation?.gridSquare || 'Grid unavailable'}`} /><Detail label="LOCATION STATUS" value={findingMessage(summary, 'current-location')} /><FindingMetadata finding={findFinding(summary, 'current-location')} /><Detail label="CLOCK" value={findingMessage(summary, 'clock-synchronization')} /><p className="text-[10px] text-slate-400">GNSS UTC is read from the Agent-owned COM6 session. Synchronization is explicit and does not continuously steer Windows time.</p><label className="flex items-start gap-2 text-[10px] text-amber-100"><input aria-label="Confirm Windows clock synchronization" type="checkbox" className="mt-0.5" checked={clockConfirmed} onChange={event => setClockConfirmed(event.currentTarget.checked)} /> I confirm that fresh GNSS UTC may be used to set Windows time.</label><button type="button" disabled={!clockConfirmed} className="min-h-10 px-3 py-2 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold disabled:opacity-50" onClick={() => { onSynchronizeClock(); setClockConfirmed(false); }}>SYNCHRONIZE WINDOWS TIME</button><FindingMetadata finding={findFinding(summary, 'clock-synchronization')} /></EvidenceSection>
       <EvidenceSection title="TOUGHBOOK POWER"><Detail label="POWER" value={`${summary.toughBook.chargePercent === null ? 'Unknown' : `${summary.toughBook.chargePercent}%`} / ${summary.toughBook.powerSource}${summary.toughBook.charging === null ? '' : summary.toughBook.charging ? ' / charging' : ' / not charging'}`} /><Detail label="WINDOWS RUNTIME" value={runtimeText(summary.toughBook.runtimeEstimateSeconds)} /><FindingMetadata finding={findFinding(summary, 'toughbook-runtime-estimate')} /><p className="text-[10px] text-slate-400">Radio and station endurance unknown.</p></EvidenceSection>
       <EvidenceSection title="STATION / ANTENNA"><Detail label="RADIO" value={brief.station.radio.name} /><Detail label="ANTENNA" value={brief.station.antenna.name || brief.station.antenna.type} /><Detail label="MODES / POWER" value={`${brief.station.selectedModes.join(' / ') || 'Unavailable'} / ${brief.station.transmitPowerWatts} W`} /><Detail label="MODELED MODE" value={brief.station.modeledMode || 'Unavailable'} /></EvidenceSection>
     </div>
 
     <WeatherEvidence evidence={displayEvidence} evaluatedAtUtc={summary.evaluatedAtUtc} loading={liveLoading} onLoad={onLoadLiveWeather} />
+    <EvidenceSection title="OFFLINE PREPARATION"><p className="text-[10px] text-slate-400">Refreshes each available evidence source independently and retains partial results. This is not a GO/NO-GO determination.</p><button type="button" disabled={offlineLoading} className="min-h-10 px-3 py-2 rounded border border-amber-700 text-amber-200 text-[10px] font-bold disabled:opacity-50" onClick={async () => { setOfflineLoading(true); setOfflineMessage(null); try { setOfflinePreparation(await prepareForOfflineOperation(brief.briefId)); } catch (error) { setOfflineMessage(error instanceof Error ? error.message : 'Offline Preparation failed.'); } finally { setOfflineLoading(false); } }}>{offlineLoading ? 'CHECKING OFFLINE EVIDENCE...' : 'PREPARE FOR OFFLINE OPERATION'}</button>{offlineMessage && <p role="alert" className="text-[10px] text-amber-200">{offlineMessage}</p>}{offlinePreparation && <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">{offlinePreparation.checks.map(check => <Detail key={check.id} label={check.id.replaceAll('-', ' ')} value={`${check.status}: ${check.message}`} />)}</div>}</EvidenceSection>
     <EvidenceSection title="PROPAGATION"><p className="text-[11px] text-slate-200">{findingMessage(summary, 'propagation-evidence')}</p><p className="text-[10px] text-slate-400">Retained mission-window propagation and observed RF evidence remain authoritative in the SmartDeploy brief. Modeling is not a guarantee; observed RF is not a forecast.</p><a href="#smartdeploy-brief" className="text-[10px] text-cyan-300 underline">Review SmartDeploy propagation details</a></EvidenceSection>
 
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><LinkedEvidence title="FIELD READINESS CHECKLIST" finding={checklist} href="#field-readiness-checklist" /><LinkedEvidence title="ACTIVATION NOTES" finding={notes} href="#activation-notes" /></div>
