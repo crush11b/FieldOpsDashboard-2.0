@@ -175,6 +175,7 @@ public sealed class InstallerScriptTests
         Assert.Contains("Resolve-RepositoryHead", deployment);
         Assert.Contains("Assert-CleanRepository", deployment);
         Assert.Contains("Join-Path ([IO.Path]::GetTempPath())", deployment);
+        Assert.DoesNotContain("New-Item -ItemType Directory -Path $publishRoot", deployment);
         Assert.Contains("-SourceRevision $expectedRevision", deployment);
         Assert.DoesNotContain("agent\\artifacts\\publish\\win-x64'", deployment);
         Assert.Contains("deploymentManifest = [ordered]@", deployment);

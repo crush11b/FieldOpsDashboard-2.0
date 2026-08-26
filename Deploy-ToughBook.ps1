@@ -120,8 +120,6 @@ $metadata = Get-Content -LiteralPath $metadataPath -Raw | ConvertFrom-Json
 $expectedInformationalVersion = "{0}+{1}" -f ([string]$metadata.version), $expectedRevision
 
 try {
-    New-Item -ItemType Directory -Path $publishRoot -Force | Out-Null
-
 Write-Host "[1/6] Publishing Agent and Tray for HEAD $expectedRevision..." -ForegroundColor Cyan
 & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $publishScript -OutputRoot $publishRoot -SourceRevision $expectedRevision
 if ($LASTEXITCODE -ne 0) { throw "Native artifact publish failed with exit code $LASTEXITCODE." }
