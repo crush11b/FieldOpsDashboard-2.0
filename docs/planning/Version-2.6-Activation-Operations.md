@@ -1,6 +1,6 @@
 # Version 2.6 - Activation Operations
 
-- Status: 2.6-04 implemented; Version 2.6 planned slices complete
+- Status: 2.6-05 implemented; Version 2.6 planned slices complete
 - Baseline: Version 2.5.0
 - Supported deployment: single operator on one locally operated Windows field computer
 
@@ -14,6 +14,7 @@ Evolve the Version 2.5 Operations Assistant into a practical activation workspac
 2. **2.6-02 - GPS Time & Offline Readiness**: GPS/Windows time evidence and offline preparation workflow.
 3. **2.6-03 - QSO Logging & ADIF**: durable contact records and ADIF import/export workflow.
 4. **2.6-04 - Activation Review**: post-activation review and analysis of retained activation artifacts.
+5. **2.6-05 - Activation Workspace UX Consolidation**: phase-based PLAN, PREPARE, OPERATE, and REVIEW workspace.
 
 ## 2.6-01 status
 
@@ -40,6 +41,12 @@ Known limitations: this slice does not provide rig control, automatic radio meta
 Implemented on the same consolidated branch. Activation Review is a read-only assembly over the Activation, associated SmartDeploy brief, retained mission forecast and space-weather snapshot, modeled/observed propagation evidence, Activation Notes, and Activation-owned QSOs. It presents plan, retained environment, modeled propagation, QSO results and provenance, operator notes, and deterministic factual plan-versus-result findings without duplicating source stores.
 
 Review evidence uses explicit available, retained, unavailable, unknown, and provisional semantics. It does not infer causality, score operator performance, or generate AI summaries. Opening Review never fetches live providers or mutates historical evidence; live refresh remains an explicit separate workflow. The existing QSO logger and Activation Notes panels remain the editing surfaces.
+
+## 2.6-05 status
+
+Implemented on the same branch as a persistent Activation workspace. The operator lifecycle is organized as **PLAN -> PREPARE -> OPERATE -> REVIEW**: PLAN is for pre-departure planning and retained outlook, PREPARE is for summit-arrival readiness and offline preparation, OPERATE prioritizes the QSO Logger, Activation Notes, and completion controls, and REVIEW is the post-operation retained-evidence view.
+
+Each datum has one primary home; other phases use only compact context. Provenance and model limitations remain available under secondary technical details. Generic utilities, including the Antenna Length Calculator, remain in Field Tools outside the Activation workspace. Phase changes replace the main content rather than scrolling through the former stacked workflow.
 
 ## Explicit exclusions
 

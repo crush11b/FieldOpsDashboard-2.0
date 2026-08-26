@@ -69,14 +69,14 @@ describe('misleading action guardrails', () => {
 
     expect(markup).toMatch(/id="btn-emergency-sos"[^>]*disabled/);
     expect(markup).toContain('No emergency transmitter or mesh gateway is configured');
-    expect(markup).toContain('Activation planning and antenna length calculator');
+    expect(markup).toContain('Activation planning workspace');
     expect(markup).not.toContain('SmartFrequency');
     expect(markup).not.toContain('SmartLog+');
     expect(markup).not.toContain('AI Radio Advisor');
     expect(markup).not.toContain('Broadcast alert sent');
   });
 
-  it('keeps the completed SmartDeploy workspace and antenna calculator visible without prototype entries', () => {
+  it('keeps SmartDeploy separate from the general antenna calculator', () => {
     const markup = renderToStaticMarkup(
       <RoadmapToolsModal
         theme="dark_tactical"
@@ -92,16 +92,31 @@ describe('misleading action guardrails', () => {
     );
 
     expect(markup).toContain('SMARTDEPLOY');
-    expect(markup).toContain('ANTENNA LENGTH CALCULATOR');
+    expect(markup).not.toContain('ANTENNA LENGTH CALCULATOR');
     expect(markup).toContain('GENERATE SMARTDEPLOY PLAN');
-    expect(markup).toContain('31.59 FT (9.63 METERS)');
-    expect(markup).toContain('15.80 FT (4.81 METERS)');
     expect(markup).not.toContain('SmartFrequency');
     expect(markup).not.toContain('SmartLog+');
     expect(markup).not.toContain('POTA SPOTTER');
     expect(markup).not.toContain('AI Field Radio Advisor');
     expect(markup).not.toContain('K7POTA');
     expect(markup).not.toContain('W6SOTA');
+
+    const calculatorMarkup = renderToStaticMarkup(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={vi.fn()}
+        callsign="N0CALL"
+        gridSquare=""
+        gps={gps}
+        gpsProvenance={{ status: 'connecting', source: { id: 'gps:test', type: 'gps_acquisition' } }}
+        initialTab="antenna_calculator"
+      />,
+    );
+    expect(calculatorMarkup).toContain('ANTENNA LENGTH CALCULATOR');
+    expect(calculatorMarkup).toContain('31.59 FT (9.63 METERS)');
+    expect(calculatorMarkup).toContain('15.80 FT (4.81 METERS)');
   });
 
   it('does not simulate hardware attachment from the disconnected battery card', () => {

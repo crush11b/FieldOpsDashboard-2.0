@@ -265,6 +265,26 @@ describe('SmartDeploy planner', () => {
 });
 
 describe('SmartDeploy brief rendering', () => {
+  it('switches between exclusive PLAN, PREPARE, OPERATE, and REVIEW views', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      return { ok: false, json: async () => ({ message: 'Unavailable' }) };
+    }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    expect(screen.getByText('SMARTDEPLOY PLAN')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
+    expect(screen.getByText('OPERATIONS READINESS')).toBeTruthy();
+    expect(screen.queryByText('SMARTDEPLOY PLAN')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'operate' }));
+    expect(screen.getByText('ACTIVATION')).toBeTruthy();
+    expect(screen.queryByText('OPERATIONS READINESS')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'review' }));
+    expect(screen.getByText('OPEN OPERATE')).toBeTruthy();
+    expect(screen.queryByText('ACTIVATION')).toBeNull();
+  });
+
   it('renders partial samples, modeled mode limitation, and temporal RF status', () => {
     render(<SmartDeployBriefView brief={brief} />);
     expect(screen.getByText('partial')).toBeTruthy();
