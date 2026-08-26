@@ -278,7 +278,7 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getByText('OPERATIONS READINESS')).toBeTruthy();
     expect(screen.queryByText('SMARTDEPLOY PLAN')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'operate' }));
-    expect(screen.getByText('ACTIVATION')).toBeTruthy();
+    expect(screen.getByText('START ACTIVATION')).toBeTruthy();
     expect(screen.queryByText('OPERATIONS READINESS')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'review' }));
     expect(screen.getByText('OPEN OPERATE')).toBeTruthy();
@@ -305,6 +305,8 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getAllByText(/POTA reference location - approximate planning point/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/POTA reference location - approximate planning point/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Uses a general solar-cycle model value/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('western_europe')).toBeNull();
+    expect(screen.queryByText('OPERATION')).toBeNull();
   });
 
   it('keeps unavailable observed RF visible without repeating it in primary notes', () => {

@@ -6,10 +6,10 @@ import { getOperationsReadinessForBrief, OperationsReadinessApiError } from '../
 import { synchronizeClock } from '../clockApi';
 import { prepareForOfflineOperation, type OfflinePreparationResult } from '../offlinePreparationApi';
 
-interface OperationsReadinessWorkspaceProps { readonly brief: SmartDeployBriefV2; }
+interface OperationsReadinessWorkspaceProps { readonly brief: SmartDeployBriefV2; readonly onStartActivation?: () => void; }
 type LoadState = 'loading' | 'ready' | 'error' | 'unsupported';
 
-export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspaceProps> = ({ brief }) => {
+export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspaceProps> = ({ brief, onStartActivation }) => {
   const briefId = brief.briefId;
   const [summary, setSummary] = useState<OperationsReadinessSummary | null>(null);
   const [displayEvidence, setDisplayEvidence] = useState<OperationsReadinessDisplayEvidence | null>(null);
@@ -103,7 +103,7 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
     {loadState === 'loading' && <p role="status" className="text-[11px] text-slate-400">Loading local Operations Readiness...</p>}
     {loadState === 'unsupported' && <p role="status" className="text-[11px] text-amber-200">This retained brief uses an unsupported legacy schema for Operations Readiness.</p>}
     {loadState === 'error' && <div role="alert" className="space-y-2"><p className="text-[11px] text-red-200">{message}</p><button type="button" onClick={retry} className="px-3 py-2 rounded border border-amber-700 text-amber-200 text-[10px] font-bold">RETRY LOCAL READINESS</button></div>}
-    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} onLoadLiveWeather={() => void loadLiveWeather()} onSynchronizeClock={async () => { setMessage(null); try { await synchronizeClock(true); retry(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Clock synchronization failed.'); } }} />}
+    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} onLoadLiveWeather={() => void loadLiveWeather()} onSynchronizeClock={async () => { setMessage(null); try { await synchronizeClock(true); retry(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Clock synchronization failed.'); } }} onStartActivation={onStartActivation} />}
   </section>;
 };
 
@@ -115,7 +115,8 @@ const ReadinessContent: React.FC<{
   message: string | null;
   onLoadLiveWeather: () => void;
   onSynchronizeClock: () => void;
-}> = ({ brief, summary, displayEvidence, liveLoading, message, onLoadLiveWeather, onSynchronizeClock }) => {
+  onStartActivation?: () => void;
+}> = ({ brief, summary, displayEvidence, liveLoading, message, onLoadLiveWeather, onSynchronizeClock, onStartActivation }) => {
   const checklist = summary.findings.find(finding => finding.id === 'field-readiness-checklist');
   const findingSummary = summarizeFindingStatuses(summary.findings);
   const findingsId = 'operations-readiness-findings';
@@ -125,10 +126,13 @@ const ReadinessContent: React.FC<{
   const [offlineLoading, setOfflineLoading] = useState(false);
   const [offlineMessage, setOfflineMessage] = useState<string | null>(null);
   const attention = summary.findings.filter(finding => finding.status !== 'ready' && finding.recommendedAction).slice(0, 4);
+  const weatherText = displayEvidence.weather.status === 'not_requested' ? 'Weather not loaded' : findingMessage(summary, 'weather');
+  const alertsText = displayEvidence.alerts.status === 'not_requested' ? 'Alerts not loaded' : findingMessage(summary, 'weather-alerts');
   return <>
     <section className="rounded-lg border border-emerald-700/70 bg-emerald-950/20 p-3 space-y-2" aria-label="Summit readiness summary">
       <div className="flex flex-wrap items-center justify-between gap-2"><strong className="text-[11px] uppercase text-emerald-300">SUMMIT READINESS</strong><span className="text-[10px] text-slate-400">{formatUtc(summary.evaluatedAtUtc)}</span></div>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{readinessCard('Location', findingMessage(summary, 'current-location'), findFinding(summary, 'current-location')?.status)}{readinessCard('GPS', findingMessage(summary, 'current-location'), findFinding(summary, 'current-location')?.status)}{readinessCard('Clock', findingMessage(summary, 'clock-synchronization'), findFinding(summary, 'clock-synchronization')?.status)}{readinessCard('ToughBook', summary.toughBook.status === 'ready' ? `${summary.toughBook.chargePercent ?? 'Unknown'}% / ${summary.toughBook.powerSource}` : 'Attention', summary.toughBook.status)}{readinessCard('Weather', findingMessage(summary, 'weather'), findFinding(summary, 'weather')?.status)}{readinessCard('Alerts', findingMessage(summary, 'weather-alerts'), findFinding(summary, 'weather-alerts')?.status)}{readinessCard('Space Weather', 'Retained plan evidence', 'ready')}{readinessCard('Propagation', findingMessage(summary, 'propagation-evidence'), findFinding(summary, 'propagation-evidence')?.status)}{readinessCard('Checklist', findingMessage(summary, 'field-readiness-checklist'), findFinding(summary, 'field-readiness-checklist')?.status)}</div>
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">{readinessCard('Location', `${brief.plannedOperatingSite.location.gridSquare || 'Site unavailable'} / ${findingMessage(summary, 'current-location')}`, findFinding(summary, 'current-location')?.status)}{readinessCard('GPS', findingMessage(summary, 'current-location'), findFinding(summary, 'current-location')?.status)}{readinessCard('Clock', findingMessage(summary, 'clock-synchronization'), findFinding(summary, 'clock-synchronization')?.status)}{readinessCard('ToughBook', summary.toughBook.status === 'ready' ? `${summary.toughBook.chargePercent ?? 'Unknown'}% / ${summary.toughBook.powerSource}` : 'Power unknown', summary.toughBook.status)}{readinessCard('Weather', weatherText, displayEvidence.weather.status === 'not_requested' ? 'unknown' : findFinding(summary, 'weather')?.status)}{readinessCard('Alerts', alertsText, displayEvidence.alerts.status === 'not_requested' ? 'unknown' : findFinding(summary, 'weather-alerts')?.status)}{readinessCard('Space Weather', 'Retained plan evidence', 'ready')}{readinessCard('Propagation', findingMessage(summary, 'propagation-evidence'), findFinding(summary, 'propagation-evidence')?.status)}{readinessCard('Checklist', findingMessage(summary, 'field-readiness-checklist'), findFinding(summary, 'field-readiness-checklist')?.status)}</div>
+      {onStartActivation && <button type="button" onClick={onStartActivation} className="min-h-11 rounded border border-emerald-600 px-4 py-2 text-[11px] font-black text-emerald-200">START ACTIVATION</button>}
       <button type="button" disabled={offlineLoading} className="min-h-10 px-3 py-2 rounded border border-amber-700 text-amber-200 text-[10px] font-bold disabled:opacity-50" onClick={async () => { setOfflineLoading(true); setOfflineMessage(null); try { setOfflinePreparation(await prepareForOfflineOperation(brief.briefId)); } catch (error) { setOfflineMessage(error instanceof Error ? error.message : 'Offline Preparation failed.'); } finally { setOfflineLoading(false); } }}>{offlineLoading ? 'CHECKING OFFLINE EVIDENCE...' : 'PREPARE FOR OFFLINE OPERATION'}</button>
       {attention.length > 0 && <div><strong className="text-[10px] uppercase text-amber-300">NEEDS ATTENTION</strong><ul className="list-disc pl-5 text-[10px] text-amber-100">{attention.map(finding => <li key={finding.id}>{finding.recommendedAction || finding.message}</li>)}</ul></div>}
       {offlineMessage && <p role="alert" className="text-[10px] text-amber-200">{offlineMessage}</p>}
@@ -154,7 +158,8 @@ const ReadinessContent: React.FC<{
     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2"><LinkedEvidence title="FIELD READINESS CHECKLIST" finding={checklist} href="#field-readiness-checklist" /></div>
     <EvidenceSection title="NEXT ACTIONS">{summary.nextActions.length > 0 ? <ol className="list-decimal pl-5 space-y-1 text-[11px] text-amber-100">{summary.nextActions.map(action => <li key={action}>{action}</li>)}</ol> : <p className="text-[11px] text-slate-300">No additional action is identified by the available readiness evidence.</p>}</EvidenceSection>
     </details>
-    <section className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 space-y-2">
+    <details className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 space-y-2">
+      <summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">FINDINGS DETAILS</summary>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="font-black text-[10px] uppercase text-amber-300">FINDINGS ({summary.findings.length})</h4>
@@ -163,7 +168,7 @@ const ReadinessContent: React.FC<{
         {summary.findings.length > 0 && <button type="button" className="min-h-11 px-3 py-2 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold focus-visible:outline focus-visible:outline-2 focus-visible:outline-cyan-300" aria-expanded={findingsExpanded} aria-controls={findingsId} onClick={() => setFindingsExpanded(expanded => !expanded)}>{findingsExpanded ? 'Hide findings' : 'Show findings'}</button>}
       </div>
       {findingsExpanded && <div id={findingsId} className="space-y-2">{summary.findings.map(finding => <FindingRow key={finding.id} finding={finding} />)}</div>}
-    </section>
+    </details>
     {message && <p role="alert" className="text-[11px] text-amber-200">{message}</p>}
   </>;
 };

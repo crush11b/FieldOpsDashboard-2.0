@@ -58,6 +58,12 @@ The development ToughBook helper now resolves one canonical 40-character revisio
 
 Deployment success is gated on parity between repository `HEAD`, the native artifact manifest, installed Agent and Tray informational revisions, deployment-manifest `sourceRevision`/`nativeRevision`, and the live Dashboard `/api/version` response. Any missing or mismatched identity fails the helper with expected and observed revisions; the six green summary is unreachable until all checks pass. The helper does not perform a ToughBook deployment automatically. Interactive Tray startup restoration remains a separate field-acceptance concern unless the operator's deployment run demonstrates otherwise through the existing runtime checks.
 
+## Operator-facing phase contract
+
+The default workspace answers the question for the current phase: **PLAN** describes the destination, timing, station, retained outlook, and modeled guidance before departure; **PREPARE** is a compact summit preflight for location, clock, power, conditions, station, checklist, and the next action; **OPERATE** starts the durable Activation, keeps the QSO Logger primary, and retains quick Activation Notes until **END ACTIVATION**; **REVIEW** is the after-action summary available after completion. Technical Details and Evidence Details retain UUIDs, provider states, provenance, timestamps, limitations, diagnostics, and source vocabulary without making them the normal operating surface.
+
+The following remain separate Version 2.6 closure defects and are not hidden by this UX correction: successful deployment still requires follow-up validation for restoring the interactive Tray; CF-20 power telemetry may report `Unknown / Unknown` and requires separate diagnosis; and clock synchronization evidence must be evaluated across Agent restart/deployment before it can be treated as current. The UI continues to report these states honestly.
+
 ## Explicit exclusions
 
 The following remain deferred after 2.6-04: continuous clock steering, NTP/PPS discipline, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.

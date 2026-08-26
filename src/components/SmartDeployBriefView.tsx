@@ -59,13 +59,13 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     <BriefSection title="FIELD OPERATION"><p className="text-[11px] text-slate-200">Record activation notes and quick observations against this retained brief.</p></BriefSection>
     </>}
     {phase === 'prepare' && <>
-      <OperationsReadinessWorkspace brief={brief} />
+      <OperationsReadinessWorkspace brief={brief} onStartActivation={() => setPhase('operate')} />
       <FieldReadinessChecklistPanel brief={brief} />
       <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3"><Detail label="BRIEF" value={brief.briefId} /><Detail label="PLAN SOURCE" value={readableLocationSource(brief.plannedOperatingSite.source)} /></div></details>
     </>}
     {phase === 'operate' && <>
-      <ActivationFoundationPanel brief={brief} initialActivation={activation} showReview={false} onActivationChange={setActivation} />
-      {activation ? <ActivationNotesPanel brief={brief} /> : <p className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px] text-amber-200">Open the Activation above to enable Notes and the QSO Logger.</p>}
+      <ActivationFoundationPanel brief={brief} initialActivation={activation} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') setPhase('operate'); }} />
+      {activation ? <ActivationNotesPanel brief={brief} /> : <p className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px] text-amber-200">Start the activation from PREPARE to enable Notes and the QSO Logger.</p>}
     </>}
     {phase === 'review' && (activation ? <ActivationReviewPanel activation={activation} /> : <div className="rounded-xl border border-amber-700/60 bg-amber-950/20 p-3 space-y-2"><h3 className="font-black text-sm uppercase text-amber-300">REVIEW</h3><p className="text-[11px] text-slate-300">Open this plan in OPERATE first to create its durable Activation record, then return here for the retained-evidence review.</p><button type="button" onClick={() => setPhase('operate')} className="min-h-11 rounded border border-cyan-700 px-3 py-2 text-[10px] font-bold text-cyan-200">OPEN OPERATE</button></div>)}
   </section>;
