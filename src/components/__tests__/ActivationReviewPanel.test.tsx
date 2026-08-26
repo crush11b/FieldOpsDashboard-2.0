@@ -15,6 +15,17 @@ describe('ActivationReviewPanel', () => {
     expect(screen.queryByText('No QSOs logged.')).toBeNull();
     expect(screen.queryByText('BANDS / MODES')).toBeNull();
   });
+
+  it('separates completed review note timestamps from note text', async () => {
+    const completedActivation = { ...activation, status: 'completed' };
+    const completedReview = { ...review, activation: completedActivation, notes: { state: 'retained', collection: { updatedAtUtc: '2026-08-26T23:08:34.065Z', notes: [{ noteId: 'note-1', recordedAtUtc: '2026-08-26T23:08:34.065Z', text: 'Test Note' }] } } };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => completedReview }));
+    render(<ActivationReviewPanel activation={completedActivation} />);
+    const note = (await screen.findAllByText('Test Note')).find(element => element.tagName === 'SPAN');
+    expect(note).toBeTruthy();
+    expect(note.tagName).toBe('SPAN');
+    expect(note.previousElementSibling?.textContent).toBe('2026-08-26 23:08:34.065Z');
+  });
 });
 
 afterEach(() => vi.restoreAllMocks());

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { SmartDeployBriefV2 } from '../../server/smartDeployBrief';
 import type { Activation } from '../../server/activation';
-import { openActivationFromBrief, updateActivationStatus } from '../activationApi';
+import { startActivationFromBrief, updateActivationStatus } from '../activationApi';
 import { QsoLoggerPanel } from './QsoLoggerPanel';
 import { ActivationReviewPanel } from './ActivationReviewPanel';
 
@@ -19,7 +19,7 @@ export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps>
   const [reviewOpen, setReviewOpen] = useState(false);
   useEffect(() => { setActivation(initialActivation); setMessage(null); setReviewOpen(false); }, [brief.briefId, initialActivation]);
   const publishActivation = (next: Activation | null) => { setActivation(next); onActivationChange?.(next); };
-  const start = async () => { setBusy(true); setMessage(null); const result = await openActivationFromBrief(brief.briefId); if (result.kind !== 'activation') { setMessage(result.message); setBusy(false); return; } const active = await updateActivationStatus(result.activation.activationId, 'active'); publishActivation(active.kind === 'activation' ? active.activation : result.activation); if (active.kind !== 'activation') setMessage(active.message); setBusy(false); };
+    const start = async () => { setBusy(true); setMessage(null); const result = await startActivationFromBrief(brief.briefId); if (result.kind !== 'activation') { setMessage(result.message); setBusy(false); return; } publishActivation(result.activation); setBusy(false); };
   const changeStatus = async (status: Activation['status']) => { if (!activation) return; setBusy(true); setMessage(null); const result = await updateActivationStatus(activation.activationId, status); if (result.kind === 'activation') publishActivation(result.activation); else setMessage(result.message); setBusy(false); };
   const location = activation?.plannedLocation;
   return <section className="rounded-xl border border-cyan-700/70 bg-cyan-950/20 p-3 space-y-3" aria-label="Activation">

@@ -285,6 +285,30 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.queryByText('ACTIVATION')).toBeNull();
   });
 
+  it('starts the Activation before navigating from PREPARE to OPERATE', async () => {
+    const plannedActivation = { activationId: 'activation-prepare', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'planned', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow } as any;
+    const activeActivation = { ...plannedActivation, status: 'active', startedAtUtc: '2026-08-18T12:00:00.000Z' };
+    const readiness = { kind: 'operations_readiness', briefId: v2Brief.briefId, summary: { evaluatedAtUtc: '2026-08-18T11:00:00.000Z', plan: { status: 'ready', briefId: v2Brief.briefId, activationReference: 'US-1234', plannedSite: 'FM17' }, toughBook: { status: 'ready', chargePercent: 100, powerSource: 'AC', charging: true, runtimeEstimateSeconds: 3600 }, findings: [], nextActions: [] }, diagnostics: [], displayEvidence: { weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: { id: 'weather', type: 'local' } }, alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: { id: 'alerts', type: 'local' } } } };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path === `/api/operations-readiness/${v2Brief.briefId}`) return { ok: true, json: async () => readiness };
+      if (path === '/api/activations/from-brief') return { ok: true, json: async () => ({ kind: 'activation', activation: plannedActivation }) };
+      if (path === `/api/activations/${plannedActivation.activationId}/status`) { expect(init?.method).toBe('PATCH'); return { ok: true, json: async () => ({ kind: 'activation', status: 'updated', activation: activeActivation }) }; }
+      if (path.includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
+    await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-18 12:00:00 UTC')).toBeTruthy());
+    expect(fetcher).toHaveBeenCalledWith('/api/activations/from-brief', expect.objectContaining({ method: 'POST' }));
+    expect(fetcher).toHaveBeenCalledWith(`/api/activations/${plannedActivation.activationId}/status`, expect.objectContaining({ method: 'PATCH' }));
+    expect(screen.queryByRole('button', { name: 'START ACTIVATION' })).toBeNull();
+  });
+
   it('renders partial samples, modeled mode limitation, and temporal RF status', () => {
     render(<SmartDeployBriefView brief={brief} />);
     expect(screen.getByText('partial')).toBeTruthy();
