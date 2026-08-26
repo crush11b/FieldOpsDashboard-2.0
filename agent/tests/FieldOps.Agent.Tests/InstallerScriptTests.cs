@@ -168,6 +168,30 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void ToughBookDeploymentUsesIsolatedCurrentHeadAndHardParityGate()
+    {
+        var deployment = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "Deploy-ToughBook.ps1"));
+
+        Assert.Contains("Resolve-RepositoryHead", deployment);
+        Assert.Contains("Assert-CleanRepository", deployment);
+        Assert.Contains("Join-Path ([IO.Path]::GetTempPath())", deployment);
+        Assert.Contains("-SourceRevision $expectedRevision", deployment);
+        Assert.DoesNotContain("agent\\artifacts\\publish\\win-x64'", deployment);
+        Assert.Contains("deploymentManifest = [ordered]@", deployment);
+        Assert.Contains("sourceRevision = $expectedRevision", deployment);
+        Assert.Contains("nativeRevision = $expectedRevision", deployment);
+        Assert.Contains("Get-EmbeddedRevision", deployment);
+        Assert.Contains("Assert-DeploymentParity", deployment);
+        Assert.Contains("Assert-DashboardParity", deployment);
+        Assert.Contains("/api/version", deployment);
+        Assert.Contains("[OK] Revision parity proven", deployment);
+        Assert.True(
+            deployment.IndexOf("Assert-DashboardParity", StringComparison.Ordinal) <
+            deployment.IndexOf("[6/6] Deployment summary", StringComparison.Ordinal));
+        Assert.Contains("Remove-Item -LiteralPath $publishRoot -Recurse -Force", deployment);
+    }
+
+    [Fact]
     public void UpdaterTreatsP533RuntimeAsValidatedNativeArtifactInput()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));

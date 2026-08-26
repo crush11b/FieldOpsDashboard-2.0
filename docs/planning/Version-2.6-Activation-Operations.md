@@ -52,6 +52,12 @@ The Local Agent GNSS lifecycle is restart-safe: restarting `FieldOpsAgent` reset
 
 CF-20 acceptance confirmed the four-phase workspace architecture. The bounded acceptance corrections remove redundant PLAN operation details and internal identifiers from primary presentation, make PREPARE a compact summit-readiness summary with evidence details secondary, and expose the existing QSO Logger immediately in OPERATE for active and completed Activations. REVIEW now distinguishes modeled candidate bands from explicitly planned operation, retains and flags QSOs outside the mission window without distorting in-window chronology, and keeps exact brief identifiers in Evidence Details. Mission Forecast refresh now requests the retained UTC mission dates explicitly, retains successful provider evidence, and surfaces specific provider, horizon, or planned-coordinate failure reasons; it remains independent of Space Weather evidence.
 
+## Deployment revision parity correction
+
+The development ToughBook helper now resolves one canonical 40-character revision from the checked-out repository `HEAD` and requires a clean worktree before copying source. Native Agent and Tray publication is performed into an isolated temporary output outside the repository, so ignored or stale `agent\\artifacts\\publish\\win-x64` content cannot be reused. The generated deployment manifest is written into the installed Dashboard from that same published artifact identity.
+
+Deployment success is gated on parity between repository `HEAD`, the native artifact manifest, installed Agent and Tray informational revisions, deployment-manifest `sourceRevision`/`nativeRevision`, and the live Dashboard `/api/version` response. Any missing or mismatched identity fails the helper with expected and observed revisions; the six green summary is unreachable until all checks pass. The helper does not perform a ToughBook deployment automatically. Interactive Tray startup restoration remains a separate field-acceptance concern unless the operator's deployment run demonstrates otherwise through the existing runtime checks.
+
 ## Explicit exclusions
 
 The following remain deferred after 2.6-04: continuous clock steering, NTP/PPS discipline, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.
