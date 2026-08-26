@@ -16,6 +16,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     private long latestTimeReceivedAt;
     private CancellationTokenSource? sessionCancellation;
     private Task? sessionTask;
+    private INmeaSerialReader? activeReader;
     private bool disposed;
 
     public SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, IConfiguration configuration)
@@ -28,7 +29,11 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     {
         lock (stateLock)
         {
+            if (disposed) throw new ObjectDisposedException(nameof(SerialNmeaLocationProvider));
             if (sessionTask is not null) return Task.CompletedTask;
+            latest = LocationObservation.WithoutTelemetry(LocationStatus.Initializing) with { Source = "SerialNmea" };
+            latestTime = new NmeaTimeEvidence(NmeaTimeStatus.Unavailable, null, "RMC");
+            latestTimeReceivedAt = 0;
             sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             sessionTask = RunSessionAsync(sessionCancellation.Token);
         }
@@ -38,8 +43,27 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         Task? task;
-        lock (stateLock) { sessionCancellation?.Cancel(); task = sessionTask; }
-        if (task is not null) await task.WaitAsync(cancellationToken);
+        CancellationTokenSource? cancellation;
+        INmeaSerialReader? reader;
+        lock (stateLock)
+        {
+            cancellation = sessionCancellation;
+            task = sessionTask;
+            reader = activeReader;
+            cancellation?.Cancel();
+        }
+        reader?.Dispose();
+        if (task is null) return;
+        await task.WaitAsync(cancellationToken);
+        lock (stateLock)
+        {
+            if (ReferenceEquals(sessionTask, task))
+            {
+                sessionTask = null;
+                sessionCancellation = null;
+                cancellation?.Dispose();
+            }
+        }
     }
 
     public Task<LocationObservation> GetLocationAsync(CancellationToken cancellationToken)
@@ -66,6 +90,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
             try
             {
                 using var port = readerFactory();
+                lock (stateLock) activeReader = port;
                 port.Open();
                 SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
                 logger.LogInformation("NMEA port opened: {PortName}", portName);
@@ -85,6 +110,10 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
             catch (UnauthorizedAccessException ex) { SetUnavailable(); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
             catch (IOException ex) { SetUnavailable(); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
             catch (Exception ex) { SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Error)); logger.LogInformation(ex, "Unexpected NMEA reader failure"); }
+            finally
+            {
+                lock (stateLock) activeReader = null;
+            }
 
             if (!cancellationToken.IsCancellationRequested)
             {
@@ -104,8 +133,27 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     {
         if (disposed) return;
         disposed = true;
-        sessionCancellation?.Cancel();
-        sessionCancellation?.Dispose();
+        CancellationTokenSource? cancellation;
+        INmeaSerialReader? reader;
+        lock (stateLock)
+        {
+            cancellation = sessionCancellation;
+            reader = activeReader;
+            cancellation?.Cancel();
+        }
+        reader?.Dispose();
+        if (sessionTask?.IsCompleted == true)
+        {
+            lock (stateLock)
+            {
+                if (ReferenceEquals(sessionCancellation, cancellation))
+                {
+                    sessionCancellation = null;
+                    sessionTask = null;
+                    cancellation?.Dispose();
+                }
+            }
+        }
     }
 
     // Each supported sentence is authoritative for fix validity; fields absent from it are retained

@@ -48,6 +48,8 @@ Implemented on the same branch as a persistent Activation workspace. The operato
 
 Each datum has one primary home; other phases use only compact context. Provenance and model limitations remain available under secondary technical details. Generic utilities, including the Antenna Length Calculator, remain in Field Tools outside the Activation workspace. Phase changes replace the main content rather than scrolling through the former stacked workflow.
 
+The Local Agent GNSS lifecycle is restart-safe: restarting `FieldOpsAgent` resets the active session, releases the configured NMEA serial reader, and reacquires the configured GNSS serial interface automatically. Transport-active/no-fix and independent RMC UTC evidence semantics remain unchanged.
+
 ## Explicit exclusions
 
 The following remain deferred after 2.6-04: continuous clock steering, NTP/PPS discipline, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.
