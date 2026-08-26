@@ -76,4 +76,13 @@ Describe 'FieldOps scheduled interactive-token Tray launch' {
         $installer = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\Install-FieldOpsAgent.ps1') -Raw
         $installer | Should Match 'Register-FieldOpsTrayStartup'
     }
+
+    It 'restores the Tray from the deployment helper through the interactive-token path' {
+        $deployment = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\Deploy-ToughBook.ps1') -Raw
+        $deployment | Should Match 'FieldOps\.TrayScheduledLaunch\.psm1'
+        $deployment | Should Match 'Start-FieldOpsTrayScheduledLaunch'
+        $deployment | Should Match 'Tray running/restored'
+        $deployment | Should Match 'interactive Tray restoration failed'
+        $deployment | Should Not Match 'Start-Process.*FieldOps\.Tray\.exe'
+    }
 }

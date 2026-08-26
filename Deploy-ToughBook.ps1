@@ -10,6 +10,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = [IO.Path]::GetFullPath($PSScriptRoot)
 $publishScript = Join-Path $repoRoot 'agent\scripts\Publish-FieldOpsArtifacts.ps1'
 $installerScript = Join-Path $repoRoot 'agent\scripts\Install-FieldOpsAgent.ps1'
+$operatorResolutionModule = Join-Path $repoRoot 'agent\scripts\FieldOps.OperatorResolution.psm1'
+$trayScheduledLaunchModule = Join-Path $repoRoot 'agent\scripts\FieldOps.TrayScheduledLaunch.psm1'
 $metadataPath = Join-Path $repoRoot 'product-metadata.json'
 $deploymentManifestPath = Join-Path $InstallPath 'deployment-manifest.json'
 $nativeInstallRoot = Join-Path $env:ProgramFiles 'FieldOpsDashboard'
@@ -111,7 +113,7 @@ function Assert-DashboardParity {
 Assert-Elevated
 Assert-ToughBook
 if (-not (Test-Path -LiteralPath $repoRoot -PathType Container)) { throw "Repository '$repoRoot' was not found." }
-foreach ($path in @($publishScript, $installerScript)) { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required deployment file '$path' was not found." } }
+foreach ($path in @($publishScript, $installerScript, $operatorResolutionModule, $trayScheduledLaunchModule)) { if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Required deployment file '$path' was not found." } }
 Assert-Command 'npm'
 Assert-Command 'robocopy.exe'
 $expectedRevision = Resolve-RepositoryHead
@@ -166,9 +168,28 @@ Assert-DeploymentParity -ExpectedRevision $expectedRevision -ExpectedInformation
 Assert-DashboardParity -ExpectedRevision $expectedRevision
 
 Write-Host '[OK] Revision parity proven across repository, manifest, Dashboard, Agent, and Tray.' -ForegroundColor Green
-Write-Host '[6/6] Deployment summary' -ForegroundColor Cyan
+Import-Module $operatorResolutionModule -Force
+Import-Module $trayScheduledLaunchModule -Force
+$resolvedOperator = Resolve-FieldOpsInteractiveOperator -OperatorAccount $OperatorAccount
+Write-Host "[7/7] Restoring FieldOps Tray in the interactive session for $($resolvedOperator.Account)..." -ForegroundColor Cyan
+try {
+    $trayResult = Start-FieldOpsTrayScheduledLaunch `
+        -TrayPath $trayInstallPath `
+        -OperatorAccount $resolvedOperator.Account `
+        -OperatorSid $resolvedOperator.Sid
+    if ($trayResult.Status -eq 'AlreadyRunning') {
+        Write-Host "[OK] Tray already running in interactive session $($trayResult.SessionId)." -ForegroundColor Green
+    } else {
+        Write-Host "[OK] Tray running in interactive session $($trayResult.SessionId)." -ForegroundColor Green
+    }
+} catch {
+    throw "Deployment installed the correct Tray binary, but interactive Tray restoration failed: $($_.Exception.Message)"
+}
+Write-Host '[7/7] Deployment summary' -ForegroundColor Cyan
 Write-Host '✓ Agent published' -ForegroundColor Green
 Write-Host '✓ Tray published' -ForegroundColor Green
+Write-Host '✓ Tray installed' -ForegroundColor Green
+Write-Host '✓ Tray running/restored' -ForegroundColor Green
 Write-Host '✓ Source updated' -ForegroundColor Green
 Write-Host '✓ Agent installed' -ForegroundColor Green
 Write-Host '✓ Dashboard built' -ForegroundColor Green

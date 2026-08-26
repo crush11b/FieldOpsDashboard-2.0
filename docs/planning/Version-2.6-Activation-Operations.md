@@ -66,6 +66,12 @@ The default workspace answers the question for the current phase: **PLAN** descr
 
 The following remain separate Version 2.6 closure defects and are not hidden by this UX correction: successful deployment still requires follow-up validation for restoring the interactive Tray; CF-20 power telemetry may report `Unknown / Unknown` and requires separate diagnosis; and clock synchronization evidence must be evaluated across Agent restart/deployment before it can be treated as current. The UI continues to report these states honestly.
 
+### Tray lifecycle closure correction
+
+The deployment diagnostic found that `Deploy-ToughBook.ps1` published and installed the correct Tray and registered the operator's HKU Run value, but never restored a Tray in the current interactive session after the installer stopped the old process during an update. The deployment helper now resolves the enrolled operator and uses the existing temporary interactive-token Scheduled Task launch path after revision parity is proven. It verifies one matching Tray in the operator's session, reuses an existing instance, cleans up the temporary task, and fails deployment rather than claiming operator readiness when restoration cannot be proven. Login and reboot continue to use the per-user HKU Run registration; Agent and Dashboard restart controls remain Tray-owned and do not require Tray destruction.
+
+The hardware acceptance gate is: deploy with Tray running and with Tray absent, verify exactly one correctly owned Tray and visible icon after each deployment, verify automatic restoration after Windows login/reboot, and verify Agent/Dashboard restart controls leave the Tray available. No elevated Administrator launch is used as the normal Tray identity.
+
 The PLAN acceptance correction traced the production path through `RoadmapToolsModal` -> `SmartDeployPlanner` -> retained-brief loading -> `SmartDeployBriefView` -> `V2BriefView`. The earlier regression exercised `SmartDeployBriefView` fixtures but did not cover the planner's real retained-brief configuration; the committed implementation had only changed phase wiring and had not removed the old PLAN blocks. The correction removes those blocks from V2 PLAN, demotes planner GNSS context into a closed disclosure, and adds a planner render-path regression while preserving the retained forecast and underlying evidence.
 
 ## Explicit exclusions
