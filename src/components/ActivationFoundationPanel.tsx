@@ -7,16 +7,17 @@ import { ActivationReviewPanel } from './ActivationReviewPanel';
 
 interface ActivationFoundationPanelProps {
   readonly brief: SmartDeployBriefV2;
+  readonly initialActivation?: Activation | null;
   readonly onActivationChange?: (activation: Activation | null) => void;
   readonly showReview?: boolean;
 }
 
-export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps> = ({ brief, onActivationChange, showReview = true }) => {
-  const [activation, setActivation] = useState<Activation | null>(null);
+export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps> = ({ brief, initialActivation = null, onActivationChange, showReview = true }) => {
+  const [activation, setActivation] = useState<Activation | null>(initialActivation);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [reviewOpen, setReviewOpen] = useState(false);
-  useEffect(() => { setActivation(null); setMessage(null); setReviewOpen(false); }, [brief.briefId]);
+  useEffect(() => { setActivation(initialActivation); setMessage(null); setReviewOpen(false); }, [brief.briefId, initialActivation]);
   const publishActivation = (next: Activation | null) => { setActivation(next); onActivationChange?.(next); };
   const open = async () => { setBusy(true); setMessage(null); const result = await openActivationFromBrief(brief.briefId); if (result.kind === 'activation') publishActivation(result.activation); else setMessage(result.message); setBusy(false); };
   const changeStatus = async (status: Activation['status']) => { if (!activation) return; setBusy(true); setMessage(null); const result = await updateActivationStatus(activation.activationId, status); if (result.kind === 'activation') publishActivation(result.activation); else setMessage(result.message); setBusy(false); };

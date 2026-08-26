@@ -50,6 +50,8 @@ Each datum has one primary home; other phases use only compact context. Provenan
 
 The Local Agent GNSS lifecycle is restart-safe: restarting `FieldOpsAgent` resets the active session, releases the configured NMEA serial reader, and reacquires the configured GNSS serial interface automatically. Transport-active/no-fix and independent RMC UTC evidence semantics remain unchanged.
 
+CF-20 acceptance confirmed the four-phase workspace architecture. The bounded acceptance corrections remove redundant PLAN operation details and internal identifiers from primary presentation, make PREPARE a compact summit-readiness summary with evidence details secondary, and expose the existing QSO Logger immediately in OPERATE for active and completed Activations. REVIEW now distinguishes modeled candidate bands from explicitly planned operation, retains and flags QSOs outside the mission window without distorting in-window chronology, and keeps exact brief identifiers in Evidence Details. Mission Forecast refresh now requests the retained UTC mission dates explicitly, retains successful provider evidence, and surfaces specific provider, horizon, or planned-coordinate failure reasons; it remains independent of Space Weather evidence.
+
 ## Explicit exclusions
 
 The following remain deferred after 2.6-04: continuous clock steering, NTP/PPS discipline, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.

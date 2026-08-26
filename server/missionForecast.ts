@@ -20,7 +20,9 @@ export async function retrieveMissionForecast(brief: SmartDeployBriefV2, options
   const now = options.now ?? new Date();
   if (!coordinates || !Number.isFinite(start) || !Number.isFinite(end) || end < start || !Number.isFinite(now.getTime())) return { status: 'planned_coordinates_invalid', record: null, message: 'The retained planned site or mission window is invalid; no forecast request was made.' };
   const retrievedAtUtc = now.toISOString();
-  const sourceUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.lat}&longitude=${coordinates.lon}&hourly=temperature_2m,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=UTC&forecast_days=16`;
+  const startDate = new Date(start).toISOString().slice(0, 10);
+  const endDate = new Date(end).toISOString().slice(0, 10);
+  const sourceUrl = `https://api.open-meteo.com/v1/forecast?latitude=${coordinates.lat}&longitude=${coordinates.lon}&start_date=${startDate}&end_date=${endDate}&hourly=temperature_2m,precipitation_probability,wind_speed_10m,wind_direction_10m,wind_gusts_10m,weather_code&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=UTC`;
   try {
     const response = await fetchWithTimeout(options.fetcher ?? fetch, options.timeoutMs ?? MISSION_FORECAST_PROVIDER_TIMEOUT_MS)(sourceUrl);
     if (!response.ok) return { status: 'provider_unavailable', record: null, message: 'The terrestrial forecast provider is unavailable.' };

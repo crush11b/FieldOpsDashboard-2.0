@@ -110,7 +110,7 @@ describe('OperationsReadinessWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show findings' }));
     expect(screen.getByText(/Status: attention \| Priority: high \| Source: GNSS/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'OPEN FIELD READINESS CHECKLIST' })).toHaveAttribute('href', '#field-readiness-checklist');
-    expect(screen.getByRole('link', { name: 'OPEN ACTIVATION NOTES' })).toHaveAttribute('href', '#activation-notes');
+    expect(screen.queryByRole('link', { name: 'OPEN ACTIVATION NOTES' })).toBeNull();
   });
 
   it('collapses findings by default, summarizes unresolved states, and preserves next actions', async () => {
