@@ -17,7 +17,7 @@ Evolve the Version 2.5 Operations Assistant into a practical activation workspac
 
 ## 2.6-01 status
 
-Implemented on the consolidated `feature/2.6-activation-operations` branch. Activation is a first-class typed domain concept backed by a local JSON store. It references retained SmartDeploy briefs and Activation Notes rather than copying their evidence payloads.
+Complete on the consolidated `feature/2.6-activation-operations` branch. Activation is a first-class typed domain concept backed by a local JSON store. It references retained SmartDeploy briefs and Activation Notes rather than copying their evidence payloads.
 
 The slice supports POTA, SOTA, and General activations; optional planned coordinates, Maidenhead grid, mission window, title, and reference; planned, active, and completed lifecycle states; corrupt-data diagnostics; and a minimal SmartDeploy-integrated operator panel.
 
@@ -27,6 +27,14 @@ Implemented on the same branch. The .NET Local Agent remains the sole COM6 owner
 
 Operations Readiness now consumes synchronization evidence without treating a historical success as continuously synchronized. Offline Preparation independently evaluates retained plan/location/readiness evidence and requests live weather/alerts, returning per-check states and partial diagnostics rather than a global GO/NO-GO decision. The NMEA clock source is not PPS-disciplined and does not claim sub-second or FT8/FT4 timing suitability; that remains a field-validation concern.
 
+2.6-02 is complete. Practical FT8 field validation used WSJT-X connected to the actual radio and observed 19 decoded FT8 stations. DT values were mostly approximately -0.5 s, with some around +0.1 s and one observed outlier approximately -1.1 s. FieldOps GPS synchronization was active, BktTimeSync was not required, and COM6 remained under FieldOps ownership. This is practical FT8 timing validation, not precision clock certification.
+
+## 2.6-03 status
+
+Implemented on the same consolidated branch. QSOs are durable Activation-owned records in the local JSON persistence path, with UTC time, callsign, band/frequency, mode/submode, reports, supported grid and POTA/SOTA metadata, timestamps, and manual/import provenance. The compact Activation workflow supports rapid manual logging, edit/delete, chronological listing, bounded ADIF import with partial-error reporting, deterministic duplicate detection, and standards-shaped ADIF export. Duplicate identity is Activation plus normalized callsign, UTC QSO time, band, frequency when known, mode, and submode.
+
+Known limitations: this slice does not provide rig control, automatic radio metadata, direct WSJT-X or Ham2K integration, online lookups, submission workflows, contest features, or Activation Review. Unknown ADIF fields are ignored; supported values are preserved without inventing missing station or location evidence. POTA/SOTA context is exported through standard `POTA_REF` or `SOTA_REF` fields when Activation evidence exists.
+
 ## Explicit exclusions
 
-The following are not part of 2.6-02: continuous clock steering, NTP/PPS discipline, QSO logging, ADIF workflow, Activation Review, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, and AI features.
+The following remain deferred after 2.6-03: continuous clock steering, NTP/PPS discipline, Activation Review, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.

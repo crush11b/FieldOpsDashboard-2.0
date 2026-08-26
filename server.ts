@@ -54,6 +54,8 @@ import { createMissionForecastRouter } from './server/missionForecastApi';
 import { getDefaultMissionForecastPath, MissionForecastStore } from './server/missionForecastStore';
 import { createActivationRouter } from './server/activationApi';
 import { ActivationStore, getDefaultActivationPath } from './server/activationStore';
+import { createQsoRouter } from './server/qsoApi';
+import { QsoStore, getDefaultQsoPath } from './server/qsoStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { createClockRouter } from './server/clockApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
@@ -111,11 +113,13 @@ async function startServer() {
   const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
   const missionForecastStore = new MissionForecastStore(getDefaultMissionForecastPath());
   const activationStore = new ActivationStore(getDefaultActivationPath());
+  const qsoStore = new QsoStore(getDefaultQsoPath());
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
   app.use(createMissionForecastRouter({ briefStore: smartDeployBriefStore, store: missionForecastStore }));
   app.use(createActivationRouter({ briefStore: smartDeployBriefStore, store: activationStore, notesStore: activationNotesStore }));
+  app.use(createQsoRouter({ activationStore, store: qsoStore }));
   app.use(createSpaceWeatherSnapshotRouter({ briefStore: smartDeployBriefStore, store: spaceWeatherSnapshotStore, service: spaceWeatherService }));
   app.use(createOperationsReadinessRouter({
     dependencies: {
