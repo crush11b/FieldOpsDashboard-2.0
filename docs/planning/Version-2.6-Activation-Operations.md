@@ -1,6 +1,6 @@
 # Version 2.6 - Activation Operations
 
-- Status: Approved slice structure
+- Status: 2.6-04 implemented; Version 2.6 planned slices complete
 - Baseline: Version 2.5.0
 - Supported deployment: single operator on one locally operated Windows field computer
 
@@ -33,8 +33,14 @@ Operations Readiness now consumes synchronization evidence without treating a hi
 
 Implemented on the same consolidated branch. QSOs are durable Activation-owned records in the local JSON persistence path, with UTC time, callsign, band/frequency, mode/submode, reports, supported grid and POTA/SOTA metadata, timestamps, and manual/import provenance. The compact Activation workflow supports rapid manual logging, edit/delete, chronological listing, bounded ADIF import with partial-error reporting, deterministic duplicate detection, and standards-shaped ADIF export. Duplicate identity is Activation plus normalized callsign, UTC QSO time, band, frequency when known, mode, and submode.
 
-Known limitations: this slice does not provide rig control, automatic radio metadata, direct WSJT-X or Ham2K integration, online lookups, submission workflows, contest features, or Activation Review. Unknown ADIF fields are ignored; supported values are preserved without inventing missing station or location evidence. POTA/SOTA context is exported through standard `POTA_REF` or `SOTA_REF` fields when Activation evidence exists.
+Known limitations: this slice does not provide rig control, automatic radio metadata, direct WSJT-X or Ham2K integration, online lookups, submission workflows, or contest features. Unknown ADIF fields are ignored; supported values are preserved without inventing missing station or location evidence. POTA/SOTA context is exported through standard `POTA_REF` or `SOTA_REF` fields when Activation evidence exists.
+
+## 2.6-04 status
+
+Implemented on the same consolidated branch. Activation Review is a read-only assembly over the Activation, associated SmartDeploy brief, retained mission forecast and space-weather snapshot, modeled/observed propagation evidence, Activation Notes, and Activation-owned QSOs. It presents plan, retained environment, modeled propagation, QSO results and provenance, operator notes, and deterministic factual plan-versus-result findings without duplicating source stores.
+
+Review evidence uses explicit available, retained, unavailable, unknown, and provisional semantics. It does not infer causality, score operator performance, or generate AI summaries. Opening Review never fetches live providers or mutates historical evidence; live refresh remains an explicit separate workflow. The existing QSO logger and Activation Notes panels remain the editing surfaces.
 
 ## Explicit exclusions
 
-The following remain deferred after 2.6-03: continuous clock steering, NTP/PPS discipline, Activation Review, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.
+The following remain deferred after 2.6-04: continuous clock steering, NTP/PPS discipline, PSKReporter, spotting, equipment/loadout profiles, direct WSJT-X or radio integration, APRS, Meshtastic, Direwolf, Winlink, DigiPi, Local/NVIS, AI features, rig control, CAT, automatic radio detection, POTA/SOTA website submission, QRZ lookup, QSL workflows, LoTW, Club Log, eQSL, contest scoring, and award tracking.
