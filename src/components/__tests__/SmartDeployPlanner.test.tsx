@@ -309,6 +309,36 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.queryByText('OPERATION')).toBeNull();
   });
 
+  it('renders the generated PLAN through the production planner path', async () => {
+    const acceptanceBrief = { ...v2Brief, activation: { ...v2Brief.activation, reference: 'W4V/SH-005' }, propagationObjective: { ...v2Brief.propagationObjective, regionId: 'western_europe', regionLabel: 'Western Europe' } } as SmartDeployBriefV2;
+    const forecast = { coverage: 'mission-window hourly forecast', retrievedAtUtc: '2026-08-18T11:30:00.000Z', periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', condition: 'Clear', temperatureF: 72, precipitationProbability: 5, windSpeedMph: 4, windDirection: 'NW' }] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [{ schemaVersion: 2, briefId: 'acceptance-brief', generatedAtUtc: acceptanceBrief.generatedAtUtc, status: acceptanceBrief.status, activation: acceptanceBrief.activation }] }) };
+      if (path === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) };
+      if (path === '/api/smartdeploy/briefs/acceptance-brief') return { ok: true, json: async () => ({ brief: acceptanceBrief }) };
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    }));
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    await waitFor(() => expect(screen.getByText('W4V/SH-005', { selector: 'strong' })).toBeTruthy());
+    fireEvent.click(screen.getByText('W4V/SH-005', { selector: 'strong' }));
+    await waitFor(() => expect(screen.getByText('W4V/SH-005')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Clear, 72°F, 5% precipitation/)).toBeTruthy());
+    expect(screen.getAllByText('Western Europe')).toHaveLength(2);
+    expect(screen.getAllByText('FM17').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Field Radio - EFHW - 10 W/)).toBeTruthy();
+    expect(screen.getAllByText(/2026-08-18 12:00:00 UTC to 2026-08-18 14:00:00 UTC/)).toHaveLength(2);
+    expect(screen.queryByText('western_europe')).toBeNull();
+    expect(screen.queryByText('FIELD OPERATION')).toBeNull();
+    expect(screen.queryByText('IMPORTANT NOTES')).toBeNull();
+    const technicalDetails = screen.getByText('Technical Details').closest('details');
+    expect(technicalDetails).not.toHaveAttribute('open');
+    expect(screen.getByText('LOCATION CONTEXT').closest('details')).not.toHaveAttribute('open');
+  });
+
   it('keeps unavailable observed RF visible without repeating it in primary notes', () => {
     const unavailableBrief = {
       ...v2Brief,
