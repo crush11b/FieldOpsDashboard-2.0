@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.6.0] - Release preparation
+
+Version 2.6.0 completes the activation-operations workspace for the supported single-operator ToughBook deployment.
+
+### Added
+- **Activation workspace**: PLAN, PREPARE, OPERATE, and REVIEW organize activation planning, readiness, live operation, and retained evidence.
+- **Activation lifecycle**: Durable activations support SmartDeploy association, Activation Notes, QSO logging, completion, and post-activation review.
+- **GNSS clock readiness**: The Agent retains COM6 ownership across restart, supports GPS-derived Windows clock synchronization, and verifies current clock agreement against fresh GNSS UTC evidence.
+- **Mission-window planning**: Retained terrestrial forecast evidence remains associated with the planned operating window and available for offline use.
+- **QSO Logger and ADIF**: Activation-owned contacts support manual logging, bounded ADIF import, and ADIF export.
+- **Deployment/runtime restoration**: Revision and runtime-bundle parity checks, automatic Dashboard replacement, and interactive Tray restoration prevent stale runtime success.
+
+### Validation
+- Version 2.6 passed the dashboard, TypeScript, production build, P.533, native Agent/Tray, and PowerShell regression gates.
+- CF-20 acceptance passed GNSS recovery, clock readiness, activation lifecycle, retained evidence, Dashboard restoration, and Tray startup/restoration behavior.
+
+### Deferred
+- Radio/CAT integration, direct WSJT-X integration, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain future work.
+
+---
+
 ## [2.5.0] - 2026-08-24
 
 Version 2.5.0 was field-accepted on the supported ToughBook deployment and published.

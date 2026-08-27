@@ -7,6 +7,6 @@
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ],
-  "version": "2.5.0",
-  "releaseName": "Operations Assistant"
+  "version": "2.6.0",
+  "releaseName": "Activation Operations"
 }
