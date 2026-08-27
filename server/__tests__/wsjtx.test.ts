@@ -3,8 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WSJTX_FRESHNESS_WINDOW_MS, WsjtxListener, deriveAmateurBand, parseWsjtxStatusPacket } from '../wsjtx';
 
 const text = new TextEncoder();
-const stringField = (value: string) => { const bytes = text.encode(value); const buffer = Buffer.alloc(4 + bytes.length); buffer.writeUInt32BE(bytes.length); Buffer.from(bytes).copy(buffer, 4); return buffer; };
-const statusPacket = (frequencyHz = 14_074_000, mode = 'FT8', messageType = 1) => { const header = Buffer.alloc(9); header.writeUInt32BE(0xadbccbda); header.writeUInt32BE(2, 4); header.writeUInt8(messageType, 8); const id = stringField('WSJT-X'); const frequency = Buffer.alloc(8); frequency.writeBigInt64BE(BigInt(frequencyHz)); return Buffer.concat([header, id, frequency, stringField(mode)]); };
+const stringField = (value: string | null) => { if (value === null) return Buffer.from([0xff, 0xff, 0xff, 0xff]); const bytes = text.encode(value); const buffer = Buffer.alloc(4 + bytes.length); buffer.writeUInt32BE(bytes.length); Buffer.from(bytes).copy(buffer, 4); return buffer; };
+const statusPacket = (frequencyHz = 14_074_000, mode: string | null = 'FT8', messageType = 1, schema = 2, id: string | null = 'WSJT-X') => { const header = Buffer.alloc(12); header.writeUInt32BE(0xadbccbda); header.writeUInt32BE(schema, 4); header.writeUInt32BE(messageType, 8); const frequency = Buffer.alloc(8); frequency.writeBigUInt64BE(BigInt(frequencyHz)); return Buffer.concat([header, stringField(id), frequency, stringField(mode)]); };
 const clock = (value: string) => () => new Date(value);
 const sockets: WsjtxListener[] = [];
 afterEach(() => { sockets.splice(0).forEach(listener => listener.stop()); vi.restoreAllMocks(); });
@@ -13,6 +13,11 @@ describe('WSJT-X protocol and listener', () => {
   it('parses Status frequency and normalizes supported station context', () => {
     const result = parseWsjtxStatusPacket(statusPacket(), clock('2026-08-27T12:00:00.000Z'));
     expect(result?.state).toMatchObject({ band: '20m', frequencyMHz: 14.074, mode: 'FT8', source: 'wsjtx', freshness: 'fresh', status: 'available', observedAtUtc: '2026-08-27T12:00:00.000Z' });
+  });
+
+  it('parses schema 3 with the real 12-byte header and unsigned dial frequency', () => {
+    const result = parseWsjtxStatusPacket(statusPacket(7_074_000, 'FT8', 1, 3), clock('2026-08-27T12:00:00.000Z'));
+    expect(result?.state).toMatchObject({ band: '40m', frequencyMHz: 7.074, mode: 'FT8' });
   });
 
   it('supports FT4, preserves unknown modes, and leaves out-of-band bands unknown', () => {
@@ -24,7 +29,16 @@ describe('WSJT-X protocol and listener', () => {
 
   it('ignores malformed and unknown message packets safely', () => {
     expect(parseWsjtxStatusPacket(new Uint8Array([1, 2, 3]))).toBeNull();
-    expect(parseWsjtxStatusPacket(statusPacket(14_074_000_000, 'FT8', 99))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket(14_074_000, 'FT8', 99))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket(14_074_000, 'FT8', 1, 4))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket(14_074_000, 'FT8', 1, 1))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket(14_074_000, 'FT8', 1, 2, null))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket(14_074_000, null))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket().subarray(0, -1))).toBeNull();
+    expect(parseWsjtxStatusPacket(statusPacket(Number.MAX_SAFE_INTEGER + 1))).toBeNull();
+    const invalidUtf8 = statusPacket();
+    invalidUtf8[invalidUtf8.length - 1] = 0xff;
+    expect(parseWsjtxStatusPacket(invalidUtf8)).toBeNull();
   });
 
   it('reports unavailable, fresh, and stale snapshots', () => {

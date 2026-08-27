@@ -5,7 +5,7 @@ export const WSJTX_DEFAULT_HOST = '127.0.0.1';
 export const WSJTX_DEFAULT_PORT = 2237;
 export const WSJTX_FRESHNESS_WINDOW_MS = 10_000;
 const WSJTX_MAGIC = 0xadbccbda;
-const WSJTX_SCHEMA = 2;
+const WSJTX_SUPPORTED_SCHEMAS = new Set([2, 3]);
 const WSJTX_STATUS_MESSAGE = 1;
 
 export interface WsjtxObservation {
@@ -22,9 +22,12 @@ export interface WsjtxSnapshot {
 
 export function parseWsjtxStatusPacket(packet: Uint8Array, now = () => new Date()): WsjtxObservation | null {
   const reader = new PacketReader(packet);
-  if (reader.readUint32() !== WSJTX_MAGIC || reader.readUint32() !== WSJTX_SCHEMA || reader.readUint8() !== WSJTX_STATUS_MESSAGE) return null;
-  if (reader.readString() === null) return null;
-  const dialFrequencyHz = reader.readInt64();
+  if (reader.readUint32() !== WSJTX_MAGIC) return null;
+  const schema = reader.readUint32();
+  if (schema === null || !WSJTX_SUPPORTED_SCHEMAS.has(schema) || reader.readUint32() !== WSJTX_STATUS_MESSAGE) return null;
+  const id = reader.readString();
+  if (id === null) return null;
+  const dialFrequencyHz = reader.readUint64();
   const mode = reader.readString();
   if (dialFrequencyHz === null || mode === null || dialFrequencyHz <= 0) return null;
   const timestamp = now().toISOString();
@@ -85,6 +88,6 @@ class PacketReader {
   constructor(private readonly packet: Uint8Array) {}
   readUint8(): number | null { if (this.offset + 1 > this.packet.length) return null; return this.packet[this.offset++]; }
   readUint32(): number | null { if (this.offset + 4 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 4).getUint32(0); this.offset += 4; return value; }
-  readInt64(): number | null { if (this.offset + 8 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 8).getBigInt64(0); this.offset += 8; const number = Number(value); return Number.isSafeInteger(number) ? number : null; }
-  readString(): string | null { const length = this.readUint32(); if (length === null || length > this.packet.length - this.offset || length % 1 !== 0) return null; const value = new TextDecoder().decode(this.packet.slice(this.offset, this.offset + length)); this.offset += length; return value; }
+  readUint64(): number | null { if (this.offset + 8 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 8).getBigUint64(0); this.offset += 8; const number = Number(value); return Number.isSafeInteger(number) ? number : null; }
+  readString(): string | null { const length = this.readUint32(); if (length === null) return null; if (length === 0xffffffff) return null; if (length > this.packet.length - this.offset) return null; try { const value = new TextDecoder('utf-8', { fatal: true }).decode(this.packet.slice(this.offset, this.offset + length)); this.offset += length; return value; } catch { return null; } }
 }
