@@ -1,6 +1,6 @@
 # Version 2.7 - Connected Operations
 
-- Status: Approved planning baseline; 2.7-01 accepted and 2.7-02 implemented
+- Status: Approved planning baseline; 2.7-01 through 2.7-03 accepted
 - Baseline: Version 2.6.0 - Activation Operations
 - Supported deployment: single operator on one locally operated Windows field computer
 - Primary field target: ToughBook/ToughPad activation workflow
@@ -134,6 +134,14 @@ Initial source vocabulary should be no broader than real 2.7 consumers require. 
 - Fresh WSJT-X state takes precedence during an ACTIVE Activation. Stale/unavailable WSJT-X state does not erase manual context, which is then presented when meaningful. Non-active Activations suppress current station presentation.
 - Supported protocol fields are the WSJT-X header, client ID, dial frequency, and mode. Frequency is preserved in MHz, bands are conservatively derived from the shared amateur-band vocabulary, and unknown modes/bands remain source-faithful rather than being relabeled.
 - WSJT-X state means application-reported operating context only; it is not CAT, direct radio, transmit, or RF confirmation. CAT, Hamlib, rigctld, QSO automation, PSKReporter, and later integrations remain deferred.
+
+### CF-20 acceptance evidence - 2026-08-27
+
+- Version 2.7-03 CF-20 hardware acceptance passed on a Panasonic ToughBook CF-20 Mk2 with WSJT-X v3.0.0-rc1. See [Version 2.7-03 WSJT-X CF-20 Field Acceptance](../validation/Version-2.7-03-WSJTX-CF20-Field-Acceptance-2026-08-27.md).
+- Acceptance exposed that the original synthetic packets modeled the WSJT-X wire protocol incorrectly. Revision `a4726c847e2a29629ca8bff8812cb0e6fa92de6f` corrected the real 12-byte header, `quint32` message type, schema 2/3 compatibility, unsigned safe `quint64` frequency handling, nullable UTF-8/QByteArray semantics, and malformed/truncated packet handling.
+- With WSJT-X configured for `127.0.0.1:2237` and UDP requests accepted, live endpoint evidence reported `20m / 14.074 MHz / FT8` with `source=wsjtx` and `freshness=fresh`. CURRENT STATION changed from retained manual `20m / SSB` to WSJT-X automatically, tracked WSJT-X context changes, and fell back to manual context after WSJT-X stopped and freshness expired.
+- The acceptance proves WSJT-X application status only. It does not claim CAT, direct-radio, transmit, or RF confirmation. The broader 2.7-07 release gate remains open for its separate full-lifecycle, logged-QSO, observed-RF, GNSS/clock, offline, and REVIEW requirements.
+- A same-session GNSS interruption is recorded as a hardware/driver/GNSS recovery observation, not as a 2.7-03 defect: COM6 opened but emitted no NMEA, Agent restart did not recover it, and a full ToughBook reboot restored GPS.
 
 ### Acceptance
 
