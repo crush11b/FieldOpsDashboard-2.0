@@ -12,6 +12,7 @@ public sealed record ClockSynchronizationEvidence(
     NmeaTimeEvidence GnssTime,
     DateTimeOffset? LastSuccessfulSynchronizationUtc,
     double? OffsetBeforeSynchronizationSeconds,
+    double? CurrentOffsetSeconds,
     string? AttemptMessage);
 
 public interface ISystemClock
@@ -58,21 +59,30 @@ public sealed class WindowsSystemClock : ISystemClock
 public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, ISystemClock clock)
 {
     public const double MaximumAutomaticCorrectionSeconds = 300;
+    public const double MaximumVerificationOffsetSeconds = 2;
     private readonly object gate = new();
     private DateTimeOffset? lastSuccess;
-    private ClockSynchronizationEvidence evidence = new(ClockSynchronizationStatus.Unknown, ClockSynchronizationError.None, new(NmeaTimeStatus.Unavailable, null, "RMC"), null, null, null);
+    private ClockSynchronizationEvidence evidence = new(ClockSynchronizationStatus.Unknown, ClockSynchronizationError.None, new(NmeaTimeStatus.Unavailable, null, "RMC"), null, null, null, null);
     public ClockSynchronizationEvidence GetEvidence() { lock (gate) return evidence; }
+    public async Task<ClockSynchronizationEvidence> VerifyAsync(CancellationToken cancellationToken)
+    {
+        var gnss = await location.AcquireTimeAsync(cancellationToken);
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."));
+        var offset = (gnss.TimestampUtc.Value - clock.GetUtcNow()).TotalSeconds;
+        var synchronized = Math.Abs(offset) <= MaximumVerificationOffsetSeconds;
+        return Set(new(synchronized ? ClockSynchronizationStatus.Synchronized : ClockSynchronizationStatus.NotSynchronized, synchronized ? ClockSynchronizationError.None : ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, null, offset, synchronized ? "Windows time currently agrees with fresh GNSS UTC evidence." : $"Windows time differs from fresh GNSS UTC evidence by {offset:F1} seconds."));
+    }
     public async Task<ClockSynchronizationEvidence> SynchronizeAsync(bool confirmed, CancellationToken cancellationToken)
     {
         var gnss = await location.AcquireTimeAsync(cancellationToken);
         var current = clock.GetUtcNow();
-        if (!confirmed) return Set(new(ClockSynchronizationStatus.NotSynchronized, ClockSynchronizationError.ConfirmationRequired, gnss, lastSuccess, null, "Explicit operator confirmation is required."));
-        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(new(ClockSynchronizationStatus.Unavailable, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."));
+        if (!confirmed) return Set(new(ClockSynchronizationStatus.NotSynchronized, ClockSynchronizationError.ConfirmationRequired, gnss, lastSuccess, null, null, "Explicit operator confirmation is required."));
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."));
         var offset = (gnss.TimestampUtc.Value - current).TotalSeconds;
-        if (Math.Abs(offset) > MaximumAutomaticCorrectionSeconds) return Set(new(ClockSynchronizationStatus.Error, ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, offset, $"The requested correction of {offset:F1} seconds exceeds the {MaximumAutomaticCorrectionSeconds:F0}-second safety limit."));
-        if (!clock.SetUtc(gnss.TimestampUtc.Value, out var error)) return Set(new(ClockSynchronizationStatus.Error, error?.Contains("privilege", StringComparison.OrdinalIgnoreCase) == true ? ClockSynchronizationError.PrivilegeUnavailable : ClockSynchronizationError.NativeFailure, gnss, lastSuccess, offset, error ?? "Windows rejected the system-time update."));
+        if (Math.Abs(offset) > MaximumAutomaticCorrectionSeconds) return Set(new(ClockSynchronizationStatus.Error, ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, offset, null, $"The requested correction of {offset:F1} seconds exceeds the {MaximumAutomaticCorrectionSeconds:F0}-second safety limit."));
+        if (!clock.SetUtc(gnss.TimestampUtc.Value, out var error)) return Set(new(ClockSynchronizationStatus.Error, error?.Contains("privilege", StringComparison.OrdinalIgnoreCase) == true ? ClockSynchronizationError.PrivilegeUnavailable : ClockSynchronizationError.NativeFailure, gnss, lastSuccess, offset, null, error ?? "Windows rejected the system-time update."));
         lock (gate) lastSuccess = DateTimeOffset.UtcNow;
-        return Set(new(ClockSynchronizationStatus.Synchronized, ClockSynchronizationError.None, gnss, lastSuccess, offset, "Windows time was set from fresh GNSS UTC evidence."));
+        return Set(new(ClockSynchronizationStatus.Synchronized, ClockSynchronizationError.None, gnss, lastSuccess, offset, 0, "Windows time was set from fresh GNSS UTC evidence."));
     }
     private ClockSynchronizationEvidence Set(ClockSynchronizationEvidence value) { lock (gate) evidence = value; return value; }
 }

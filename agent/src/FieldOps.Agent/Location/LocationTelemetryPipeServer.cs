@@ -34,7 +34,7 @@ internal sealed class LocationTelemetryPipeServer(
                 {
                     "GetLocation" => await service.AcquireAsync(acquisitionTimeout.Token),
                     "GetGnssTime" => await service.AcquireTimeAsync(acquisitionTimeout.Token),
-                    "GetClockStatus" => synchronizer.GetEvidence(),
+                    "GetClockStatus" => await synchronizer.VerifyAsync(acquisitionTimeout.Token),
                     _ => await synchronizer.SynchronizeAsync(request.Confirmed, acquisitionTimeout.Token),
                 };
                 using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); responseTimeout.CancelAfter(ResponseTimeout);

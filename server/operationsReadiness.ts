@@ -43,7 +43,7 @@ export interface OperationsReadinessInput {
   readonly propagation: { readonly status: 'modeled' | 'partial' | 'observed-only' | 'stale' | 'unavailable'; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly limitation?: string };
   readonly checklist?: { readonly completedItems: number; readonly totalItems: number; readonly source: TelemetrySource; readonly updatedAtUtc?: string };
   readonly activationNotes?: { readonly count: number; readonly source: TelemetrySource; readonly updatedAtUtc?: string };
-  readonly clock?: { readonly status: 'synchronized' | 'not_synchronized' | 'unknown' | 'unavailable' | 'error'; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly lastSuccessfulSynchronizationUtc?: string | null; readonly offsetBeforeSynchronizationSeconds?: number | null; readonly message?: string | null };
+  readonly clock?: { readonly status: 'synchronized' | 'not_synchronized' | 'unknown' | 'unavailable' | 'error'; readonly source: TelemetrySource; readonly observedAtUtc?: string; readonly lastSuccessfulSynchronizationUtc?: string | null; readonly offsetBeforeSynchronizationSeconds?: number | null; readonly currentOffsetSeconds?: number | null; readonly message?: string | null };
 }
 
 export interface OperationsReadinessSummary {

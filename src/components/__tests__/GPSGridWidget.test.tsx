@@ -101,7 +101,7 @@ function baseGps(overrides: Partial<GPSStatus> = {}): GPSStatus {
 }
 
 function synchronizedClock(): ClockSynchronizationEvidence {
-  return { status: 'Synchronized', error: 'None', gnssTime: { status: 'Available', timestampUtc: '2026-08-25T23:13:29.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: '2026-08-25T23:12:54.000Z', offsetBeforeSynchronizationSeconds: -0.658801, attemptMessage: 'Windows time was set from fresh GNSS UTC evidence.' };
+  return { status: 'Synchronized', error: 'None', gnssTime: { status: 'Available', timestampUtc: '2026-08-25T23:13:29.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: '2026-08-25T23:12:54.000Z', offsetBeforeSynchronizationSeconds: -0.658801, currentOffsetSeconds: null, attemptMessage: 'Windows time was set from fresh GNSS UTC evidence.' };
 }
 
 function provenance(status: GPSProvenance['status'], type: string): GPSProvenance {

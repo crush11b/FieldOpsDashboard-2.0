@@ -94,7 +94,7 @@ app.MapGet("/api/v1/location/nmea", async (ISerialNmeaLocationService service, C
 app.MapGet("/api/v1/clock/gnss", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireTimeAsync(cancellationToken)));
 
-app.MapGet("/api/v1/clock/status", (GpsClockSynchronizer synchronizer) => Results.Ok(synchronizer.GetEvidence()));
+app.MapGet("/api/v1/clock/status", async (GpsClockSynchronizer synchronizer, CancellationToken cancellationToken) => Results.Ok(await synchronizer.VerifyAsync(cancellationToken)));
 
 app.MapPost("/api/v1/clock/synchronize", async (GpsClockSynchronizer synchronizer, ClockSyncRequest request, CancellationToken cancellationToken) =>
     Results.Ok(await synchronizer.SynchronizeAsync(request.Confirmed, cancellationToken)));
