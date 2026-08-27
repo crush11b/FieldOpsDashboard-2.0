@@ -20,7 +20,7 @@ describe('QsoLoggerPanel', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('/api/activations/activation-1/qsos', expect.objectContaining({ method: 'POST' }));
   });
 
-  it('uses editable digital defaults, clears unsupported auto defaults, and preserves manual overrides', async () => {
+  it('supplies the 20m FT8 default and keeps a manual override in the same context', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });
       return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 });
@@ -29,12 +29,84 @@ describe('QsoLoggerPanel', () => {
     await waitFor(() => expect(screen.getByLabelText('BAND')).toBeInTheDocument());
     fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
     expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.075' } });
+    fireEvent.change(screen.getByLabelText('CALLSIGN'), { target: { value: 'W1AW' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.075);
+  });
+
+  it('clears the FT8 frequency when changing to SSB and restores it when changing back', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.075' } });
     fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'SSB' } });
     expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
     fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
-    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.123' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
+  });
+
+  it('replaces a manual SSB frequency with the new digital default', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.260' } });
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
+  });
+
+  it('supplies the 40m FT8 default after changing band', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }));
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.075' } });
+    fireEvent.change(screen.getByLabelText('BAND'), { target: { value: '40m' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(7.074);
+  });
+
+  it('clears frequency when the new operating context has no conventional default', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }));
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FM' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
+  });
+
+  it('preserves an existing QSO frequency until band or mode is changed during edit', async () => {
+    const stored = { ...qso, mode: 'FT8', frequencyMHz: 14.075 };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [stored] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'updated', qso: stored }), { status: 200 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByText('W1AW')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'EDIT' }));
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.075);
+    fireEvent.change(screen.getByLabelText('CALLSIGN'), { target: { value: 'N0CALL' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.075);
     fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'SSB' } });
-    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.123);
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
+  });
+
+  it('clears an auto default when changing to a mode without a defined default', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'SSB' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
   });
 
   it('retains operating context after logging and resets contact fields', async () => {
