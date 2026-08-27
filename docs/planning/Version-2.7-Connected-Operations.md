@@ -210,6 +210,15 @@ When WSJT-X has already logged a completed digital QSO, manually re-entering the
 
 A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO log without manual re-entry, with correct provenance and without duplicate creation. Manual logging remains available before, during, and after WSJT-X connectivity loss.
 
+### 2.7-04A - Logged QSO protocol and normalization implementation evidence
+
+- 2.7-04A adds real-wire parsing for WSJT-X `QSO Logged` message type `5` under supported schemas `2` and `3`.
+- The parser follows the authoritative `WSJTX/wsjtx` `Network/NetworkMessage.hpp` field table: header, UTF-8/QByteArray fields, `QDateTime` Date/Time Off and On values, unsigned `quint64` transmit frequency, and the complete message field sequence. Qt `QDateTime` decoding uses the documented Julian day, milliseconds-since-midnight, and UTC/offset timespec representation.
+- The transient `WsjtxLoggedQsoCandidate` normalizes Date/Time On to canonical UTC, callsign using the existing QSO validation rule, frequency in MHz, conservative band derivation, source mode including FT8/FT4 and unknown values, supplied reports, DX grid, and supplied station/operator context. Source is `wsjtx`.
+- The parser consumes but does not expose or persist WSJT-X power, comments, name, exchanges, or ADIF propagation mode because this slice does not widen the persistent QSO schema.
+- Tests include builder-based packets and a fixed byte fixture independently derived from the upstream field table and Qt serialization documentation. Malformed, truncated, unsupported-schema, unknown-type, null, and invalid UTF-8 packets are rejected safely.
+- This is a parser/normalization slice only. It does not query an Activation, route events, call `createQso`, write `qsoStore`, implement duplicate persistence behavior, or change the QSO Logger UI. Those behaviors remain deferred to 2.7-04B and later slices.
+
 ---
 
 ## 2.7-05 - Live Band Activity

@@ -1,5 +1,6 @@
 import dgram from 'node:dgram';
 import type { CurrentStationState } from '../src/currentStationState';
+import { normalizeQsoCallsign } from './qso';
 
 export const WSJTX_DEFAULT_HOST = '127.0.0.1';
 export const WSJTX_DEFAULT_PORT = 2237;
@@ -7,6 +8,7 @@ export const WSJTX_FRESHNESS_WINDOW_MS = 10_000;
 const WSJTX_MAGIC = 0xadbccbda;
 const WSJTX_SUPPORTED_SCHEMAS = new Set([2, 3]);
 const WSJTX_STATUS_MESSAGE = 1;
+const WSJTX_QSO_LOGGED_MESSAGE = 5;
 
 export interface WsjtxObservation {
   readonly state: CurrentStationState;
@@ -48,6 +50,36 @@ export function parseWsjtxStatusPacket(packet: Uint8Array, now = () => new Date(
   };
 }
 
+export function parseWsjtxLoggedQsoPacket(packet: Uint8Array): WsjtxLoggedQsoCandidate | null {
+  const reader = new PacketReader(packet);
+  if (reader.readUint32() !== WSJTX_MAGIC) return null;
+  const schema = reader.readUint32();
+  if (schema === null || !WSJTX_SUPPORTED_SCHEMAS.has(schema) || reader.readUint32() !== WSJTX_QSO_LOGGED_MESSAGE) return null;
+  if (reader.readString() === null) return null;
+  const timeOff = reader.readDateTime();
+  const callsign = reader.readString();
+  const grid = reader.readString();
+  const frequencyHz = reader.readUint64();
+  const mode = reader.readString();
+  const rstSent = reader.readString();
+  const rstReceived = reader.readString();
+  const txPower = reader.readString();
+  const comments = reader.readString();
+  const name = reader.readString();
+  const timeOn = reader.readDateTime();
+  const operatorCallsign = reader.readString();
+  const stationCallsign = reader.readString();
+  const myGridSquare = reader.readString();
+  const exchangeSent = reader.readString();
+  const exchangeReceived = reader.readString();
+  const propagationMode = reader.readString();
+  if (reader.isMalformed || !timeOff || !timeOn || callsign === null || frequencyHz === null || mode === null || !mode || frequencyHz <= 0) return null;
+  const normalizedCallsign = normalizeQsoCallsign(callsign);
+  if (!normalizedCallsign) return null;
+  const frequencyMHz = frequencyHz / 1_000_000;
+  return { qsoDateTimeUtc: timeOn, callsign: normalizedCallsign, band: deriveAmateurBand(frequencyMHz), frequencyMHz, mode: mode.toUpperCase(), ...(rstSent ? { rstSent } : {}), ...(rstReceived ? { rstReceived } : {}), ...(grid ? { gridSquare: grid } : {}), ...(operatorCallsign ? { operatorCallsign } : {}), ...(stationCallsign ? { stationCallsign } : {}), ...(myGridSquare ? { myGridSquare } : {}), source: 'wsjtx' };
+}
+
 export function deriveAmateurBand(frequencyMHz: number): string | null {
   const bands: readonly [string, number, number][] = [
     ['160m', 1.8, 2], ['80m', 3.5, 4], ['60m', 5.25, 5.45], ['40m', 7, 7.3],
@@ -85,9 +117,29 @@ export class WsjtxListener {
 
 class PacketReader {
   private offset = 0;
+  private malformed = false;
+  get isMalformed(): boolean { return this.malformed; }
   constructor(private readonly packet: Uint8Array) {}
   readUint8(): number | null { if (this.offset + 1 > this.packet.length) return null; return this.packet[this.offset++]; }
   readUint32(): number | null { if (this.offset + 4 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 4).getUint32(0); this.offset += 4; return value; }
   readUint64(): number | null { if (this.offset + 8 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 8).getBigUint64(0); this.offset += 8; const number = Number(value); return Number.isSafeInteger(number) ? number : null; }
-  readString(): string | null { const length = this.readUint32(); if (length === null) return null; if (length === 0xffffffff) return null; if (length > this.packet.length - this.offset) return null; try { const value = new TextDecoder('utf-8', { fatal: true }).decode(this.packet.slice(this.offset, this.offset + length)); this.offset += length; return value; } catch { return null; } }
+  readInt64(): number | null { if (this.offset + 8 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 8).getBigInt64(0); this.offset += 8; const number = Number(value); return Number.isSafeInteger(number) ? number : null; }
+  readInt32(): number | null { if (this.offset + 4 > this.packet.length) return null; const value = new DataView(this.packet.buffer, this.packet.byteOffset + this.offset, 4).getInt32(0); this.offset += 4; return value; }
+  readString(): string | null { const length = this.readUint32(); if (length === null) { this.malformed = true; return null; } if (length === 0xffffffff) return null; if (length > this.packet.length - this.offset) { this.malformed = true; return null; } try { const value = new TextDecoder('utf-8', { fatal: true }).decode(this.packet.slice(this.offset, this.offset + length)); this.offset += length; return value; } catch { this.malformed = true; return null; } }
+  readDateTime(): string | null { const julianDay = this.readInt64(); const milliseconds = this.readUint32(); const timeSpec = this.readUint8(); if (julianDay === null || milliseconds === null || timeSpec === null || timeSpec > 2 || milliseconds >= 86_400_000) { this.malformed = true; return null; } const offsetSeconds = timeSpec === 2 ? this.readInt32() : 0; if (offsetSeconds === null) { this.malformed = true; return null; } const value = new Date((julianDay - 2_440_588) * 86_400_000 + milliseconds - offsetSeconds * 1000); return Number.isNaN(value.getTime()) ? null : value.toISOString(); }
+}
+
+export interface WsjtxLoggedQsoCandidate {
+  readonly qsoDateTimeUtc: string;
+  readonly callsign: string;
+  readonly band: string | null;
+  readonly frequencyMHz: number;
+  readonly mode: string;
+  readonly rstSent?: string;
+  readonly rstReceived?: string;
+  readonly gridSquare?: string;
+  readonly operatorCallsign?: string;
+  readonly stationCallsign?: string;
+  readonly myGridSquare?: string;
+  readonly source: 'wsjtx';
 }
