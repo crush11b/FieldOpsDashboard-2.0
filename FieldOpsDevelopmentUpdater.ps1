@@ -8,10 +8,7 @@ param(
     [string]$Branch = 'feature/2.7-connected-operations'
 )
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = 'Stop'
-$ProgressPreference = 'SilentlyContinue'
-[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+$runAsScript = $MyInvocation.InvocationName -ne '.'
 
 function Assert-Tool {
     param([Parameter(Mandatory = $true)][string]$Name)
@@ -65,6 +62,43 @@ function Assert-DownloadedUpdater {
     }
 }
 
+function Get-DevelopmentBootstrapFiles {
+    return @('UpdateDashboard.ps1', 'scripts\FieldOps.BackupRetention.psm1')
+}
+
+function Assert-DownloadedPowerShellFile {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) { throw "Required bootstrap file '$Path' is missing." }
+    $tokens = $null
+    $parseErrors = $null
+    [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$parseErrors) | Out-Null
+    if ($parseErrors.Count -gt 0) { throw "Required bootstrap file '$Path' failed PowerShell parsing." }
+}
+
+function Invoke-DevelopmentBootstrapDownload {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryName,
+        [Parameter(Mandatory = $true)][string]$ResolvedRevision,
+        [Parameter(Mandatory = $true)][string]$BootstrapRoot,
+        [scriptblock]$DownloadInvoker = {
+            param($Url, $Destination)
+            & curl.exe --fail --silent --show-error --location --connect-timeout 10 --max-time 30 --output $Destination $Url
+            if ($LASTEXITCODE -ne 0) { throw "Download failed for '$Url'." }
+        }
+    )
+
+    foreach ($relativePath in Get-DevelopmentBootstrapFiles) {
+        $destination = Join-Path $BootstrapRoot $relativePath
+        $destinationDirectory = Split-Path -Parent $destination
+        New-Item -ItemType Directory -Path $destinationDirectory -Force | Out-Null
+        $url = "https://raw.githubusercontent.com/$RepositoryName/$ResolvedRevision/$($relativePath.Replace('\', '/'))"
+        & $DownloadInvoker $url $destination
+        Assert-DownloadedPowerShellFile -Path $destination
+    }
+    Assert-DownloadedUpdater -Path (Join-Path $BootstrapRoot 'UpdateDashboard.ps1')
+    return @(Get-DevelopmentBootstrapFiles | ForEach-Object { Join-Path $BootstrapRoot $_ })
+}
+
 function Get-InstalledVersion {
     param([Parameter(Mandatory = $true)][string]$ExpectedRevision)
     $response = & curl.exe --fail --silent --show-error --location --connect-timeout 5 --max-time 10 http://127.0.0.1:3000/api/version
@@ -84,6 +118,12 @@ function Write-Failure {
     Write-Host $ErrorRecord.Exception.Message -ForegroundColor Red
 }
 
+if (-not $runAsScript) { return }
+
+Set-StrictMode -Version Latest
+$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 $tempRoot = Join-Path $env:TEMP ('FieldOpsDevelopmentUpdater-' + [Guid]::NewGuid().ToString('N'))
 $downloadedUpdater = Join-Path $tempRoot 'UpdateDashboard.ps1'
 $sourceDescription = 'Explicit revision'
@@ -95,8 +135,6 @@ try {
 
     $resolvedRevision = Resolve-DevelopmentRevision -RepositoryName $Repository -BranchName $Branch -ExplicitRevision $Revision
     if ([string]::IsNullOrWhiteSpace($Revision)) { $sourceDescription = "Development branch '$Branch'" }
-    $rawUpdaterUrl = "https://raw.githubusercontent.com/$Repository/$resolvedRevision/UpdateDashboard.ps1"
-
     Write-Host '============================================================' -ForegroundColor Cyan
     Write-Host ' FIELDOPS DEVELOPMENT UPDATE' -ForegroundColor Cyan
     Write-Host '============================================================' -ForegroundColor Cyan
@@ -107,9 +145,9 @@ try {
     $confirmation = Read-Host 'Deploy this revision? [Y/N]'
     if ($confirmation -notmatch '^(?i:y|yes)$') { throw 'Deployment cancelled by operator.' }
 
-    & curl.exe --fail --silent --show-error --location --connect-timeout 10 --max-time 30 --output $downloadedUpdater $rawUpdaterUrl
-    if ($LASTEXITCODE -ne 0) { throw "Could not download UpdateDashboard.ps1 from exact revision '$resolvedRevision'." }
-    Assert-DownloadedUpdater -Path $downloadedUpdater
+    $bootstrapFiles = Invoke-DevelopmentBootstrapDownload -RepositoryName $Repository -ResolvedRevision $resolvedRevision -BootstrapRoot $tempRoot
+    $downloadedUpdater = $bootstrapFiles[0]
+    Write-Host "[OK] Validated exact-revision bootstrap set ($($bootstrapFiles.Count) files)." -ForegroundColor Green
 
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $downloadedUpdater `
         -InstallPath $InstallPath -OperatorAccount $OperatorAccount -Repository $Repository -Revision $resolvedRevision

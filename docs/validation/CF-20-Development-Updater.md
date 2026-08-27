@@ -19,7 +19,8 @@ process.
 Double-click `Deploy FieldOps Development`, approve UAC, confirm the displayed branch and exact
 SHA, and wait for `FIELDOPS DEVELOPMENT UPDATE VERIFIED`. The launcher resolves
 `feature/2.7-connected-operations` to its current remote commit, then downloads and invokes the
-existing exact-revision `UpdateDashboard.ps1` workflow. It verifies that `/api/version` reports
+existing exact-revision bootstrap set (`UpdateDashboard.ps1` plus
+`scripts\FieldOps.BackupRetention.psm1`) and invokes the exact-revision deployment workflow. It verifies that `/api/version` reports
 matching `sourceRevision` and `nativeRevision` for that same SHA.
 
 Release updates continue through the published/tagged release process. The development launcher

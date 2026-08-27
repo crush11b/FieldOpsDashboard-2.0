@@ -22,7 +22,8 @@ Describe 'FieldOps CF-20 development updater' {
     }
 
     It 'uses the resolved SHA for updater download, invocation, and identity verification' {
-        $script:launcher | Should Match 'raw\.githubusercontent\.com/\$Repository/\$resolvedRevision/UpdateDashboard\.ps1'
+        $script:launcher | Should Match 'raw\.githubusercontent\.com/\$RepositoryName/\$ResolvedRevision/\$\(\$relativePath\.Replace'
+        $script:launcher | Should Match 'FieldOps\.BackupRetention\.psm1'
         $script:launcher | Should Match '-Revision \$resolvedRevision'
         $script:launcher | Should Match 'Get-InstalledVersion -ExpectedRevision \$resolvedRevision'
         $script:launcher | Should Match 'sourceRevision.*ExpectedRevision'
@@ -73,6 +74,64 @@ Describe 'FieldOps CF-20 development updater' {
             $shortcut = $shell.CreateShortcut($shortcutPath)
             $shortcut.TargetPath | Should Be (Join-Path $destination 'UpdateDashboard.bat')
             Test-Path -LiteralPath (Join-Path $destination 'FieldOpsDevelopmentUpdater.ps1') | Should Be $true
+        } finally {
+            Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'downloads and validates the complete bootstrap tree from one exact SHA' {
+        . $launcherPath
+        $destination = Join-Path $env:TEMP ('fieldops-bootstrap-test-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $destination | Out-Null
+        $revision = '996d747ade70c37e71d6db12872832dff3af5490'
+        $script:bootstrapCalls = @()
+        try {
+            $files = Invoke-DevelopmentBootstrapDownload -RepositoryName 'crush11b/FieldOpsDashboard-2.0' -ResolvedRevision $revision -BootstrapRoot $destination -DownloadInvoker {
+                param($Url, $Path)
+                $script:bootstrapCalls += $Url
+                $relative = $Url.Substring($Url.IndexOf($revision) + $revision.Length + 1)
+                $source = Join-Path (Split-Path $launcherPath -Parent) 'scripts\FieldOps.BackupRetention.psm1'
+                if ($relative -eq 'UpdateDashboard.ps1') { $source = Join-Path (Split-Path $launcherPath -Parent) 'UpdateDashboard.ps1' }
+                Copy-Item -LiteralPath $source -Destination $Path
+            }
+            @($files).Count | Should Be 2
+            Test-Path -LiteralPath (Join-Path $destination 'UpdateDashboard.ps1') | Should Be $true
+            Test-Path -LiteralPath (Join-Path $destination 'scripts\FieldOps.BackupRetention.psm1') | Should Be $true
+            @($script:bootstrapCalls).Count | Should Be 2
+            $script:bootstrapCalls | ForEach-Object { $_ | Should Match ([regex]::Escape("/$revision/")) }
+        } finally {
+            Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
+    It 'keeps every updater pre-install dependency in the explicit bootstrap contract' {
+        . $launcherPath
+        $updater = Get-Content -LiteralPath (Join-Path (Split-Path $launcherPath -Parent) 'UpdateDashboard.ps1') -Raw
+        $bootstrapFiles = @(Get-DevelopmentBootstrapFiles)
+        $updater | Should Match 'Join-Path \$PSScriptRoot ''scripts\\FieldOps\.BackupRetention\.psm1'''
+        (($bootstrapFiles -contains 'UpdateDashboard.ps1')) | Should Be $true
+        (($bootstrapFiles -contains 'scripts\FieldOps.BackupRetention.psm1')) | Should Be $true
+    }
+
+    It 'fails a missing current companion download even when stale content exists' {
+        . $launcherPath
+        $destination = Join-Path $env:TEMP ('fieldops-bootstrap-stale-test-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path (Join-Path $destination 'scripts') -Force | Out-Null
+        Set-Content -LiteralPath (Join-Path $destination 'scripts\FieldOps.BackupRetention.psm1') -Value 'stale content'
+        $script:downloaded = @()
+        try {
+            $caught = $false
+            try {
+                Invoke-DevelopmentBootstrapDownload -RepositoryName 'crush11b/FieldOpsDashboard-2.0' -ResolvedRevision ('a' * 40) -BootstrapRoot $destination -DownloadInvoker {
+                    param($Url, $Path)
+                    $script:downloaded += $Url
+                    if ($Path -match 'BackupRetention') { throw 'simulated companion download failure' }
+                    Set-Content -LiteralPath $Path -Value (Get-Content -LiteralPath $launcherPath -Raw)
+                }
+            } catch { $caught = $true }
+            $caught | Should Be $true
+            @($script:downloaded).Count | Should Be 2
+            (Get-Content -LiteralPath (Join-Path $destination 'scripts\FieldOps.BackupRetention.psm1') -Raw).Trim() | Should Be 'stale content'
         } finally {
             Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
         }
