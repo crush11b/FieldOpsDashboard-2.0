@@ -82,7 +82,18 @@ describe('ActivationFoundationPanel', () => {
     render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
     await waitFor(() => expect(screen.getByText('Source: WSJT-X · Live / fresh')).toBeTruthy());
     expect(screen.getByText('20m · FT8')).toBeTruthy();
-    expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+    expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
+  });
+
+  it('keeps stale WSJT-X visible instead of flapping to manual state', async () => {
+    const wsjtxState = { band: '40m', frequencyMHz: 7.074, mode: 'FT8', source: 'wsjtx', observedAtUtc: '2026-08-27T12:00:00.000Z', freshness: 'stale', status: 'stale', limitation: 'The last WSJT-X Status message is older than the fresh-state tolerance.' };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/wsjtx/current')
+      ? { ok: true, json: async () => ({ status: 'stale', state: wsjtxState }) }
+      : { ok: true, json: async () => ({ qsos: [] }) }));
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('Source: WSJT-X · Stale')).toBeInTheDocument());
+    expect(screen.getByText('40m · FT8')).toBeInTheDocument();
+    expect(screen.queryByText('Source: Manual operating context · Status: Current')).toBeNull();
   });
 
   it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {

@@ -4,7 +4,8 @@ import { normalizeQsoCallsign } from './qso';
 
 export const WSJTX_DEFAULT_HOST = '127.0.0.1';
 export const WSJTX_DEFAULT_PORT = 2237;
-export const WSJTX_FRESHNESS_WINDOW_MS = 10_000;
+export const WSJTX_STALE_AFTER_MS = 5_000;
+export const WSJTX_UNAVAILABLE_AFTER_MS = 30_000;
 const WSJTX_MAGIC = 0xadbccbda;
 const WSJTX_SUPPORTED_SCHEMAS = new Set([2, 3]);
 const WSJTX_STATUS_MESSAGE = 1;
@@ -24,7 +25,9 @@ export interface WsjtxSnapshot {
 
 export interface WsjtxDiagnostics {
   readonly packetsReceived: number;
+  readonly lastPacketReceivedAtUtc: string | null;
   readonly statusPacketsAccepted: number;
+  readonly lastStatusParsedAtUtc: string | null;
   readonly loggedQsoPacketsAccepted: number;
   readonly lastLoggedQsoAtUtc: string | null;
   readonly lastLoggedQsoResult: string | null;
@@ -103,7 +106,9 @@ export class WsjtxListener {
   private latest: WsjtxObservation | null = null;
   private lastError: string | null = null;
   private packetsReceived = 0;
+  private lastPacketReceivedAtUtc: string | null = null;
   private statusPacketsAccepted = 0;
+  private lastStatusParsedAtUtc: string | null = null;
   private loggedQsoPacketsAccepted = 0;
   private lastLoggedQsoAtUtc: string | null = null;
   private lastLoggedQsoResult: string | null = null;
@@ -120,24 +125,27 @@ export class WsjtxListener {
 
   handlePacket(packet: Uint8Array): void {
     this.packetsReceived += 1;
+    const receivedAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
+    this.lastPacketReceivedAtUtc = receivedAtUtc;
     const observation = parseWsjtxStatusPacket(packet, this.options.now);
-    if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastError = null; }
+    if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastStatusParsedAtUtc = observation.receivedAtUtc; this.lastError = null; }
     const loggedQso = parseWsjtxLoggedQsoPacket(packet);
     if (loggedQso) {
       this.loggedQsoPacketsAccepted += 1;
       this.lastLoggedQsoAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
-      try { const result = this.options.onLoggedQso?.(loggedQso); this.lastLoggedQsoResult = typeof result === 'string' ? result : 'received'; } catch { this.lastLoggedQsoResult = 'handler_error'; }
+      setImmediate(() => { try { const result = this.options.onLoggedQso?.(loggedQso); this.lastLoggedQsoResult = typeof result === 'string' ? result : 'received'; } catch { this.lastLoggedQsoResult = 'handler_error'; } });
     }
   }
 
-  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, statusPacketsAccepted: this.statusPacketsAccepted, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult }; }
+  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult }; }
 
   stop(): void { this.socket?.close(); this.socket = null; }
 
   getSnapshot(now = this.options.now ?? (() => new Date())): WsjtxSnapshot {
     if (!this.latest) return { status: this.lastError ? 'unavailable' : 'unavailable', state: null, receivedAtUtc: null, limitation: this.lastError || 'No WSJT-X Status message has been received.' };
     const age = now().getTime() - new Date(this.latest.receivedAtUtc).getTime();
-    if (age > WSJTX_FRESHNESS_WINDOW_MS) return { status: 'stale', state: { ...this.latest.state, freshness: 'stale', status: 'stale' }, receivedAtUtc: this.latest.receivedAtUtc, limitation: 'The last WSJT-X Status message is older than the freshness window.' };
+    if (age > WSJTX_UNAVAILABLE_AFTER_MS) return { status: 'unavailable', state: null, receivedAtUtc: this.latest.receivedAtUtc, limitation: 'No recent WSJT-X Status message is available.' };
+    if (age > WSJTX_STALE_AFTER_MS) return { status: 'stale', state: { ...this.latest.state, freshness: 'stale', status: 'stale' }, receivedAtUtc: this.latest.receivedAtUtc, limitation: 'The last WSJT-X Status message is older than the fresh-state tolerance.' };
     return { status: 'available', state: this.latest.state, receivedAtUtc: this.latest.receivedAtUtc, limitation: this.latest.state.limitation };
   }
 }

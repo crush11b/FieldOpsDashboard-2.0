@@ -7,7 +7,7 @@ import { updateActivationStatus } from '../activation';
 import { ActivationStore } from '../activationStore';
 import { QsoStore } from '../qsoStore';
 import { WsjtxQsoRouter } from '../wsjtxQsoRouter';
-import { WSJTX_FRESHNESS_WINDOW_MS, WsjtxListener, deriveAmateurBand, parseWsjtxLoggedQsoPacket, parseWsjtxStatusPacket } from '../wsjtx';
+import { WSJTX_STALE_AFTER_MS, WSJTX_UNAVAILABLE_AFTER_MS, WsjtxListener, deriveAmateurBand, parseWsjtxLoggedQsoPacket, parseWsjtxStatusPacket } from '../wsjtx';
 
 const text = new TextEncoder();
 const stringField = (value: string | null) => { if (value === null) return Buffer.from([0xff, 0xff, 0xff, 0xff]); const bytes = text.encode(value); const buffer = Buffer.alloc(4 + bytes.length); buffer.writeUInt32BE(bytes.length); Buffer.from(bytes).copy(buffer, 4); return buffer; };
@@ -75,7 +75,8 @@ describe('WSJT-X protocol and listener', () => {
     expect(listener.getSnapshot()).toMatchObject({ status: 'unavailable', state: null });
     (listener as any).latest = parseWsjtxStatusPacket(statusPacket(), () => now);
     expect(listener.getSnapshot()).toMatchObject({ status: 'available', state: { freshness: 'fresh' } });
-    expect(listener.getSnapshot(() => new Date(now.getTime() + WSJTX_FRESHNESS_WINDOW_MS + 1))).toMatchObject({ status: 'stale', state: { freshness: 'stale', status: 'stale' } });
+    expect(listener.getSnapshot(() => new Date(now.getTime() + WSJTX_STALE_AFTER_MS + 1))).toMatchObject({ status: 'stale', state: { freshness: 'stale', status: 'stale' } });
+    expect(listener.getSnapshot(() => new Date(now.getTime() + WSJTX_UNAVAILABLE_AFTER_MS + 1))).toMatchObject({ status: 'unavailable', state: null });
   });
 
   it('does not create duplicate listeners when started repeatedly', async () => {
@@ -87,18 +88,19 @@ describe('WSJT-X protocol and listener', () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
-  it('keeps Status observations independent from interleaved Logged QSO events', () => {
+  it('keeps Status observations independent from interleaved Logged QSO events', async () => {
     const logged = vi.fn();
     const listener = new WsjtxListener({ now: clock('2026-08-27T12:00:00.000Z'), onLoggedQso: logged });
     listener.handlePacket(statusPacket(14_074_000, 'FT8'));
     listener.handlePacket(loggedQsoPacket());
     listener.handlePacket(statusPacket(7_074_000, 'FT8'));
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(logged).toHaveBeenCalledOnce();
     expect(listener.getSnapshot()).toMatchObject({ status: 'available', state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
     expect(listener.getDiagnostics()).toMatchObject({ packetsReceived: 3, statusPacketsAccepted: 2, loggedQsoPacketsAccepted: 1, lastLoggedQsoResult: 'received' });
   });
 
-  it('completes the active digital path with one persisted real-wire QSO', () => {
+  it('completes the active digital path with one persisted real-wire QSO', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-integration-'));
     directories.push(directory);
     const activationStore = new ActivationStore(path.join(directory, 'activations.json'), { createId: () => 'activation-1' });
@@ -110,6 +112,7 @@ describe('WSJT-X protocol and listener', () => {
     listener.handlePacket(statusPacket(14_074_000, 'FT8'));
     listener.handlePacket(loggedQsoPacket());
     listener.handlePacket(statusPacket(7_074_000, 'FT8'));
+    await new Promise<void>(resolve => setImmediate(resolve));
     expect(listener.getSnapshot()).toMatchObject({ state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
     expect(qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
     expect(qsoStore.listByActivation('activation-1').qsos[0]).toMatchObject({ callsign: 'W1AW', source: 'wsjtx', band: '20m', mode: 'FT8' });

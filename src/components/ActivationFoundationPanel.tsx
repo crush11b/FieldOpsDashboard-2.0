@@ -31,7 +31,7 @@ export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps>
     if (activation?.status !== 'active') { setWsjtxState(null); return; }
     let cancelled = false;
     const controller = new AbortController();
-    const poll = async () => { try { const result = await getWsjtxCurrentState(controller.signal); if (!cancelled) setWsjtxState(result.status === 'available' ? result.state : null); } catch { if (!cancelled) setWsjtxState(null); } };
+    const poll = async () => { try { const result = await getWsjtxCurrentState(controller.signal); if (!cancelled) setWsjtxState(result.status === 'available' || result.status === 'stale' ? result.state : null); } catch { if (!cancelled) setWsjtxState(null); } };
     void poll();
     const timer = window.setInterval(() => void poll(), 2000);
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };

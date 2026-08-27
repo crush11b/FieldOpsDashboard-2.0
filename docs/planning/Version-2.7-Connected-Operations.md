@@ -235,6 +235,15 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - OPERATE now includes a compact Current Clock / Time Sync control that reuses the existing explicit GNSS UTC -> Windows synchronization API and confirmation requirement. Unknown or unavailable GNSS evidence cannot enable synchronization, and no continuous clock steering was added.
 - 2.7-04B remains **not accepted** pending a fresh CF-20 retest. The timing observation does not establish that FieldOps caused clock drift. 2.7-04C and the broader 2.7-07 field gate remain open; 2.7-05 is not started.
 
+### 2.7-04B live-state reliability and performance correction - 2026-08-27
+
+- A follow-up CF-20 observation recorded approximately `17s` and `29s` band-change delays and approximately `84s` from FT8 to FT4, with the visible sequence `40m FT8 -> 20m SSB Manual -> 40m FT4`. Under the representative workload of Chrome + FieldOps Dashboard, FieldOps Agent/Tray, WSJT-X, and one diagnostic PowerShell window, this remains a failed acceptance result; no root cause is assigned to FieldOps before timing evidence is collected.
+- The confirmed source-flap defect was in the browser path: a backend `stale` snapshot was converted to `null`, which immediately exposed retained Manual state. The OPERATE path now preserves stale WSJT-X state and falls back to Manual only after a bounded unavailable interval.
+- Live-state policy is explicit: WSJT-X is `fresh` through 5 seconds, `stale` from more than 5 seconds through 30 seconds, and `unavailable` after 30 seconds. These values are implementation safeguards pending a fresh cadence measurement on WSJT-X v3.0.0-rc1; they are not a claim about the application's transmission cadence.
+- `/api/wsjtx/current` and `/api/wsjtx/diagnostics` now send `Cache-Control: no-store`; browser polling requests the current snapshot with `cache: no-store`. Diagnostics include bounded packet-receive and Status-parse timestamps alongside existing counts, without retaining raw datagrams.
+- Logged QSO routing is deferred to the next local event-loop turn after packet parsing. This preserves immediate Status observation and prevents synchronous file-backed QSO persistence from blocking the UDP callback. The persisted QSO path and interleaved Status regression remain covered by focused tests.
+- The preliminary performance target for the next field retest is median live-state update latency at or below `3s`, with no ordinary update above `5s`, measured under the representative workload. 2.7-04 remains **not accepted** until a fresh CF-20 retest passes; 2.7-05 is not started.
+
 ---
 
 ## 2.7-05 - Live Band Activity
