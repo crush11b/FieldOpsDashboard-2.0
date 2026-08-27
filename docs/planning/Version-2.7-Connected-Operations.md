@@ -217,7 +217,14 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - The transient `WsjtxLoggedQsoCandidate` normalizes Date/Time On to canonical UTC, callsign using the existing QSO validation rule, frequency in MHz, conservative band derivation, source mode including FT8/FT4 and unknown values, supplied reports, DX grid, and supplied station/operator context. Source is `wsjtx`.
 - The parser consumes but does not expose or persist WSJT-X power, comments, name, exchanges, or ADIF propagation mode because this slice does not widen the persistent QSO schema.
 - Tests include builder-based packets and a fixed byte fixture independently derived from the upstream field table and Qt serialization documentation. Malformed, truncated, unsupported-schema, unknown-type, null, and invalid UTF-8 packets are rejected safely.
-- This is a parser/normalization slice only. It does not query an Activation, route events, call `createQso`, write `qsoStore`, implement duplicate persistence behavior, or change the QSO Logger UI. Those behaviors remain deferred to 2.7-04B and later slices.
+
+### 2.7-04B - Logged QSO routing and durable persistence evidence
+
+- A valid normalized WSJT-X `QSO Logged` candidate is routed only when exactly one persisted Activation has status `active`; planned, completed, missing, or ambiguous active state is not silently attached to another Activation.
+- The candidate is mapped into the existing Activation-owned QSO model with `source=wsjtx`, canonical UTC time, normalized callsign, band/frequency, mode, reports, grid, and supplied station/operator context. Manual and ADIF paths remain unchanged.
+- Duplicate identity reuses `qsoFingerprint`: Activation, callsign, UTC contact time, band, frequency, mode, and submode. The check reads the file-backed store before creation, so repeated delivery and delivery after store reconstruction produce one retained QSO.
+- Persistence is receive-only and local. The listener does not send WSJT-X commands, control CAT/PTT/radio state, infer contacts from decodes, or create an Activation. Persistence failures are contained so Status observation remains healthy.
+- Focused tests cover active persistence and field mapping, no-active/planned/completed gating, same-process and reconstructed-store duplicates, and legitimate distinct contacts. Remaining 2.7-04C work is field acceptance and operator-visible handling of rejected/duplicate events; 2.7-05 remains out of scope.
 
 ---
 

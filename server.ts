@@ -65,6 +65,7 @@ import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
 import { getDashboardRuntimeMode } from './server/runtimeMode';
 import { WsjtxListener } from './server/wsjtx';
+import { WsjtxQsoRouter } from './server/wsjtxQsoRouter';
 import { createWsjtxRouter } from './server/wsjtxApi';
 
 const execFileAsync = promisify(execFile);
@@ -126,7 +127,8 @@ async function startServer() {
   const missionForecastStore = new MissionForecastStore(getDefaultMissionForecastPath());
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
-  const wsjtxListener = new WsjtxListener();
+  const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
+  const wsjtxListener = new WsjtxListener({ onLoggedQso: candidate => { wsjtxQsoRouter.route(candidate); } });
   wsjtxListener.start();
   app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());

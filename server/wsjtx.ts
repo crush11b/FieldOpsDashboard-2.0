@@ -94,12 +94,19 @@ export class WsjtxListener {
   private socket: dgram.Socket | null = null;
   private latest: WsjtxObservation | null = null;
   private lastError: string | null = null;
-  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date } = {}) {}
+  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => void } = {}) {}
 
   start(): void {
     if (this.socket) return;
     const socket = dgram.createSocket('udp4');
-    socket.on('message', packet => { const observation = parseWsjtxStatusPacket(packet, this.options.now); if (observation) { this.latest = observation; this.lastError = null; } });
+    socket.on('message', packet => {
+      const observation = parseWsjtxStatusPacket(packet, this.options.now);
+      if (observation) { this.latest = observation; this.lastError = null; }
+      const loggedQso = parseWsjtxLoggedQsoPacket(packet);
+      if (loggedQso) {
+        try { this.options.onLoggedQso?.(loggedQso); } catch {}
+      }
+    });
     socket.on('error', error => { this.lastError = error.message; socket.close(); this.socket = null; });
     socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, this.options.host ?? WSJTX_DEFAULT_HOST);
     this.socket = socket;

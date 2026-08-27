@@ -6,7 +6,7 @@ export const QSO_MAX_CALLSIGN_LENGTH = 32;
 export const QSO_MAX_TEXT_LENGTH = 500;
 export const QSO_MODES = ['SSB', 'CW', 'FM', 'AM', 'FT8', 'FT4'] as const;
 export type QsoMode = typeof QSO_MODES[number] | (string & {});
-export type QsoSource = 'manual' | 'adif_import';
+export type QsoSource = 'manual' | 'adif_import' | 'wsjtx';
 
 export interface Qso {
   readonly schemaVersion: typeof QSO_SCHEMA_VERSION;
@@ -56,7 +56,7 @@ export function normalizeQso(input: unknown): QsoNormalizationResult {
   if (!band) issues.push('band is required when frequency is unknown.');
   if (band && frequencyMHz !== undefined && !isCompatibleBand(band, frequencyMHz)) issues.push('frequencyMHz contradicts band.');
   const source = input.source === undefined ? 'manual' : input.source;
-  if (source !== 'manual' && source !== 'adif_import') issues.push('source is unsupported.');
+  if (source !== 'manual' && source !== 'adif_import' && source !== 'wsjtx') issues.push('source is unsupported.');
   const result: Qso = { schemaVersion: QSO_SCHEMA_VERSION, qsoId: qsoId!, activationId: activationId!, qsoDateTimeUtc: qsoDateTimeUtc!, callsign: callsign!, band: band!, ...(frequencyMHz === undefined ? {} : { frequencyMHz }), mode: mode as QsoMode, ...optionalText(input, issues), source: source as QsoSource, createdAtUtc: timestamp(input.createdAtUtc, 'createdAtUtc', issues)!, updatedAtUtc: timestamp(input.updatedAtUtc, 'updatedAtUtc', issues)! };
   return issues.length || !qsoId || !activationId || !qsoDateTimeUtc || !callsign || !band || !result.createdAtUtc || !result.updatedAtUtc ? invalid(issues) : { valid: true, qso: result, issues: [] };
 }
