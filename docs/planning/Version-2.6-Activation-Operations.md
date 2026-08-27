@@ -34,6 +34,8 @@ The ToughBook clock acceptance procedure is: start the Agent and Dashboard with 
 
 2.6-02 is complete. Practical FT8 field validation used WSJT-X connected to the actual radio and observed 19 decoded FT8 stations. DT values were mostly approximately -0.5 s, with some around +0.1 s and one observed outlier approximately -1.1 s. FieldOps GPS synchronization was active, BktTimeSync was not required, and COM6 remained under FieldOps ownership. This is practical FT8 timing validation, not precision clock certification.
 
+ToughBook hardware acceptance for the reconstructed clock-readiness lifecycle passed. After deployment and Agent restart, without another explicit Windows time synchronization, COM6 reacquired GNSS and PREPARE reported `READY` with "Windows time currently agrees with fresh GNSS UTC evidence." Explicit Windows-time synchronization remains operator-authorized and confirmation-gated.
+
 ## 2.6-03 status
 
 Implemented on the same consolidated branch. QSOs are durable Activation-owned records in the local JSON persistence path, with UTC time, callsign, band/frequency, mode/submode, reports, supported grid and POTA/SOTA metadata, timestamps, and manual/import provenance. The compact Activation workflow supports rapid manual logging, edit/delete, chronological listing, bounded ADIF import with partial-error reporting, deterministic duplicate detection, and standards-shaped ADIF export. Duplicate identity is Activation plus normalized callsign, UTC QSO time, band, frequency when known, mode, and submode.
@@ -57,6 +59,8 @@ The Local Agent GNSS lifecycle is restart-safe: restarting `FieldOpsAgent` reset
 CF-20 acceptance confirmed the four-phase workspace architecture. The bounded acceptance corrections remove redundant PLAN operation details and internal identifiers from primary presentation, make PREPARE a compact summit-readiness summary with evidence details secondary, and expose the existing QSO Logger immediately in OPERATE for active and completed Activations. REVIEW now distinguishes modeled candidate bands from explicitly planned operation, retains and flags QSOs outside the mission window without distorting in-window chronology, and keeps exact brief identifiers in Evidence Details. Mission Forecast refresh now requests the retained UTC mission dates explicitly, retains successful provider evidence, and surfaces specific provider, horizon, or planned-coordinate failure reasons; it remains independent of Space Weather evidence.
 
 The PREPARE handoff acceptance correction found that its button changed the phase without executing the Activation lifecycle mutation. PREPARE and OPERATE now share the `startActivationFromBrief` flow, await both open and active transitions, publish the successful active Activation into shared workspace state, and keep the operator in PREPARE with an honest error when either request fails. REVIEW completed notes now render the UTC timestamp and note text as separate block elements for clear visual distinction. PLAN and Mission Forecast behavior were not changed by this correction.
+
+The final PREPARE acceptance cleanup restores the existing explicit clock synchronization action to the compact Clock card with mandatory operator confirmation, treats retained modeled propagation as usable `READY` evidence while preserving its non-guarantee disclaimer in details, and renders a known missing checklist as `NOT STARTED` while retaining `START CHECKLIST`. Genuine unavailable checklist telemetry remains `UNKNOWN`.
 
 ## Deployment revision parity correction
 

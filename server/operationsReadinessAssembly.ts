@@ -95,7 +95,8 @@ export async function assembleOperationsReadiness(
     readClock(dependencies.readClockStatus, diagnostics),
   ]);
   const dataset = readDataset(dependencies.sotaDatasetReader, diagnostics);
-  const checklist = readChecklist(dependencies.checklistStore, briefId, diagnostics);
+  const checklistResult = readChecklist(dependencies.checklistStore, briefId, diagnostics);
+  const checklist = checklistResult.value;
   const activationNotes = readActivationNotes(dependencies.activationNotesStore, briefId, diagnostics);
   let weather: OperationsReadinessInput['weather'] = { status: 'unavailable', source: SOURCE.evaluator };
   let alerts: OperationsReadinessInput['alerts'] = { status: 'unavailable', active: [], source: SOURCE.evaluator };
@@ -130,6 +131,7 @@ export async function assembleOperationsReadiness(
     ...(checklist ? { checklist } : {}),
     ...(activationNotes ? { activationNotes } : {}),
     ...(clock ? { clock } : {}),
+    ...(checklistResult.notStarted ? { checklistNotStarted: true } : {}),
   });
   if (!options.includeLiveWeather) diagnostics.push({ code: 'local_weather_alerts_unavailable', message: 'Current weather and alerts are not retained by this local readiness assembly; no live weather request was performed.' });
   return { status: 'ok', summary, displayEvidence, diagnostics };
@@ -160,18 +162,18 @@ function readDataset(reader: () => LocalSotaSummitDataset, diagnostics: Operatio
   }
 }
 
-function readChecklist(store: Pick<FieldReadinessChecklistStore, 'getByBriefId'>, briefId: string, diagnostics: OperationsReadinessDiagnostic[]): OperationsReadinessInput['checklist'] | undefined {
+function readChecklist(store: Pick<FieldReadinessChecklistStore, 'getByBriefId'>, briefId: string, diagnostics: OperationsReadinessDiagnostic[]): { readonly value: OperationsReadinessInput['checklist']; readonly notStarted: boolean } {
   try {
     const result = store.getByBriefId(briefId);
     if (hasStoreFailure(result.diagnostics)) {
       diagnostics.push({ code: 'checklist_unavailable', message: 'Field Readiness Checklist evidence is unavailable.' });
-      return undefined;
+      return { value: undefined, notStarted: false };
     }
     const checklist = result.checklists[0];
-    return checklist ? checklistInput(checklist) : undefined;
+    return { value: checklist ? checklistInput(checklist) : undefined, notStarted: !checklist && (result.status === 'missing' || result.status === 'loaded') };
   } catch {
     diagnostics.push({ code: 'checklist_unavailable', message: 'Field Readiness Checklist evidence is unavailable.' });
-    return undefined;
+    return { value: undefined, notStarted: false };
   }
 }
 
