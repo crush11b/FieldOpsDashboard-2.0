@@ -1,5 +1,12 @@
 import dgram from 'node:dgram';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { updateActivationStatus } from '../activation';
+import { ActivationStore } from '../activationStore';
+import { QsoStore } from '../qsoStore';
+import { WsjtxQsoRouter } from '../wsjtxQsoRouter';
 import { WSJTX_FRESHNESS_WINDOW_MS, WsjtxListener, deriveAmateurBand, parseWsjtxLoggedQsoPacket, parseWsjtxStatusPacket } from '../wsjtx';
 
 const text = new TextEncoder();
@@ -10,7 +17,8 @@ const loggedQsoPacket = (frequencyHz = 14_074_000, mode = 'FT8', schema = 2, cal
 const fixedLoggedQsoFixture = Uint8Array.from(Buffer.from('adbccbda00000002000000050000000657534a542d580000000000258e6003cd7ed801000000045731415700000004464e33310000000000d6c09000000003465438000000032d3130000000032d3132000000033530570000000000000005416c6963650000000000258e6003cc4a4001000000034f5031000000034d593100000004464e3230ffffffffffffffff00000003465438', 'hex'));
 const clock = (value: string) => () => new Date(value);
 const sockets: WsjtxListener[] = [];
-afterEach(() => { sockets.splice(0).forEach(listener => listener.stop()); vi.restoreAllMocks(); });
+const directories: string[] = [];
+afterEach(() => { sockets.splice(0).forEach(listener => listener.stop()); directories.splice(0).forEach(directory => fs.rmSync(directory, { recursive: true, force: true })); vi.restoreAllMocks(); });
 
 describe('WSJT-X protocol and listener', () => {
   it('parses Status frequency and normalizes supported station context', () => {
@@ -77,5 +85,33 @@ describe('WSJT-X protocol and listener', () => {
     listener.start(); listener.start();
     await new Promise(resolve => setTimeout(resolve, 10));
     expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Status observations independent from interleaved Logged QSO events', () => {
+    const logged = vi.fn();
+    const listener = new WsjtxListener({ now: clock('2026-08-27T12:00:00.000Z'), onLoggedQso: logged });
+    listener.handlePacket(statusPacket(14_074_000, 'FT8'));
+    listener.handlePacket(loggedQsoPacket());
+    listener.handlePacket(statusPacket(7_074_000, 'FT8'));
+    expect(logged).toHaveBeenCalledOnce();
+    expect(listener.getSnapshot()).toMatchObject({ status: 'available', state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
+    expect(listener.getDiagnostics()).toMatchObject({ packetsReceived: 3, statusPacketsAccepted: 2, loggedQsoPacketsAccepted: 1, lastLoggedQsoResult: 'received' });
+  });
+
+  it('completes the active digital path with one persisted real-wire QSO', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-integration-'));
+    directories.push(directory);
+    const activationStore = new ActivationStore(path.join(directory, 'activations.json'), { createId: () => 'activation-1' });
+    const planned = activationStore.create({ type: 'General' }).activation;
+    activationStore.save(updateActivationStatus(planned, 'active'));
+    const qsoStore = new QsoStore(path.join(directory, 'qsos.json'), { createId: () => 'qso-1' });
+    const router = new WsjtxQsoRouter({ activationStore, qsoStore });
+    const listener = new WsjtxListener({ onLoggedQso: candidate => router.route(candidate).status });
+    listener.handlePacket(statusPacket(14_074_000, 'FT8'));
+    listener.handlePacket(loggedQsoPacket());
+    listener.handlePacket(statusPacket(7_074_000, 'FT8'));
+    expect(listener.getSnapshot()).toMatchObject({ state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
+    expect(qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
+    expect(qsoStore.listByActivation('activation-1').qsos[0]).toMatchObject({ callsign: 'W1AW', source: 'wsjtx', band: '20m', mode: 'FT8' });
   });
 });

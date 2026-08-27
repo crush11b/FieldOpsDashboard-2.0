@@ -14,7 +14,11 @@ const optionsWithValue = (options: readonly { readonly value: string; readonly l
 export const QsoLoggerPanel: React.FC<Props> = ({ activation, onOperatingContextChange }) => {
   const [form, setForm] = useState<Form>(initialForm); const [qsos, setQsos] = useState<Qso[]>([]); const [editing, setEditing] = useState<Qso | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const load = async () => { try { const result = await listQsos(activation.activationId); setQsos(result.qsos); if (result.error) setMessage(result.error); } catch { setMessage('QSOs could not be loaded.'); } };
-  useEffect(() => { setForm(initialForm()); setEditing(null); setMessage(null); void load(); }, [activation.activationId]);
+  useEffect(() => {
+    setForm(initialForm()); setEditing(null); setMessage(null); void load();
+    const timer = window.setInterval(() => void load(), 2000);
+    return () => window.clearInterval(timer);
+  }, [activation.activationId]);
   useEffect(() => { onOperatingContextChange?.(createManualCurrentStationState(form)); }, [form.band, form.frequencyMHz, form.mode, onOperatingContextChange]);
   const updateOperatingContext = (changes: Pick<Form, 'band' | 'mode'>) => setForm(previous => { const frequency = getConventionalFrequencyMHz(changes.band, changes.mode); return { ...previous, ...changes, frequencyMHz: frequency === undefined ? '' : String(frequency), frequencyOrigin: 'auto' }; });
   const changeFrequency = (frequencyMHz: string) => setForm(previous => ({ ...previous, frequencyMHz, frequencyOrigin: 'manual' }));

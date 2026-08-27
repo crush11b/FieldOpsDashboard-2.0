@@ -128,7 +128,7 @@ async function startServer() {
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
   const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
-  const wsjtxListener = new WsjtxListener({ onLoggedQso: candidate => { wsjtxQsoRouter.route(candidate); } });
+  const wsjtxListener = new WsjtxListener({ onLoggedQso: candidate => wsjtxQsoRouter.route(candidate).status });
   wsjtxListener.start();
   app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());

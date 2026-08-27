@@ -22,6 +22,14 @@ export interface WsjtxSnapshot {
   readonly limitation: string;
 }
 
+export interface WsjtxDiagnostics {
+  readonly packetsReceived: number;
+  readonly statusPacketsAccepted: number;
+  readonly loggedQsoPacketsAccepted: number;
+  readonly lastLoggedQsoAtUtc: string | null;
+  readonly lastLoggedQsoResult: string | null;
+}
+
 export function parseWsjtxStatusPacket(packet: Uint8Array, now = () => new Date()): WsjtxObservation | null {
   const reader = new PacketReader(packet);
   if (reader.readUint32() !== WSJTX_MAGIC) return null;
@@ -94,23 +102,35 @@ export class WsjtxListener {
   private socket: dgram.Socket | null = null;
   private latest: WsjtxObservation | null = null;
   private lastError: string | null = null;
-  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => void } = {}) {}
+  private packetsReceived = 0;
+  private statusPacketsAccepted = 0;
+  private loggedQsoPacketsAccepted = 0;
+  private lastLoggedQsoAtUtc: string | null = null;
+  private lastLoggedQsoResult: string | null = null;
+  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
 
   start(): void {
     if (this.socket) return;
     const socket = dgram.createSocket('udp4');
-    socket.on('message', packet => {
-      const observation = parseWsjtxStatusPacket(packet, this.options.now);
-      if (observation) { this.latest = observation; this.lastError = null; }
-      const loggedQso = parseWsjtxLoggedQsoPacket(packet);
-      if (loggedQso) {
-        try { this.options.onLoggedQso?.(loggedQso); } catch {}
-      }
-    });
+    socket.on('message', packet => this.handlePacket(packet));
     socket.on('error', error => { this.lastError = error.message; socket.close(); this.socket = null; });
     socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, this.options.host ?? WSJTX_DEFAULT_HOST);
     this.socket = socket;
   }
+
+  handlePacket(packet: Uint8Array): void {
+    this.packetsReceived += 1;
+    const observation = parseWsjtxStatusPacket(packet, this.options.now);
+    if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastError = null; }
+    const loggedQso = parseWsjtxLoggedQsoPacket(packet);
+    if (loggedQso) {
+      this.loggedQsoPacketsAccepted += 1;
+      this.lastLoggedQsoAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
+      try { const result = this.options.onLoggedQso?.(loggedQso); this.lastLoggedQsoResult = typeof result === 'string' ? result : 'received'; } catch { this.lastLoggedQsoResult = 'handler_error'; }
+    }
+  }
+
+  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, statusPacketsAccepted: this.statusPacketsAccepted, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult }; }
 
   stop(): void { this.socket?.close(); this.socket = null; }
 

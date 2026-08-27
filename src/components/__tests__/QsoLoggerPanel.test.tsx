@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { QsoLoggerPanel } from '../QsoLoggerPanel';
 
@@ -156,5 +156,18 @@ describe('QsoLoggerPanel', () => {
     expect(screen.getByLabelText('BAND')).toHaveValue('20m');
     expect(screen.getByLabelText('MODE')).toHaveValue('SSB');
     expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
+  });
+
+  it('refreshes externally persisted QSOs while the logger remains mounted', async () => {
+    vi.useFakeTimers();
+    let current = { qsos: [] as any[] };
+    const persisted = { ...qso, source: 'wsjtx', mode: 'FT8' };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify(current), { status: 200 }));
+    render(<QsoLoggerPanel activation={activation} />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    current = { qsos: [persisted] };
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByText('W1AW')).toBeInTheDocument();
+    vi.useRealTimers();
   });
 });
