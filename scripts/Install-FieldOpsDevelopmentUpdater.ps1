@@ -1,12 +1,17 @@
 [CmdletBinding()]
 param(
-    [string]$RepositoryRoot = (Split-Path -Parent $PSScriptRoot),
+    [string]$RepositoryRoot,
     [string]$DesktopPath = [Environment]::GetFolderPath('Desktop')
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+if ([string]::IsNullOrWhiteSpace($RepositoryRoot)) {
+    $scriptPath = $MyInvocation.MyCommand.Path
+    if ([string]::IsNullOrWhiteSpace($scriptPath)) { throw 'Could not determine the development updater setup script path.' }
+    $RepositoryRoot = Split-Path -Parent (Split-Path -Parent $scriptPath)
+}
 $repositoryRoot = [IO.Path]::GetFullPath($RepositoryRoot)
 $desktop = [IO.Path]::GetFullPath($DesktopPath)
 $launcherFiles = @('UpdateDashboard.bat', 'FieldOpsDevelopmentUpdater.ps1')
