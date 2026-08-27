@@ -28,6 +28,13 @@ describe('mission forecast adapter', () => {
     expect(result.record?.periods[0].windSpeedMph).toBe(4);
   });
 
+  it('requests a valid future same-day mission date explicitly', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => { expect(String(input)).toContain('start_date=2026-08-26&end_date=2026-08-26'); return providerResponse({ time: ['2026-08-26T16:00', '2026-08-26T17:00'], temperature_2m: [72, 73], precipitation_probability: [0, 10], wind_speed_10m: [4, 5], wind_direction_10m: [180, 200], wind_gusts_10m: [6, 7], weather_code: [0, 1] }); });
+    const result = await retrieveMissionForecast(brief({ missionWindow: { start: '2026-08-26T16:30:00.000Z', midpoint: '2026-08-26T17:30:00.000Z', end: '2026-08-26T19:30:00.000Z' } }), { fetcher: fetcher as typeof fetch, now: new Date('2026-08-26T11:30:00.000Z') });
+    expect(result.status).toBe('live');
+    expect(result.record?.periods).toHaveLength(2);
+  });
+
   it('does not contact a provider when retained planned coordinates are invalid', async () => {
     const fetcher = vi.fn();
     const result = await retrieveMissionForecast(brief({ plannedOperatingSite: { location: { coordinates: null, provenance: 'unavailable' } } }), { fetcher: fetcher as typeof fetch });

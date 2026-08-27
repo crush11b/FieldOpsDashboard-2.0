@@ -1,0 +1,31 @@
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { createActivation, normalizeActivation, type Activation, type CreateActivationInput } from './activation';
+
+export const ACTIVATION_STORE_VERSION = 1 as const;
+export const ACTIVATION_STORE_FILE_NAME = 'activations.json';
+export type ActivationStoreDiagnosticCode = 'missing' | 'corrupt' | 'unsupported_store_version' | 'invalid_activation' | 'io_error';
+export interface ActivationStoreDiagnostic { readonly code: ActivationStoreDiagnosticCode; readonly message: string; readonly activationId?: string; }
+export interface ActivationStoreReadResult { readonly status: 'missing' | 'loaded' | 'invalid' | 'ioError'; readonly activations: readonly Activation[]; readonly diagnostics: readonly ActivationStoreDiagnostic[]; }
+export type ActivationStoreGetResult = { readonly status: 'found'; readonly activation: Activation; readonly diagnostics: readonly ActivationStoreDiagnostic[] } | { readonly status: 'notFound'; readonly diagnostics: readonly ActivationStoreDiagnostic[] };
+interface Document { readonly storeVersion: 1; readonly activations: readonly Activation[]; }
+
+export function getDefaultActivationPath(environment: NodeJS.ProcessEnv = process.env, homeDirectory = os.homedir()): string { const localAppData = environment.LOCALAPPDATA || path.join(homeDirectory, 'AppData', 'Local'); return path.join(localAppData, 'FieldOpsDashboard', ACTIVATION_STORE_FILE_NAME); }
+export class ActivationStore {
+  constructor(private readonly filePath: string, private readonly options: { readonly now?: () => Date; readonly createId?: () => string } = {}) {}
+  load(): ActivationStoreReadResult {
+    let json: string; try { json = fs.readFileSync(this.filePath, 'utf8'); } catch (error) { if ((error as NodeJS.ErrnoException).code === 'ENOENT') return { status: 'missing', activations: [], diagnostics: [{ code: 'missing', message: 'No activation store exists yet.' }] }; return { status: 'ioError', activations: [], diagnostics: [{ code: 'io_error', message: 'The activation store could not be read.' }] }; }
+    let parsed: unknown; try { parsed = JSON.parse(json); } catch { return { status: 'invalid', activations: [], diagnostics: [{ code: 'corrupt', message: 'The activation store contains invalid JSON.' }] }; }
+    if (!isRecord(parsed) || parsed.storeVersion !== 1 || !Array.isArray(parsed.activations)) return { status: 'invalid', activations: [], diagnostics: [{ code: isRecord(parsed) && parsed.storeVersion !== 1 ? 'unsupported_store_version' : 'corrupt', message: 'The activation store wrapper is unsupported or malformed.' }] };
+    const activations: Activation[] = []; const diagnostics: ActivationStoreDiagnostic[] = [];
+    for (const candidate of parsed.activations) { const result = normalizeActivation(candidate); if (!result.valid || !result.activation) diagnostics.push({ code: 'invalid_activation', message: 'A stored activation was skipped because required fields were invalid.', activationId: isRecord(candidate) && typeof candidate.activationId === 'string' ? candidate.activationId : undefined }); else activations.push(result.activation); }
+    return { status: 'loaded', activations: activations.sort((left, right) => right.updatedAtUtc.localeCompare(left.updatedAtUtc)), diagnostics };
+  }
+  list(): ActivationStoreReadResult { return this.load(); }
+  get(activationId: string): ActivationStoreGetResult { const loaded = this.load(); const activation = loaded.activations.find(item => item.activationId === activationId); return activation ? { status: 'found', activation, diagnostics: loaded.diagnostics } : { status: 'notFound', diagnostics: loaded.diagnostics }; }
+  create(input: CreateActivationInput): { readonly activation: Activation; readonly diagnostics: readonly ActivationStoreDiagnostic[] } { const loaded = this.load(); const activation = createActivation(input, this.options); this.write({ storeVersion: 1, activations: [activation, ...loaded.activations] }); return { activation, diagnostics: loaded.diagnostics }; }
+  save(activation: Activation): { readonly activation: Activation; readonly diagnostics: readonly ActivationStoreDiagnostic[] } { const loaded = this.load(); const normalized = normalizeActivation(activation); if (!normalized.valid || !normalized.activation) throw new Error('The activation value is invalid.'); this.write({ storeVersion: 1, activations: [normalized.activation, ...loaded.activations.filter(item => item.activationId !== activation.activationId)] }); return { activation: normalized.activation, diagnostics: loaded.diagnostics }; }
+  private write(document: Document): void { fs.mkdirSync(path.dirname(this.filePath), { recursive: true }); const temp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`; try { fs.writeFileSync(temp, `${JSON.stringify(document, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }); fs.renameSync(temp, this.filePath); } finally { try { fs.rmSync(temp, { force: true }); } catch {} } }
+}
+function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

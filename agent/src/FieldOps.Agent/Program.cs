@@ -5,6 +5,7 @@ using FieldOps.Agent.Security;
 using FieldOps.Agent.Telemetry.Transport;
 using FieldOps.Agent.Serial;
 using FieldOps.Agent.Location;
+using FieldOps.Agent.Clock;
 using FieldOps.Agent.SystemTelemetry;
 using System.Text.Json.Serialization;
 using FieldOps.NativeHealth;
@@ -38,6 +39,8 @@ builder.Services.AddSingleton<SerialInventoryPipeServer>();
 builder.Services.AddSingleton<ILocationProvider, WindowsSensorLocationProvider>();
 builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
+builder.Services.AddSingleton<ISystemClock, WindowsSystemClock>();
+builder.Services.AddSingleton<GpsClockSynchronizer>();
 builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<SerialNmeaLocationProvider>());
 builder.Services.AddSingleton<LocationTelemetryPipeServer>();
 builder.Services.AddSingleton<IPhysicalBatteryEnumerator, WindowsPhysicalBatteryEnumerator>();
@@ -88,8 +91,18 @@ app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationTo
 app.MapGet("/api/v1/location/nmea", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireAsync(cancellationToken)));
 
+app.MapGet("/api/v1/clock/gnss", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
+    Results.Ok(await service.AcquireTimeAsync(cancellationToken)));
+
+app.MapGet("/api/v1/clock/status", async (GpsClockSynchronizer synchronizer, CancellationToken cancellationToken) => Results.Ok(await synchronizer.VerifyAsync(cancellationToken)));
+
+app.MapPost("/api/v1/clock/synchronize", async (GpsClockSynchronizer synchronizer, ClockSyncRequest request, CancellationToken cancellationToken) =>
+    Results.Ok(await synchronizer.SynchronizeAsync(request.Confirmed, cancellationToken)));
+
 app.MapGet("/api/v1/system", (WindowsSystemTelemetryProvider provider) => Results.Ok(provider.GetObservation()));
 
 await app.RunAsync();
 
 public partial class Program;
+
+public sealed record ClockSyncRequest(bool Confirmed);

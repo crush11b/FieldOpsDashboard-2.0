@@ -112,7 +112,7 @@ export const TouchMenuDrawer: React.FC<TouchMenuDrawerProps> = ({
               <Wrench className="w-5 h-5 text-amber-400" />
               <div>
                 <span className="font-black block uppercase">SmartDeploy</span>
-                <span className="text-[10px] opacity-75">Activation planning and antenna length calculator</span>
+                <span className="text-[10px] opacity-75">Activation planning workspace</span>
               </div>
             </button>
 

@@ -265,6 +265,50 @@ describe('SmartDeploy planner', () => {
 });
 
 describe('SmartDeploy brief rendering', () => {
+  it('switches between exclusive PLAN, PREPARE, OPERATE, and REVIEW views', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      return { ok: false, json: async () => ({ message: 'Unavailable' }) };
+    }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    expect(screen.getByText('SMARTDEPLOY PLAN')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
+    expect(screen.getByText('OPERATIONS READINESS')).toBeTruthy();
+    expect(screen.queryByText('SMARTDEPLOY PLAN')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'operate' }));
+    expect(screen.getByText('START ACTIVATION')).toBeTruthy();
+    expect(screen.queryByText('OPERATIONS READINESS')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'review' }));
+    expect(screen.getByText('OPEN OPERATE')).toBeTruthy();
+    expect(screen.queryByText('ACTIVATION')).toBeNull();
+  });
+
+  it('starts the Activation before navigating from PREPARE to OPERATE', async () => {
+    const plannedActivation = { activationId: 'activation-prepare', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'planned', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow } as any;
+    const activeActivation = { ...plannedActivation, status: 'active', startedAtUtc: '2026-08-18T12:00:00.000Z' };
+    const readiness = { kind: 'operations_readiness', briefId: v2Brief.briefId, summary: { evaluatedAtUtc: '2026-08-18T11:00:00.000Z', plan: { status: 'ready', briefId: v2Brief.briefId, activationReference: 'US-1234', plannedSite: 'FM17' }, toughBook: { status: 'ready', chargePercent: 100, powerSource: 'AC', charging: true, runtimeEstimateSeconds: 3600 }, findings: [], nextActions: [] }, diagnostics: [], displayEvidence: { weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: { id: 'weather', type: 'local' } }, alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: { id: 'alerts', type: 'local' } } } };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path === `/api/operations-readiness/${v2Brief.briefId}`) return { ok: true, json: async () => readiness };
+      if (path === '/api/activations/from-brief') return { ok: true, json: async () => ({ kind: 'activation', activation: plannedActivation }) };
+      if (path === `/api/activations/${plannedActivation.activationId}/status`) { expect(init?.method).toBe('PATCH'); return { ok: true, json: async () => ({ kind: 'activation', status: 'updated', activation: activeActivation }) }; }
+      if (path.includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
+    await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-18 12:00:00 UTC')).toBeTruthy());
+    expect(fetcher).toHaveBeenCalledWith('/api/activations/from-brief', expect.objectContaining({ method: 'POST' }));
+    expect(fetcher).toHaveBeenCalledWith(`/api/activations/${plannedActivation.activationId}/status`, expect.objectContaining({ method: 'PATCH' }));
+    expect(screen.queryByRole('button', { name: 'START ACTIVATION' })).toBeNull();
+  });
+
   it('renders partial samples, modeled mode limitation, and temporal RF status', () => {
     render(<SmartDeployBriefView brief={brief} />);
     expect(screen.getByText('partial')).toBeTruthy();
@@ -285,6 +329,38 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getAllByText(/POTA reference location - approximate planning point/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/POTA reference location - approximate planning point/).length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Uses a general solar-cycle model value/).length).toBeGreaterThan(0);
+    expect(screen.queryByText('western_europe')).toBeNull();
+    expect(screen.queryByText('OPERATION')).toBeNull();
+  });
+
+  it('renders the generated PLAN through the production planner path', async () => {
+    const acceptanceBrief = { ...v2Brief, activation: { ...v2Brief.activation, reference: 'W4V/SH-005' }, propagationObjective: { ...v2Brief.propagationObjective, regionId: 'western_europe', regionLabel: 'Western Europe' } } as SmartDeployBriefV2;
+    const forecast = { coverage: 'mission-window hourly forecast', retrievedAtUtc: '2026-08-18T11:30:00.000Z', periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', condition: 'Clear', temperatureF: 72, precipitationProbability: 5, windSpeedMph: 4, windDirection: 'NW' }] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/smartdeploy/briefs') return { ok: true, json: async () => ({ briefs: [{ schemaVersion: 2, briefId: 'acceptance-brief', generatedAtUtc: acceptanceBrief.generatedAtUtc, status: acceptanceBrief.status, activation: acceptanceBrief.activation }] }) };
+      if (path === '/api/sota-data/status') return { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) };
+      if (path === '/api/smartdeploy/briefs/acceptance-brief') return { ok: true, json: async () => ({ brief: acceptanceBrief }) };
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    }));
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    await waitFor(() => expect(screen.getByText('W4V/SH-005', { selector: 'strong' })).toBeTruthy());
+    fireEvent.click(screen.getByText('W4V/SH-005', { selector: 'strong' }));
+    await waitFor(() => expect(screen.getByText('W4V/SH-005')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Clear, 72°F, 5% precipitation/)).toBeTruthy());
+    expect(screen.getAllByText('Western Europe')).toHaveLength(2);
+    expect(screen.getAllByText('FM17').length).toBeGreaterThan(0);
+    expect(screen.getByText(/Field Radio - EFHW - 10 W/)).toBeTruthy();
+    expect(screen.getAllByText(/2026-08-18 12:00:00 UTC to 2026-08-18 14:00:00 UTC/)).toHaveLength(2);
+    expect(screen.queryByText('western_europe')).toBeNull();
+    expect(screen.queryByText('FIELD OPERATION')).toBeNull();
+    expect(screen.queryByText('IMPORTANT NOTES')).toBeNull();
+    const technicalDetails = screen.getByText('Technical Details').closest('details');
+    expect(technicalDetails).not.toHaveAttribute('open');
+    expect(screen.getByText('LOCATION CONTEXT').closest('details')).not.toHaveAttribute('open');
   });
 
   it('keeps unavailable observed RF visible without repeating it in primary notes', () => {

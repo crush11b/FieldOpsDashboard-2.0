@@ -217,6 +217,7 @@ function Test-FieldOpsDashboardReadiness {
         [Parameter(Mandatory = $true)][string]$ExpectedRevision,
         [scriptblock]$ProcessProvider = { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue },
         [scriptblock]$HttpProvider = { param($Uri) Invoke-WebRequest -Uri $Uri -UseBasicParsing -TimeoutSec 2 },
+        [string]$ExpectedBundleSha256,
         [int]$TimeoutSeconds = 45,
         [int]$PollMilliseconds = 100,
         [switch]$SkipLaunch
@@ -244,12 +245,15 @@ function Test-FieldOpsDashboardReadiness {
                 return $false
             }
         }
-        foreach ($name in @('sourceRevision', 'nativeRevision', 'informationalVersion')) {
+        foreach ($name in @('sourceRevision', 'nativeRevision', 'informationalVersion', 'runtimeBundleSha256')) {
             if ([string]::IsNullOrWhiteSpace([string]$state.Version.$name)) { throw "/api/version response is missing '$name'." }
         }
         foreach ($name in @('sourceRevision', 'nativeRevision')) {
             if ([string]$state.Version.$name -notmatch '^[0-9a-fA-F]{40}$') { throw "/api/version '$name' is not a full SHA: '$($state.Version.$name)'." }
             if (-not [string]::Equals([string]$state.Version.$name, $ExpectedRevision, [StringComparison]::OrdinalIgnoreCase)) { throw "/api/version '$name' '$($state.Version.$name)' does not equal expected revision '$ExpectedRevision'." }
+        }
+        if ($ExpectedBundleSha256 -and -not [string]::Equals([string]$state.Version.runtimeBundleSha256, $ExpectedBundleSha256, [StringComparison]::OrdinalIgnoreCase)) {
+            throw "/api/version runtimeBundleSha256 '$($state.Version.runtimeBundleSha256)' does not equal deployed bundle '$ExpectedBundleSha256'."
         }
         return New-FieldOpsReadinessCheck -Status 'Passed' -Detail 'http://127.0.0.1:3000/api/version ready' -Path $expectedServerPath -ProcessId ([int]$state.Process.ProcessId) -ProcessState 'appeared' -HttpState 'ready'
     } catch {

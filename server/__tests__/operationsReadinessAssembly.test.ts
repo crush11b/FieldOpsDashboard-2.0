@@ -55,7 +55,7 @@ describe('Operations Readiness assembly', () => {
     expect(result.summary.plan.briefId).toBe('brief-1');
     expect(result.summary.toughBook.runtimeEstimateSeconds).toBe(3600);
     expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
-    expect(result.summary.findings.find(finding => finding.id === 'propagation-evidence')?.status).toBe('attention');
+    expect(result.summary.findings.find(finding => finding.id === 'propagation-evidence')?.status).toBe('ready');
     expect(result.summary.findings.some(finding => finding.limitation?.includes('Retained only.'))).toBe(true);
     expect(result.displayEvidence).toMatchObject({
       weather: { status: 'not_requested', data: null, retrievedAtUtc: null, limitation: expect.stringContaining('No live provider request was performed') },
@@ -319,7 +319,7 @@ describe('Operations Readiness assembly', () => {
   ] as const)('maps retained %s propagation evidence', async (briefStatus, expected) => {
     const result = await assembleOperationsReadiness('brief-1', dependencies({ briefStore: { get: () => ({ status: 'found', brief: brief('brief-1', 2, briefStatus), diagnostics: [] }) } as never }));
     expect(result.status).toBe('ok');
-    if (result.status === 'ok') expect(result.summary.findings.find(finding => finding.id === 'propagation-evidence')?.status).toBe(expected === 'stale' ? 'stale' : expected === 'unavailable' ? 'unavailable' : 'attention');
+    if (result.status === 'ok') expect(result.summary.findings.find(finding => finding.id === 'propagation-evidence')?.status).toBe(expected === 'stale' ? 'stale' : expected === 'unavailable' ? 'unavailable' : expected === 'modeled' ? 'ready' : 'attention');
   });
 
   it.each(['AVAILABLE', 'STALE', 'UNAVAILABLE'] as const)('maps SOTA dataset state %s', async state => {

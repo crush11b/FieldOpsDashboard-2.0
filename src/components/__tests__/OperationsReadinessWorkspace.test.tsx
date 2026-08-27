@@ -110,7 +110,7 @@ describe('OperationsReadinessWorkspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Show findings' }));
     expect(screen.getByText(/Status: attention \| Priority: high \| Source: GNSS/)).toBeTruthy();
     expect(screen.getByRole('link', { name: 'OPEN FIELD READINESS CHECKLIST' })).toHaveAttribute('href', '#field-readiness-checklist');
-    expect(screen.getByRole('link', { name: 'OPEN ACTIVATION NOTES' })).toHaveAttribute('href', '#activation-notes');
+    expect(screen.queryByRole('link', { name: 'OPEN ACTIVATION NOTES' })).toBeNull();
   });
 
   it('collapses findings by default, summarizes unresolved states, and preserves next actions', async () => {
@@ -196,6 +196,37 @@ describe('OperationsReadinessWorkspace', () => {
     await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
     view.unmount();
     expect(localSignals[0].aborted).toBe(true);
+  });
+
+  it('exposes the confirmed clock action for attention and keeps it gated for ready evidence', async () => {
+    const clockSummary = (status: 'ready' | 'attention', message: string) => ({ ...summary, findings: summary.findings.map(finding => finding.id === 'clock-synchronization' ? { ...finding, status, message } : finding) });
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/synchronize') ? { ok: true, json: async () => ({}) } : { ok: true, json: async () => response('not_requested', clockSummary('attention', 'Windows time differs from fresh GNSS UTC evidence by 3.0 seconds.')) });
+    vi.stubGlobal('fetch', fetcher);
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' })).toBeTruthy());
+    const synchronize = screen.getByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' });
+    expect(synchronize).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirm Windows clock synchronization' }));
+    expect(synchronize).not.toBeDisabled();
+    expect(screen.getAllByText('Windows time differs from fresh GNSS UTC evidence by 3.0 seconds.')).toHaveLength(2);
+  });
+
+  it('renders current clock verification as READY in the compact summary', async () => {
+    const readySummary = { ...summary, findings: summary.findings.map(finding => finding.id === 'clock-synchronization' ? { ...finding, status: 'ready' as const, message: 'Windows time currently agrees with fresh GNSS UTC evidence.' } : finding) };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', readySummary, {}, 'brief-ready-clock') })));
+    render(<OperationsReadinessWorkspace brief={{ ...brief, briefId: 'brief-ready-clock' } as SmartDeployBriefV2} />);
+    await waitFor(() => expect(screen.getAllByText('Windows time currently agrees with fresh GNSS UTC evidence.')).toHaveLength(2));
+    expect(screen.getAllByText('READY').length).toBeGreaterThan(0);
+  });
+
+  it('does not expose synchronization when fresh GNSS is unavailable and renders not started checklist state', async () => {
+    const unavailable = { ...summary, findings: summary.findings.map(finding => finding.id === 'clock-synchronization' ? { ...finding, status: 'unknown' as const, message: 'Fresh GNSS UTC evidence is unavailable.' } : finding).map(finding => finding.id === 'field-readiness-checklist' ? { ...finding, status: 'attention' as const, message: 'Field Readiness Checklist has not been started.' } : finding) };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response('not_requested', unavailable) })));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getAllByText('Fresh GNSS UTC evidence is unavailable.')).toHaveLength(2));
+    expect(screen.queryByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' })).toBeNull();
+    expect(screen.getByText('NOT STARTED')).toBeTruthy();
+    expect(screen.getByRole('link', { name: 'OPEN FIELD READINESS CHECKLIST' })).toHaveAttribute('href', '#field-readiness-checklist');
   });
 
   it('aborts a pending live request on unmount', async () => {

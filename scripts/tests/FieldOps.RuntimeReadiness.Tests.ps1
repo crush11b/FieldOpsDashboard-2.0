@@ -14,7 +14,7 @@ Describe 'FieldOps runtime readiness' {
         $script:agentProcess = [pscustomobject]@{ ExecutablePath = $script:agentPath; ProcessId = 101 }
         $script:session = [pscustomobject]@{ Account = $script:operator; Sid = $script:sid; SessionId = 1 }
         $script:trayProcess = [pscustomobject]@{ ExecutablePath = $script:trayPath; Sid = $script:sid; SessionId = 1; ProcessId = 102 }
-        $script:version = [pscustomobject]@{ sourceRevision = $script:revision; nativeRevision = $script:revision; informationalVersion = '2.3.0+' + $script:revision }
+        $script:version = [pscustomobject]@{ sourceRevision = $script:revision; nativeRevision = $script:revision; informationalVersion = '2.3.0+' + $script:revision; runtimeBundleSha256 = ('a' * 64) }
         $script:serviceProvider = { param($Name) $script:service }
         $script:agentProvider = { $script:agentProcess }
         $script:sessionProvider = { $script:session }
@@ -129,7 +129,7 @@ Describe 'FieldOps runtime readiness' {
     It 'fails when Dashboard endpoint times out or returns malformed identity' {
         $timeout = { param($Uri) throw 'connection refused' }
         (Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ProcessProvider $script:dashboardProvider -HttpProvider $timeout -TimeoutSeconds 0).Status | Should Be 'Failed'
-        $script:version = [pscustomobject]@{ sourceRevision = $script:revision; nativeRevision = 'not-a-sha'; informationalVersion = '2.3.0' }
+        $script:version = [pscustomobject]@{ sourceRevision = $script:revision; nativeRevision = 'not-a-sha'; informationalVersion = '2.3.0'; runtimeBundleSha256 = ('a' * 64) }
         (Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ProcessProvider $script:dashboardProvider -HttpProvider $script:httpProvider -TimeoutSeconds 0).Status | Should Be 'Failed'
     }
 
@@ -145,6 +145,12 @@ Describe 'FieldOps runtime readiness' {
         $result = Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ProcessProvider $script:dashboardProvider -HttpProvider $script:httpProvider -TimeoutSeconds 0
         $result.Status | Should Be 'Failed'
         $result.Detail | Should Match "nativeRevision.*does not equal expected revision"
+    }
+
+    It 'fails when the running Dashboard bundle identity differs from the deployed bundle' {
+        $result = Test-FieldOpsDashboardReadiness -DashboardRoot 'C:\FieldOpsDashboard' -ExpectedRevision $script:revision -ExpectedBundleSha256 ('b' * 64) -ProcessProvider $script:dashboardProvider -HttpProvider $script:httpProvider -TimeoutSeconds 0
+        $result.Status | Should Be 'Failed'
+        $result.Detail | Should Match 'runtimeBundleSha256'
     }
 
     It 'fails when duplicate production Dashboard server processes are present' {

@@ -168,6 +168,46 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void ToughBookDeploymentUsesIsolatedCurrentHeadAndHardParityGate()
+    {
+        var deployment = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "Deploy-ToughBook.ps1"));
+
+        Assert.Contains("Resolve-RepositoryHead", deployment);
+        Assert.Contains("Assert-CleanRepository", deployment);
+        Assert.Contains("Join-Path ([IO.Path]::GetTempPath())", deployment);
+        Assert.DoesNotContain("New-Item -ItemType Directory -Path $publishRoot", deployment);
+        Assert.Contains("-SourceRevision $expectedRevision", deployment);
+        Assert.DoesNotContain("agent\\artifacts\\publish\\win-x64'", deployment);
+        Assert.Contains("deploymentManifest = [ordered]@", deployment);
+        Assert.Contains("sourceRevision = $expectedRevision", deployment);
+        Assert.Contains("nativeRevision = $expectedRevision", deployment);
+        Assert.Contains("Get-EmbeddedRevision", deployment);
+        Assert.Contains("Assert-DeploymentParity", deployment);
+        Assert.Contains("function Stop-InstalledDashboard", deployment);
+        Assert.Contains("Get-FieldOpsDashboardProcessCandidates -DashboardRoot $InstallPath", deployment);
+        Assert.Contains("Stop-Process -Id ([int]$process.ProcessId)", deployment);
+        Assert.Contains("Refusing to terminate an unverified process", deployment);
+        Assert.Contains("Get-NetTCPConnection -LocalPort 3000 -State Listen", deployment);
+        Assert.Contains("Start-FieldOpsDashboardProcess -DashboardRoot $InstallPath", deployment);
+        Assert.Contains("ExpectedBundleSha256 $expectedBundleSha256", deployment);
+        Assert.Contains("runtime identity proven", deployment);
+        Assert.Contains("Start-FieldOpsTrayScheduledLaunch", deployment);
+        Assert.Contains("[OK] Revision parity proven", deployment);
+        Assert.True(
+            deployment.IndexOf("Start-FieldOpsDashboardProcess -DashboardRoot $InstallPath", StringComparison.Ordinal) <
+            deployment.IndexOf("[7/7] Deployment summary", StringComparison.Ordinal));
+        Assert.True(
+            deployment.IndexOf("Test-FieldOpsDashboardReadiness", StringComparison.Ordinal) <
+            deployment.IndexOf("[7/7] Deployment summary", StringComparison.Ordinal));
+        Assert.True(
+            deployment.IndexOf("Start-FieldOpsTrayScheduledLaunch", StringComparison.Ordinal) <
+            deployment.IndexOf("[7/7] Deployment summary", StringComparison.Ordinal));
+        Assert.DoesNotContain("Ready to launch:", deployment);
+        Assert.DoesNotContain("npm start", deployment);
+        Assert.Contains("Remove-Item -LiteralPath $publishRoot -Recurse -Force", deployment);
+    }
+
+    [Fact]
     public void UpdaterTreatsP533RuntimeAsValidatedNativeArtifactInput()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));

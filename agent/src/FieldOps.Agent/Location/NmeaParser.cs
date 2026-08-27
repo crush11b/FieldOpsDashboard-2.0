@@ -7,6 +7,9 @@ internal sealed record NmeaFix(
     DateTimeOffset? TimestampUtc, int? Satellites, double? Hdop, int? FixQuality, bool HasFix,
     bool IsGga = false, bool IsRmc = false);
 
+public enum NmeaTimeStatus { Available, Unavailable, Malformed }
+public sealed record NmeaTimeEvidence(NmeaTimeStatus Status, DateTimeOffset? TimestampUtc, string SentenceType, string? Error = null);
+
 internal static class NmeaParser
 {
     public static bool TryParse(string sentence, out NmeaFix fix)
@@ -26,6 +29,31 @@ internal static class NmeaParser
         var type = fields[0];
         if (type.Length < 5 || (!type.EndsWith("GGA", StringComparison.Ordinal) && !type.EndsWith("RMC", StringComparison.Ordinal))) return false;
         return type.EndsWith("GGA", StringComparison.Ordinal) ? TryGga(fields, out fix) : TryRmc(fields, out fix);
+    }
+
+    public static NmeaTimeEvidence ParseTime(string sentence)
+    {
+        if (!TryGetFields(sentence, out var fields) || !fields[0].EndsWith("RMC", StringComparison.Ordinal)) return new(NmeaTimeStatus.Unavailable, null, "RMC");
+        if (fields.Length < 10 || string.IsNullOrWhiteSpace(fields[1]) || string.IsNullOrWhiteSpace(fields[9])) return new(NmeaTimeStatus.Malformed, null, "RMC", "RMC did not contain both UTC time and date.");
+        var timestamp = ParseDateTime(fields[9], fields[1]);
+        return timestamp is null
+            ? new(NmeaTimeStatus.Malformed, null, "RMC", "RMC UTC time or date was malformed.")
+            : new(NmeaTimeStatus.Available, timestamp, "RMC");
+    }
+
+    private static bool TryGetFields(string sentence, out string[] fields)
+    {
+        fields = Array.Empty<string>();
+        if (string.IsNullOrWhiteSpace(sentence) || sentence.Length > 128 || sentence[0] != '$') return false;
+        var star = sentence.IndexOf('*');
+        if (star >= 0)
+        {
+            if (star + 3 != sentence.Length || !byte.TryParse(sentence.AsSpan(star + 1, 2), NumberStyles.HexNumber, CultureInfo.InvariantCulture, out var expected)) return false;
+            byte checksum = 0; foreach (var c in sentence.AsSpan(1, star - 1)) checksum ^= (byte)c;
+            if (checksum != expected) return false;
+        }
+        fields = sentence[1..(star >= 0 ? star : sentence.Length)].Split(',');
+        return fields.Length > 0 && fields[0].Length >= 5;
     }
 
     private static bool TryGga(string[] f, out NmeaFix fix)

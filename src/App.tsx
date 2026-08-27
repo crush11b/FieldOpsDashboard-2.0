@@ -31,6 +31,8 @@ import { toFiniteNumber } from './utils/numbers';
 import { formatNetworkDisplay, formatStorageDisplay } from './utils/systemTelemetryDisplay';
 import { hasMeaningfulWeatherMovement, NOAA_ALERT_REFRESH_INTERVAL_MS, WEATHER_REFRESH_INTERVAL_MS } from './utils/weatherRefreshPolicy';
 import { CONFIG_STORAGE_KEY, loadDashboardConfig, saveDashboardConfig } from './configPersistence';
+import { getClockStatus, synchronizeClock } from './clockApi';
+import type { ClockSynchronizationEvidence } from '../server/locationTelemetryPipe';
 
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
 
@@ -191,6 +193,19 @@ export default function App() {
   const [initialGpsState] = useState(loadInitialGpsState);
   const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
   const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
+  const [clockEvidence, setClockEvidence] = useState<ClockSynchronizationEvidence>();
+  const refreshClockEvidence = async () => {
+    try { setClockEvidence(await getClockStatus()); } catch { setClockEvidence(undefined); }
+  };
+  useEffect(() => {
+    void refreshClockEvidence();
+    const interval = setInterval(() => void refreshClockEvidence(), 10000);
+    return () => clearInterval(interval);
+  }, []);
+  const handleSynchronizeClock = async () => {
+    const result = await synchronizeClock(true);
+    setClockEvidence(result);
+  };
   const operatingCoordinates = resolveGpsCoordinates(gps, gpsProvenance);
   const operatingLocation = resolveOperatingLocation(gps, gpsProvenance);
   const operatingGridSquare = isCurrentOperatingLocation(operatingCoordinates) ? gps.gridSquare : '';
@@ -485,6 +500,8 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             onUpdateGPS={handleUpdateGPS}
+            clockEvidence={clockEvidence}
+            onSynchronizeClock={handleSynchronizeClock}
             comPort={config.gpsComPort}
             baudRate={config.gpsBaudRate}
             onSelectComPort={(port, baud) => {

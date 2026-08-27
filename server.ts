@@ -1,7 +1,9 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
-import { execSync } from "child_process";
+import crypto from "node:crypto";
+import { execFile, execSync } from "child_process";
+import { promisify } from "node:util";
 import JSZip from "jszip";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI } from "@google/genai";
@@ -28,7 +30,7 @@ import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coo
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
-import { readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { readClockStatusPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
@@ -51,16 +53,33 @@ import { createFieldReadinessChecklistRouter } from './server/fieldReadinessChec
 import { FieldReadinessChecklistStore, getDefaultFieldReadinessChecklistPath } from './server/fieldReadinessChecklistStore';
 import { createMissionForecastRouter } from './server/missionForecastApi';
 import { getDefaultMissionForecastPath, MissionForecastStore } from './server/missionForecastStore';
+import { createActivationRouter } from './server/activationApi';
+import { createActivationReviewRouter } from './server/activationReviewApi';
+import { ActivationStore, getDefaultActivationPath } from './server/activationStore';
+import { createQsoRouter } from './server/qsoApi';
+import { QsoStore, getDefaultQsoPath } from './server/qsoStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
+import { createClockRouter } from './server/clockApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
 import { getDashboardRuntimeMode } from './server/runtimeMode';
 
+const execFileAsync = promisify(execFile);
+const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['scripts/p533-assets.mjs', '--verify-only'], { cwd: process.cwd() }); return { files: 27 }; };
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
   const distPath = path.join(process.cwd(), 'dist');
+  const runtimeBundleSha256 = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex');
+  const deploymentManifestPath = path.join(process.cwd(), 'deployment-manifest.json');
+  let runtimeDeploymentIdentity: { sourceRevision?: string; nativeRevision?: string; informationalVersion?: string; deployedAtUtc?: string } = {};
+  try {
+    runtimeDeploymentIdentity = JSON.parse(fs.readFileSync(deploymentManifestPath, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    console.warn('Deployment identity is unavailable at Dashboard startup.');
+  }
 
   const telemetryCredentialPath = getDefaultTelemetryCredentialPath();
   const telemetryCredentialRepository = telemetryCredentialPath
@@ -103,10 +122,15 @@ async function startServer() {
   const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
   const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
   const missionForecastStore = new MissionForecastStore(getDefaultMissionForecastPath());
+  const activationStore = new ActivationStore(getDefaultActivationPath());
+  const qsoStore = new QsoStore(getDefaultQsoPath());
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
   app.use(createMissionForecastRouter({ briefStore: smartDeployBriefStore, store: missionForecastStore }));
+  app.use(createActivationRouter({ briefStore: smartDeployBriefStore, store: activationStore, notesStore: activationNotesStore }));
+  app.use(createQsoRouter({ activationStore, store: qsoStore }));
+  app.use(createActivationReviewRouter({ activationStore, briefStore: smartDeployBriefStore, notesStore: activationNotesStore, forecastStore: missionForecastStore, spaceWeatherStore: spaceWeatherSnapshotStore, qsoStore }));
   app.use(createSpaceWeatherSnapshotRouter({ briefStore: smartDeployBriefStore, store: spaceWeatherSnapshotStore, service: spaceWeatherService }));
   app.use(createOperationsReadinessRouter({
     dependencies: {
@@ -115,11 +139,14 @@ async function startServer() {
       checklistStore: fieldReadinessChecklistStore,
       activationNotesStore,
       readLocation: readLocationTelemetryPipe,
+      readClockStatus: readClockStatusPipe,
       readSystem: readSystemTelemetry,
       enrichWeather: brief => enrichOperationsReadinessWeather(brief),
       now: () => new Date(),
     },
+    offlineEvidence: { readGnssTime: readGnssTimePipe, readMissionForecast: briefId => missionForecastStore.getByBriefId(briefId), verifyP533: () => verifyP533Assets() },
   }));
+  app.use(createClockRouter());
   app.use(createDashboardReadinessRouter({ distPath, baseUrl: `http://127.0.0.1:${PORT}` }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
@@ -166,13 +193,11 @@ async function startServer() {
     res.json({ ...observedRfService.getSnapshot(), diagnostics: observedRfService.getDiagnostics() });
   });
   app.get('/api/version', (_req, res) => {
-    const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
-    try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, ''));
-      res.json({ sourceRevision: manifest.sourceRevision, nativeRevision: manifest.nativeRevision, informationalVersion: manifest.informationalVersion });
-    } catch {
+    if (!runtimeDeploymentIdentity.sourceRevision || !runtimeDeploymentIdentity.nativeRevision || !runtimeDeploymentIdentity.informationalVersion) {
       res.status(503).json({ error: 'Deployment identity is unavailable.' });
+      return;
     }
+    res.json({ ...runtimeDeploymentIdentity, runtimeBundleSha256 });
   });
 
   // Server-side Gemini AI setup

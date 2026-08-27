@@ -7,7 +7,7 @@ import {
   Radio, 
   BookOpen, 
   Sparkles, 
-  Calculator, 
+  Calculator,
   Compass, 
   Sun,
   Send, 
@@ -58,12 +58,12 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   const [activeTab, setActiveTab] = useState<string>(initialTab === 'smart_frequency' ? 'smart_deploy' : initialTab);
   const operatingLocation = resolveOperatingLocation(gps, gpsProvenance);
 
-  // 1. SmartDeploy State (Antenna Length & NVIS vs DX Calculator)
+  // Antenna calculator state
   const [freqMHz, setFreqMHz] = useState<number>(14.074);
   const [velocityFactor, setVelocityFactor] = useState<number>(0.95);
   const [antennaType, setAntennaType] = useState<'dipole' | 'efhw' | 'vertical' | 'random_wire'>('dipole');
 
-  // 2. SmartFrequency State
+  // SmartFrequency State
   const [selectedBandPlan, setSelectedBandPlan] = useState<string>('20m');
 
   // 3. SmartLog+ State
@@ -92,7 +92,6 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
   const isNight = theme === 'night_vision';
 
-  // SmartDeploy calculations
   const totalFeet = (468 / freqMHz) * velocityFactor;
   const legFeet = antennaType === 'dipole' ? totalFeet / 2 : totalFeet;
   const totalMeters = totalFeet * 0.3048;
@@ -246,6 +245,16 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           >
             <Wrench className="w-4 h-4" /> SmartDeploy
           </button>
+
+          <button
+            id="tab-antenna-calculator"
+            onClick={() => setActiveTab('antenna_calculator')}
+            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
+              activeTab === 'antenna_calculator' ? 'border-emerald-400 text-emerald-300' : 'border-transparent text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            <Calculator className="w-4 h-4" /> ANTENNA CALCULATOR
+          </button>
         </div>
 
         {/* Modal Content */}
@@ -262,97 +271,26 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
             <SunTwilightTool operatingLocation={operatingLocation} />
           )}
           
-          {/* SmartDeploy activation planning and supporting calculator */}
+          {/* SmartDeploy activation planning */}
           {activeTab === 'smart_deploy' && (
             <div className="space-y-4">
               <SmartDeployPlanner operatingLocation={operatingLocation} stationProfile={stationProfile} />
-              <div className="p-3.5 rounded-xl border border-amber-600/60 bg-amber-950/20 space-y-3">
-                <h3 className="font-black text-xs uppercase text-amber-300 flex items-center gap-2">
-                  <Calculator className="w-4 h-4" /> ANTENNA LENGTH CALCULATOR
-                </h3>
+            </div>
+          )}
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  <div>
-                    <label className="block text-[10px] uppercase opacity-75 mb-0.5">Target Frequency (MHz)</label>
-                    <input
-                      id="input-deploy-freq"
-                      type="number"
-                      step="0.001"
-                      value={freqMHz}
-                      onChange={(e) => {
-                        const value = e.target.value.trim();
-                        if (value === '') return;
-                        const parsed = Number(value);
-                        if (Number.isFinite(parsed) && parsed > 0) setFreqMHz(parsed);
-                      }}
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold font-mono"
-                    />
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] uppercase opacity-75 mb-0.5">Antenna Topology</label>
-                    <select
-                      id="select-deploy-topology"
-                      value={antennaType}
-                      onChange={(e) => setAntennaType(e.target.value as any)}
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-cyan-300 font-bold font-mono"
-                    >
-                      <option value="dipole">Half-Wave Dipole (Driven)</option>
-                      <option value="efhw">End-Fed Half-Wave (EFHW 49:1)</option>
-                      <option value="vertical">Quarter-Wave Vertical (1/4 λ)</option>
-                      <option value="random_wire">Random Wire (Non-Resonant)</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-[10px] uppercase opacity-75 mb-0.5">Wire Velocity Factor (VF)</label>
-                    <select
-                      id="select-deploy-vf"
-                      value={velocityFactor}
-                      onChange={(e) => setVelocityFactor(parseFloat(e.target.value))}
-                      className="w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold font-mono"
-                    >
-                      <option value={0.95}>0.95 (Standard Insulated Stranded Copper)</option>
-                      <option value={0.98}>0.98 (Bare Copper Field Wire)</option>
-                      <option value={0.92}>0.92 (Heavy Duty Tactical Camo Wire)</option>
-                    </select>
-                  </div>
-                </div>
-
-                {/* Calculation Results Card */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
-                  <div className="p-3 rounded-lg border border-emerald-600/80 bg-emerald-950/40 text-emerald-300 space-y-1">
-                    <span className="text-[10px] uppercase opacity-80 block">TOTAL RESONANT WIRE LENGTH</span>
-                    <div className="font-black text-xl text-emerald-300">
-                      {totalFeet.toFixed(2)} FT ({totalMeters.toFixed(2)} METERS)
-                    </div>
-                    <span className="text-[10px] text-slate-300 block">
-                      Formula: L (ft) = (468 / {freqMHz} MHz) × {velocityFactor} VF
-                    </span>
-                  </div>
-
-                  <div className="p-3 rounded-lg border border-cyan-600/80 bg-cyan-950/40 text-cyan-300 space-y-1">
-                    <span className="text-[10px] uppercase opacity-80 block">LEG / RADIAL CUT LENGTH</span>
-                    <div className="font-black text-xl text-cyan-300">
-                      {legFeet.toFixed(2)} FT ({legMeters.toFixed(2)} METERS)
-                    </div>
-                    <span className="text-[10px] text-slate-300 block">
-                      {antennaType === 'dipole' ? 'Cut 2 identical wire legs for center feed point' : 'Single continuous wire radiator'}
-                    </span>
-                  </div>
-                </div>
-
-                {/* NVIS vs DX Angle Guidance */}
-                <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/80 space-y-1.5 text-[11px]">
-                  <h4 className="font-bold text-amber-300 uppercase">PROXIMITY & GROUND ANGLE RECOMMENDATIONS</h4>
-                  <p className="text-slate-300">
-                    • <strong>NVIS (Near Vertical Incidence Skywave)</strong>: Mount wire horizontal at 8 to 15 feet off ground. Excellent for 40m/80m coverage within 300 miles over mountains.
-                  </p>
-                  <p className="text-slate-300">
-                    • <strong>DX Long Distance</strong>: Mount inverted-V or end-fed at least 35 feet high for low takeoff angle (&lt;20°).
-                  </p>
-                </div>
+          {activeTab === 'antenna_calculator' && (
+            <div className="p-3.5 rounded-xl border border-amber-600/60 bg-amber-950/20 space-y-3">
+              <h3 className="font-black text-xs uppercase text-amber-300 flex items-center gap-2"><Calculator className="w-4 h-4" /> ANTENNA LENGTH CALCULATOR</h3>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                <label className="text-[10px] uppercase opacity-75">Target Frequency (MHz)<input type="number" step="0.001" value={freqMHz} onChange={event => { const value = Number(event.target.value); if (Number.isFinite(value) && value > 0) setFreqMHz(value); }} className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-amber-300 font-bold font-mono" /></label>
+                <label className="text-[10px] uppercase opacity-75">Antenna Topology<select value={antennaType} onChange={event => setAntennaType(event.target.value as typeof antennaType)} className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-cyan-300 font-bold font-mono"><option value="dipole">Half-Wave Dipole (Driven)</option><option value="efhw">End-Fed Half-Wave (EFHW 49:1)</option><option value="vertical">Quarter-Wave Vertical (1/4 lambda)</option><option value="random_wire">Random Wire (Non-Resonant)</option></select></label>
+                <label className="text-[10px] uppercase opacity-75">Wire Velocity Factor (VF)<select value={velocityFactor} onChange={event => setVelocityFactor(Number(event.target.value))} className="mt-1 w-full px-2.5 py-1.5 bg-slate-900 border border-slate-700 rounded text-emerald-300 font-bold font-mono"><option value={0.95}>0.95 (Insulated stranded copper)</option><option value={0.98}>0.98 (Bare copper field wire)</option><option value={0.92}>0.92 (Tactical camo wire)</option></select></label>
               </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="p-3 rounded-lg border border-emerald-600/80 bg-emerald-950/40 text-emerald-300"><span className="text-[10px] uppercase opacity-80 block">TOTAL RESONANT WIRE LENGTH</span><strong className="block text-xl">{totalFeet.toFixed(2)} FT ({totalMeters.toFixed(2)} METERS)</strong><span className="text-[10px] text-slate-300">Formula: L (ft) = (468 / {freqMHz} MHz) x {velocityFactor} VF</span></div>
+                <div className="p-3 rounded-lg border border-cyan-600/80 bg-cyan-950/40 text-cyan-300"><span className="text-[10px] uppercase opacity-80 block">LEG / RADIAL CUT LENGTH</span><strong className="block text-xl">{legFeet.toFixed(2)} FT ({legMeters.toFixed(2)} METERS)</strong><span className="text-[10px] text-slate-300">{antennaType === 'dipole' ? 'Cut 2 identical wire legs for center feed point' : 'Single continuous wire radiator'}</span></div>
+              </div>
+              <div className="p-3 rounded-lg border border-slate-800 bg-slate-900/80 text-[11px]"><h4 className="font-bold text-amber-300 uppercase">PROXIMITY & GROUND ANGLE RECOMMENDATIONS</h4><p className="text-slate-300">NVIS: mount wire horizontal at 8 to 15 feet off ground for regional coverage.</p><p className="text-slate-300">DX: mount inverted-V or end-fed at least 35 feet high for a lower takeoff angle.</p></div>
             </div>
           )}
 

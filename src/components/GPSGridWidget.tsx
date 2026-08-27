@@ -3,6 +3,7 @@ import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, 
 import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import { playTacticalClick } from '../utils/audio';
 import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
+import type { ClockSynchronizationEvidence } from '../../server/locationTelemetryPipe';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
@@ -13,6 +14,8 @@ interface GPSGridWidgetProps {
   comPort?: string;
   baudRate?: number;
   onSelectComPort?: (port: string, baud: number) => void;
+  clockEvidence?: ClockSynchronizationEvidence;
+  onSynchronizeClock?: () => Promise<void>;
 }
 
 export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
@@ -24,11 +27,14 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   comPort = 'COM6 (GPS Receiver)',
   baudRate = 9600,
   onSelectComPort,
+  clockEvidence,
+  onSynchronizeClock,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [inputLat, setInputLat] = useState(Number.isFinite(gps.lat) ? gps.lat.toString() : '');
   const [inputLon, setInputLon] = useState(Number.isFinite(gps.lon) ? gps.lon.toString() : '');
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
+  const [clockConfirmed, setClockConfirmed] = useState(false);
   const gpsUpdateSequence = useRef(0);
   const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
   const nativeRequestInFlight = useRef<Promise<void> | null>(null);
@@ -96,6 +102,13 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   };
   const isNight = theme === 'night_vision';
   const isSunlight = theme === 'sunlight';
+  const hasFreshGnssTime = clockEvidence?.gnssTime?.status === 'Available' && Boolean(clockEvidence.gnssTime.timestampUtc);
+  const clockStatus = clockEvidence?.status === 'Synchronized'
+    ? 'GPS SYNCHRONIZED'
+    : hasFreshGnssTime
+      ? 'NOT GPS-SYNCHRONIZED'
+      : 'GNSS TIME UNAVAILABLE';
+  const formatEvidenceTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC` : 'Not available';
 
   const cardBg = isNight
     ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
@@ -389,8 +402,22 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               </div>
 
               <div className={`p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
-                <span className="text-[10px] uppercase opacity-70 block">UTC TIME SYNC</span>
-                <span className="font-bold text-amber-300">{displayLocation ? gps.lockTime || 'Unknown' : 'Unavailable'}</span>
+                <span className="text-[10px] uppercase opacity-70 block">GNSS UTC TIME</span>
+                <span className="font-bold text-amber-300">{hasFreshGnssTime ? formatEvidenceTime(clockEvidence?.gnssTime.timestampUtc) : displayLocation ? gps.lockTime || 'Unknown' : 'Unavailable'}</span>
+              </div>
+
+              <div className={`col-span-2 p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
+                <span className="text-[10px] uppercase opacity-70 block">WINDOWS CLOCK</span>
+                <span className={`font-bold ${clockEvidence?.status === 'Synchronized' ? 'text-emerald-400' : 'text-amber-300'}`}>{clockStatus}</span>
+                <div className="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-1 text-[10px] opacity-85">
+                  <span>LAST GPS SYNC: {formatEvidenceTime(clockEvidence?.lastSuccessfulSynchronizationUtc)}</span>
+                  <span>PRE-SYNC OFFSET: {typeof clockEvidence?.offsetBeforeSynchronizationSeconds === 'number' ? `${clockEvidence.offsetBeforeSynchronizationSeconds.toFixed(3)} s` : 'Not available'}</span>
+                  <span>SOURCE: FieldOps Agent / COM6</span>
+                </div>
+                {onSynchronizeClock && <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <label className="flex items-center gap-1 text-[10px]"><input type="checkbox" checked={clockConfirmed} onChange={event => setClockConfirmed(event.currentTarget.checked)} /> CONFIRM WINDOWS CLOCK SYNC</label>
+                  <button type="button" disabled={!clockConfirmed} onClick={() => { void onSynchronizeClock().then(() => setClockConfirmed(false)); }} className="px-2 py-1 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold disabled:opacity-40">SYNCHRONIZE WINDOWS CLOCK</button>
+                </div>}
               </div>
             </div>
           )}

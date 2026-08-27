@@ -3,7 +3,7 @@ import { buildOperationsReadinessSummary, type OperationsReadinessInput, type Op
 import type { OperationsReadinessDisplayEvidence } from './operationsReadinessDisplayEvidence';
 import type { FieldReadinessChecklist } from './fieldReadinessChecklist';
 import type { FieldReadinessChecklistStore } from './fieldReadinessChecklistStore';
-import type { LocationTelemetry } from './locationTelemetryPipe';
+import type { ClockSynchronizationEvidence, LocationTelemetry } from './locationTelemetryPipe';
 import type { SmartDeployBrief, SmartDeployBriefV2 } from './smartDeployBrief';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
 import { SOTA_SUMMIT_SOURCE_NAME, SOTA_SUMMIT_SOURCE_TYPE, type LocalSotaSummitDataset } from './sotaSummitDataset';
@@ -40,6 +40,7 @@ export interface OperationsReadinessAssemblyDependencies {
   readonly checklistStore: Pick<FieldReadinessChecklistStore, 'getByBriefId'>;
   readonly activationNotesStore: Pick<ActivationNotesStore, 'getByBriefId'>;
   readonly readLocation: () => Promise<LocationTelemetry>;
+  readonly readClockStatus?: () => Promise<ClockSynchronizationEvidence>;
   readonly readSystem: () => Promise<SystemTelemetry>;
   readonly enrichWeather?: (brief: SmartDeployBriefV2) => Promise<OperationsReadinessWeatherEnrichment>;
   readonly now: () => Date;
@@ -88,12 +89,14 @@ export async function assembleOperationsReadiness(
   if (!evaluatedAtUtc) return unavailable('evaluation_clock_unavailable', 'The Operations Readiness evaluation clock is unavailable.');
 
   const diagnostics: OperationsReadinessDiagnostic[] = [];
-  const [location, system] = await Promise.all([
+  const [location, system, clock] = await Promise.all([
     readLocation(dependencies.readLocation, diagnostics),
     readSystem(dependencies.readSystem, diagnostics, evaluatedAtUtc),
+    readClock(dependencies.readClockStatus, diagnostics),
   ]);
   const dataset = readDataset(dependencies.sotaDatasetReader, diagnostics);
-  const checklist = readChecklist(dependencies.checklistStore, briefId, diagnostics);
+  const checklistResult = readChecklist(dependencies.checklistStore, briefId, diagnostics);
+  const checklist = checklistResult.value;
   const activationNotes = readActivationNotes(dependencies.activationNotesStore, briefId, diagnostics);
   let weather: OperationsReadinessInput['weather'] = { status: 'unavailable', source: SOURCE.evaluator };
   let alerts: OperationsReadinessInput['alerts'] = { status: 'unavailable', active: [], source: SOURCE.evaluator };
@@ -127,6 +130,8 @@ export async function assembleOperationsReadiness(
     propagation: propagationInput(briefResult.brief, briefId),
     ...(checklist ? { checklist } : {}),
     ...(activationNotes ? { activationNotes } : {}),
+    ...(clock ? { clock } : {}),
+    ...(checklistResult.notStarted ? { checklistNotStarted: true } : {}),
   });
   if (!options.includeLiveWeather) diagnostics.push({ code: 'local_weather_alerts_unavailable', message: 'Current weather and alerts are not retained by this local readiness assembly; no live weather request was performed.' });
   return { status: 'ok', summary, displayEvidence, diagnostics };
@@ -157,18 +162,18 @@ function readDataset(reader: () => LocalSotaSummitDataset, diagnostics: Operatio
   }
 }
 
-function readChecklist(store: Pick<FieldReadinessChecklistStore, 'getByBriefId'>, briefId: string, diagnostics: OperationsReadinessDiagnostic[]): OperationsReadinessInput['checklist'] | undefined {
+function readChecklist(store: Pick<FieldReadinessChecklistStore, 'getByBriefId'>, briefId: string, diagnostics: OperationsReadinessDiagnostic[]): { readonly value: OperationsReadinessInput['checklist']; readonly notStarted: boolean } {
   try {
     const result = store.getByBriefId(briefId);
     if (hasStoreFailure(result.diagnostics)) {
       diagnostics.push({ code: 'checklist_unavailable', message: 'Field Readiness Checklist evidence is unavailable.' });
-      return undefined;
+      return { value: undefined, notStarted: false };
     }
     const checklist = result.checklists[0];
-    return checklist ? checklistInput(checklist) : undefined;
+    return { value: checklist ? checklistInput(checklist) : undefined, notStarted: !checklist && (result.status === 'missing' || result.status === 'loaded') };
   } catch {
     diagnostics.push({ code: 'checklist_unavailable', message: 'Field Readiness Checklist evidence is unavailable.' });
-    return undefined;
+    return { value: undefined, notStarted: false };
   }
 }
 
@@ -200,6 +205,19 @@ async function readLocation(reader: () => Promise<LocationTelemetry>, diagnostic
   } catch {
     diagnostics.push({ code: 'location_telemetry_unavailable', message: 'Current location telemetry is unavailable.' });
     return { status: 'unavailable', provenance: 'unavailable', source: SOURCE.localLocation };
+  }
+}
+
+async function readClock(reader: (() => Promise<ClockSynchronizationEvidence>) | undefined, diagnostics: OperationsReadinessDiagnostic[]): Promise<OperationsReadinessInput['clock']> {
+  if (!reader) return undefined;
+  try {
+    const value = await reader();
+    const status = value.status === 'Synchronized' ? 'synchronized' : value.status === 'NotSynchronized' ? 'not_synchronized' : value.status === 'Unavailable' ? 'unavailable' : value.status === 'Error' ? 'error' : 'unknown';
+    if (status === 'unavailable' || status === 'error') diagnostics.push({ code: 'location_telemetry_unavailable', message: value.attemptMessage ?? 'Clock synchronization evidence is unavailable.' });
+    return { status, source: { id: 'local-clock-telemetry', type: 'local_telemetry_pipe', name: 'Local clock synchronization telemetry' }, ...(value.gnssTime.timestampUtc ? { observedAtUtc: value.gnssTime.timestampUtc } : {}), lastSuccessfulSynchronizationUtc: value.lastSuccessfulSynchronizationUtc, offsetBeforeSynchronizationSeconds: value.offsetBeforeSynchronizationSeconds, currentOffsetSeconds: value.currentOffsetSeconds, message: value.attemptMessage };
+  } catch {
+    diagnostics.push({ code: 'location_telemetry_unavailable', message: 'Clock synchronization evidence is unavailable.' });
+    return { status: 'unavailable', source: { id: 'local-clock-telemetry', type: 'local_telemetry_pipe', name: 'Local clock synchronization telemetry' }, message: 'The FieldOps Agent is unavailable.' };
   }
 }
 
