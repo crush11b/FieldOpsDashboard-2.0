@@ -84,4 +84,26 @@ describe('ActivationFoundationPanel', () => {
     expect(screen.getByText('20m · FT8')).toBeTruthy();
     expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ signal: expect.any(AbortSignal) }));
   });
+
+  it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {
+    const status = { status: 'NotSynchronized', error: 'UnsafeOffset', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: -1.1, currentOffsetSeconds: null, attemptMessage: 'Windows time differs from fresh GNSS UTC evidence by -1.1 seconds.' };
+    const synchronized = { ...status, status: 'Synchronized', error: 'None', currentOffsetSeconds: 0, attemptMessage: 'Windows time was set from fresh GNSS UTC evidence.' };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/clock/synchronize')) return { ok: true, json: async () => synchronized };
+      if (String(input).includes('/api/clock/status')) return { ok: true, json: async () => status };
+      if (String(input).includes('/wsjtx/current')) return { ok: true, json: async () => ({ status: 'unavailable', state: null }) };
+      if (!init) return { ok: true, json: async () => ({ qsos: [] }) };
+      return { ok: true, json: async () => ({}) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('NOTSYNCHRONIZED')).toBeInTheDocument());
+    const synchronize = screen.getByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' });
+    expect(synchronize).toBeDisabled();
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirm Windows clock synchronization in Operate' }));
+    expect(synchronize).not.toBeDisabled();
+    fireEvent.click(synchronize);
+    await waitFor(() => expect(screen.getByText('READY')).toBeInTheDocument());
+    expect(fetcher).toHaveBeenCalledWith('/api/clock/synchronize', expect.objectContaining({ method: 'POST', body: '{"confirmed":true}' }));
+  });
 });

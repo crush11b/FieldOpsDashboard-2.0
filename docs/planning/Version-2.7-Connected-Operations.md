@@ -226,6 +226,15 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - Persistence is receive-only and local. The listener does not send WSJT-X commands, control CAT/PTT/radio state, infer contacts from decodes, or create an Activation. Persistence failures are contained so Status observation remains healthy.
 - Focused tests cover active persistence and field mapping, no-active/planned/completed gating, same-process and reconstructed-store duplicates, and legitimate distinct contacts. Remaining 2.7-04C work is field acceptance and operator-visible handling of rejected/duplicate events; 2.7-05 remains out of scope.
 
+### 2.7-04B CF-20 acceptance correction - 2026-08-27
+
+- Initial CF-20 retest failed: a completed WSJT-X QSO did not appear in the mounted FieldOps QSO Logger, and automatic Status-follow was reported as unreliable during band changes. FT8 timing was also observed at approximately `-0.8` to `-1.4` seconds before repeated Windows/GNSS synchronization.
+- Production-path tracing found that the listener handles Status and Logged QSO packets independently; a regression test proves `Status 20m -> Logged QSO -> Status 40m` leaves Current Station at `40m / FT8`. The initial failure therefore remains a field retest finding rather than evidence that the Logged QSO callback replaces Status state.
+- The concrete display defect was mount-only QSO loading. The QSO Logger now refreshes its existing local API view every two seconds, so a server-persisted WSJT-X QSO appears without a page reload. The complete parser -> active router -> file persistence -> Status integration regression passes.
+- Bounded diagnostics are available at `/api/wsjtx/diagnostics`; they report received packet count, accepted Status and Logged QSO counts, last Logged QSO time, and the bounded route result without retaining raw datagrams. This supports the next CF-20 retest distinction between receive, parse, route, persistence, and display.
+- OPERATE now includes a compact Current Clock / Time Sync control that reuses the existing explicit GNSS UTC -> Windows synchronization API and confirmation requirement. Unknown or unavailable GNSS evidence cannot enable synchronization, and no continuous clock steering was added.
+- 2.7-04B remains **not accepted** pending a fresh CF-20 retest. The timing observation does not establish that FieldOps caused clock drift. 2.7-04C and the broader 2.7-07 field gate remain open; 2.7-05 is not started.
+
 ---
 
 ## 2.7-05 - Live Band Activity
