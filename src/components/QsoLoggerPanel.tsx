@@ -3,17 +3,19 @@ import type { Activation } from '../../server/activation';
 import type { Qso } from '../../server/qso';
 import { createQso, deleteQso, importAdif, listQsos, updateQso } from '../qsoApi';
 import { AMATEUR_BAND_OPTIONS, getConventionalFrequencyMHz, OPERATING_MODE_OPTIONS } from '../qsoOperatingVocabulary';
+import { createManualCurrentStationState, type CurrentStationState } from '../currentStationState';
 
-interface Props { readonly activation: Activation; }
+interface Props { readonly activation: Activation; readonly onOperatingContextChange?: (state: CurrentStationState) => void; }
 type FrequencyOrigin = 'auto' | 'manual';
 type Form = { qsoDateTimeUtc: string; callsign: string; band: string; frequencyMHz: string; mode: string; rstSent: string; rstReceived: string; frequencyOrigin: FrequencyOrigin };
 const nowUtc = () => new Date().toISOString().slice(0, 19) + 'Z';
 const initialForm = (): Form => ({ qsoDateTimeUtc: nowUtc(), callsign: '', band: '20m', frequencyMHz: '', mode: 'SSB', rstSent: '', rstReceived: '', frequencyOrigin: 'auto' });
 const optionsWithValue = (options: readonly { readonly value: string; readonly label: string }[], value: string) => options.some(option => option.value === value) || !value ? options : [...options, { value, label: `${value} (imported)` }];
-export const QsoLoggerPanel: React.FC<Props> = ({ activation }) => {
+export const QsoLoggerPanel: React.FC<Props> = ({ activation, onOperatingContextChange }) => {
   const [form, setForm] = useState<Form>(initialForm); const [qsos, setQsos] = useState<Qso[]>([]); const [editing, setEditing] = useState<Qso | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
   const load = async () => { try { const result = await listQsos(activation.activationId); setQsos(result.qsos); if (result.error) setMessage(result.error); } catch { setMessage('QSOs could not be loaded.'); } };
   useEffect(() => { setForm(initialForm()); setEditing(null); setMessage(null); void load(); }, [activation.activationId]);
+  useEffect(() => { onOperatingContextChange?.(createManualCurrentStationState(form)); }, [form.band, form.frequencyMHz, form.mode, onOperatingContextChange]);
   const updateOperatingContext = (changes: Pick<Form, 'band' | 'mode'>) => setForm(previous => { const frequency = getConventionalFrequencyMHz(changes.band, changes.mode); return { ...previous, ...changes, frequencyMHz: frequency === undefined ? '' : String(frequency), frequencyOrigin: 'auto' }; });
   const changeFrequency = (frequencyMHz: string) => setForm(previous => ({ ...previous, frequencyMHz, frequencyOrigin: 'manual' }));
   const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setMessage(null); const { frequencyOrigin: _frequencyOrigin, ...values } = form; const input = { ...values, frequencyMHz: form.frequencyMHz ? Number(form.frequencyMHz) : undefined }; const result = editing ? await updateQso(activation.activationId, editing.qsoId, input) : await createQso(activation.activationId, input); if (result.kind === 'qso') { setQsos(current => editing ? current.map(qso => qso.qsoId === result.qso.qsoId ? result.qso : qso) : [result.qso, ...current]); setForm(previous => ({ ...previous, qsoDateTimeUtc: nowUtc(), callsign: '', rstSent: '', rstReceived: '' })); setEditing(null); } else setMessage(result.message); setBusy(false); };

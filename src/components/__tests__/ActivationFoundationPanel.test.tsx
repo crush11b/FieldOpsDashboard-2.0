@@ -45,4 +45,31 @@ describe('ActivationFoundationPanel', () => {
     fireEvent.click(screen.getByText('Technical Details'));
     expect(screen.getByText('activation-start')).toBeTruthy();
   });
+
+  it('shows manual current station state in OPERATE and clears it when activation ends', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/status')) return { ok: true, json: async () => ({ kind: 'activation', activation: { ...activeActivation, status: 'completed' } }) };
+      if (String(input).includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
+      return { ok: true, json: async () => ({ kind: 'activation', activation: { ...activeActivation, status: 'completed' } }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('20m · SSB')).toBeTruthy());
+    expect(screen.getByText('Source: Manual operating context · Status: Current')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'END ACTIVATION' }));
+    await waitFor(() => expect(screen.getByText('Current station state unavailable.')).toBeTruthy());
+  });
+
+  it('reconstructs current station state for a new Activation without leaking the prior context', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/qsos') ? { ok: true, json: async () => ({ qsos: [] }) } : { ok: true, json: async () => ({}) });
+    vi.stubGlobal('fetch', fetcher);
+    const { rerender } = render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('20m · SSB')).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.260' } });
+    expect(screen.getByText('14.26 MHz')).toBeTruthy();
+    const nextActivation = { ...activeActivation, activationId: 'activation-next' };
+    rerender(<ActivationFoundationPanel brief={brief} initialActivation={nextActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('20m · SSB')).toBeTruthy());
+    expect(screen.queryByText('14.26 MHz')).toBeNull();
+  });
 });

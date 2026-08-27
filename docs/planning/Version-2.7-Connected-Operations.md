@@ -1,6 +1,6 @@
 # Version 2.7 - Connected Operations
 
-- Status: Approved planning baseline; implementation not started
+- Status: Approved planning baseline; 2.7-01 accepted and 2.7-02 implemented
 - Baseline: Version 2.6.0 - Activation Operations
 - Supported deployment: single operator on one locally operated Windows field computer
 - Primary field target: ToughBook/ToughPad activation workflow
@@ -76,6 +76,13 @@ Version 2.6 proves durable manual QSO logging, but repeated free-form band/mode/
 - Manual override always wins.
 - Imported/exported QSO semantics and Version 2.6 duplicate identity remain correct.
 - No radio integration is required for the logger to remain fully usable.
+
+### Acceptance evidence - 2026-08-27
+
+- 2.7-01 was accepted after the CF-20 frequency-override correction; JS8 conventional-frequency defaults remain a non-blocking deferred enhancement.
+- 2.7-02 adds a bounded manual Current Station State contract and compact OPERATE presentation. It is Activation-scoped, reconstructs from the active QSO Logger context, and clears or becomes unavailable when the Activation is changed or completed.
+- Manual state uses `operatorUpdatedAtUtc` and `operator_set` freshness semantics. It does not claim radio, CAT, WSJT-X, hardware, or RF confirmation.
+- The contract remains frontend/domain-owned for this manual-only producer. Express remains the browser-facing integration owner for later WSJT-X source ingestion under ADR-006; no new API, runtime, persistence store, or integration transport was added.
 
 ### Explicit non-goals
 
