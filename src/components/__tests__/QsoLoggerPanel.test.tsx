@@ -19,4 +19,70 @@ describe('QsoLoggerPanel', () => {
     expect(screen.getByLabelText('CALLSIGN')).toHaveValue('');
     expect(fetchMock).toHaveBeenLastCalledWith('/api/activations/activation-1/qsos', expect.objectContaining({ method: 'POST' }));
   });
+
+  it('uses editable digital defaults, clears unsupported auto defaults, and preserves manual overrides', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('BAND')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'SSB' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.123' } });
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'SSB' } });
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.123);
+  });
+
+  it('retains operating context after logging and resets contact fields', async () => {
+    const created = { ...qso, band: '40m', frequencyMHz: 7.074, mode: 'FT8', rstSent: '-10', rstReceived: '-12' };
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso: created }), { status: 201 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('CALLSIGN')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('BAND'), { target: { value: '40m' } });
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    fireEvent.change(screen.getByLabelText('CALLSIGN'), { target: { value: 'w1aw' } });
+    fireEvent.click(screen.getByRole('button', { name: 'LOG QSO' }));
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/activations/activation-1/qsos', expect.objectContaining({ method: 'POST' })));
+    expect(screen.getByLabelText('BAND')).toHaveValue('40m');
+    expect(screen.getByLabelText('MODE')).toHaveValue('FT8');
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(7.074);
+    expect(screen.getByLabelText('CALLSIGN')).toHaveValue('');
+    expect(screen.getByLabelText('RST SENT')).toHaveValue('');
+    expect(screen.getByLabelText('RST RECEIVED')).toHaveValue('');
+  });
+
+  it('keeps an imported noncanonical mode and band editable without replacing it', async () => {
+    const imported = { ...qso, band: '4m', mode: 'DIGITALVOICE', source: 'adif_import' };
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+      if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [imported] }), { status: 200 });
+      return new Response(JSON.stringify({ kind: 'qso', status: 'updated', qso: imported }), { status: 200 });
+    });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByText('DIGITALVOICE')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'EDIT' }));
+    expect(screen.getByLabelText('BAND')).toHaveValue('4m');
+    expect(screen.getByLabelText('MODE')).toHaveValue('DIGITALVOICE');
+    expect(screen.getByLabelText('BAND')).toHaveTextContent('4m (imported)');
+    expect(screen.getByLabelText('MODE')).toHaveTextContent('DIGITALVOICE (imported)');
+  });
+
+  it('clears transient form state when the active Activation changes', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }));
+    const { rerender } = render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('CALLSIGN')).toBeInTheDocument());
+    fireEvent.change(screen.getByLabelText('BAND'), { target: { value: '40m' } });
+    fireEvent.change(screen.getByLabelText('CALLSIGN'), { target: { value: 'W1AW' } });
+    rerender(<QsoLoggerPanel activation={{ ...activation, activationId: 'activation-2' }} />);
+    await waitFor(() => expect(screen.getByLabelText('CALLSIGN')).toHaveValue(''));
+    expect(screen.getByLabelText('BAND')).toHaveValue('20m');
+    expect(screen.getByLabelText('MODE')).toHaveValue('SSB');
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
+  });
 });

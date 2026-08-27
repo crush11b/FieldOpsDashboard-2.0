@@ -59,6 +59,15 @@ function fillRequiredFields(program: 'POTA' | 'SOTA' = 'POTA', reference = progr
 afterEach(() => vi.unstubAllGlobals());
 
 describe('SmartDeploy planner', () => {
+  it('marks Radio as required and explains its planning purpose', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
+      ? { ok: true, json: async () => ({ briefs: [] }) }
+      : { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) }));
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    expect(screen.getByLabelText('Radio')).toBeRequired();
+    expect(screen.getByText(/planning brief records the station equipment/i)).toBeTruthy();
+  });
+
   it('renders the operator form with a modern POTA example and current location', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ briefs: [] }) })));
     render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
