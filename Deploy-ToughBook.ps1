@@ -17,6 +17,7 @@ $deploymentManifestPath = Join-Path $InstallPath 'deployment-manifest.json'
 $nativeInstallRoot = Join-Path $env:ProgramFiles 'FieldOpsDashboard'
 $agentInstallPath = Join-Path $nativeInstallRoot 'Agent\FieldOps.Agent.exe'
 $trayInstallPath = Join-Path $nativeInstallRoot 'Tray\FieldOps.Tray.exe'
+$runtimeReadinessModule = Join-Path $repoRoot 'scripts\FieldOps.RuntimeReadiness.psm1'
 $operationId = [Guid]::NewGuid().ToString('N')
 $publishRoot = Join-Path ([IO.Path]::GetTempPath()) "fieldops-deploy-$operationId"
 
@@ -79,34 +80,25 @@ function Assert-DeploymentParity {
     Assert-Revision 'installed Tray' (Get-EmbeddedRevision $trayInstallPath 'Tray') $ExpectedRevision
 }
 
-function Assert-DashboardParity {
-    param([Parameter(Mandatory = $true)][string]$ExpectedRevision)
-    $node = Get-Command node.exe -ErrorAction SilentlyContinue
-    if ($null -eq $node) { $node = Get-Command node -ErrorAction SilentlyContinue }
-    if ($null -eq $node) { throw 'Node.js executable was not found on PATH for Dashboard parity validation.' }
-    $serverPath = Join-Path $InstallPath 'dist\server.cjs'
-    $dashboardProcess = $null
+function Stop-InstalledDashboard {
+    Import-Module $runtimeReadinessModule -Force
+    $processes = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $InstallPath -ProcessProvider { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue })
+    foreach ($process in $processes) {
+        Stop-Process -Id ([int]$process.ProcessId) -Force -ErrorAction Stop
+    }
+    $deadline = [DateTime]::UtcNow.AddSeconds(15)
+    do {
+        $remaining = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $InstallPath -ProcessProvider { Get-CimInstance Win32_Process -ErrorAction SilentlyContinue })
+        if ($remaining.Count -eq 0) { break }
+        if ([DateTime]::UtcNow -ge $deadline) { throw "Installed FieldOps Dashboard process did not stop: PID(s) $($remaining.ProcessId -join ', ')." }
+        Start-Sleep -Milliseconds 100
+    } while ($true)
     try {
-        $dashboardProcess = Start-Process -FilePath $node.Source -ArgumentList @($serverPath) -WorkingDirectory $InstallPath -PassThru -WindowStyle Hidden
-        $deadline = [DateTime]::UtcNow.AddSeconds(30)
-        do {
-            try {
-                $response = Invoke-WebRequest -Uri 'http://127.0.0.1:3000/api/version' -UseBasicParsing -TimeoutSec 2
-                if ([int]$response.StatusCode -ge 200 -and [int]$response.StatusCode -lt 300) {
-                    $version = $response.Content | ConvertFrom-Json
-                    Assert-Revision 'Dashboard /api/version sourceRevision' ([string]$version.sourceRevision) $ExpectedRevision
-                    Assert-Revision 'Dashboard /api/version nativeRevision' ([string]$version.nativeRevision) $ExpectedRevision
-                    return
-                }
-            } catch { }
-            if ($dashboardProcess.HasExited) { throw "Dashboard parity process exited with code $($dashboardProcess.ExitCode) before /api/version returned the deployed identity." }
-            Start-Sleep -Milliseconds 250
-        } while ([DateTime]::UtcNow -lt $deadline)
-        throw 'Dashboard /api/version did not prove revision parity within 30 seconds.'
-    } finally {
-        if ($null -ne $dashboardProcess -and -not $dashboardProcess.HasExited) {
-            Stop-Process -Id $dashboardProcess.Id -Force -ErrorAction SilentlyContinue
-        }
+        $listener = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue
+        if ($null -ne $listener) { throw "Port 3000 is still owned by PID $($listener.OwningProcess -join ', '). Refusing to terminate an unverified process." }
+    } catch [System.Management.Automation.CommandNotFoundException] {
+        $portOutput = netstat.exe -ano -p tcp | Select-String ':3000\s+.*LISTENING'
+        if ($portOutput) { throw 'Port 3000 is still listening after the installed Dashboard process stopped. Refusing to terminate an unverified process.' }
     }
 }
 
@@ -133,6 +125,7 @@ Assert-Revision 'published Tray' (Get-EmbeddedRevision (Join-Path $trayPublish '
 Write-Host '[OK] Agent and Tray published.' -ForegroundColor Green
 
 Write-Host '[2/6] Updating dashboard source...' -ForegroundColor Cyan
+Stop-InstalledDashboard
 New-Item -ItemType Directory -Path $InstallPath -Force | Out-Null
 & robocopy.exe $repoRoot $InstallPath /E /XD '.git' 'node_modules' 'dist' 'bin' 'obj' 'artifacts' /XF '.env' '.env.*' /R:1 /W:1 /COPY:DAT /NFL /NDL /NJH /NJS /NP | Out-Null
 if ($LASTEXITCODE -gt 7) { throw "Dashboard source copy failed with exit code $LASTEXITCODE." }
@@ -165,7 +158,15 @@ $deploymentManifest = [ordered]@{
 if ([string]$deploymentManifest.informationalVersion -ne $expectedInformationalVersion) { throw "Published informational version '$($deploymentManifest.informationalVersion)' does not equal expected '$expectedInformationalVersion'." }
 [IO.File]::WriteAllText($deploymentManifestPath, ($deploymentManifest | ConvertTo-Json -Depth 3) + [Environment]::NewLine, [Text.UTF8Encoding]::new($false))
 Assert-DeploymentParity -ExpectedRevision $expectedRevision -ExpectedInformationalVersion $expectedInformationalVersion
-Assert-DashboardParity -ExpectedRevision $expectedRevision
+
+$bundlePath = Join-Path $InstallPath 'dist\server.cjs'
+$expectedBundleSha256 = (Get-FileHash -LiteralPath $bundlePath -Algorithm SHA256).Hash.ToLowerInvariant()
+Write-Host '[6/6] Starting and verifying the deployed Dashboard backend...' -ForegroundColor Cyan
+Import-Module $runtimeReadinessModule -Force
+Start-FieldOpsDashboardProcess -DashboardRoot $InstallPath | Out-Null
+$dashboardReadiness = Test-FieldOpsDashboardReadiness -DashboardRoot $InstallPath -ExpectedRevision $expectedRevision -ExpectedBundleSha256 $expectedBundleSha256
+if ($dashboardReadiness.Status -ne 'Passed') { throw "Dashboard runtime restoration failed: $($dashboardReadiness.Detail)" }
+Write-Host '[OK] Revision parity and deployed Dashboard runtime identity proven.' -ForegroundColor Green
 
 Write-Host '[OK] Revision parity proven across repository, manifest, Dashboard, Agent, and Tray.' -ForegroundColor Green
 Import-Module $operatorResolutionModule -Force
@@ -193,7 +194,7 @@ Write-Host '✓ Tray running/restored' -ForegroundColor Green
 Write-Host '✓ Source updated' -ForegroundColor Green
 Write-Host '✓ Agent installed' -ForegroundColor Green
 Write-Host '✓ Dashboard built' -ForegroundColor Green
-Write-Host "Ready to launch: Set-Location '$InstallPath'; npm start" -ForegroundColor Green
+Write-Host '[OK] Dashboard backend running automatically on port 3000' -ForegroundColor Green
 Write-Host 'Development helper only. Production updating remains a separate workflow.' -ForegroundColor Yellow
 } finally {
     if (Test-Path -LiteralPath $publishRoot) { Remove-Item -LiteralPath $publishRoot -Recurse -Force -ErrorAction SilentlyContinue }

@@ -1,6 +1,7 @@
 import express from "express";
 import path from "path";
 import fs from "fs";
+import crypto from "node:crypto";
 import { execFile, execSync } from "child_process";
 import { promisify } from "node:util";
 import JSZip from "jszip";
@@ -71,6 +72,14 @@ async function startServer() {
   const app = express();
   const PORT = 3000;
   const distPath = path.join(process.cwd(), 'dist');
+  const runtimeBundleSha256 = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex');
+  const deploymentManifestPath = path.join(process.cwd(), 'deployment-manifest.json');
+  let runtimeDeploymentIdentity: { sourceRevision?: string; nativeRevision?: string; informationalVersion?: string; deployedAtUtc?: string } = {};
+  try {
+    runtimeDeploymentIdentity = JSON.parse(fs.readFileSync(deploymentManifestPath, 'utf8').replace(/^\uFEFF/, ''));
+  } catch {
+    console.warn('Deployment identity is unavailable at Dashboard startup.');
+  }
 
   const telemetryCredentialPath = getDefaultTelemetryCredentialPath();
   const telemetryCredentialRepository = telemetryCredentialPath
@@ -184,13 +193,11 @@ async function startServer() {
     res.json({ ...observedRfService.getSnapshot(), diagnostics: observedRfService.getDiagnostics() });
   });
   app.get('/api/version', (_req, res) => {
-    const manifestPath = path.join(process.cwd(), 'deployment-manifest.json');
-    try {
-      const manifest = JSON.parse(fs.readFileSync(manifestPath, 'utf8').replace(/^\uFEFF/, ''));
-      res.json({ sourceRevision: manifest.sourceRevision, nativeRevision: manifest.nativeRevision, informationalVersion: manifest.informationalVersion });
-    } catch {
+    if (!runtimeDeploymentIdentity.sourceRevision || !runtimeDeploymentIdentity.nativeRevision || !runtimeDeploymentIdentity.informationalVersion) {
       res.status(503).json({ error: 'Deployment identity is unavailable.' });
+      return;
     }
+    res.json({ ...runtimeDeploymentIdentity, runtimeBundleSha256 });
   });
 
   // Server-side Gemini AI setup

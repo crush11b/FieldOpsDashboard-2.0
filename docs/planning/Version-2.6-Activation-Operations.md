@@ -68,11 +68,17 @@ The development ToughBook helper now resolves one canonical 40-character revisio
 
 Deployment success is gated on parity between repository `HEAD`, the native artifact manifest, installed Agent and Tray informational revisions, deployment-manifest `sourceRevision`/`nativeRevision`, and the live Dashboard `/api/version` response. Any missing or mismatched identity fails the helper with expected and observed revisions; the six green summary is unreachable until all checks pass. The helper does not perform a ToughBook deployment automatically. Interactive Tray startup restoration remains a separate field-acceptance concern unless the operator's deployment run demonstrates otherwise through the existing runtime checks.
 
+### Dashboard runtime restoration correction
+
+The development deployment previously validated a temporary Dashboard process and then terminated it, leaving an older port-3000 process alive. Because the old process reread the replaced deployment manifest, metadata parity could pass while server-side behavior remained stale. `Deploy-ToughBook.ps1` now discovers only processes whose command line targets the installed `dist\\server.cjs`, stops those owned processes, verifies port 3000 is released, starts the actual deployed bundle directly with Node, and waits for Dashboard readiness before success.
+
+The Dashboard captures its deployment manifest and SHA-256 of the running server bundle at process startup. `/api/version` exposes that immutable runtime identity, and deployment compares it with the newly built `dist\\server.cjs`; an old in-memory server therefore cannot satisfy the gate. Tray restoration follows backend startup, so the restored interactive Tray opens the current Dashboard. No manual `npm start` command is required.
+
 ## Operator-facing phase contract
 
 The default workspace answers the question for the current phase: **PLAN** describes the destination, timing, station, retained outlook, and modeled guidance before departure; **PREPARE** is a compact summit preflight for location, clock, power, conditions, station, checklist, and the next action; **OPERATE** starts the durable Activation, keeps the QSO Logger primary, and retains quick Activation Notes until **END ACTIVATION**; **REVIEW** is the after-action summary available after completion. Technical Details and Evidence Details retain UUIDs, provider states, provenance, timestamps, limitations, diagnostics, and source vocabulary without making them the normal operating surface.
 
-The following remain separate Version 2.6 closure defects and are not hidden by this UX correction: successful deployment still requires follow-up validation for restoring the interactive Tray and CF-20 power telemetry may report `Unknown / Unknown` and requires separate diagnosis. Clock readiness now remains unknown after Agent restart/deployment/reboot until fresh GNSS comparison evidence exists. The UI continues to report these states honestly.
+The following remain separate Version 2.6 closure defects and are not hidden by this UX correction: CF-20 power telemetry may report `Unknown / Unknown` and requires separate diagnosis. Clock readiness now remains unknown after Agent restart/deployment/reboot until fresh GNSS comparison evidence exists. The UI continues to report these states honestly.
 
 ### Tray lifecycle closure correction
 
