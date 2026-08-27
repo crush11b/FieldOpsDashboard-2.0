@@ -22,4 +22,12 @@ describe('CurrentStationStatePanel', () => {
     const view = render(<CurrentStationStatePanel activation={{ status: 'completed' } as any} state={state} />);
     expect(view.getByText('Current station state unavailable.')).toBeInTheDocument();
   });
+
+  it('prefers fresh WSJT-X state while accepting manual state as fallback input', () => {
+    render(<CurrentStationStatePanel activation={activation} state={{ ...state, mode: 'SSB', frequencyMHz: 14.26 }} wsjtxState={{ ...state, source: 'wsjtx', mode: 'FT8', frequencyMHz: 14.074, freshness: 'fresh', observedAtUtc: state.operatorUpdatedAtUtc, operatorUpdatedAtUtc: undefined, limitation: 'WSJT-X application status; not CAT, direct radio, or RF confirmation.' }} />);
+    expect(screen.getByText('20m · FT8')).toBeInTheDocument();
+    expect(screen.getByText('14.074 MHz')).toBeInTheDocument();
+    expect(screen.getByText('Source: WSJT-X · Live / fresh')).toBeInTheDocument();
+    expect(screen.queryByText('14.26 MHz')).toBeNull();
+  });
 });

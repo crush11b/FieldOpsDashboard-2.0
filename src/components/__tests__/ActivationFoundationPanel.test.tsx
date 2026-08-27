@@ -72,4 +72,16 @@ describe('ActivationFoundationPanel', () => {
     await waitFor(() => expect(screen.getByText('20m · SSB')).toBeTruthy());
     expect(screen.queryByText('14.26 MHz')).toBeNull();
   });
+
+  it('prefers fresh WSJT-X state in the production OPERATE path', async () => {
+    const wsjtxState = { band: '20m', frequencyMHz: 14.074, mode: 'FT8', source: 'wsjtx', observedAtUtc: '2026-08-27T12:00:00.000Z', freshness: 'fresh', status: 'available', limitation: 'WSJT-X application status; not CAT, direct radio, or RF confirmation.' };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/wsjtx/current')
+      ? { ok: true, json: async () => ({ status: 'available', state: wsjtxState }) }
+      : { ok: true, json: async () => ({ qsos: [] }) });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('Source: WSJT-X · Live / fresh')).toBeTruthy());
+    expect(screen.getByText('20m · FT8')).toBeTruthy();
+    expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ signal: expect.any(AbortSignal) }));
+  });
 });

@@ -125,6 +125,16 @@ Initial source vocabulary should be no broader than real 2.7 consumers require. 
 - Manual logger context and observed software state may coexist; source precedence must be explicit rather than accidental.
 - The contract must not claim radio control or direct hardware truth when the evidence comes only from an application such as WSJT-X.
 
+### Implementation evidence - 2026-08-27
+
+- 2.7-02 CF-20 acceptance is complete. Manual state remains Activation-scoped and is preserved as fallback context.
+- 2.7-03 implements the bounded WSJT-X Status-message subset behind the Express backend. The browser polls a same-origin read route; it does not listen for UDP and no Agent/runtime/service was added.
+- The listener targets the normal local WSJT-X UDP arrangement: `127.0.0.1:2237`. It is idempotently initialized once, tolerates WSJT-X absence, ignores malformed/unknown packets, and exposes unavailable state until a valid Status message arrives.
+- Status observations are fresh for 10 seconds. This allows short packet gaps while preventing indefinite live presentation; older observations are returned as stale. The threshold is a bounded operational choice for periodic local Status traffic, not a claim about RF activity.
+- Fresh WSJT-X state takes precedence during an ACTIVE Activation. Stale/unavailable WSJT-X state does not erase manual context, which is then presented when meaningful. Non-active Activations suppress current station presentation.
+- Supported protocol fields are the WSJT-X header, client ID, dial frequency, and mode. Frequency is preserved in MHz, bands are conservatively derived from the shared amateur-band vocabulary, and unknown modes/bands remain source-faithful rather than being relabeled.
+- WSJT-X state means application-reported operating context only; it is not CAT, direct radio, transmit, or RF confirmation. CAT, Hamlib, rigctld, QSO automation, PSKReporter, and later integrations remain deferred.
+
 ### Acceptance
 
 - OPERATE can consume a single source-aware station-state representation without knowing WSJT-X protocol details.

@@ -1,7 +1,7 @@
-export const CURRENT_STATION_SOURCES = ['manual'] as const;
+export const CURRENT_STATION_SOURCES = ['manual', 'wsjtx'] as const;
 export type CurrentStationSource = (typeof CURRENT_STATION_SOURCES)[number];
 
-export const CURRENT_STATION_STATUSES = ['available', 'unavailable', 'unknown'] as const;
+export const CURRENT_STATION_STATUSES = ['available', 'unavailable', 'unknown', 'stale'] as const;
 export type CurrentStationStatus = (typeof CURRENT_STATION_STATUSES)[number];
 
 export interface CurrentStationState {
@@ -10,8 +10,9 @@ export interface CurrentStationState {
   readonly mode: string;
   readonly submode?: string;
   readonly source: CurrentStationSource;
-  readonly operatorUpdatedAtUtc: string;
-  readonly freshness: 'operator_set';
+  readonly operatorUpdatedAtUtc?: string;
+  readonly observedAtUtc?: string;
+  readonly freshness: 'operator_set' | 'fresh' | 'stale';
   readonly status: CurrentStationStatus;
   readonly limitation: string;
 }

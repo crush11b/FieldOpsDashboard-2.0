@@ -64,6 +64,8 @@ import { enrichOperationsReadinessWeather } from './server/operationsReadinessWe
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
 import { getDashboardRuntimeMode } from './server/runtimeMode';
+import { WsjtxListener } from './server/wsjtx';
+import { createWsjtxRouter } from './server/wsjtxApi';
 
 const execFileAsync = promisify(execFile);
 const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['scripts/p533-assets.mjs', '--verify-only'], { cwd: process.cwd() }); return { files: 27 }; };
@@ -124,6 +126,9 @@ async function startServer() {
   const missionForecastStore = new MissionForecastStore(getDefaultMissionForecastPath());
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
+  const wsjtxListener = new WsjtxListener();
+  wsjtxListener.start();
+  app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
