@@ -66,7 +66,7 @@ const WsjtxDiagnosticsPanel: React.FC = () => {
   const [diagnostics, setDiagnostics] = useState<WsjtxDiagnostics | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const refresh = async () => { try { const result = await getWsjtxDiagnostics(); if (!cancelled) setDiagnostics(result); } catch { if (!cancelled) setDiagnostics(null); } };
+    const refresh = async () => { try { const result = await getWsjtxDiagnostics(); if (!cancelled) setDiagnostics(result); } catch { } };
     void refresh();
     const timer = window.setInterval(() => void refresh(), 2000);
     return () => { cancelled = true; window.clearInterval(timer); };

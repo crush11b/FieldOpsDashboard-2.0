@@ -106,6 +106,17 @@ describe('WSJT-X protocol and listener', () => {
     expect(listener.getDiagnostics()).toMatchObject({ packetsReceived: 3, statusPacketsAccepted: 2, loggedQsoPacketsAccepted: 1, lastLoggedQsoResult: 'received' });
   });
 
+  it('accumulates diagnostics across Status band and mode transitions', () => {
+    const listener = new WsjtxListener({ now: clock('2026-08-27T12:00:00.000Z') });
+    listener.handlePacket(statusPacket(14_074_000, 'FT8'));
+    expect(listener.getDiagnostics()).toMatchObject({ packetsReceived: 1, statusPacketsAccepted: 1 });
+
+    listener.handlePacket(statusPacket(7_074_000, 'FT4'));
+
+    expect(listener.getDiagnostics()).toMatchObject({ packetsReceived: 2, statusPacketsAccepted: 2 });
+    expect(listener.getSnapshot()).toMatchObject({ state: { band: '40m', frequencyMHz: 7.074, mode: 'FT4' } });
+  });
+
   it('completes the active digital path with one persisted real-wire QSO', async () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-integration-'));
     directories.push(directory);

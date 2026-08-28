@@ -119,6 +119,41 @@ describe('ActivationFoundationPanel', () => {
     expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/diagnostics', expect.objectContaining({ cache: 'no-store' }));
   });
 
+  it('retains diagnostics across a failed poll and updates after recovery without remounting', async () => {
+    vi.useFakeTimers();
+    const firstDiagnostics = { packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
+    const recoveredDiagnostics = { ...firstDiagnostics, packetsReceived: 7, statusPacketsAccepted: 4 };
+    let diagnosticsPoll = 0;
+    let stationPoll = 0;
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/wsjtx/diagnostics')) {
+        diagnosticsPoll += 1;
+        if (diagnosticsPoll === 2) return { ok: false, json: async () => ({}) };
+        return { ok: true, json: async () => diagnosticsPoll === 1 ? firstDiagnostics : recoveredDiagnostics };
+      }
+      if (String(input).includes('/api/wsjtx/current')) {
+        stationPoll += 1;
+        const state = stationPoll === 1 ? { band: '20m', frequencyMHz: 14.074, mode: 'FT8' } : { band: '40m', frequencyMHz: 7.074, mode: 'FT4' };
+        return { ok: true, json: async () => ({ status: 'available', state: { ...state, source: 'wsjtx', observedAtUtc: '2026-08-27T12:00:00.000Z', freshness: 'fresh', status: 'available', limitation: 'WSJT-X application status' } }) };
+      }
+      return { ok: true, json: async () => ({ qsos: [] }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(screen.getByText('WSJT-X DIAGNOSTICS'));
+    expect(screen.getByText('4')).toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+    expect(screen.getByText('40m · FT4')).toBeInTheDocument();
+    expect(screen.getByText('4')).toBeInTheDocument();
+
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(screen.getByText('7')).toBeInTheDocument();
+    expect(screen.getByText('40m · FT4')).toBeInTheDocument();
+    expect(diagnosticsPoll).toBeGreaterThanOrEqual(3);
+  });
+
   it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {
     const status = { status: 'NotSynchronized', error: 'UnsafeOffset', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: -1.1, currentOffsetSeconds: null, attemptMessage: 'Windows time differs from fresh GNSS UTC evidence by -1.1 seconds.' };
     const synchronized = { ...status, status: 'Synchronized', error: 'None', currentOffsetSeconds: 0, attemptMessage: 'Windows time was set from fresh GNSS UTC evidence.' };
