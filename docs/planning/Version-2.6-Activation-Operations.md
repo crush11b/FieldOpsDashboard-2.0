@@ -74,6 +74,8 @@ The 2.7-04 hardware-acceptance workflow now includes a collapsed, read-only `GNS
 
 CF-20 regression note: after deploying `51ff525ee26972bf6b67bbb4389a496b21833016`, general GPS telemetry was observed as `UNAVAILABLE` after the GNSS time-evidence hardening lineage. The correction treats this as a regression pending field confirmation and restores the explicit contract that valid position/fix telemetry remains available when GNSS time evidence is untrusted, while clock synchronization remains blocked. Position status and GNSS time trust must be reported independently.
 
+Passive clock readiness now records the actual read-only comparison evidence: receipt age, projected GNSS UTC, Windows UTC used for comparison, calculated offset, and operation timing. It reports `Synchronized` only when the trusted GNSS evidence is fresh and the measured offset is within the verification tolerance; if the Windows comparison cannot be established, readiness remains `Unknown` and no comparison values are fabricated.
+
 ## Deployment revision parity correction
 
 The development ToughBook helper now resolves one canonical 40-character revision from the checked-out repository `HEAD` and requires a clean worktree before copying source. Native Agent and Tray publication is performed into an isolated temporary output outside the repository, so ignored or stale `agent\\artifacts\\publish\\win-x64` content cannot be reused. The generated deployment manifest is written into the installed Dashboard from that same published artifact identity.

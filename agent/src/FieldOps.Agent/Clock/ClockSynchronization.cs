@@ -82,14 +82,29 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
     public ClockSynchronizationEvidence GetEvidence() { lock (gate) return evidence; }
     public async Task<ClockSynchronizationEvidence> VerifyAsync(CancellationToken cancellationToken)
     {
+        var startedUtc = DateTimeOffset.UtcNow;
+        var startedMonotonic = clock.GetMonotonicTimestamp();
         var gnss = await location.AcquireTimeAsync(cancellationToken);
-        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable."));
-        var comparedAt = clock.GetUtcNow();
-        var projected = gnss.ReceivedAtMonotonicTimestamp == 0 ? gnss.TimestampUtc.Value : gnss.TimestampUtc.Value + Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp);
-        var offset = (projected - comparedAt).TotalSeconds;
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(Finish(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable."), startedUtc, startedMonotonic) with { AttemptCount = 0 });
+        DateTimeOffset comparedAt;
+        DateTimeOffset projected;
+        double? evidenceAge;
+        double offset;
+        try
+        {
+            comparedAt = clock.GetUtcNow();
+            projected = gnss.ReceivedAtMonotonicTimestamp == 0 ? gnss.TimestampUtc.Value : gnss.TimestampUtc.Value + Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp);
+            evidenceAge = gnss.ReceivedAtMonotonicTimestamp == 0 ? (double?)null : Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp).TotalMilliseconds;
+            offset = (projected - comparedAt).TotalSeconds;
+        }
+        catch (Exception ex)
+        {
+            var message = $"Windows UTC comparison was unavailable: {ex.Message}";
+            return Set(Finish(new(ClockSynchronizationStatus.Unknown, ClockSynchronizationError.VerificationFailed, gnss, lastSuccess, null, null, message), startedUtc, startedMonotonic) with { AttemptCount = 0 });
+        }
         var synchronized = Math.Abs(offset) <= MaximumVerificationOffsetSeconds;
         if (synchronized) lock (gate) lastGoodVerificationMonotonicTimestamp = clock.GetMonotonicTimestamp();
-        return Set(new(synchronized ? ClockSynchronizationStatus.Synchronized : ClockSynchronizationStatus.NotSynchronized, synchronized ? ClockSynchronizationError.None : ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, null, offset, synchronized ? "Windows time currently agrees with fresh GNSS UTC evidence." : $"Windows time differs from fresh GNSS UTC evidence by {offset:F1} seconds."));
+        return Set(Finish(new(synchronized ? ClockSynchronizationStatus.Synchronized : ClockSynchronizationStatus.NotSynchronized, synchronized ? ClockSynchronizationError.None : ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, null, offset, synchronized ? "Windows time currently agrees with fresh GNSS UTC evidence." : $"Windows time differs from fresh GNSS UTC evidence by {offset:F1} seconds."), startedUtc, startedMonotonic, projected, comparedAt, evidenceAge) with { AttemptCount = 0 });
     }
     public async Task<ClockSynchronizationEvidence> SynchronizeAsync(bool confirmed, CancellationToken cancellationToken)
     {
