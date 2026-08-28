@@ -118,7 +118,9 @@ describe('ActivationFoundationPanel', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: 'Confirm Windows clock synchronization in Operate' }));
     expect(synchronize).not.toBeDisabled();
     fireEvent.click(synchronize);
-    await waitFor(() => expect(screen.getByText('READY')).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByText('LAST SYNCHRONIZATION ATTEMPT')).toBeInTheDocument());
+    expect(screen.getByText('NO CHANGE / ALREADY SYNCHRONIZED')).toBeInTheDocument();
+    expect(screen.getByText('NOTSYNCHRONIZED')).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledWith('/api/clock/synchronize', expect.objectContaining({ method: 'POST', body: '{"confirmed":true}' }));
   });
 

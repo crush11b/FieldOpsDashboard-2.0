@@ -21,7 +21,7 @@ public sealed class ClockSynchronizationTests
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
         var unsafeResult = await new GpsClockSynchronizer(new FakeLocation(Coherent(clock.UtcNow.AddMinutes(6))), clock).SynchronizeAsync(true, CancellationToken.None);
         var unavailableResult = await new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Unavailable, null, "RMC")), clock).SynchronizeAsync(true, CancellationToken.None);
-        Assert.Equal(ClockSynchronizationError.UnsafeOffset, unsafeResult.Error); Assert.Equal(ClockSynchronizationError.GnssUnavailable, unavailableResult.Error); Assert.Null(clock.SetValue);
+        Assert.Equal(ClockSynchronizationError.UnsafeOffset, unsafeResult.Error); Assert.Equal(ClockSynchronizationError.GnssUnavailable, unavailableResult.Error); Assert.Equal(0, unsafeResult.AttemptCount); Assert.Equal(0, unavailableResult.AttemptCount); Assert.Null(clock.SetValue);
     }
 
     [Fact]
