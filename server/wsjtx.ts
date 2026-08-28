@@ -28,7 +28,9 @@ export interface WsjtxDiagnostics {
   readonly lastPacketReceivedAtUtc: string | null;
   readonly statusPacketsAccepted: number;
   readonly lastStatusParsedAtUtc: string | null;
+  readonly lastStatusStateUpdatedAtUtc: string | null;
   readonly loggedQsoPacketsAccepted: number;
+  readonly loggedQsoParseFailures: number;
   readonly lastLoggedQsoAtUtc: string | null;
   readonly lastLoggedQsoResult: string | null;
 }
@@ -109,7 +111,9 @@ export class WsjtxListener {
   private lastPacketReceivedAtUtc: string | null = null;
   private statusPacketsAccepted = 0;
   private lastStatusParsedAtUtc: string | null = null;
+  private lastStatusStateUpdatedAtUtc: string | null = null;
   private loggedQsoPacketsAccepted = 0;
+  private loggedQsoParseFailures = 0;
   private lastLoggedQsoAtUtc: string | null = null;
   private lastLoggedQsoResult: string | null = null;
   constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
@@ -128,16 +132,19 @@ export class WsjtxListener {
     const receivedAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
     this.lastPacketReceivedAtUtc = receivedAtUtc;
     const observation = parseWsjtxStatusPacket(packet, this.options.now);
-    if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastStatusParsedAtUtc = observation.receivedAtUtc; this.lastError = null; }
+    if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastStatusParsedAtUtc = observation.receivedAtUtc; this.lastStatusStateUpdatedAtUtc = observation.receivedAtUtc; this.lastError = null; }
     const loggedQso = parseWsjtxLoggedQsoPacket(packet);
     if (loggedQso) {
       this.loggedQsoPacketsAccepted += 1;
       this.lastLoggedQsoAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
       setImmediate(() => { try { const result = this.options.onLoggedQso?.(loggedQso); this.lastLoggedQsoResult = typeof result === 'string' ? result : 'received'; } catch { this.lastLoggedQsoResult = 'handler_error'; } });
+    } else if (isLoggedQsoPacket(packet)) {
+      this.loggedQsoParseFailures += 1;
+      this.lastLoggedQsoResult = 'parse_failed';
     }
   }
 
-  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult }; }
+  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult }; }
 
   stop(): void { this.socket?.close(); this.socket = null; }
 
@@ -177,4 +184,10 @@ export interface WsjtxLoggedQsoCandidate {
   readonly stationCallsign?: string;
   readonly myGridSquare?: string;
   readonly source: 'wsjtx';
+}
+
+function isLoggedQsoPacket(packet: Uint8Array): boolean {
+  if (packet.length < 12) return false;
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  return view.getUint32(0) === WSJTX_MAGIC && WSJTX_SUPPORTED_SCHEMAS.has(view.getUint32(4)) && view.getUint32(8) === WSJTX_QSO_LOGGED_MESSAGE;
 }

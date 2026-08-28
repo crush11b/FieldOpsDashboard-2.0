@@ -68,6 +68,12 @@ describe('WSJT-X protocol and listener', () => {
     const invalidLoggedUtf8 = loggedQsoPacket(); invalidLoggedUtf8[39] = 0xff; expect(parseWsjtxLoggedQsoPacket(invalidLoggedUtf8)).toBeNull();
   });
 
+  it('reports a bounded parse failure for a recognized but malformed Logged QSO packet', () => {
+    const listener = new WsjtxListener({ now: clock('2026-08-27T12:00:00.000Z') });
+    listener.handlePacket(loggedQsoPacket().subarray(0, -1));
+    expect(listener.getDiagnostics()).toMatchObject({ loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 1, lastLoggedQsoResult: 'parse_failed' });
+  });
+
   it('reports unavailable, fresh, and stale snapshots', () => {
     const now = new Date('2026-08-27T12:00:00.000Z');
     const listener = new WsjtxListener({ port: 0, now: () => now });

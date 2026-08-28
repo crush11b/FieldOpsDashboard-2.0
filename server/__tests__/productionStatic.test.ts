@@ -26,6 +26,8 @@ describe('production static routing', () => {
     try {
       expect((await fetch(`${running.baseUrl}/assets/app.123.js`)).headers.get('content-type')).toContain('javascript');
       expect((await fetch(`${running.baseUrl}/assets/app.123.css`)).headers.get('content-type')).toContain('text/css');
+      expect((await fetch(`${running.baseUrl}/assets/app.123.js`)).headers.get('cache-control')).toContain('immutable');
+      expect((await fetch(`${running.baseUrl}/`)).headers.get('cache-control')).toContain('no-store');
       for (const asset of ['missing.js', 'missing.css']) {
         const response = await fetch(`${running.baseUrl}/assets/${asset}`);
         expect(response.status).toBe(404);

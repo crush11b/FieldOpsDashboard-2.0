@@ -10,6 +10,8 @@ import { getWsjtxCurrentState } from '../wsjtxApi';
 import { getClockStatus, synchronizeClock } from '../clockApi';
 import type { ClockSynchronizationEvidence } from '../../server/locationTelemetryPipe';
 
+export const WSJTX_POLL_INTERVAL_MS = 1000;
+
 interface ActivationFoundationPanelProps {
   readonly brief: SmartDeployBriefV2;
   readonly initialActivation?: Activation | null;
@@ -33,7 +35,7 @@ export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps>
     const controller = new AbortController();
     const poll = async () => { try { const result = await getWsjtxCurrentState(controller.signal); if (!cancelled) setWsjtxState(result.status === 'available' || result.status === 'stale' ? result.state : null); } catch { if (!cancelled) setWsjtxState(null); } };
     void poll();
-    const timer = window.setInterval(() => void poll(), 2000);
+    const timer = window.setInterval(() => void poll(), WSJTX_POLL_INTERVAL_MS);
     return () => { cancelled = true; controller.abort(); window.clearInterval(timer); };
   }, [activation?.status]);
   useEffect(() => {

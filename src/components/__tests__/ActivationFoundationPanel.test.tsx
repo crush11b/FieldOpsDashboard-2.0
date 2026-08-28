@@ -2,7 +2,7 @@
 import React from 'react';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ActivationFoundationPanel } from '../ActivationFoundationPanel';
+import { ActivationFoundationPanel, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
 
 const brief = {
   briefId: 'brief-start',
@@ -94,6 +94,10 @@ describe('ActivationFoundationPanel', () => {
     await waitFor(() => expect(screen.getByText('Source: WSJT-X · Stale')).toBeInTheDocument());
     expect(screen.getByText('40m · FT8')).toBeInTheDocument();
     expect(screen.queryByText('Source: Manual operating context · Status: Current')).toBeNull();
+  });
+
+  it('uses a one-second WSJT-X refresh cadence for the preliminary latency budget', () => {
+    expect(WSJTX_POLL_INTERVAL_MS).toBe(1000);
   });
 
   it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {

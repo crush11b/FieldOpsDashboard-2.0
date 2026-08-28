@@ -45,6 +45,12 @@ describe('WSJT-X QSO routing', () => {
     expect(first.status).toBe('persisted');
   });
 
+  it('identifies persistence-stage failures without exposing packet content', () => {
+    const stores = setup();
+    const result = new WsjtxQsoRouter({ activationStore: stores.activationStore, qsoStore: { listByActivation: stores.qsoStore.listByActivation.bind(stores.qsoStore), create: () => { throw new Error('write failed'); } } }).route(candidate);
+    expect(result).toEqual({ status: 'unavailable', reason: 'persistence_failed' });
+  });
+
   it('skips planned and completed Activations without creating one', () => {
     expect(new WsjtxQsoRouter(setup('planned')).route(candidate).status).toBe('no_active');
     expect(new WsjtxQsoRouter(setup('completed')).route(candidate).status).toBe('no_active');

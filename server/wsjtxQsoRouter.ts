@@ -7,7 +7,7 @@ export type WsjtxQsoRouteResult =
   | { readonly status: 'persisted'; readonly qso: Qso }
   | { readonly status: 'duplicate'; readonly qso: Qso }
   | { readonly status: 'no_active' }
-  | { readonly status: 'unavailable' };
+  | { readonly status: 'unavailable'; readonly reason: 'activation_read_failed' | 'qso_read_failed' | 'persistence_failed' };
 
 export interface WsjtxQsoRouterOptions {
   readonly activationStore: Pick<ActivationStore, 'list'>;
@@ -19,13 +19,13 @@ export class WsjtxQsoRouter {
 
   route(candidate: WsjtxLoggedQsoCandidate): WsjtxQsoRouteResult {
     const activations = this.options.activationStore.list();
-    if (activations.diagnostics.some(item => item.code === 'io_error')) return { status: 'unavailable' };
+    if (activations.diagnostics.some(item => item.code === 'io_error')) return { status: 'unavailable', reason: 'activation_read_failed' };
     const active = activations.activations.filter(activation => activation.status === 'active');
     if (active.length !== 1) return { status: 'no_active' };
 
     const activationId = active[0].activationId;
     const existing = this.options.qsoStore.listByActivation(activationId);
-    if (existing.diagnostics.some(item => item.code === 'io_error')) return { status: 'unavailable' };
+    if (existing.diagnostics.some(item => item.code === 'io_error')) return { status: 'unavailable', reason: 'qso_read_failed' };
     const input = {
       activationId,
       qsoDateTimeUtc: candidate.qsoDateTimeUtc,
@@ -47,7 +47,7 @@ export class WsjtxQsoRouter {
     try {
       return { status: 'persisted', qso: this.options.qsoStore.create(input).qso };
     } catch {
-      return { status: 'unavailable' };
+      return { status: 'unavailable', reason: 'persistence_failed' };
     }
   }
 }

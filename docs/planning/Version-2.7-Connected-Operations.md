@@ -244,6 +244,14 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - Logged QSO routing is deferred to the next local event-loop turn after packet parsing. This preserves immediate Status observation and prevents synchronous file-backed QSO persistence from blocking the UDP callback. The persisted QSO path and interleaved Status regression remain covered by focused tests.
 - The preliminary performance target for the next field retest is median live-state update latency at or below `3s`, with no ordinary update above `5s`, measured under the representative workload. 2.7-04 remains **not accepted** until a fresh CF-20 retest passes; 2.7-05 is not started.
 
+### 2.7-04 CF-20 hardware acceptance corrections - 2026-08-28
+
+- CF-20 acceptance remains **not accepted**: the deployed frontend required Ctrl+F5 before Time Sync and WSJT-X behavior appeared, observed WSJT-X updates remained approximately `6-8s` rather than the `1-3s` target and `<=5s` preliminary maximum, OPERATE synchronization improved approximately `-1.4s -> -0.5s` but did not match the proven Tray result, and a real WSJT-X Logged QSO did not appear in the FieldOps logger.
+- Production HTML now uses `no-store`; fingerprinted `/assets/*` remain immutable. The service worker now uses network-first navigation with cached `index.html` only as offline fallback, so a restarted Dashboard can discover the new shell without a forced Ctrl+F5.
+- WSJT-X OPERATE polling is now explicitly `1000ms` instead of `2000ms`; fresh/stale/unavailable thresholds and no-short-gap Manual fallback are unchanged. This is a timing correction pending measurement on hardware, not an acceptance claim.
+- `/api/wsjtx/diagnostics` now includes packet-receive, Status-parse, Status-state-update, Logged QSO parse-failure, and bounded route/persistence result stages. No raw datagrams are retained.
+- The repository's Tray source contains no Windows Time Sync command; OPERATE and the Dashboard clock route both invoke the same Agent `SynchronizeClock` pipe operation. No second synchronization algorithm was added, and the field-reported Tray-versus-OPERATE outcome remains unresolved pending retest with the actual deployed Tray control.
+
 ---
 
 ## 2.7-05 - Live Band Activity
