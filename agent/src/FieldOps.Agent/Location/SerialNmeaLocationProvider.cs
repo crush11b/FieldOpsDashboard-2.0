@@ -101,25 +101,8 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                 {
                     var line = await port.ReadLineAsync(cancellationToken);
                     if (line is null) continue;
-                    var time = NmeaParser.ParseTime(line.Trim());
-                    if (time.Status != NmeaTimeStatus.Unavailable)
-                    {
-                        var receivedAt = Stopwatch.GetTimestamp();
-                        lock (stateLock)
-                        {
-                            var timestampDelta = priorTime?.TimestampUtc is DateTimeOffset prior && time.TimestampUtc is DateTimeOffset observedUtc ? (observedUtc - prior).TotalSeconds : (double?)null;
-                            var receiptElapsed = priorTime?.ReceivedAtMonotonicTimestamp > 0 ? Stopwatch.GetElapsedTime(priorTime.ReceivedAtMonotonicTimestamp, receivedAt).TotalSeconds : (double?)null;
-                            var coherent = time.Status == NmeaTimeStatus.Available
-                                && timestampDelta is > 0 and <= 10
-                                && receiptElapsed is > 0
-                                && Math.Abs(timestampDelta.Value - receiptElapsed.Value) <= 0.5;
-                            var reason = time.Status != NmeaTimeStatus.Available ? time.Error : coherent ? null : priorTime is null ? "At least two sequential UTC observations are required." : timestampDelta is <= 0 ? "GNSS UTC did not advance monotonically." : "GNSS UTC elapsed time does not match receipt elapsed time.";
-                            var observed = time with { ReceivedAtUtc = DateTimeOffset.UtcNow, ReceivedAtMonotonicTimestamp = receivedAt, PriorTimestampUtc = priorTime?.TimestampUtc, TimestampDeltaSeconds = timestampDelta, ReceiptElapsedSeconds = receiptElapsed, TemporalCoherent = coherent, RejectionReason = reason };
-                            latestTime = observed;
-                            if (time.Status == NmeaTimeStatus.Available) priorTime = observed;
-                            latestTimeReceivedAt = receivedAt;
-                        }
-                    }
+                    try { UpdateTimeEvidence(NmeaParser.ParseTime(line.Trim())); }
+                    catch (Exception ex) { logger.LogInformation(ex, "GNSS time evidence evaluation failed; location telemetry remains independent."); }
                     if (!NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
                     current = Merge(current, parsed);
                     SetLatest(parsed.HasFix ? ToObservation(current) : LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
@@ -143,6 +126,26 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     }
 
     private void SetUnavailable() => SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Unavailable));
+    private void UpdateTimeEvidence(NmeaTimeEvidence time)
+    {
+        if (time.Status == NmeaTimeStatus.Unavailable) return;
+        var receivedAt = Stopwatch.GetTimestamp();
+        lock (stateLock)
+        {
+            var timestampDelta = priorTime?.TimestampUtc is DateTimeOffset prior && time.TimestampUtc is DateTimeOffset observedUtc ? (observedUtc - prior).TotalSeconds : (double?)null;
+            var receiptElapsed = priorTime?.ReceivedAtMonotonicTimestamp > 0 ? Stopwatch.GetElapsedTime(priorTime.ReceivedAtMonotonicTimestamp, receivedAt).TotalSeconds : (double?)null;
+            var coherent = time.Status == NmeaTimeStatus.Available
+                && timestampDelta is > 0 and <= 10
+                && receiptElapsed is > 0
+                && Math.Abs(timestampDelta.Value - receiptElapsed.Value) <= 0.5;
+            var reason = time.Status != NmeaTimeStatus.Available ? time.Error : coherent ? null : priorTime is null ? "At least two sequential UTC observations are required." : timestampDelta is <= 0 ? "GNSS UTC did not advance monotonically." : "GNSS UTC elapsed time does not match receipt elapsed time.";
+            var observed = time with { ReceivedAtUtc = DateTimeOffset.UtcNow, ReceivedAtMonotonicTimestamp = receivedAt, PriorTimestampUtc = priorTime?.TimestampUtc, TimestampDeltaSeconds = timestampDelta, ReceiptElapsedSeconds = receiptElapsed, TemporalCoherent = coherent, RejectionReason = reason };
+            latestTime = observed;
+            if (time.Status == NmeaTimeStatus.Available) priorTime = observed;
+            latestTimeReceivedAt = receivedAt;
+        }
+    }
+
     private void SetLatest(LocationObservation observation)
     {
         lock (stateLock) latest = observation with { Source = "SerialNmea" };

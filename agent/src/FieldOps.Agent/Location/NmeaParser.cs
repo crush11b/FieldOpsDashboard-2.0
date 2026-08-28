@@ -40,8 +40,8 @@ internal static class NmeaParser
         var fields = body.Split(',');
         if (fields.Length == 0) return false;
         var type = fields[0];
-        if (type.Length < 5 || (!type.EndsWith("GGA", StringComparison.Ordinal) && !type.EndsWith("RMC", StringComparison.Ordinal))) return false;
-        return type.EndsWith("GGA", StringComparison.Ordinal) ? TryGga(fields, out fix) : TryRmc(fields, out fix);
+        if (type.Length < 5 || (!type.EndsWith("GGA", StringComparison.Ordinal) && !type.EndsWith("GNS", StringComparison.Ordinal) && !type.EndsWith("RMC", StringComparison.Ordinal))) return false;
+        return type.EndsWith("GGA", StringComparison.Ordinal) || type.EndsWith("GNS", StringComparison.Ordinal) ? TryGga(fields, out fix) : TryRmc(fields, out fix);
     }
 
     public static NmeaTimeEvidence ParseTime(string sentence)
@@ -73,7 +73,9 @@ internal static class NmeaParser
     {
         fix = default!;
         if (f.Length < 10 || !TryCoordinate(f[2], f[3], f[4], f[5], out var lat, out var lon) || !ValidOptionalNumber(f[8]) || !ValidOptionalNumber(f[9])) return false;
-        int? quality = Int(f[6]); var hasFix = quality is > 0;
+        int? quality = Int(f[6]); var hasFix = f[0].EndsWith("GNS", StringComparison.Ordinal)
+            ? !string.IsNullOrWhiteSpace(f[6]) && !string.Equals(f[6], "N", StringComparison.OrdinalIgnoreCase)
+            : quality is > 0;
         fix = new(lat, lon, Double(f[9]), null, null, null, Int(f[7]), Double(f[8]), quality, hasFix, true, false);
         return true;
     }
