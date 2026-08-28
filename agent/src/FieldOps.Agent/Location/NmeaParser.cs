@@ -8,7 +8,7 @@ internal sealed record NmeaFix(
     bool IsGga = false, bool IsRmc = false);
 
 public enum NmeaTimeStatus { Available, Unavailable, Malformed }
-public sealed record NmeaTimeEvidence(NmeaTimeStatus Status, DateTimeOffset? TimestampUtc, string SentenceType, string? Error = null);
+public sealed record NmeaTimeEvidence(NmeaTimeStatus Status, DateTimeOffset? TimestampUtc, string SentenceType, string? Error = null, DateTimeOffset? ReceivedAtUtc = null, long ReceivedAtMonotonicTimestamp = 0);
 
 internal static class NmeaParser
 {

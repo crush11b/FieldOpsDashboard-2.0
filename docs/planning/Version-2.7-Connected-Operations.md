@@ -252,6 +252,13 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - `/api/wsjtx/diagnostics` now includes packet-receive, Status-parse, Status-state-update, Logged QSO parse-failure, and bounded route/persistence result stages. No raw datagrams are retained.
 - The repository's Tray source contains no Windows Time Sync command; OPERATE and the Dashboard clock route both invoke the same Agent `SynchronizeClock` pipe operation. No second synchronization algorithm was added, and the field-reported Tray-versus-OPERATE outcome remains unresolved pending retest with the actual deployed Tray control.
 
+### 2.7-04 OPERATE clock synchronization hard failure - 2026-08-28
+
+- CF-20 reported a hard failure: despite WSJT-X being approximately `-0.2` to `-0.4s`, OPERATE observed an approximately `22s` GNSS disagreement, remained in `Synchronizing` for more than five minutes, wandered through approximately `-22`, `+15`, `+24`, and `-37s`, and degraded WSJT-X timing to approximately `2.1-2.8s`. Clock acceptance is **blocked**; Logged QSO acceptance is deferred.
+- Code-path finding: the prior synchronizer accepted a syntactically valid RMC timestamp whose freshness was based only on serial receipt, not the age of the timestamp itself, then compared that raw whole-second timestamp to Windows time and passed it directly to `SetSystemTime`. The implementation contained no convergence loop; therefore the alternating field deltas cannot be produced by this class alone and require the deployed Agent/runtime or another caller to be captured. The approximately `22s` discrepancy is consistent with stale-but-received-valid GNSS evidence; hardware packet evidence is required to distinguish stale RMC data from an external time-source conflict.
+- Correction: GNSS evidence now carries monotonic receipt timing and is projected to the set instant. After a recent verified clock within `2s`, a discontinuous GNSS disagreement over `5s` fails closed as `SuspiciousEvidence` without changing Windows time. Synchronization is serialized, bounded to `15s`, performs at most one controlled set, reacquires the Windows clock for post-set verification, and returns explicit timeout, verification, native, privilege, or evidence failure results.
+- Bounded diagnostics now include operation start/duration, GNSS observation receipt, evidence age, projected target, Windows time before and after the set, verification offset, attempt count, and final reason. No unbounded history or raw NMEA payload is retained.
+
 ---
 
 ## 2.7-05 - Live Band Activity

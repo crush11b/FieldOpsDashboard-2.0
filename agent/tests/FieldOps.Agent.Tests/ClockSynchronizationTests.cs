@@ -55,6 +55,39 @@ public sealed class ClockSynchronizationTests
         Assert.Null(clock.SetValue);
     }
 
+    [Fact]
+    public async Task RejectsDiscontinuousGnssEvidenceAfterRecentGoodClockObservation()
+    {
+        var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
+        var location = new SequenceLocation(
+            new(NmeaTimeStatus.Available, clock.UtcNow.AddSeconds(0.4), "RMC"),
+            new(NmeaTimeStatus.Available, clock.UtcNow.AddSeconds(22), "RMC"));
+        var synchronizer = new GpsClockSynchronizer(location, clock);
+
+        Assert.Equal(ClockSynchronizationStatus.Synchronized, (await synchronizer.VerifyAsync(CancellationToken.None)).Status);
+        var result = await synchronizer.SynchronizeAsync(true, CancellationToken.None);
+
+        Assert.Equal(ClockSynchronizationError.SuspiciousEvidence, result.Error);
+        Assert.Null(clock.SetValue);
+        Assert.Contains("was not changed", result.AttemptMessage);
+    }
+
+    [Fact]
+    public async Task ReturnsBoundedTimeoutFailureWithoutSettingClock()
+    {
+        var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
+        var synchronizer = new GpsClockSynchronizer(new DelayedLocation(), clock);
+        using var cancellation = new CancellationTokenSource(TimeSpan.FromMilliseconds(10));
+
+        var result = await synchronizer.SynchronizeAsync(true, cancellation.Token);
+
+        Assert.Equal(ClockSynchronizationError.OperationTimedOut, result.Error);
+        Assert.Null(clock.SetValue);
+        Assert.Equal(0, result.AttemptCount);
+    }
+
     private sealed class FakeLocation(NmeaTimeEvidence time) : ISerialNmeaLocationService { public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) => Task.FromResult(time); }
+    private sealed class SequenceLocation(NmeaTimeEvidence first, NmeaTimeEvidence second) : ISerialNmeaLocationService { private int index; public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) => Task.FromResult(index++ == 0 ? first : second); }
+    private sealed class DelayedLocation : ISerialNmeaLocationService { public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public async Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return new(NmeaTimeStatus.Unavailable, null, "RMC"); } }
     private sealed class FakeClock(DateTimeOffset utcNow) : ISystemClock { public DateTimeOffset UtcNow { get; } = utcNow; public DateTimeOffset? SetValue { get; private set; } public DateTimeOffset GetUtcNow() => UtcNow; public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; SetValue = utc; return true; } }
 }

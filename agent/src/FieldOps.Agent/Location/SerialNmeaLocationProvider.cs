@@ -100,7 +100,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                     var line = await port.ReadLineAsync(cancellationToken);
                     if (line is null) continue;
                     var time = NmeaParser.ParseTime(line.Trim());
-                    if (time.Status != NmeaTimeStatus.Unavailable) lock (stateLock) { latestTime = time; latestTimeReceivedAt = Stopwatch.GetTimestamp(); }
+                    if (time.Status != NmeaTimeStatus.Unavailable) { var receivedAt = Stopwatch.GetTimestamp(); lock (stateLock) { latestTime = time with { ReceivedAtUtc = DateTimeOffset.UtcNow, ReceivedAtMonotonicTimestamp = receivedAt }; latestTimeReceivedAt = receivedAt; } }
                     if (!NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
                     current = Merge(current, parsed);
                     SetLatest(parsed.HasFix ? ToObservation(current) : LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
