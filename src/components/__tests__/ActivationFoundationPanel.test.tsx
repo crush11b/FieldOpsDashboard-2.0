@@ -121,4 +121,33 @@ describe('ActivationFoundationPanel', () => {
     await waitFor(() => expect(screen.getByText('READY')).toBeInTheDocument());
     expect(fetcher).toHaveBeenCalledWith('/api/clock/synchronize', expect.objectContaining({ method: 'POST', body: '{"confirmed":true}' }));
   });
+
+  it('shows read-only GNSS clock evidence diagnostics collapsed by default', async () => {
+    const status = {
+      status: 'Unknown', error: 'GnssStaleOrMalformed',
+      gnssTime: { status: 'Available', sentenceType: 'RMC', rawUtcField: '123519.00', rawDateField: '230394', timestampUtc: '1994-03-23T12:35:19.000Z', priorTimestampUtc: '1994-03-23T12:35:18.000Z', timestampDeltaSeconds: 1, receiptElapsedSeconds: 0.04, temporalCoherent: false, rejectionReason: 'GNSS UTC elapsed time does not match receipt elapsed time.' },
+      lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: null, currentOffsetSeconds: null,
+      attemptMessage: 'Temporally coherent GNSS UTC evidence is unavailable.', operationStartedAtUtc: '2026-08-28T12:00:00.000Z', operationDurationMilliseconds: 120, gnssObservationReceivedAtUtc: '2026-08-28T11:59:59.900Z', evidenceAgeMilliseconds: 100, projectedTargetUtc: '2026-08-28T12:00:00.100Z', windowsUtcBeforeSet: '2026-08-28T12:00:32.800Z', windowsUtcAfterSet: null, verificationOffsetSeconds: null, attemptCount: 0,
+    };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/clock/status')
+      ? { ok: true, json: async () => status }
+      : { ok: true, json: async () => ({ qsos: [] }) });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('GNSS TIME EVIDENCE / DIAGNOSTICS')).toBeInTheDocument());
+    const details = screen.getByText('GNSS TIME EVIDENCE / DIAGNOSTICS').closest('details');
+    expect(details).not.toHaveAttribute('open');
+    fireEvent.click(screen.getByText('GNSS TIME EVIDENCE / DIAGNOSTICS'));
+    expect(screen.getByText('123519.00')).toBeInTheDocument();
+    expect(screen.getByText('230394')).toBeInTheDocument();
+    expect(screen.getByText('1994-03-23T12:35:19.000Z')).toBeInTheDocument();
+    expect(screen.getByText('1994-03-23T12:35:18.000Z')).toBeInTheDocument();
+    expect(screen.getByText('0.04')).toBeInTheDocument();
+    expect(screen.getByText('UNTRUSTED')).toBeInTheDocument();
+    expect(screen.getByText('GNSS UTC elapsed time does not match receipt elapsed time.')).toBeInTheDocument();
+    expect(screen.getByText('2026-08-28T12:00:00.100Z')).toBeInTheDocument();
+    expect(screen.getByText('2026-08-28T12:00:32.800Z')).toBeInTheDocument();
+    expect(screen.getAllByText('Unavailable').length).toBeGreaterThan(1);
+    expect(fetcher.mock.calls.some(([input]) => String(input).includes('/api/clock/synchronize'))).toBe(false);
+  });
 });

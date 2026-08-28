@@ -70,6 +70,8 @@ GNSS UTC is now trusted only after sequential UTC-bearing observations advance m
 
 WSJT-X DT may indicate poor operating timing but is not an authoritative local clock measurement because transmitting stations may also have clock error. The next CF-20 check is observation-only: record raw NMEA UTC/date, parsed UTC, receipt timing, temporal-coherence state, projected GNSS UTC, Windows UTC, and calculated offset before considering any clock-set action.
 
+The 2.7-04 hardware-acceptance workflow now includes a collapsed, read-only `GNSS TIME EVIDENCE / DIAGNOSTICS` disclosure in OPERATE under `CURRENT CLOCK / TIME SYNC`. It exposes the bounded Agent evidence needed for troubleshooting and acceptance without making diagnostic detail part of the normal field workflow or invoking synchronization when opened.
+
 ## Deployment revision parity correction
 
 The development ToughBook helper now resolves one canonical 40-character revision from the checked-out repository `HEAD` and requires a clean worktree before copying source. Native Agent and Tray publication is performed into an isolated temporary output outside the repository, so ignored or stale `agent\\artifacts\\publish\\win-x64` content cannot be reused. The generated deployment manifest is written into the installed Dashboard from that same published artifact identity.
