@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActivationFoundationPanel, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
 
@@ -22,7 +22,7 @@ const plannedActivation = {
 } as any;
 const activeActivation = { ...plannedActivation, status: 'active', startedAtUtc: '2026-08-26T12:00:00.000Z' };
 
-afterEach(() => vi.unstubAllGlobals());
+afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('ActivationFoundationPanel', () => {
   it('starts a planned activation, exposes the logger, and keeps IDs in technical details', async () => {
@@ -98,6 +98,25 @@ describe('ActivationFoundationPanel', () => {
 
   it('uses a one-second WSJT-X refresh cadence for the preliminary latency budget', () => {
     expect(WSJTX_POLL_INTERVAL_MS).toBe(1000);
+  });
+
+  it('shows collapsed WSJT-X diagnostics and refreshes them while active', async () => {
+    vi.useFakeTimers();
+    let diagnostics = { packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/wsjtx/diagnostics')
+      ? { ok: true, json: async () => diagnostics }
+      : { ok: true, json: async () => ({ status: 'unavailable', state: null, qsos: [] }) });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    const disclosure = screen.getByText('WSJT-X DIAGNOSTICS').closest('details');
+    expect(disclosure).not.toHaveAttribute('open');
+    diagnostics = { ...diagnostics, loggedQsoPacketsAccepted: 1, lastLoggedQsoResult: 'persisted', lastLoggedQsoCallsign: 'W1AW', lastLoggedQsoBand: '20m', lastLoggedQsoMode: 'FT8', lastImportSuccessAtUtc: '2026-08-28T12:00:00.000Z' };
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    fireEvent.click(screen.getByText('WSJT-X DIAGNOSTICS'));
+    expect(screen.getByText('persisted')).toBeInTheDocument();
+    expect(screen.getByText('W1AW / 20m / FT8')).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/diagnostics', expect.objectContaining({ cache: 'no-store' }));
   });
 
   it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {
