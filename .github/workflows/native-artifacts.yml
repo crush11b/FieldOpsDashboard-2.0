@@ -41,7 +41,10 @@ jobs:
       - name: Package native artifacts
         shell: pwsh
         run: |
-          Compress-Archive -Path agent/artifacts/publish/win-x64/agent,agent/artifacts/publish/win-x64/tray,agent/artifacts/publish/win-x64/artifact-manifest.json -DestinationPath fieldops-native-win-x64.zip
+          Compress-Archive -Path agent/artifacts/publish/win-x64/agent,agent/artifacts/publish/win-x64/tray,agent/artifacts/publish/win-x64/p533-assets,agent/artifacts/publish/win-x64/artifact-manifest.json -DestinationPath fieldops-native-win-x64.zip
+      - name: Validate packaged native artifact
+        shell: pwsh
+        run: ./agent/scripts/Test-FieldOpsNativePackage.ps1 -PackagePath fieldops-native-win-x64.zip -ExpectedRevision '${{ inputs.source_revision || github.sha }}'
       - uses: actions/upload-artifact@v4
         with:
           name: fieldops-native-win-x64-${{ inputs.source_revision || github.sha }}

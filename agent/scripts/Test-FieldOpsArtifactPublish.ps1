@@ -22,6 +22,7 @@ $testRoot = Join-Path ([IO.Path]::GetTempPath()) ("fieldops-publish-test-{0}" -f
 $firstOutput = Join-Path $testRoot 'first'
 $secondOutput = Join-Path $testRoot 'second'
 $dirtyOutput = Join-Path $testRoot 'dirty'
+$packageValidator = Join-Path $PSScriptRoot 'Test-FieldOpsNativePackage.ps1'
 
 function Assert-UnsafeOutputRejected {
     param([AllowEmptyString()][Parameter(Mandatory = $true)][string]$Path)
@@ -187,6 +188,20 @@ try {
     if ($p533Bundle.Count -ne 1) {
         throw 'The published artifact manifest does not contain exactly one P.533 bundle.'
     }
+
+    $completePackage = Join-Path $testRoot 'complete.zip'
+    Compress-Archive -Path (Join-Path $firstOutput 'agent'),(Join-Path $firstOutput 'tray'),(Join-Path $firstOutput 'p533-assets'),(Join-Path $firstOutput 'artifact-manifest.json') -DestinationPath $completePackage
+    & $packageValidator -PackagePath $completePackage -ExpectedRevision $sourceRevision
+    $incompleteRoot = Join-Path $testRoot 'incomplete'
+    New-Item -ItemType Directory -Path $incompleteRoot | Out-Null
+    Copy-Item -LiteralPath (Join-Path $firstOutput 'agent') -Destination $incompleteRoot -Recurse
+    Copy-Item -LiteralPath (Join-Path $firstOutput 'tray') -Destination $incompleteRoot -Recurse
+    Copy-Item -LiteralPath (Join-Path $firstOutput 'artifact-manifest.json') -Destination $incompleteRoot
+    $incompletePackage = Join-Path $testRoot 'incomplete.zip'
+    Compress-Archive -Path (Join-Path $incompleteRoot 'agent'),(Join-Path $incompleteRoot 'tray'),(Join-Path $incompleteRoot 'artifact-manifest.json') -DestinationPath $incompletePackage
+    $incompleteRejected = $false
+    try { & $packageValidator -PackagePath $incompletePackage -ExpectedRevision $sourceRevision } catch { $incompleteRejected = $true }
+    if (-not $incompleteRejected) { throw 'An incomplete native package was accepted for publication.' }
 
     Write-Host 'FieldOps repeat-publish, manifest, naming, and failed-promotion validation passed.'
 } finally {

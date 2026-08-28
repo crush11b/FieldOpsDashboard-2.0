@@ -26,6 +26,8 @@ publishes the native package as an immutable prerelease asset at
 workflow downloads that SHA-keyed public asset, then verifies the package manifest and `/api/version` report matching
 `sourceRevision` and `nativeRevision` for that same SHA. A missing, stale, expired, or mismatched
 artifact fails before activation.
+Before publication, CI validates the final ZIP contains the agent, tray, P.533 manifest and
+provenance, and artifact manifest required by the updater; incomplete archives are rejected.
 
 For a specific commit, dispatch `.github/workflows/native-artifacts.yml` with `source_revision`
 set to its full SHA, wait for the immutable release asset to finish, then run the Desktop updater

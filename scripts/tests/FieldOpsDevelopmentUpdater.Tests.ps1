@@ -42,6 +42,16 @@ Describe 'FieldOps CF-20 development updater' {
         $updater | Should Match 'Deployment was not activated'
     }
 
+    It 'packages and validates every native artifact path required by the updater' {
+        $workflow = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\.github\workflows\native-artifacts.yml') -Raw
+        $workflow | Should Match 'publish/win-x64/p533-assets'
+        $workflow | Should Match 'Test-FieldOpsNativePackage.ps1'
+        $validator = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\agent\scripts\Test-FieldOpsNativePackage.ps1') -Raw
+        foreach ($relative in @('artifact-manifest.json','agent\FieldOps.Agent.exe','tray\FieldOps.Tray.exe','p533-assets\manifest.json','p533-assets\runtime\provenance.json')) {
+            $validator | Should Match ([regex]::Escape($relative))
+        }
+    }
+
     It 'constructs a public native release URL tied to the requested SHA' {
         $revision = '996d747ade70c37e71d6db12872832dff3af5490'
         $script:launcher | Should Match 'NativeArtifactUrl.*releases/download/native-\$resolvedRevision/fieldops-native-win-x64\.zip'
