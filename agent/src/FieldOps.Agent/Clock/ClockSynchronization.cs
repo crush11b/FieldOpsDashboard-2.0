@@ -136,6 +136,11 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
         lock (gate) recentGood = lastGoodVerificationMonotonicTimestamp is long mark && Stopwatch.GetElapsedTime(mark) <= TimeSpan.FromSeconds(30);
         if (recentGood && Math.Abs(offset) > SuspiciousEvidenceOffsetSeconds) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.SuspiciousEvidence, gnss, lastSuccess, offset, null, $"Fresh GNSS evidence disagrees with a recent good clock observation by {offset:F1} seconds; Windows time was not changed."), startedUtc, startedMonotonic, projected, current, evidenceAge));
         if (Math.Abs(offset) > MaximumAutomaticCorrectionSeconds) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, offset, null, $"The requested correction of {offset:F1} seconds exceeds the {MaximumAutomaticCorrectionSeconds:F0}-second safety limit."), startedUtc, startedMonotonic, projected, current, evidenceAge));
+        if (Math.Abs(offset) <= MaximumVerificationOffsetSeconds)
+        {
+            lock (gate) lastGoodVerificationMonotonicTimestamp = Stopwatch.GetTimestamp();
+            return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Synchronized, ClockSynchronizationError.None, gnss, lastSuccess, offset, offset, "Windows time already agrees with fresh GNSS UTC evidence; no correction was required."), startedUtc, startedMonotonic, projected, current, evidenceAge) with { AttemptCount = 0 });
+        }
         token.ThrowIfCancellationRequested();
         if (!clock.SetUtc(projected, out var error)) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, error?.Contains("privilege", StringComparison.OrdinalIgnoreCase) == true ? ClockSynchronizationError.PrivilegeUnavailable : ClockSynchronizationError.NativeFailure, gnss, lastSuccess, offset, null, error ?? "Windows rejected the system-time update."), startedUtc, startedMonotonic, projected, current, evidenceAge));
         var after = clock.GetUtcNow();

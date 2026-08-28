@@ -411,7 +411,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                 <span className={`font-bold ${clockEvidence?.status === 'Synchronized' ? 'text-emerald-400' : 'text-amber-300'}`}>{clockStatus}</span>
                 <div className="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-1 text-[10px] opacity-85">
                   <span>LAST GPS SYNC: {formatEvidenceTime(clockEvidence?.lastSuccessfulSynchronizationUtc)}</span>
-                  <span>PRE-SYNC OFFSET: {typeof clockEvidence?.offsetBeforeSynchronizationSeconds === 'number' ? `${clockEvidence.offsetBeforeSynchronizationSeconds.toFixed(3)} s` : 'Not available'}</span>
+                  <span>CALCULATED OFFSET: {typeof (clockEvidence?.currentOffsetSeconds ?? clockEvidence?.offsetBeforeSynchronizationSeconds) === 'number' ? `${(clockEvidence.currentOffsetSeconds ?? clockEvidence.offsetBeforeSynchronizationSeconds)!.toFixed(3)} s` : 'Not available'}</span>
                   <span>SOURCE: FieldOps Agent / COM6</span>
                 </div>
                 {onSynchronizeClock && <div className="mt-2 flex flex-wrap items-center gap-2">

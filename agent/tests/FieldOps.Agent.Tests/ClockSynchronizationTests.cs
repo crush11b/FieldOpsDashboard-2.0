@@ -27,9 +27,26 @@ public sealed class ClockSynchronizationTests
     [Fact]
     public async Task SetsClockAndRetainsSuccessEvidence()
     {
-        var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z")); var target = clock.UtcNow.AddSeconds(2);
+        var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z")); var target = clock.UtcNow.AddSeconds(3);
         var result = await new GpsClockSynchronizer(new FakeLocation(Coherent(target)), clock).SynchronizeAsync(true, CancellationToken.None);
-        Assert.Equal(ClockSynchronizationStatus.Synchronized, result.Status); Assert.Equal(2, result.OffsetBeforeSynchronizationSeconds); Assert.Equal(target, clock.SetValue); Assert.NotNull(result.LastSuccessfulSynchronizationUtc);
+        Assert.Equal(ClockSynchronizationStatus.Synchronized, result.Status); Assert.Equal(3, result.OffsetBeforeSynchronizationSeconds); Assert.Equal(target, clock.SetValue); Assert.NotNull(result.LastSuccessfulSynchronizationUtc); Assert.Equal(1, result.AttemptCount);
+    }
+
+    [Fact]
+    public async Task ConfirmedSynchronizationDoesNothingWhenClockAlreadyAgrees()
+    {
+        var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
+        var synchronizer = new GpsClockSynchronizer(new FakeLocation(CoherentWithReceipt(clock.UtcNow.AddSeconds(1))), clock);
+
+        var result = await synchronizer.SynchronizeAsync(true, CancellationToken.None);
+
+        Assert.Equal(ClockSynchronizationStatus.Synchronized, result.Status);
+        Assert.InRange(result.OffsetBeforeSynchronizationSeconds!.Value, 0.99, 1.01);
+        Assert.InRange(result.CurrentOffsetSeconds!.Value, 0.99, 1.01);
+        Assert.Equal(0, result.AttemptCount);
+        Assert.Null(result.WindowsUtcAfterSet);
+        Assert.Contains("already agrees", result.AttemptMessage);
+        Assert.Null(clock.SetValue);
     }
 
     [Fact]
@@ -127,7 +144,7 @@ public sealed class ClockSynchronizationTests
     private sealed class CountingLocation(NmeaTimeEvidence time) : ISerialNmeaLocationService { public int AcquisitionCount { get; private set; } public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) { AcquisitionCount++; return Task.FromResult(time); } }
     private sealed class SequenceLocation(NmeaTimeEvidence first, NmeaTimeEvidence second) : ISerialNmeaLocationService { private int index; public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) => Task.FromResult(index++ == 0 ? first : second); }
     private sealed class DelayedLocation : ISerialNmeaLocationService { public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public async Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return new(NmeaTimeStatus.Unavailable, null, "RMC"); } }
-    private sealed class FakeClock(DateTimeOffset utcNow) : ISystemClock { public DateTimeOffset UtcNow { get; } = utcNow; public DateTimeOffset? SetValue { get; private set; } public DateTimeOffset GetUtcNow() => UtcNow; public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; SetValue = utc; return true; } }
+    private sealed class FakeClock(DateTimeOffset utcNow) : ISystemClock { public DateTimeOffset UtcNow { get; private set; } = utcNow; public DateTimeOffset? SetValue { get; private set; } public DateTimeOffset GetUtcNow() => UtcNow; public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; SetValue = utc; UtcNow = utc; return true; } }
     private static NmeaTimeEvidence Coherent(DateTimeOffset timestamp) => new(NmeaTimeStatus.Available, timestamp, "RMC", null, timestamp, 0, "120000.00", "240826", timestamp.AddSeconds(-1), 1, 1, true);
     private static NmeaTimeEvidence CoherentWithReceipt(DateTimeOffset timestamp) => Coherent(timestamp) with { ReceivedAtMonotonicTimestamp = Stopwatch.GetTimestamp() };
 }

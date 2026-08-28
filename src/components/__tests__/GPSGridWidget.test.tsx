@@ -58,7 +58,7 @@ describe('GPS source guardrail presentation', () => {
     expect(markup).not.toContain('UTC TIME SYNC');
     expect(markup).toContain('GPS SYNCHRONIZED');
     expect(markup).toContain('LAST GPS SYNC: 2026-08-25 23:12:54 UTC');
-    expect(markup).toContain('PRE-SYNC OFFSET: -0.659 s');
+    expect(markup).toContain('CALCULATED OFFSET: -0.659 s');
     expect(markup).toContain('SYNCHRONIZE WINDOWS CLOCK');
   });
 
