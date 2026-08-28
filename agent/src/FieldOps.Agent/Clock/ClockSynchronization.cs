@@ -83,7 +83,7 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
     public async Task<ClockSynchronizationEvidence> VerifyAsync(CancellationToken cancellationToken)
     {
         var startedUtc = DateTimeOffset.UtcNow;
-        var startedMonotonic = clock.GetMonotonicTimestamp();
+        var startedMonotonic = Stopwatch.GetTimestamp();
         var gnss = await location.AcquireTimeAsync(cancellationToken);
         if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(Finish(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable."), startedUtc, startedMonotonic) with { AttemptCount = 0 });
         DateTimeOffset comparedAt;
@@ -103,7 +103,7 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
             return Set(Finish(new(ClockSynchronizationStatus.Unknown, ClockSynchronizationError.VerificationFailed, gnss, lastSuccess, null, null, message), startedUtc, startedMonotonic) with { AttemptCount = 0 });
         }
         var synchronized = Math.Abs(offset) <= MaximumVerificationOffsetSeconds;
-        if (synchronized) lock (gate) lastGoodVerificationMonotonicTimestamp = clock.GetMonotonicTimestamp();
+        if (synchronized) lock (gate) lastGoodVerificationMonotonicTimestamp = Stopwatch.GetTimestamp();
         return Set(Finish(new(synchronized ? ClockSynchronizationStatus.Synchronized : ClockSynchronizationStatus.NotSynchronized, synchronized ? ClockSynchronizationError.None : ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, null, offset, synchronized ? "Windows time currently agrees with fresh GNSS UTC evidence." : $"Windows time differs from fresh GNSS UTC evidence by {offset:F1} seconds."), startedUtc, startedMonotonic, projected, comparedAt, evidenceAge) with { AttemptCount = 0 });
     }
     public async Task<ClockSynchronizationEvidence> SynchronizeAsync(bool confirmed, CancellationToken cancellationToken)

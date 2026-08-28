@@ -72,6 +72,25 @@ public sealed class ClockSynchronizationTests
     }
 
     [Fact]
+    public async Task RepeatedPassiveVerificationRetainsTrustedEvidenceWithoutClockMonotonicHook()
+    {
+        var clock = new MonotonicUnavailableClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
+        var location = new CountingLocation(CoherentWithReceipt(clock.UtcNow.AddSeconds(1)));
+        var synchronizer = new GpsClockSynchronizer(location, clock);
+
+        var first = await synchronizer.VerifyAsync(CancellationToken.None);
+        var second = await synchronizer.VerifyAsync(CancellationToken.None);
+
+        Assert.Equal(ClockSynchronizationStatus.Synchronized, first.Status);
+        Assert.Equal(ClockSynchronizationStatus.Synchronized, second.Status);
+        Assert.Equal(2, location.AcquisitionCount);
+        Assert.NotNull(second.GnssTime.TimestampUtc);
+        Assert.NotNull(second.ProjectedTargetUtc);
+        Assert.Equal(0, second.AttemptCount);
+        Assert.Null(clock.SetValue);
+    }
+
+    [Fact]
     public async Task RejectsDiscontinuousGnssEvidenceAfterRecentGoodClockObservation()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
@@ -104,6 +123,8 @@ public sealed class ClockSynchronizationTests
 
     private sealed class FakeLocation(NmeaTimeEvidence time) : ISerialNmeaLocationService { public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) => Task.FromResult(time); }
     private sealed class ThrowingClock : ISystemClock { public DateTimeOffset GetUtcNow() => throw new InvalidOperationException("clock unavailable"); public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; return false; } }
+    private sealed class MonotonicUnavailableClock(DateTimeOffset utcNow) : ISystemClock { public DateTimeOffset UtcNow { get; } = utcNow; public DateTimeOffset? SetValue { get; private set; } public DateTimeOffset GetUtcNow() => UtcNow; public long GetMonotonicTimestamp() => throw new InvalidOperationException("monotonic clock unavailable"); public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; SetValue = utc; return true; } }
+    private sealed class CountingLocation(NmeaTimeEvidence time) : ISerialNmeaLocationService { public int AcquisitionCount { get; private set; } public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) { AcquisitionCount++; return Task.FromResult(time); } }
     private sealed class SequenceLocation(NmeaTimeEvidence first, NmeaTimeEvidence second) : ISerialNmeaLocationService { private int index; public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) => Task.FromResult(index++ == 0 ? first : second); }
     private sealed class DelayedLocation : ISerialNmeaLocationService { public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public async Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return new(NmeaTimeStatus.Unavailable, null, "RMC"); } }
     private sealed class FakeClock(DateTimeOffset utcNow) : ISystemClock { public DateTimeOffset UtcNow { get; } = utcNow; public DateTimeOffset? SetValue { get; private set; } public DateTimeOffset GetUtcNow() => UtcNow; public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; SetValue = utc; return true; } }
