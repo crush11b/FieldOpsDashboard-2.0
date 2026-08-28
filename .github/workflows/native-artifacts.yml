@@ -10,6 +10,9 @@ on:
         required: false
         type: string
 
+permissions:
+  contents: write
+
 jobs:
   publish:
     runs-on: windows-latest
@@ -43,3 +46,8 @@ jobs:
         with:
           name: fieldops-native-win-x64-${{ inputs.source_revision || github.sha }}
           path: fieldops-native-win-x64.zip
+      - name: Publish immutable development release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "native-${{ inputs.source_revision || github.sha }}" fieldops-native-win-x64.zip --repo "${{ github.repository }}" --target "${{ inputs.source_revision || github.sha }}" --title "Native artifact ${{ inputs.source_revision || github.sha }}" --notes "Immutable native artifact for source revision ${{ inputs.source_revision || github.sha }}." --prerelease

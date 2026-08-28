@@ -151,7 +151,7 @@ try {
 
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $downloadedUpdater `
         -InstallPath $InstallPath -OperatorAccount $OperatorAccount -Repository $Repository -Revision $resolvedRevision `
-        -NativeArtifactName "fieldops-native-win-x64-$resolvedRevision"
+        -NativeArtifactUrl "https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip"
     if ($LASTEXITCODE -ne 0) { throw "UpdateDashboard.ps1 failed with exit code $LASTEXITCODE." }
 
     $version = Get-InstalledVersion -ExpectedRevision $resolvedRevision
