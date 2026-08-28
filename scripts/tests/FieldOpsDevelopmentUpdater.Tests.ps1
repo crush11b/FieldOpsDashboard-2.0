@@ -30,6 +30,59 @@ Describe 'FieldOps CF-20 development updater' {
         $script:launcher | Should Match 'nativeRevision.*ExpectedRevision'
     }
 
+    It 'passes the exact source SHA to the SHA-keyed native artifact workflow' {
+        $script:launcher | Should Match 'NativeArtifactName "fieldops-native-win-x64-\$resolvedRevision"'
+        $script:launcher | Should Match 'NativeArtifactName'
+        $script:launcher | Should Match 'fieldops-native-win-x64-\$resolvedRevision'
+    }
+
+    It 'keeps native artifact retrieval immutable and rejects stale or mismatched artifacts' {
+        $updater = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1') -Raw
+        $updater | Should Match 'actions/artifacts\?name='
+        $updater | Should Match 'workflow_run\.head_sha'
+        $updater | Should Match 'not requested revision'
+        $updater | Should Match 'Native artifact revision.*does not match requested source revision'
+        $updater | Should Match 'Deployment was not activated'
+    }
+
+    It 'resolves exactly one unexpired artifact for the requested SHA' {
+        . $launcherPath
+        $updaterPath = Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1'
+        $tokens = $null
+        $parseErrors = $null
+        $updaterAst = [System.Management.Automation.Language.Parser]::ParseFile($updaterPath, [ref]$tokens, [ref]$parseErrors)
+        $resolverAst = $updaterAst.Find({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -eq 'Resolve-NativeArtifactUrl' }, $true)
+        . ([scriptblock]::Create($resolverAst.Extent.Text))
+        $revision = '996d747ade70c37e71d6db12872832dff3af5490'
+        $script:artifactApiUrl = $null
+        $url = Resolve-NativeArtifactUrl -Repository 'crush11b/FieldOpsDashboard-2.0' -ArtifactName "fieldops-native-win-x64-$revision" -ExpectedRevision $revision -ApiInvoker {
+            param($Uri)
+            $script:artifactApiUrl = $Uri
+            [pscustomobject]@{ artifacts = @([pscustomobject]@{ name = "fieldops-native-win-x64-$revision"; expired = $false; archive_download_url = 'https://example.invalid/artifact'; workflow_run = [pscustomobject]@{ head_sha = $revision } }) }
+        }
+        $url | Should Be 'https://example.invalid/artifact'
+        $script:artifactApiUrl | Should Match 'actions/artifacts\?name=fieldops-native-win-x64-'
+    }
+
+    It 'rejects a stale artifact even when its name is reused' {
+        . $launcherPath
+        $updaterPath = Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1'
+        $tokens = $null
+        $parseErrors = $null
+        $updaterAst = [System.Management.Automation.Language.Parser]::ParseFile($updaterPath, [ref]$tokens, [ref]$parseErrors)
+        $resolverAst = $updaterAst.Find({ param($Node) $Node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $Node.Name -eq 'Resolve-NativeArtifactUrl' }, $true)
+        . ([scriptblock]::Create($resolverAst.Extent.Text))
+        $revision = '996d747ade70c37e71d6db12872832dff3af5490'
+        $threw = $false
+        try {
+            Resolve-NativeArtifactUrl -Repository 'crush11b/FieldOpsDashboard-2.0' -ArtifactName "fieldops-native-win-x64-$revision" -ExpectedRevision $revision -ApiInvoker {
+                param($Uri)
+                [pscustomobject]@{ artifacts = @([pscustomobject]@{ name = "fieldops-native-win-x64-$revision"; expired = $false; archive_download_url = 'https://example.invalid/stale'; workflow_run = [pscustomobject]@{ head_sha = '681b046e30c025ee46146b2e11a375945fc6c81b' } }) }
+            }
+        } catch { $threw = $true }
+        $threw | Should Be $true
+    }
+
     It 'has no old revision or moving-branch fallback' {
         $script:launcher | Should Not Match 'REVISION='
         $script:launcher | Should Not Match 'Branch.*main'

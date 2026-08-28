@@ -8,6 +8,7 @@ param(
     [ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision,
     [switch]$SkipLaunch,
     [string]$NativeArtifactPath,
+    [string]$NativeArtifactName,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
     [switch]$SkipProcessStop,
     [switch]$SimulateCopyFailure
@@ -65,6 +66,32 @@ function Resolve-DeploymentRevision {
     $response = Invoke-RestMethod -Uri $apiUrl -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'FieldOpsDashboard-Updater' } -UseBasicParsing
     if ([string]::IsNullOrWhiteSpace([string]$response.sha) -or $response.sha -notmatch '^[0-9a-fA-F]{40}$') { throw "GitHub did not return a valid commit revision for branch '$Branch'." }
     return ([string]$response.sha).ToLowerInvariant()
+}
+
+function Resolve-NativeArtifactUrl {
+    param([Parameter(Mandatory=$true)][string]$Repository, [Parameter(Mandatory=$true)][string]$ArtifactName, [Parameter(Mandatory=$true)][string]$ExpectedRevision, [scriptblock]$ApiInvoker = {
+        param($Uri)
+        Invoke-RestMethod -Uri $Uri -Headers @{ Accept = 'application/vnd.github+json'; 'User-Agent' = 'FieldOpsDashboard-Updater' } -UseBasicParsing
+    })
+    if ($ArtifactName -notmatch ([regex]::Escape($ExpectedRevision) + '$')) { throw "Native artifact name '$ArtifactName' is not tied to requested revision '$ExpectedRevision'." }
+    $apiUrl = "https://api.github.com/repos/$Repository/actions/artifacts?name=$([uri]::EscapeDataString($ArtifactName))&per_page=100"
+    $response = & $ApiInvoker $apiUrl
+    $artifacts = @($response.artifacts | Where-Object { $_.name -eq $ArtifactName -and -not $_.expired })
+    if ($artifacts.Count -ne 1) { throw "Expected exactly one unexpired native artifact named '$ArtifactName' for revision '$ExpectedRevision'; found $($artifacts.Count)." }
+    $artifact = $artifacts[0]
+    if ([string]$artifact.workflow_run.head_sha -ne $ExpectedRevision) { throw "Native artifact '$ArtifactName' was produced from '$($artifact.workflow_run.head_sha)', not requested revision '$ExpectedRevision'." }
+    return [string]$artifact.archive_download_url
+}
+
+function Expand-NativeArtifactDownload {
+    param([Parameter(Mandatory=$true)][string]$ArchivePath, [Parameter(Mandatory=$true)][string]$DestinationPath)
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+    $outerRoot = Join-Path $downloadRoot 'native-workflow'
+    if (Test-Path -LiteralPath $outerRoot) { Remove-Item -LiteralPath $outerRoot -Recurse -Force -ErrorAction Stop }
+    [IO.Compression.ZipFile]::ExtractToDirectory($ArchivePath, $outerRoot)
+    $package = @(Get-ChildItem -LiteralPath $outerRoot -File -Filter '*.zip' -Recurse)
+    if ($package.Count -ne 1) { throw "Native workflow artifact did not contain exactly one native package." }
+    Copy-Item -LiteralPath $package[0].FullName -Destination $DestinationPath -Force
 }
 
 function Get-PackageRoot {
@@ -336,7 +363,14 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) {
         $NativeArtifactPath = Join-Path $downloadRoot 'fieldops-native-win-x64.zip'
-        try { Invoke-WebRequest -Uri $NativeArtifactUrl -OutFile $NativeArtifactPath -UseBasicParsing } catch { throw "Native artifact download failed from '$NativeArtifactUrl': $($_.Exception.Message)" }
+        $artifactUrl = $NativeArtifactUrl
+        if (-not [string]::IsNullOrWhiteSpace($NativeArtifactName)) { $artifactUrl = Resolve-NativeArtifactUrl -Repository $Repository -ArtifactName $NativeArtifactName -ExpectedRevision $deploymentRevision }
+        try {
+            $downloadedWorkflowArtifact = -not [string]::IsNullOrWhiteSpace($NativeArtifactName)
+            $downloadPath = if ($downloadedWorkflowArtifact) { Join-Path $downloadRoot 'native-workflow.zip' } else { $NativeArtifactPath }
+            Invoke-WebRequest -Uri $artifactUrl -OutFile $downloadPath -UseBasicParsing
+            if ($downloadedWorkflowArtifact) { Expand-NativeArtifactDownload -ArchivePath $downloadPath -DestinationPath $NativeArtifactPath }
+        } catch { throw "Native artifact download failed from '$artifactUrl': $($_.Exception.Message)" }
     }
     $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision $deploymentRevision
     $p533RuntimeRoot = Assert-P533RuntimeArtifact -PackageRoot $packageRoot -NativeRoot $nativeRoot -ExpectedRevision $deploymentRevision

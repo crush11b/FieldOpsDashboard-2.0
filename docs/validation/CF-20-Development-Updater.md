@@ -20,8 +20,16 @@ Double-click `Deploy FieldOps Development`, approve UAC, confirm the displayed b
 SHA, and wait for `FIELDOPS DEVELOPMENT UPDATE VERIFIED`. The launcher resolves
 `feature/2.7-connected-operations` to its current remote commit, then downloads and invokes the
 existing exact-revision bootstrap set (`UpdateDashboard.ps1` plus
-`scripts\FieldOps.BackupRetention.psm1`) and invokes the exact-revision deployment workflow. It verifies that `/api/version` reports
-matching `sourceRevision` and `nativeRevision` for that same SHA.
+`scripts\FieldOps.BackupRetention.psm1`) and invokes the exact-revision deployment workflow. CI
+publishes the native package as `fieldops-native-win-x64-<SHA>` for every commit on this branch.
+The deployment workflow resolves that exact artifact through the GitHub Actions API, verifies its
+workflow run `head_sha`, then verifies the package manifest and `/api/version` report matching
+`sourceRevision` and `nativeRevision` for that same SHA. A missing, stale, expired, or mismatched
+artifact fails before activation.
+
+For a specific commit, dispatch `.github/workflows/native-artifacts.yml` with `source_revision`
+set to its full SHA, wait for the workflow artifact to finish, then run the Desktop updater with
+that same revision. No native package is copied or relabeled locally.
 
 Release updates continue through the published/tagged release process. The development launcher
 must not be used as a release updater.

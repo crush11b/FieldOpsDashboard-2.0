@@ -150,7 +150,8 @@ try {
     Write-Host "[OK] Validated exact-revision bootstrap set ($($bootstrapFiles.Count) files)." -ForegroundColor Green
 
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $downloadedUpdater `
-        -InstallPath $InstallPath -OperatorAccount $OperatorAccount -Repository $Repository -Revision $resolvedRevision
+        -InstallPath $InstallPath -OperatorAccount $OperatorAccount -Repository $Repository -Revision $resolvedRevision `
+        -NativeArtifactName "fieldops-native-win-x64-$resolvedRevision"
     if ($LASTEXITCODE -ne 0) { throw "UpdateDashboard.ps1 failed with exit code $LASTEXITCODE." }
 
     $version = Get-InstalledVersion -ExpectedRevision $resolvedRevision
