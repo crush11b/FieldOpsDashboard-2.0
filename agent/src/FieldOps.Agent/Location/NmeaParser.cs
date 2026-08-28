@@ -8,7 +8,20 @@ internal sealed record NmeaFix(
     bool IsGga = false, bool IsRmc = false);
 
 public enum NmeaTimeStatus { Available, Unavailable, Malformed }
-public sealed record NmeaTimeEvidence(NmeaTimeStatus Status, DateTimeOffset? TimestampUtc, string SentenceType, string? Error = null, DateTimeOffset? ReceivedAtUtc = null, long ReceivedAtMonotonicTimestamp = 0);
+public sealed record NmeaTimeEvidence(
+    NmeaTimeStatus Status,
+    DateTimeOffset? TimestampUtc,
+    string SentenceType,
+    string? Error = null,
+    DateTimeOffset? ReceivedAtUtc = null,
+    long ReceivedAtMonotonicTimestamp = 0,
+    string? RawUtcField = null,
+    string? RawDateField = null,
+    DateTimeOffset? PriorTimestampUtc = null,
+    double? TimestampDeltaSeconds = null,
+    double? ReceiptElapsedSeconds = null,
+    bool TemporalCoherent = false,
+    string? RejectionReason = null);
 
 internal static class NmeaParser
 {
@@ -38,7 +51,7 @@ internal static class NmeaParser
         var timestamp = ParseDateTime(fields[9], fields[1]);
         return timestamp is null
             ? new(NmeaTimeStatus.Malformed, null, "RMC", "RMC UTC time or date was malformed.")
-            : new(NmeaTimeStatus.Available, timestamp, "RMC");
+            : new(NmeaTimeStatus.Available, timestamp, "RMC", null, null, 0, fields[1], fields[9]);
     }
 
     private static bool TryGetFields(string sentence, out string[] fields)

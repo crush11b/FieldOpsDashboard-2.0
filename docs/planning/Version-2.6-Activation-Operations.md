@@ -62,6 +62,14 @@ The PREPARE handoff acceptance correction found that its button changed the phas
 
 The final PREPARE acceptance cleanup restores the existing explicit clock synchronization action to the compact Clock card with mandatory operator confirmation, treats retained modeled propagation as usable `READY` evidence while preserving its non-guarantee disclaimer in details, and renders a known missing checklist as `NOT STARTED` while retaining `START CHECKLIST`. Genuine unavailable checklist telemetry remains `UNKNOWN`.
 
+## 2.7-04 GNSS time evidence correction
+
+The latest CF-20 evidence is a hard failure: passive FieldOps Windows/GNSS differences varied from approximately 28.5 to 37.1 seconds; WSJT-X DT was approximately +2.4 seconds before synchronization and +1.7 seconds afterward (operational evidence only, not authoritative Windows-clock truth); each explicit synchronization took more than 28 seconds; and FT8 decoding remained poor until manual Windows NTP synchronization returned timing to approximately 0.3 seconds. OPERATE GNSS synchronization is unsafe pending observation-only validation and must not be used for another hardware clock-set attempt.
+
+GNSS UTC is now trusted only after sequential UTC-bearing observations advance monotonically and their UTC elapsed time matches monotonic receipt elapsed time within the bounded tolerance. A newly received, stale, repeated, or rapidly replayed RMC is rejected. Passive readiness reports unavailable or unknown evidence without a precise offset, and active synchronization uses the same contract and performs zero `SetUtc` calls when coherence is unproven. The Agent pipe and Dashboard client share one 15-second operation budget rather than stacking request, acquisition, and response phase timeouts. Diagnostics retain bounded raw UTC/date fields, parsed and prior UTC, receipt age and interval, UTC delta, coherence state, rejection reason, projected target, Windows values, and calculated offset.
+
+WSJT-X DT may indicate poor operating timing but is not an authoritative local clock measurement because transmitting stations may also have clock error. The next CF-20 check is observation-only: record raw NMEA UTC/date, parsed UTC, receipt timing, temporal-coherence state, projected GNSS UTC, Windows UTC, and calculated offset before considering any clock-set action.
+
 ## Deployment revision parity correction
 
 The development ToughBook helper now resolves one canonical 40-character revision from the checked-out repository `HEAD` and requires a clean worktree before copying source. Native Agent and Tray publication is performed into an isolated temporary output outside the repository, so ignored or stale `agent\\artifacts\\publish\\win-x64` content cannot be reused. The generated deployment manifest is written into the installed Dashboard from that same published artifact identity.

@@ -9,7 +9,7 @@ public sealed class ClockSynchronizationTests
     public async Task RequiresExplicitConfirmation()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
-        var synchronizer = new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Available, DateTimeOffset.Parse("2026-08-24T12:00:01Z"), "RMC")), clock);
+        var synchronizer = new GpsClockSynchronizer(new FakeLocation(Coherent(DateTimeOffset.Parse("2026-08-24T12:00:01Z"))), clock);
         var result = await synchronizer.SynchronizeAsync(false, CancellationToken.None);
         Assert.Equal(ClockSynchronizationStatus.NotSynchronized, result.Status); Assert.Equal(ClockSynchronizationError.ConfirmationRequired, result.Error); Assert.Null(clock.SetValue);
     }
@@ -18,7 +18,7 @@ public sealed class ClockSynchronizationTests
     public async Task RejectsUnsafeOffsetAndUnavailableTime()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
-        var unsafeResult = await new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Available, clock.UtcNow.AddMinutes(6), "RMC")), clock).SynchronizeAsync(true, CancellationToken.None);
+        var unsafeResult = await new GpsClockSynchronizer(new FakeLocation(Coherent(clock.UtcNow.AddMinutes(6))), clock).SynchronizeAsync(true, CancellationToken.None);
         var unavailableResult = await new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Unavailable, null, "RMC")), clock).SynchronizeAsync(true, CancellationToken.None);
         Assert.Equal(ClockSynchronizationError.UnsafeOffset, unsafeResult.Error); Assert.Equal(ClockSynchronizationError.GnssUnavailable, unavailableResult.Error); Assert.Null(clock.SetValue);
     }
@@ -27,7 +27,7 @@ public sealed class ClockSynchronizationTests
     public async Task SetsClockAndRetainsSuccessEvidence()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z")); var target = clock.UtcNow.AddSeconds(2);
-        var result = await new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Available, target, "RMC")), clock).SynchronizeAsync(true, CancellationToken.None);
+        var result = await new GpsClockSynchronizer(new FakeLocation(Coherent(target)), clock).SynchronizeAsync(true, CancellationToken.None);
         Assert.Equal(ClockSynchronizationStatus.Synchronized, result.Status); Assert.Equal(2, result.OffsetBeforeSynchronizationSeconds); Assert.Equal(target, clock.SetValue); Assert.NotNull(result.LastSuccessfulSynchronizationUtc);
     }
 
@@ -35,7 +35,7 @@ public sealed class ClockSynchronizationTests
     public async Task VerifiesFreshGnssWithinToleranceWithoutSettingClock()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
-        var synchronizer = new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Available, clock.UtcNow.AddSeconds(1), "RMC")), clock);
+        var synchronizer = new GpsClockSynchronizer(new FakeLocation(Coherent(clock.UtcNow.AddSeconds(1))), clock);
         var result = await synchronizer.VerifyAsync(CancellationToken.None);
         Assert.Equal(ClockSynchronizationStatus.Synchronized, result.Status);
         Assert.Equal(1, result.CurrentOffsetSeconds);
@@ -46,7 +46,7 @@ public sealed class ClockSynchronizationTests
     public async Task ReportsOutsideToleranceAndMissingGnssWithoutSettingClock()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
-        var outsideTolerance = await new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Available, clock.UtcNow.AddSeconds(3), "RMC")), clock).VerifyAsync(CancellationToken.None);
+        var outsideTolerance = await new GpsClockSynchronizer(new FakeLocation(Coherent(clock.UtcNow.AddSeconds(3))), clock).VerifyAsync(CancellationToken.None);
         var unavailable = await new GpsClockSynchronizer(new FakeLocation(new(NmeaTimeStatus.Unavailable, null, "RMC")), clock).VerifyAsync(CancellationToken.None);
         Assert.Equal(ClockSynchronizationStatus.NotSynchronized, outsideTolerance.Status);
         Assert.Equal(ClockSynchronizationError.UnsafeOffset, outsideTolerance.Error);
@@ -60,8 +60,8 @@ public sealed class ClockSynchronizationTests
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
         var location = new SequenceLocation(
-            new(NmeaTimeStatus.Available, clock.UtcNow.AddSeconds(0.4), "RMC"),
-            new(NmeaTimeStatus.Available, clock.UtcNow.AddSeconds(22), "RMC"));
+            Coherent(clock.UtcNow.AddSeconds(0.4)),
+            Coherent(clock.UtcNow.AddSeconds(22)));
         var synchronizer = new GpsClockSynchronizer(location, clock);
 
         Assert.Equal(ClockSynchronizationStatus.Synchronized, (await synchronizer.VerifyAsync(CancellationToken.None)).Status);
@@ -90,4 +90,5 @@ public sealed class ClockSynchronizationTests
     private sealed class SequenceLocation(NmeaTimeEvidence first, NmeaTimeEvidence second) : ISerialNmeaLocationService { private int index; public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) => Task.FromResult(index++ == 0 ? first : second); }
     private sealed class DelayedLocation : ISerialNmeaLocationService { public Task<LocationObservation> AcquireAsync(CancellationToken cancellationToken) => throw new NotImplementedException(); public async Task<NmeaTimeEvidence> AcquireTimeAsync(CancellationToken cancellationToken) { await Task.Delay(Timeout.InfiniteTimeSpan, cancellationToken); return new(NmeaTimeStatus.Unavailable, null, "RMC"); } }
     private sealed class FakeClock(DateTimeOffset utcNow) : ISystemClock { public DateTimeOffset UtcNow { get; } = utcNow; public DateTimeOffset? SetValue { get; private set; } public DateTimeOffset GetUtcNow() => UtcNow; public bool SetUtc(DateTimeOffset utc, out string? error) { error = null; SetValue = utc; return true; } }
+    private static NmeaTimeEvidence Coherent(DateTimeOffset timestamp) => new(NmeaTimeStatus.Available, timestamp, "RMC", null, timestamp, 0, "120000.00", "240826", timestamp.AddSeconds(-1), 1, 1, true);
 }

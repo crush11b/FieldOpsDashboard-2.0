@@ -83,7 +83,7 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
     public async Task<ClockSynchronizationEvidence> VerifyAsync(CancellationToken cancellationToken)
     {
         var gnss = await location.AcquireTimeAsync(cancellationToken);
-        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."));
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable."));
         var comparedAt = clock.GetUtcNow();
         var projected = gnss.ReceivedAtMonotonicTimestamp == 0 ? gnss.TimestampUtc.Value : gnss.TimestampUtc.Value + Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp);
         var offset = (projected - comparedAt).TotalSeconds;
@@ -113,7 +113,7 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
         }
         var current = clock.GetUtcNow();
         if (!confirmed) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.NotSynchronized, ClockSynchronizationError.ConfirmationRequired, gnss, lastSuccess, null, null, "Explicit operator confirmation is required."), startedUtc, startedMonotonic));
-        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."), startedUtc, startedMonotonic));
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable; Windows time was not changed."), startedUtc, startedMonotonic));
         var evidenceAge = gnss.ReceivedAtMonotonicTimestamp == 0 ? (double?)null : Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp).TotalMilliseconds;
         var projected = gnss.ReceivedAtMonotonicTimestamp == 0 ? gnss.TimestampUtc.Value : gnss.TimestampUtc.Value + Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp);
         var offset = (projected - current).TotalSeconds;
