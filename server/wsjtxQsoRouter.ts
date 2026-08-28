@@ -1,4 +1,4 @@
-import { qsoFingerprint, type Qso } from './qso';
+import { normalizeQso, qsoFingerprint, type Qso } from './qso';
 import type { ActivationStore } from './activationStore';
 import type { WsjtxLoggedQsoCandidate } from './wsjtx';
 import type { QsoStore } from './qsoStore';
@@ -6,8 +6,8 @@ import type { QsoStore } from './qsoStore';
 export type WsjtxQsoRouteResult =
   | { readonly status: 'persisted'; readonly qso: Qso }
   | { readonly status: 'duplicate'; readonly qso: Qso }
-  | { readonly status: 'no_active' }
-  | { readonly status: 'unavailable'; readonly reason: 'activation_read_failed' | 'qso_read_failed' | 'persistence_failed' };
+  | { readonly status: 'no_active'; readonly reason: 'zero_active' | 'multiple_active' }
+  | { readonly status: 'unavailable'; readonly reason: 'normalization_failed' | 'activation_read_failed' | 'qso_read_failed' | 'persistence_failed' };
 
 export interface WsjtxQsoRouterOptions {
   readonly activationStore: Pick<ActivationStore, 'list'>;
@@ -21,7 +21,7 @@ export class WsjtxQsoRouter {
     const activations = this.options.activationStore.list();
     if (activations.diagnostics.some(item => item.code === 'io_error')) return { status: 'unavailable', reason: 'activation_read_failed' };
     const active = activations.activations.filter(activation => activation.status === 'active');
-    if (active.length !== 1) return { status: 'no_active' };
+    if (active.length !== 1) return { status: 'no_active', reason: active.length === 0 ? 'zero_active' : 'multiple_active' };
 
     const activationId = active[0].activationId;
     const existing = this.options.qsoStore.listByActivation(activationId);
@@ -44,6 +44,8 @@ export class WsjtxQsoRouter {
     const fingerprint = qsoFingerprint({ ...input, submode: undefined } as Qso);
     const duplicate = existing.qsos.find(qso => qsoFingerprint(qso) === fingerprint);
     if (duplicate) return { status: 'duplicate', qso: duplicate };
+    const normalized = normalizeQso({ ...input, qsoId: 'diagnostic', schemaVersion: 1, createdAtUtc: candidate.qsoDateTimeUtc, updatedAtUtc: candidate.qsoDateTimeUtc });
+    if (!normalized.valid || !normalized.qso) return { status: 'unavailable', reason: 'normalization_failed' };
     try {
       return { status: 'persisted', qso: this.options.qsoStore.create(input).qso };
     } catch {

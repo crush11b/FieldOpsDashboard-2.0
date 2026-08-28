@@ -33,6 +33,13 @@ export interface WsjtxDiagnostics {
   readonly loggedQsoParseFailures: number;
   readonly lastLoggedQsoAtUtc: string | null;
   readonly lastLoggedQsoResult: string | null;
+  readonly lastLoggedQsoCallsign: string | null;
+  readonly lastLoggedQsoBand: string | null;
+  readonly lastLoggedQsoMode: string | null;
+  readonly lastLoggedQsoFrequencyMHz: number | null;
+  readonly lastImportSuccessAtUtc: string | null;
+  readonly lastImportFailureStage: string | null;
+  readonly lastImportFailureReason: string | null;
 }
 
 export function parseWsjtxStatusPacket(packet: Uint8Array, now = () => new Date()): WsjtxObservation | null {
@@ -116,6 +123,13 @@ export class WsjtxListener {
   private loggedQsoParseFailures = 0;
   private lastLoggedQsoAtUtc: string | null = null;
   private lastLoggedQsoResult: string | null = null;
+  private lastLoggedQsoCallsign: string | null = null;
+  private lastLoggedQsoBand: string | null = null;
+  private lastLoggedQsoMode: string | null = null;
+  private lastLoggedQsoFrequencyMHz: number | null = null;
+  private lastImportSuccessAtUtc: string | null = null;
+  private lastImportFailureStage: string | null = null;
+  private lastImportFailureReason: string | null = null;
   constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
 
   start(): void {
@@ -137,14 +151,34 @@ export class WsjtxListener {
     if (loggedQso) {
       this.loggedQsoPacketsAccepted += 1;
       this.lastLoggedQsoAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
-      setImmediate(() => { try { const result = this.options.onLoggedQso?.(loggedQso); this.lastLoggedQsoResult = typeof result === 'string' ? result : 'received'; } catch { this.lastLoggedQsoResult = 'handler_error'; } });
+      this.lastLoggedQsoCallsign = loggedQso.callsign;
+      this.lastLoggedQsoBand = loggedQso.band;
+      this.lastLoggedQsoMode = loggedQso.mode;
+      this.lastLoggedQsoFrequencyMHz = loggedQso.frequencyMHz;
+      setImmediate(() => {
+        try {
+          const result = this.options.onLoggedQso?.(loggedQso);
+          const outcome = typeof result === 'string' ? result : 'received';
+          this.lastLoggedQsoResult = outcome;
+          if (outcome === 'persisted') this.lastImportSuccessAtUtc = this.lastLoggedQsoAtUtc;
+          else {
+            const separator = outcome.indexOf(':');
+            this.lastImportFailureStage = separator < 0 ? outcome : outcome.slice(0, separator);
+            this.lastImportFailureReason = separator < 0 ? null : outcome.slice(separator + 1);
+          }
+        } catch {
+          this.lastLoggedQsoResult = 'handler_error';
+          this.lastImportFailureStage = 'handler';
+          this.lastImportFailureReason = 'The Logged QSO handler failed.';
+        }
+      });
     } else if (isLoggedQsoPacket(packet)) {
       this.loggedQsoParseFailures += 1;
       this.lastLoggedQsoResult = 'parse_failed';
     }
   }
 
-  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult }; }
+  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason }; }
 
   stop(): void { this.socket?.close(); this.socket = null; }
 

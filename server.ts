@@ -128,7 +128,7 @@ async function startServer() {
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
   const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
-  const wsjtxListener = new WsjtxListener({ onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.status}:${result.reason}` : result.status; } });
+  const wsjtxListener = new WsjtxListener({ onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; } });
   wsjtxListener.start();
   app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());

@@ -122,5 +122,6 @@ describe('WSJT-X protocol and listener', () => {
     expect(listener.getSnapshot()).toMatchObject({ state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
     expect(qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
     expect(qsoStore.listByActivation('activation-1').qsos[0]).toMatchObject({ callsign: 'W1AW', source: 'wsjtx', band: '20m', mode: 'FT8' });
+    expect(listener.getDiagnostics()).toMatchObject({ lastLoggedQsoResult: 'persisted', lastLoggedQsoCallsign: 'W1AW', lastLoggedQsoBand: '20m', lastLoggedQsoMode: 'FT8', lastImportSuccessAtUtc: expect.any(String) });
   });
 });
