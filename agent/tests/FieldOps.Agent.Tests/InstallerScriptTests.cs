@@ -162,7 +162,7 @@ public sealed class InstallerScriptTests
         Assert.DoesNotContain("Start-Process -FilePath 'npm.cmd'", updater);
         Assert.DoesNotContain("npm run dev", updater);
         var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
-        Assert.Contains("UpdateDashboard.ps1", batch);
+        Assert.Contains("FieldOpsDevelopmentUpdater.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
         Assert.Contains("Set-Location -LiteralPath $installParent", updater);
     }

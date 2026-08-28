@@ -41,5 +41,5 @@ jobs:
           Compress-Archive -Path agent/artifacts/publish/win-x64/agent,agent/artifacts/publish/win-x64/tray,agent/artifacts/publish/win-x64/artifact-manifest.json -DestinationPath fieldops-native-win-x64.zip
       - uses: actions/upload-artifact@v4
         with:
-          name: fieldops-native-win-x64-${{ github.sha }}
+          name: fieldops-native-win-x64-${{ inputs.source_revision || github.sha }}
           path: fieldops-native-win-x64.zip
