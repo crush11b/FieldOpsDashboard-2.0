@@ -12,6 +12,7 @@ import type { ClockSynchronizationEvidence } from '../../server/locationTelemetr
 
 export const WSJTX_POLL_INTERVAL_MS = 1000;
 export const WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS = 2000;
+export const WSJTX_DIAGNOSTICS_REQUEST_TIMEOUT_MS = 1500;
 
 interface WsjtxFrontendTiming {
   readonly fetchStartedAtUtc: string | null;
@@ -85,12 +86,32 @@ interface WsjtxDiagnosticsPollingTiming {
 const WsjtxDiagnosticsPanel: React.FC<{ currentTiming: WsjtxFrontendTiming }> = ({ currentTiming }) => {
   const [diagnostics, setDiagnostics] = useState<WsjtxDiagnostics | null>(null);
   const [pollingTiming, setPollingTiming] = useState<WsjtxDiagnosticsPollingTiming>({ lastFetchStartedAtUtc: null, lastFetchCompletedAtUtc: null, lastFetchDurationMs: null, inFlight: 0, lastResult: null });
+  const diagnosticsRequestInFlight = useRef(false);
+  const diagnosticsRequestController = useRef<AbortController | null>(null);
   useEffect(() => {
     let cancelled = false;
-    const refresh = async () => { const startedAt = Date.now(); if (!cancelled) setPollingTiming(previous => ({ ...previous, lastFetchStartedAtUtc: new Date(startedAt).toISOString(), inFlight: previous.inFlight + 1 })); try { const result = await getWsjtxDiagnostics(); if (!cancelled) { setDiagnostics(result); setPollingTiming(previous => ({ ...previous, lastFetchCompletedAtUtc: new Date().toISOString(), lastFetchDurationMs: Date.now() - startedAt, inFlight: Math.max(0, previous.inFlight - 1), lastResult: 'success' })); } } catch { if (!cancelled) setPollingTiming(previous => ({ ...previous, lastFetchCompletedAtUtc: new Date().toISOString(), lastFetchDurationMs: Date.now() - startedAt, inFlight: Math.max(0, previous.inFlight - 1), lastResult: 'failure' })); } };
+    const refresh = async () => {
+      if (diagnosticsRequestInFlight.current) return;
+      diagnosticsRequestInFlight.current = true;
+      const startedAt = Date.now();
+      const controller = new AbortController();
+      diagnosticsRequestController.current = controller;
+      const timeout = window.setTimeout(() => controller.abort(), WSJTX_DIAGNOSTICS_REQUEST_TIMEOUT_MS);
+      if (!cancelled) setPollingTiming(previous => ({ ...previous, lastFetchStartedAtUtc: new Date(startedAt).toISOString(), inFlight: 1 }));
+      try {
+        const result = await getWsjtxDiagnostics(controller.signal);
+        if (!cancelled) { setDiagnostics(result); setPollingTiming(previous => ({ ...previous, lastFetchCompletedAtUtc: new Date().toISOString(), lastFetchDurationMs: Date.now() - startedAt, inFlight: 0, lastResult: 'success' })); }
+      } catch {
+        if (!cancelled) setPollingTiming(previous => ({ ...previous, lastFetchCompletedAtUtc: new Date().toISOString(), lastFetchDurationMs: Date.now() - startedAt, inFlight: 0, lastResult: 'failure' }));
+      } finally {
+        window.clearTimeout(timeout);
+        diagnosticsRequestInFlight.current = false;
+        diagnosticsRequestController.current = null;
+      }
+    };
     void refresh();
     const timer = window.setInterval(() => void refresh(), WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS);
-    return () => { cancelled = true; window.clearInterval(timer); };
+    return () => { cancelled = true; window.clearInterval(timer); diagnosticsRequestController.current?.abort(); diagnosticsRequestController.current = null; diagnosticsRequestInFlight.current = false; };
   }, []);
   return <details aria-label="WSJT-X diagnostics" className="rounded border border-slate-700 bg-slate-950/50 p-2"><summary className="cursor-pointer text-[10px] font-black uppercase text-cyan-300">WSJT-X DIAGNOSTICS</summary><div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2"><EvidenceField label="Packets received" value={diagnostics?.packetsReceived} /><EvidenceField label="Last packet received UTC" value={formatEvidenceUtc(diagnostics?.lastPacketReceivedAtUtc)} /><EvidenceField label="Logged QSO packets accepted" value={diagnostics?.loggedQsoPacketsAccepted} /><EvidenceField label="Logged QSO parse failures" value={diagnostics?.loggedQsoParseFailures} /><EvidenceField label="Last import result" value={diagnostics?.lastLoggedQsoResult} /><EvidenceField label="Last callsign / band / mode" value={diagnostics ? [diagnostics.lastLoggedQsoCallsign, diagnostics.lastLoggedQsoBand, diagnostics.lastLoggedQsoMode].filter(Boolean).join(' / ') : null} /><EvidenceField label="Last import success UTC" value={formatEvidenceUtc(diagnostics?.lastImportSuccessAtUtc)} /><EvidenceField label="Last failure stage" value={diagnostics?.lastImportFailureStage} prominent={Boolean(diagnostics?.lastImportFailureStage)} /><EvidenceField label="Last failure reason" value={diagnostics?.lastImportFailureReason} prominent={Boolean(diagnostics?.lastImportFailureReason)} /></div><TimingEvidence currentTiming={currentTiming} diagnostics={diagnostics} pollingTiming={pollingTiming} /></details>;
 };

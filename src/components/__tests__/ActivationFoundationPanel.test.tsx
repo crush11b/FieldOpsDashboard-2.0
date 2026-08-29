@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ActivationFoundationPanel, WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
+import { ActivationFoundationPanel, WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS, WSJTX_DIAGNOSTICS_REQUEST_TIMEOUT_MS, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
 
 const brief = {
   briefId: 'brief-start',
@@ -175,6 +175,8 @@ describe('ActivationFoundationPanel', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     fireEvent.click(screen.getByText('WSJT-X DIAGNOSTICS'));
     expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(4000); });
+    expect(diagnosticsPoll).toBe(1);
     resolveDiagnostics(diagnostics);
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
     expect(screen.getByText('success')).toBeInTheDocument();
@@ -183,8 +185,37 @@ describe('ActivationFoundationPanel', () => {
     expect(screen.getByText('DIAGNOSTICS POLLING TRANSPORT')).toBeInTheDocument();
     expect(screen.getByText('Diagnostics requests in flight').parentElement).toHaveTextContent('0');
     await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(diagnosticsPoll).toBe(2);
     expect(screen.getByText('failure')).toBeInTheDocument();
     expect(screen.getByText('Diagnostics requests in flight').parentElement).toHaveTextContent('0');
+  });
+
+  it('aborts a pending diagnostics request on unmount and resumes after timeout', async () => {
+    vi.useFakeTimers();
+    let diagnosticsPoll = 0;
+    const diagnosticsSignals: AbortSignal[] = [];
+    const diagnostics = { packetsReceived: 8, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 4, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/wsjtx/diagnostics')) {
+        diagnosticsPoll += 1;
+        if (init?.signal) diagnosticsSignals.push(init.signal);
+        if (diagnosticsPoll === 1 || diagnosticsPoll === 3) return { ok: true, json: async () => new Promise((resolve, reject) => init?.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))) };
+        return { ok: true, json: async () => diagnostics };
+      }
+      if (String(input).includes('/api/wsjtx/current')) return { ok: true, json: async () => ({ status: 'available', state: { band: '20m', frequencyMHz: 14.074, mode: 'FT8', source: 'wsjtx', observedAtUtc: '2026-08-29T00:00:00.000Z', freshness: 'fresh', status: 'available', limitation: 'WSJT-X application status' } }) };
+      return { ok: true, json: async () => ({ qsos: [] }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const view = render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(WSJTX_DIAGNOSTICS_REQUEST_TIMEOUT_MS); });
+    expect(diagnosticsSignals[0]?.aborted).toBe(true);
+    expect(screen.getByText('failure')).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(diagnosticsPoll).toBe(2);
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    view.unmount();
+    expect(diagnosticsSignals[2]?.aborted).toBe(true);
   });
 
   it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {
