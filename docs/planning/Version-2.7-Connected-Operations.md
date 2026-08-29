@@ -298,6 +298,26 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - Existing installations may contain multiple active records from before this invariant. OPERATE presents the ambiguity and offers an explicit keep-one repair action. Repair completes the other active records without deleting any Activation or QSO data. Until repair, WSJT-X routing continues to refuse the ambiguous state rather than selecting an arbitrary record.
 - Review remains read-only; it does not complete Activations. CAT, radio control, packet parsing, Current Station polling, GNSS/clock behavior, and the separate local-HTTP performance correction are unchanged.
 
+### V2.7-04 CF-20 hardware acceptance - 2026-08-29
+
+The prior interim WSJT-X acceptance blockers are superseded by completed Panasonic ToughBook CF-20 Mk2 evidence. With real WSJT-X, Current Station followed band, mode, and frequency with ordinary updates of approximately 1-2 seconds; backend Status receive, parse, and state update were effectively immediate. Earlier multi-second/global stalls were traced primarily to synchronous P.533 WASM execution on the Node/Express event loop, not the WSJT-X parser/state path.
+
+Real WSJT-X Logged QSO events completed the full path `UDP packet -> parsed -> normalized -> active Activation -> persisted -> QSO Logger display`, including AD9DU on 40m FT8 and TE5T on 20m FT4. The single-active Activation invariant corrected ambiguity while preserving historical Activations and QSOs: a subsequent Activation started without stale ambiguity, and completed Activation REVIEW retained its QSO history. The previously demonstrated GNSS/Windows clock synchronization no-op within the allowed tolerance remains accepted evidence; clock algorithm work is not reopened here.
+
+P.533 regional guidance performs 36-45 synchronous WASM calls per uncached calculation and may occupy the CF-20 event loop for approximately 5-7 seconds. It now runs in a long-lived Worker Thread. Real worker-backed computation remains computationally expensive, as expected for the target hardware, but while it ran the operator returned to Field Tools and Current Station continued following WSJT-X changes. Raw P.533 speed is hardware-limited; application-wide blocking is sufficiently isolated and is accepted for the CF-20 target.
+
+The GNSS updater failure was also retested on revision `a56bf4e4a2fe0a6f4801240abdf4bb0f5ee2eaca`. After the Desktop Development Updater, GPS reacquired without a Windows reboot. This is hardware-supported evidence that graceful Agent teardown resolves the reproduced updater/GNSS failure for this acceptance cycle: the updater waits for the exact old Agent PID to disappear naturally and fails closed if it does not, while Tray/Dashboard forced shutdown remains unchanged. This does not claim that every Sierra/driver failure mode is solved.
+
+**V2.7-04 - ACCEPTED on CF-20 hardware.**
+
+Accepted limitations:
+
+- P.533 calculations may require several seconds on CF-20-class hardware, but WSJT-X and other UI/runtime functions remain responsive while P.533 computes.
+- Residual one-off timing variation may occur on constrained hardware; no known V2.7-04 defect remains that blocks proceeding.
+- Future updater deployments provide additional natural confirmation of the GNSS graceful-exit correction.
+
+V2.7-05 may now begin. This acceptance does not mark the V2.7 release complete.
+
 ---
 
 ## 2.7-05 - Live Band Activity
