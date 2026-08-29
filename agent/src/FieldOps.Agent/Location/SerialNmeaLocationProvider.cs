@@ -99,10 +99,16 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                 SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
                 logger.LogInformation("NMEA port opened: {PortName}", portName);
                 NmeaFix? current = null;
+                var lastSerialDataReceived = Stopwatch.GetTimestamp();
                 while (!cancellationToken.IsCancellationRequested)
                 {
-                    var line = await ReadLineWithWatchdogAsync(port, cancellationToken);
-                    if (line is null) continue;
+                    var line = await port.ReadLineAsync(cancellationToken);
+                    if (line is null)
+                    {
+                        if (Stopwatch.GetElapsedTime(lastSerialDataReceived) >= noDataTimeout) throw new NmeaSilenceException(noDataTimeout);
+                        continue;
+                    }
+                    lastSerialDataReceived = Stopwatch.GetTimestamp();
                     logger.LogDebug("NMEA serial data received on {PortName}", portName);
                     try { UpdateTimeEvidence(NmeaParser.ParseTime(line.Trim())); }
                     catch (Exception ex) { logger.LogInformation(ex, "GNSS time evidence evaluation failed; location telemetry remains independent."); }
@@ -128,16 +134,6 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             }
         }
-    }
-
-    private async Task<string?> ReadLineWithWatchdogAsync(INmeaSerialReader port, CancellationToken cancellationToken)
-    {
-        var readTask = port.ReadLineAsync(cancellationToken);
-        var watchdogTask = Task.Delay(noDataTimeout, cancellationToken);
-        var completed = await Task.WhenAny(readTask, watchdogTask);
-        if (completed == readTask) return await readTask;
-        cancellationToken.ThrowIfCancellationRequested();
-        throw new NmeaSilenceException(noDataTimeout);
     }
 
     private static int ParseNoDataTimeoutSeconds(string? configuredValue)
