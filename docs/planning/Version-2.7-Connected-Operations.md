@@ -188,6 +188,24 @@ With WSJT-X running during a real digital session, FieldOps can display the curr
 - radio ownership
 - Hamlib/rigctld integration
 
+## V2.7-04 P.533 event-loop isolation correction
+
+### Root cause and evidence
+
+The production regional guidance path executes nine supported P.533 bands across four or five representative paths, producing 36 or 45 synchronous WASM executions per uncached refresh. A real five-path calculation measured approximately 6.2 seconds for 45 executions, with individual executions measuring approximately 103-263 ms. The existing synchronous `module.callMain()` therefore occupied the primary Node/Express event loop long enough to explain the observed 5-7 second application-wide stalls and to amplify longer queued-request incidents.
+
+### Architecture
+
+The P.533 engine now runs in one long-lived Node Worker Thread. The worker owns WASM initialization, virtual filesystem/data population, synchronous `module.callMain()`, report retrieval, and report parsing. The main process retains request validation, the public promise contract, global serialized execution semantics, and all existing regional/cache/rating behavior. The production build emits `dist/p533Worker.cjs` beside `dist/server.cjs`; source execution uses the TypeScript worker entry and repository-local TSX loader.
+
+The bridge correlates deterministic request identifiers, rejects outstanding calls when the worker errors or exits, recreates the worker on the next request, and supports explicit shutdown. Workers are unreferenced so tests and process shutdown are not held open by an idle model worker.
+
+### Preserved semantics and validation
+
+P.533 inputs, assets, provenance, parsing, regional paths, supported bands, aggregation, cache keys/TTL/capacity, in-flight sharing, SmartDeploy mission-window behavior, and UI/runtime integrations are unchanged. Focused tests pass for real-engine parity, regional 45-call output, serialized requests, main-thread timer progress during a real regional run, worker failure rejection, and worker recovery. The measured worker-backed regional calculation remains approximately six seconds wall time while independent main-thread timers continue to run.
+
+This correction is not the V2.7 release-completion decision. ToughBook hardware acceptance remains required after deployment.
+
 ---
 
 ## 2.7-04 - WSJT-X-Assisted QSO Capture

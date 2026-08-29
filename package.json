@@ -10,7 +10,7 @@
     "p533:provision": "node scripts/p533-assets.mjs",
     "p533:verify": "node scripts/p533-assets.mjs --verify-only",
     "p533:verify:dist": "node scripts/p533-assets.mjs --verify-only --bundle=dist/p533",
-    "build": "npm run metadata:check && npm run p533:verify && node scripts/p533-assets.mjs --prepare-public && vite build && npm run p533:verify:dist && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs",
+    "build": "npm run metadata:check && npm run p533:verify && node scripts/p533-assets.mjs --prepare-public && vite build && npm run p533:verify:dist && esbuild server.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/server.cjs && esbuild server/p533Worker.ts --bundle --platform=node --format=cjs --packages=external --sourcemap --outfile=dist/p533Worker.cjs",
     "start": "node dist/server.cjs",
     "test": "npm run metadata:check && vitest run",
     "test:watch": "vitest",
