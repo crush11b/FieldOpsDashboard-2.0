@@ -39,6 +39,7 @@ import { SpaceWeatherService } from './server/spaceWeather';
 import { SpaceWeatherSnapshotStore, getDefaultSpaceWeatherSnapshotPath } from './server/spaceWeatherSnapshotStore';
 import { createSpaceWeatherSnapshotRouter } from './server/spaceWeatherSnapshotApi';
 import { ObservedRfService } from './server/observedRf';
+import { createLiveBandActivityRouter } from './server/liveBandActivityApi';
 import type { OperatingLocation } from './src/location/operatingLocation';
 import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
 import { createPotaTargetRouter, PotaActivationTargetResolver } from './server/potaTargetResolver';
@@ -121,6 +122,7 @@ async function startServer() {
   app.use(createSotaSummitDataRouter(sotaDataStore));
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
+  app.use(createLiveBandActivityRouter({ observedRf: observedRfService, readLocation: readLocationTelemetryPipe }));
   const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
   const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
   const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());

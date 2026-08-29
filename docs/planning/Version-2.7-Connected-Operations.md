@@ -342,6 +342,14 @@ Observed RF remains observational digital reception-report evidence. It does not
 
 OPERATE can show truthful recent observed digital activity when available, including valid zero-report states, and clearly distinguish it from modeled propagation and from the station's actual current operating state.
 
+### V2.7-05A implementation evidence - 2026-08-29
+
+The first implementation slice reuses the singleton `ObservedRfService` and adds a bounded `GET /api/live-band-activity` read model. It preserves the existing PSKReporter source identity, 15-minute window, live/cached/stale/unavailable status semantics, canonical ten-band order, and inbound/outbound/local report counts. The endpoint does not create a second MQTT connection, invoke P.533, or call propagation guidance.
+
+Active OPERATE now includes a compact read-only panel sourced from that endpoint. It refreshes at a tens-of-seconds cadence with one in-flight request guard, keeps request failures separate from zero-report evidence, and does not persist activity into Activation or REVIEW. Unavailable source state is shown without fabricated band-zero rows; live zero-report state remains explicit and visible.
+
+Focused mapper, endpoint, and panel tests pass, and TypeScript typecheck passes. CF-20 hardware validation and full V2.7-05 acceptance remain pending; this is the 2.7-05A foundation slice only.
+
 ---
 
 ## 2.7-06 - Integrated OPERATE Console

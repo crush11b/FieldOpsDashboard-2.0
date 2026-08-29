@@ -8,6 +8,7 @@ import { OperationsReadinessWorkspace } from './OperationsReadinessWorkspace';
 import { ActivationReviewPanel } from './ActivationReviewPanel';
 import { listQsos } from '../qsoApi';
 import { reconcileActiveActivation, startActivationFromBrief } from '../activationApi';
+import { LiveBandActivityPanel } from './LiveBandActivityPanel';
 
 interface SmartDeployBriefViewProps {
   brief: SmartDeployBrief;
@@ -68,6 +69,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     </>}
     {phase === 'operate' && <>
       <ActivationFoundationPanel brief={brief} initialActivation={activation} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') { setActiveActivations([next]); setPhase('operate'); } }} />
+      {activation?.status === 'active' && <LiveBandActivityPanel active />}
       {activation ? <ActivationNotesPanel brief={brief} /> : <p className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px] text-amber-200">Start the activation from PREPARE to enable Notes and the QSO Logger.</p>}
     </>}
     {phase === 'review' && (activation ? <ActivationReviewPanel activation={activation} /> : <div className="rounded-xl border border-amber-700/60 bg-amber-950/20 p-3 space-y-2"><h3 className="font-black text-sm uppercase text-amber-300">REVIEW</h3><p className="text-[11px] text-slate-300">Open this plan in OPERATE first to create its durable Activation record, then return here for the retained-evidence review.</p><button type="button" onClick={() => setPhase('operate')} className="min-h-11 rounded border border-cyan-700 px-3 py-2 text-[10px] font-bold text-cyan-200">OPEN OPERATE</button></div>)}
