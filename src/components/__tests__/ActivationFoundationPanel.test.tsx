@@ -2,7 +2,7 @@
 import React from 'react';
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ActivationFoundationPanel, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
+import { ActivationFoundationPanel, WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
 
 const brief = {
   briefId: 'brief-start',
@@ -98,6 +98,7 @@ describe('ActivationFoundationPanel', () => {
 
   it('uses a one-second WSJT-X refresh cadence for the preliminary latency budget', () => {
     expect(WSJTX_POLL_INTERVAL_MS).toBe(1000);
+    expect(WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS).toBe(2000);
   });
 
   it('shows collapsed WSJT-X diagnostics and refreshes them while active', async () => {
@@ -152,6 +153,38 @@ describe('ActivationFoundationPanel', () => {
     expect(screen.getByText('7')).toBeInTheDocument();
     expect(screen.getByText('40m · FT4')).toBeInTheDocument();
     expect(diagnosticsPoll).toBeGreaterThanOrEqual(3);
+  });
+
+  it('records Current Station and diagnostics transport timing through success and failure', async () => {
+    vi.useFakeTimers();
+    let resolveDiagnostics!: (value: unknown) => void;
+    const pendingDiagnostics = new Promise(resolve => { resolveDiagnostics = resolve; });
+    let diagnosticsPoll = 0;
+    const diagnostics = { packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/wsjtx/diagnostics')) {
+        diagnosticsPoll += 1;
+        if (diagnosticsPoll === 1) return { ok: true, json: async () => pendingDiagnostics };
+        return { ok: false, json: async () => ({}) };
+      }
+      if (String(input).includes('/api/wsjtx/current')) return { ok: true, json: async () => ({ status: 'available', timing: { requestId: 1, requestReceivedAtUtc: '2026-08-29T00:00:00.010Z', responseProducedAtUtc: '2026-08-29T00:00:00.011Z' }, state: { band: '20m', frequencyMHz: 14.074, mode: 'FT8', source: 'wsjtx', observedAtUtc: '2026-08-29T00:00:00.011Z', freshness: 'fresh', status: 'available', limitation: 'WSJT-X application status' } }) };
+      return { ok: true, json: async () => ({ qsos: [] }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    fireEvent.click(screen.getByText('WSJT-X DIAGNOSTICS'));
+    expect(screen.getAllByText('1').length).toBeGreaterThanOrEqual(2);
+    resolveDiagnostics(diagnostics);
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(screen.getByText('success')).toBeInTheDocument();
+    expect(screen.getByText('20m · FT8')).toBeInTheDocument();
+    expect(screen.getByText('CURRENT STATION TIMING')).toBeInTheDocument();
+    expect(screen.getByText('DIAGNOSTICS POLLING TRANSPORT')).toBeInTheDocument();
+    expect(screen.getByText('Diagnostics requests in flight').parentElement).toHaveTextContent('0');
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    expect(screen.getByText('failure')).toBeInTheDocument();
+    expect(screen.getByText('Diagnostics requests in flight').parentElement).toHaveTextContent('0');
   });
 
   it('exposes the approved clock sync action in OPERATE and refreshes evidence after confirmation', async () => {

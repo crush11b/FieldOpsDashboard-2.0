@@ -17,6 +17,22 @@ export interface WsjtxDiagnostics {
   readonly lastImportSuccessAtUtc: string | null;
   readonly lastImportFailureStage: string | null;
   readonly lastImportFailureReason: string | null;
+  readonly timing?: WsjtxTimingEvidence;
+}
+
+export interface WsjtxTimingEvidence {
+  readonly lastStatusPacketReceivedAtUtc: string | null;
+  readonly lastStatusParsedAtUtc: string | null;
+  readonly lastStatusStateUpdatedAtUtc: string | null;
+  readonly lastCurrentRequestId: number | null;
+  readonly lastCurrentRequestReceivedAtUtc: string | null;
+  readonly lastCurrentResponseProducedAtUtc: string | null;
+}
+
+export interface WsjtxCurrentTiming {
+  readonly requestId: number;
+  readonly requestReceivedAtUtc: string;
+  readonly responseProducedAtUtc: string;
 }
 
 export interface WsjtxCurrentResponse {
@@ -25,6 +41,7 @@ export interface WsjtxCurrentResponse {
   readonly receivedAtUtc: string | null;
   readonly limitation: string;
   readonly apiSnapshotAtUtc?: string;
+  readonly timing?: WsjtxCurrentTiming;
 }
 
 export async function getWsjtxCurrentState(signal?: AbortSignal): Promise<WsjtxCurrentResponse> {

@@ -23,6 +23,15 @@ export interface WsjtxSnapshot {
   readonly limitation: string;
 }
 
+export interface WsjtxTimingEvidence {
+  readonly lastStatusPacketReceivedAtUtc: string | null;
+  readonly lastStatusParsedAtUtc: string | null;
+  readonly lastStatusStateUpdatedAtUtc: string | null;
+  readonly lastCurrentRequestId: number | null;
+  readonly lastCurrentRequestReceivedAtUtc: string | null;
+  readonly lastCurrentResponseProducedAtUtc: string | null;
+}
+
 export interface WsjtxDiagnostics {
   readonly packetsReceived: number;
   readonly lastPacketReceivedAtUtc: string | null;
@@ -40,6 +49,7 @@ export interface WsjtxDiagnostics {
   readonly lastImportSuccessAtUtc: string | null;
   readonly lastImportFailureStage: string | null;
   readonly lastImportFailureReason: string | null;
+  readonly timing: WsjtxTimingEvidence;
 }
 
 export function parseWsjtxStatusPacket(packet: Uint8Array, now = () => new Date()): WsjtxObservation | null {
@@ -116,6 +126,7 @@ export class WsjtxListener {
   private lastError: string | null = null;
   private packetsReceived = 0;
   private lastPacketReceivedAtUtc: string | null = null;
+  private lastStatusPacketReceivedAtUtc: string | null = null;
   private statusPacketsAccepted = 0;
   private lastStatusParsedAtUtc: string | null = null;
   private lastStatusStateUpdatedAtUtc: string | null = null;
@@ -130,6 +141,9 @@ export class WsjtxListener {
   private lastImportSuccessAtUtc: string | null = null;
   private lastImportFailureStage: string | null = null;
   private lastImportFailureReason: string | null = null;
+  private lastCurrentRequestId: number | null = null;
+  private lastCurrentRequestReceivedAtUtc: string | null = null;
+  private lastCurrentResponseProducedAtUtc: string | null = null;
   constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
 
   start(): void {
@@ -145,6 +159,7 @@ export class WsjtxListener {
     this.packetsReceived += 1;
     const receivedAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
     this.lastPacketReceivedAtUtc = receivedAtUtc;
+    if (isStatusPacket(packet)) this.lastStatusPacketReceivedAtUtc = receivedAtUtc;
     const observation = parseWsjtxStatusPacket(packet, this.options.now);
     if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastStatusParsedAtUtc = observation.receivedAtUtc; this.lastStatusStateUpdatedAtUtc = observation.receivedAtUtc; this.lastError = null; }
     const loggedQso = parseWsjtxLoggedQsoPacket(packet);
@@ -178,7 +193,10 @@ export class WsjtxListener {
     }
   }
 
-  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason }; }
+  recordCurrentRequest(requestId: number, receivedAtUtc: string): void { this.lastCurrentRequestId = requestId; this.lastCurrentRequestReceivedAtUtc = receivedAtUtc; }
+  recordCurrentResponse(producedAtUtc: string): void { this.lastCurrentResponseProducedAtUtc = producedAtUtc; }
+
+  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
 
   stop(): void { this.socket?.close(); this.socket = null; }
 
@@ -224,4 +242,10 @@ function isLoggedQsoPacket(packet: Uint8Array): boolean {
   if (packet.length < 12) return false;
   const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
   return view.getUint32(0) === WSJTX_MAGIC && WSJTX_SUPPORTED_SCHEMAS.has(view.getUint32(4)) && view.getUint32(8) === WSJTX_QSO_LOGGED_MESSAGE;
+}
+
+function isStatusPacket(packet: Uint8Array): boolean {
+  if (packet.length < 12) return false;
+  const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
+  return view.getUint32(0) === WSJTX_MAGIC && WSJTX_SUPPORTED_SCHEMAS.has(view.getUint32(4)) && view.getUint32(8) === WSJTX_STATUS_MESSAGE;
 }
