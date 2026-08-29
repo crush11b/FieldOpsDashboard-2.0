@@ -29,6 +29,36 @@ describe('Activation model and store', () => {
     expect(loaded.status).toBe('found');
     expect((loaded as any).activation.status).toBe('active');
   });
+  it('completes an older active Activation when starting a planned one', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-activation-lifecycle-')); directories.push(directory);
+    const store = new ActivationStore(path.join(directory, 'activations.json'), { now, createId: (() => { let id = 0; return () => `activation-${++id}`; })() });
+    const first = store.create({ type: 'General' }).activation;
+    store.activate(first.activationId);
+    const second = store.create({ type: 'General' }).activation;
+    const activated = store.activate(second.activationId);
+    expect(activated.reconciledActivationIds).toEqual([first.activationId]);
+    expect(store.get(first.activationId)).toMatchObject({ status: 'found', activation: { status: 'completed' } });
+    expect(store.get(second.activationId)).toMatchObject({ status: 'found', activation: { status: 'active' } });
+  });
+  it('repairs historical multiple-active records without removing completed history', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-activation-repair-')); directories.push(directory);
+    const filePath = path.join(directory, 'activations.json');
+    const make = (activationId: string, status: 'active' | 'completed') => createActivation({ type: 'General', status }, { now, createId: () => activationId });
+    fs.mkdirSync(path.dirname(filePath), { recursive: true });
+    fs.writeFileSync(filePath, JSON.stringify({ storeVersion: 1, activations: [make('active-2', 'active'), make('active-1', 'active'), make('completed-1', 'completed')] }));
+    const store = new ActivationStore(filePath, { now });
+    expect(store.reconcileActive('active-1').reconciledActivationIds).toEqual(['active-2']);
+    expect(store.list().activations.filter(item => item.status === 'active')).toHaveLength(1);
+    expect(store.get('completed-1')).toMatchObject({ status: 'found', activation: { status: 'completed' } });
+  });
+  it('keeps Activation history when its SmartDeploy brief is deleted', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-activation-delete-')); directories.push(directory);
+    const activationStore = new ActivationStore(path.join(directory, 'activations.json'), { now, createId: () => 'activation-1' });
+    const activation = activationStore.create({ type: 'General', briefId: 'brief-1' }).activation;
+    const briefStore = { delete: () => ({ status: 'deleted', brief: { briefId: 'brief-1' }, diagnostics: [] }) };
+    expect(briefStore.delete().status).toBe('deleted');
+    expect(activationStore.get(activation.activationId)).toMatchObject({ status: 'found', activation: { activationId: 'activation-1', briefId: 'brief-1' } });
+  });
   it('skips malformed persisted records with diagnostics', () => {
     const { activation: store, activationPath: filePath } = stores();
     fs.mkdirSync(path.dirname(filePath), { recursive: true });

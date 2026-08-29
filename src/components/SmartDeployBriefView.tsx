@@ -7,7 +7,7 @@ import { ActivationFoundationPanel } from './ActivationFoundationPanel';
 import { OperationsReadinessWorkspace } from './OperationsReadinessWorkspace';
 import { ActivationReviewPanel } from './ActivationReviewPanel';
 import { listQsos } from '../qsoApi';
-import { startActivationFromBrief } from '../activationApi';
+import { reconcileActiveActivation, startActivationFromBrief } from '../activationApi';
 
 interface SmartDeployBriefViewProps {
   brief: SmartDeployBrief;
@@ -20,14 +20,19 @@ export const SmartDeployBriefView: React.FC<SmartDeployBriefViewProps> = ({ brie
 const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
   const [phase, setPhase] = useState<'plan' | 'prepare' | 'operate' | 'review'>('plan');
   const [activation, setActivation] = useState<Activation | null>(null);
+  const [activeActivations, setActiveActivations] = useState<Activation[]>([]);
+  const [reconciliationMessage, setReconciliationMessage] = useState<string | null>(null);
   const [qsoCount, setQsoCount] = useState<number | null>(null);
-  useEffect(() => { let cancelled = false; void fetch('/api/activations').then(response => response.ok ? response.json() : null).then(payload => { if (cancelled) return; const match = payload?.activations?.find((item: Activation) => item.briefId === brief.briefId); if (match) { setActivation(match); setPhase(match.status === 'active' ? 'operate' : match.status === 'completed' ? 'review' : 'plan'); } }).catch(() => undefined); return () => { cancelled = true; }; }, [brief.briefId]);
+  useEffect(() => { let cancelled = false; void fetch('/api/activations').then(response => response.ok ? response.json() : null).then(payload => { if (cancelled) return; const activations = (payload?.activations || []) as Activation[]; setActiveActivations(activations.filter(item => item.status === 'active')); const match = activations.find(item => item.briefId === brief.briefId); if (match) { setActivation(match); setPhase(match.status === 'active' ? 'operate' : match.status === 'completed' ? 'review' : 'plan'); } }).catch(() => undefined); return () => { cancelled = true; }; }, [brief.briefId]);
+  const repairActiveActivations = async (keepActivationId: string) => { setReconciliationMessage(null); const result = await reconcileActiveActivation(keepActivationId); if (result.kind !== 'activation') { setReconciliationMessage(result.message); return; } setActiveActivations([result.activation]); setReconciliationMessage(`Reconciled ${result.reconciledActivationIds?.length || 0} stale active Activation record(s) as completed.`); if (activation?.activationId === keepActivationId) setActivation(result.activation); };
   useEffect(() => { if (!activation) { setQsoCount(null); return; } void listQsos(activation.activationId).then(result => setQsoCount(result.qsos.length)).catch(() => setQsoCount(null)); }, [activation]);
   const propagation = brief.sections.propagation.evidence;
   const solar = brief.sections.solar.evidence;
   const observedRf = brief.sections.observedRf;
   const geometry = propagationGeometry(propagation);
   return <section id="smartdeploy-brief" className="space-y-3" aria-live="polite">
+    {activeActivations.length > 1 && <div role="alert" className="rounded-xl border border-red-700/70 bg-red-950/30 p-3 space-y-2"><strong className="text-[11px] uppercase text-red-200">AMBIGUOUS ACTIVE ACTIVATION STATE</strong><p className="text-[11px] text-red-100">WSJT-X QSOs are paused until one active Activation is kept. Historical records and QSOs will be preserved; the other active records will be completed.</p><div className="flex flex-wrap gap-2">{activeActivations.map(item => <button key={item.activationId} type="button" onClick={() => void repairActiveActivations(item.activationId)} className="min-h-11 rounded border border-red-500 px-3 py-2 text-[10px] font-bold text-red-100">KEEP {item.reference || item.activationId} ACTIVE</button>)}</div></div>}
+    {reconciliationMessage && <p role="status" className="rounded border border-emerald-700/70 bg-emerald-950/30 p-3 text-[11px] text-emerald-200">{reconciliationMessage}</p>}
     <header className="sticky top-0 z-10 rounded-xl border border-cyan-700/70 bg-slate-950/95 p-3 shadow-lg">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><h3 className="font-black text-sm uppercase text-cyan-200">{brief.activation.reference}{brief.activation.displayName ? ` · ${brief.activation.displayName}` : ''}</h3><p className="text-[10px] text-slate-400">{brief.activation.program} · {brief.activation.gridSquare || 'Grid unavailable'} · {formatUtc(brief.missionWindow.start)} to {formatUtc(brief.missionWindow.end)} · {activation?.status || 'PLANNED'}</p></div>

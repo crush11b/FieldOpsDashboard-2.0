@@ -259,6 +259,13 @@ A completed WSJT-X QSO during an ACTIVE Activation appears in the FieldOps QSO l
 - Correction: GNSS evidence now carries monotonic receipt timing and is projected to the set instant. After a recent verified clock within `2s`, a discontinuous GNSS disagreement over `5s` fails closed as `SuspiciousEvidence` without changing Windows time. Synchronization is serialized, bounded to `15s`, performs at most one controlled set, reacquires the Windows clock for post-set verification, and returns explicit timeout, verification, native, privilege, or evidence failure results.
 - Bounded diagnostics now include operation start/duration, GNSS observation receipt, evidence age, projected target, Windows time before and after the set, verification offset, attempt count, and final reason. No unbounded history or raw NMEA payload is retained.
 
+### 2.7-04 Activation lifecycle correction - 2026-08-29
+
+- Activation persistence is separate from SmartDeploy brief persistence. Deleting a brief therefore does not delete, complete, or otherwise mutate its Activation or Activation-owned QSOs.
+- The existing single-operator lifecycle remains `planned -> active -> completed`. Starting a planned Activation is an explicit operator action; the Activation store now completes any older active records deterministically before making the requested record active. The response exposes the reconciled Activation IDs so OPERATE can explain the result.
+- Existing installations may contain multiple active records from before this invariant. OPERATE presents the ambiguity and offers an explicit keep-one repair action. Repair completes the other active records without deleting any Activation or QSO data. Until repair, WSJT-X routing continues to refuse the ambiguous state rather than selecting an arbitrary record.
+- Review remains read-only; it does not complete Activations. CAT, radio control, packet parsing, Current Station polling, GNSS/clock behavior, and the separate local-HTTP performance correction are unchanged.
+
 ---
 
 ## 2.7-05 - Live Band Activity

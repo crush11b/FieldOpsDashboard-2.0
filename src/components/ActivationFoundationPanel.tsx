@@ -61,7 +61,7 @@ export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps>
   }, [activation?.status]);
   const publishActivation = (next: Activation | null) => { setActivation(next); setStationState(next?.status === 'active' ? stationState : null); onActivationChange?.(next); };
   const updateStationState = useCallback((next: CurrentStationState) => setStationState(next), []);
-    const start = async () => { setBusy(true); setMessage(null); const result = await startActivationFromBrief(brief.briefId); if (result.kind !== 'activation') { setMessage(result.message); setBusy(false); return; } publishActivation(result.activation); setBusy(false); };
+    const start = async () => { setBusy(true); setMessage(null); const result = await startActivationFromBrief(brief.briefId); if (result.kind !== 'activation') { setMessage(result.message); setBusy(false); return; } publishActivation(result.activation); setMessage(result.reconciledActivationIds?.length ? `Activation started. Previous active Activations were completed: ${result.reconciledActivationIds.join(', ')}.` : null); setBusy(false); };
   const changeStatus = async (status: Activation['status']) => { if (!activation) return; setBusy(true); setMessage(null); const result = await updateActivationStatus(activation.activationId, status); if (result.kind === 'activation') publishActivation(result.activation); else setMessage(result.message); setBusy(false); };
   const location = activation?.plannedLocation;
   return <section className="rounded-xl border border-cyan-700/70 bg-cyan-950/20 p-3 space-y-3" aria-label="Activation">

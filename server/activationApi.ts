@@ -48,8 +48,21 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
     if (typeof status !== 'string' || !(ACTIVATION_STATUSES as readonly string[]).includes(status)) { response.status(400).json(error('invalid_status', `Status must be one of: ${ACTIVATION_STATUSES.join(', ')}.`)); return; }
     const allowed = existing.activation.status === 'planned' ? status === 'active' : existing.activation.status === 'active' ? status === 'completed' : false;
     if (!allowed) { response.status(409).json(error('invalid_transition', `An Activation cannot move from ${existing.activation.status} to ${status}.`, existing.diagnostics)); return; }
-    try { const saved = options.store.save(updateActivationStatus(existing.activation, status, options.now)); response.json({ kind: 'activation', status: 'updated', activation: saved.activation, diagnostics: saved.diagnostics }); }
+    try {
+      if (status === 'active') {
+        const activated = options.store.activate(existing.activation.activationId);
+        response.json({ kind: 'activation', status: 'updated', activation: activated.activation, diagnostics: [...existing.diagnostics, ...activated.diagnostics], ...(activated.reconciledActivationIds.length ? { reconciledActivationIds: activated.reconciledActivationIds } : {}) });
+        return;
+      }
+      const saved = options.store.save(updateActivationStatus(existing.activation, status, options.now)); response.json({ kind: 'activation', status: 'updated', activation: saved.activation, diagnostics: saved.diagnostics });
+    }
     catch { response.status(503).json(error('persistence_unavailable', 'The Activation could not be updated.', existing.diagnostics)); }
+  });
+  router.post('/api/activations/reconcile', (request, response) => {
+    const activationId = request.body?.keepActivationId;
+    if (typeof activationId !== 'string' || !activationId.trim()) { response.status(400).json(error('invalid_request', 'A keepActivationId is required.')); return; }
+    try { const reconciled = options.store.reconcileActive(activationId); response.json({ kind: 'activation', status: 'reconciled', activation: reconciled.activation, reconciledActivationIds: reconciled.reconciledActivationIds, diagnostics: reconciled.diagnostics }); }
+    catch (reconciliationError) { response.status(409).json(errorPayload('reconciliation_required', reconciliationError instanceof Error ? reconciliationError.message : 'The active Activations could not be reconciled.')); }
   });
   return router;
 }

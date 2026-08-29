@@ -55,6 +55,13 @@ describe('WSJT-X QSO routing', () => {
     expect(new WsjtxQsoRouter(setup('planned')).route(candidate).status).toBe('no_active');
     expect(new WsjtxQsoRouter(setup('completed')).route(candidate).status).toBe('no_active');
   });
+  it('refuses a genuinely ambiguous historical multiple-active store', () => {
+    const stores = setup();
+    const first = createActivation({ type: 'General', status: 'active' }, { now, createId: () => 'active-1' });
+    const second = createActivation({ type: 'General', status: 'active' }, { now, createId: () => 'active-2' });
+    fs.writeFileSync(stores.activationPath, JSON.stringify({ storeVersion: 1, activations: [first, second] }));
+    expect(new WsjtxQsoRouter(stores).route(candidate)).toEqual({ status: 'no_active', reason: 'multiple_active' });
+  });
 
   it('does not confuse a distinct contact with a duplicate', () => {
     const stores = setup();
