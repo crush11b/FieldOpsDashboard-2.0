@@ -463,6 +463,7 @@ try {
         -SkipLaunch:$SkipLaunch
     if ($readiness.Agent.Status -eq 'Passed') {
         Write-Host "[OK] Agent: $($readiness.Agent.Detail)" -ForegroundColor Green
+        Write-Host "[OK] Agent PID after restart: $($readiness.Agent.ProcessId)" -ForegroundColor Green
     } else {
         Write-Host "[X] Agent: $($readiness.Agent.Detail)" -ForegroundColor Red
     }

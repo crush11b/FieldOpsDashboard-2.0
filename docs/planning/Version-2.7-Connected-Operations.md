@@ -206,6 +206,12 @@ P.533 inputs, assets, provenance, parsing, regional paths, supported bands, aggr
 
 This correction is not the V2.7 release-completion decision. ToughBook hardware acceptance remains required after deployment.
 
+### V2.7-04 updater graceful-Agent-exit experiment - 2026-08-29
+
+Repeated post-development-update CF-20 GNSS failures continued after the cumulative-silence watchdog correction: the corrected watchdog reached its intended silent-session behavior, but ordinary provider retries did not restore GNSS and Windows reboot remained the recovery path. A controlled Services.msc test then established that restarting only `FieldOpsAgent` normally releases and reopens COM6 and reacquires GNSS. The updater-vs-service differential investigation identified updater-only post-stop force termination of a matching Agent process and a later installer stop; the first controlled experiment isolates the former while deliberately leaving the installer stop unchanged.
+
+After the updater confirms `FieldOpsAgent` is `Stopped`, it now captures the old Agent PID and waits for that exact process/path to disappear naturally within the existing bounded shutdown timeout. It never falls back to force-killing that Agent; if the PID remains, the update aborts before installation replacement. Tray and Dashboard force-stop behavior, exact package/revision validation, rollback, and runtime quiescence remain in place. The updater reports the old PID, natural-exit elapsed time, service-stopped confirmation, and replacement Agent PID. This experiment requires CF-20 hardware testing and does not establish V2.7-04 acceptance; V2.7-05 remains out of scope.
+
 ### V2.7-04 GNSS silent-session recovery correction
 
 Repeated CF-20 Mk2 updates reproduced an open-but-silent COM6 NMEA session: the Agent had opened the Sierra Wireless Snapdragon X7 LTE-A NMEA port, but no serial data arrived and the existing read loop could wait indefinitely. The serial provider now uses a configurable `Agent:Location:NmeaNoDataTimeoutSeconds` watchdog, defaulting to 10 seconds. This tolerates ordinary 1 Hz scheduling jitter and missing individual sentences while recovering a genuinely silent session in an operator-visible interval.
