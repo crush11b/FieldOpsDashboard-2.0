@@ -206,6 +206,14 @@ P.533 inputs, assets, provenance, parsing, regional paths, supported bands, aggr
 
 This correction is not the V2.7 release-completion decision. ToughBook hardware acceptance remains required after deployment.
 
+### V2.7-04 GNSS silent-session recovery correction
+
+Repeated CF-20 Mk2 updates reproduced an open-but-silent COM6 NMEA session: the Agent had opened the Sierra Wireless Snapdragon X7 LTE-A NMEA port, but no serial data arrived and the existing read loop could wait indefinitely. The serial provider now uses a configurable `Agent:Location:NmeaNoDataTimeoutSeconds` watchdog, defaulting to 10 seconds. This tolerates ordinary 1 Hz scheduling jitter and missing individual sentences while recovering a genuinely silent session in an operator-visible interval.
+
+The watchdog resets on each completed serial read, before NMEA parsing. Therefore valid traffic with no fix, invalid coordinates, zero fix quality, RMC no-fix status, and parser-rejected sentences do not restart the port. When no data arrives for the interval, the current reader exits through the existing retry path; the `using` scope disposes the reader before the retry delay and the next COM6 open. Cancellation cancels the read and watchdog, disposes the active reader, and prevents another retry or reopen. Focused tests cover continuous traffic, legitimate no-fix traffic, silent-after-open recovery, traffic stopping after a working session, replacement-session recovery, and shutdown during the watchdog window.
+
+This correction is not the V2.7 release-completion decision. ToughBook hardware acceptance remains required after deployment.
+
 ---
 
 ## 2.7-04 - WSJT-X-Assisted QSO Capture
