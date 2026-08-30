@@ -69,10 +69,21 @@ Describe 'FieldOps CF-20 development updater' {
 
     It 'preserves downloaded updater bootstrap validation and deployment failures' {
         $script:launcher | Should Match 'Parser\]::ParseFile'
-        $script:launcher | Should Match "@\('Revision', 'OperatorAccount'\)"
+        $script:launcher | Should Match "@\('Revision', 'OperatorAccount', 'EnableCf20GnssRecovery'\)"
         $script:launcher | Should Match 'UpdateDashboard\.ps1 failed with exit code'
         $script:launcher | Should Match 'FIELDOPS DEVELOPMENT UPDATE FAILED'
         $script:launcher | Should Match 'exit 1'
+    }
+
+    It 'enables CF-20 recovery only through the explicit deployment switch' {
+        $updater = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1') -Raw
+        $script:launcher | Should Match '-EnableCf20GnssRecovery'
+        $updater | Should Match 'EnableCf20GnssRecovery'
+        $updater | Should Match 'Agent__Location__Recovery__Enabled=true'
+        $updater | Should Match 'Agent__Location__Recovery__Provider=SierraEm7455B'
+        $updater | Should Match 'Agent__Location__Recovery__ControlPort=COM7'
+        $updater | Should Match 'Agent__Location__Recovery__ControlBaud=115200'
+        $updater | Should Match 'AdditionalServiceEnvironment'
     }
 
     It 'self elevates once and preserves command arguments' {

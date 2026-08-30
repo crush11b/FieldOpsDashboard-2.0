@@ -346,7 +346,8 @@ function Set-FieldOpsOperatorServiceEnvironment {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$ServiceName,
-        [Parameter(Mandatory = $true)][string]$GroupSid
+        [Parameter(Mandatory = $true)][string]$GroupSid,
+        [Parameter(Mandatory = $false)][AllowEmptyCollection()][string[]]$AdditionalEntries = @()
     )
 
     [void][Security.Principal.SecurityIdentifier]::new($GroupSid)
@@ -361,7 +362,7 @@ function Set-FieldOpsOperatorServiceEnvironment {
     $preserved = @($current | Where-Object {
         -not ([string]$_).StartsWith($entryPrefix, [StringComparison]::OrdinalIgnoreCase)
     })
-    $updated = @($preserved + ($entryPrefix + $GroupSid))
+    $updated = @($preserved + $AdditionalEntries + ($entryPrefix + $GroupSid))
     New-ItemProperty -LiteralPath $servicePath -Name Environment -PropertyType MultiString `
         -Value $updated -Force | Out-Null
 }

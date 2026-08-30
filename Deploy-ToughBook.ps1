@@ -132,7 +132,7 @@ if ($LASTEXITCODE -gt 7) { throw "Dashboard source copy failed with exit code $L
 Write-Host '[OK] Source updated without renaming or mirroring the installation.' -ForegroundColor Green
 
 Write-Host '[3/6] Installing Agent and Tray...' -ForegroundColor Cyan
-& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $InstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath $agentPublish -TrayPublishPath $trayPublish -OperatorAccount $OperatorAccount
+& powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $InstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath $agentPublish -TrayPublishPath $trayPublish -OperatorAccount $OperatorAccount -AdditionalServiceEnvironment @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
 if ($LASTEXITCODE -ne 0) { throw "Agent installation failed with exit code $LASTEXITCODE." }
 Write-Host '[OK] Agent installed.' -ForegroundColor Green
 

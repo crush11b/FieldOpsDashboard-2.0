@@ -57,7 +57,7 @@ function Assert-DownloadedUpdater {
     $ast = [System.Management.Automation.Language.Parser]::ParseFile($Path, [ref]$tokens, [ref]$parseErrors)
     if ($parseErrors.Count -gt 0 -or $null -eq $ast.ParamBlock) { throw 'The downloaded UpdateDashboard.ps1 failed PowerShell parsing.' }
     $parameterNames = @($ast.ParamBlock.Parameters | ForEach-Object { $_.Name.VariablePath.UserPath })
-    foreach ($required in @('Revision', 'OperatorAccount')) {
+    foreach ($required in @('Revision', 'OperatorAccount', 'EnableCf20GnssRecovery')) {
         if ($parameterNames -notcontains $required) { throw "The downloaded updater does not declare parameter '$required'." }
     }
 }
@@ -151,7 +151,8 @@ try {
 
     & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $downloadedUpdater `
         -InstallPath $InstallPath -OperatorAccount $OperatorAccount -Repository $Repository -Revision $resolvedRevision `
-        -NativeArtifactUrl "https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip"
+        -NativeArtifactUrl "https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip" `
+        -EnableCf20GnssRecovery
     if ($LASTEXITCODE -ne 0) { throw "UpdateDashboard.ps1 failed with exit code $LASTEXITCODE." }
 
     $version = Get-InstalledVersion -ExpectedRevision $resolvedRevision

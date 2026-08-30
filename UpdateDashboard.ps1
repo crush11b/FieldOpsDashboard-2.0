@@ -10,7 +10,8 @@ param(
     [string]$NativeArtifactPath,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
     [switch]$SkipProcessStop,
-    [switch]$SimulateCopyFailure
+    [switch]$SimulateCopyFailure,
+    [switch]$EnableCf20GnssRecovery
 )
 
 Set-StrictMode -Version Latest
@@ -421,7 +422,13 @@ try {
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
     $runtimeMayHaveStarted = $true
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
+    $serviceEnvironment = if ($EnableCf20GnssRecovery) { @(
+        'Agent__Location__Recovery__Enabled=true',
+        'Agent__Location__Recovery__Provider=SierraEm7455B',
+        'Agent__Location__Recovery__ControlPort=COM7',
+        'Agent__Location__Recovery__ControlBaud=115200'
+    ) } else { @() }
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount -AdditionalServiceEnvironment $serviceEnvironment
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
 
