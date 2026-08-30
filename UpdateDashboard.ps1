@@ -276,8 +276,9 @@ function Invoke-FieldOpsAgentInstaller {
         TrayPublishPath = $TrayPublishPath
         OperatorAccount = $OperatorAccount
     }
-    if ($AdditionalServiceEnvironment.Count -gt 0) {
-        $arguments.Add('AdditionalServiceEnvironment', $AdditionalServiceEnvironment)
+    [string[]]$normalizedServiceEnvironment = @($AdditionalServiceEnvironment)
+    if ($normalizedServiceEnvironment.Count -gt 0) {
+        $arguments.Add('AdditionalServiceEnvironment', $normalizedServiceEnvironment)
     }
     & $InstallerPath @arguments
 }
