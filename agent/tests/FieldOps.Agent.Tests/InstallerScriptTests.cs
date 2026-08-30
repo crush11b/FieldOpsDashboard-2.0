@@ -131,10 +131,11 @@ public sealed class InstallerScriptTests
     public void DesktopUpdaterUsesCurrentPublishAndProductionInstallPath()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var topLevelParameters = PowerShellScriptAssertions.GetTopLevelParameterBlock(updater);
         var runtimeReadiness = File.ReadAllText(FindScript("FieldOps.RuntimeReadiness.psm1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
-        Assert.Contains("[string]$OperatorAccount", updater);
-        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Matches(@"(?m)^\s*\[string\]\$OperatorAccount\s*,?\s*$", topLevelParameters);
+        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", topLevelParameters);
         Assert.Contains("Resolve-FieldOpsInteractiveOperator", updater);
         Assert.Contains("[ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision", updater);
         Assert.Contains("Resolve-DeploymentRevision", updater);
@@ -394,5 +395,57 @@ public sealed class InstallerScriptTests
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Could not locate repository root.");
+    }
+}
+
+internal static class PowerShellScriptAssertions
+{
+    public static string GetTopLevelParameterBlock(string script)
+    {
+        var match = Regex.Match(script, @"\A(?:(?:[ \t]*#.*(?:\r?\n|$))|[ \t\r\n])*(?:\[[^\]]+\][ \t\r\n]*)?param\s*\(");
+        if (!match.Success)
+        {
+            throw new InvalidOperationException("Could not locate the top-level PowerShell parameter block.");
+        }
+
+        var openingParenthesis = match.Index + match.Length - 1;
+        var depth = 0;
+        var quote = '\0';
+
+        for (var index = openingParenthesis; index < script.Length; index++)
+        {
+            var character = script[index];
+            if (quote != '\0')
+            {
+                if (character == quote)
+                {
+                    if (quote == '\'' && index + 1 < script.Length && script[index + 1] == '\'')
+                    {
+                        index++;
+                    }
+                    else
+                    {
+                        quote = '\0';
+                    }
+                }
+
+                continue;
+            }
+
+            if (character is '\'' or '"')
+            {
+                quote = character;
+            }
+            else if (character == '(')
+            {
+                depth++;
+            }
+            else if (character == ')' && --depth == 0)
+            {
+                return script.Substring(openingParenthesis, index - openingParenthesis + 1);
+            }
+        }
+
+        throw new InvalidOperationException("The top-level PowerShell parameter block is unbalanced.");
     }
 }
