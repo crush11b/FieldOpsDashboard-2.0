@@ -1,9 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock } from 'lucide-react';
+import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock, ChevronDown } from 'lucide-react';
 import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import { playTacticalClick } from '../utils/audio';
 import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
-import type { ClockSynchronizationEvidence } from '../../server/locationTelemetryPipe';
+import type { ClockSynchronizationEvidence, GnssSerialDiagnostics } from '../../server/locationTelemetryPipe';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
@@ -16,6 +16,7 @@ interface GPSGridWidgetProps {
   onSelectComPort?: (port: string, baud: number) => void;
   clockEvidence?: ClockSynchronizationEvidence;
   onSynchronizeClock?: () => Promise<void>;
+  gnssDiagnostics?: GnssSerialDiagnostics;
 }
 
 export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
@@ -29,12 +30,15 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   onSelectComPort,
   clockEvidence,
   onSynchronizeClock,
+  gnssDiagnostics,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [inputLat, setInputLat] = useState(Number.isFinite(gps.lat) ? gps.lat.toString() : '');
   const [inputLon, setInputLon] = useState(Number.isFinite(gps.lon) ? gps.lon.toString() : '');
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
   const [clockConfirmed, setClockConfirmed] = useState(false);
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
+  const [serialDiagnostics, setSerialDiagnostics] = useState<GnssSerialDiagnostics | null>(gnssDiagnostics ?? null);
   const gpsUpdateSequence = useRef(0);
   const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
   const nativeRequestInFlight = useRef<Promise<void> | null>(null);
@@ -95,6 +99,19 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     return () => { cancelled = true; clearInterval(interval); };
   }, [isEditing]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const requestDiagnostics = async () => {
+      try {
+        const response = await fetch('/api/location/diagnostics');
+        if (!cancelled && response.ok) setSerialDiagnostics(await response.json() as GnssSerialDiagnostics);
+      } catch { /* diagnostic transport is optional and must not affect location */ }
+    };
+    requestDiagnostics();
+    const interval = setInterval(requestDiagnostics, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
   const requestNativeFix = async () => {
     manualLocationActive.current = false;
     if (!nativeRequestInFlight.current) nativeRequestInFlight.current = nativeLocationRequest.current().then(() => undefined).finally(() => { nativeRequestInFlight.current = null; });
@@ -109,6 +126,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       ? 'NOT GPS-SYNCHRONIZED'
       : 'GNSS TIME UNAVAILABLE';
   const formatEvidenceTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC` : 'Not available';
+  const formatDiagnosticTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(11, 19)} UTC` : '—';
+  const diagnosticsUnavailable = serialDiagnostics?.transportStatus === 'unavailable';
 
   const cardBg = isNight
     ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
@@ -477,6 +496,31 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             DIRECT GNSS HARDWARE STREAM
           </span>
         </div>
+      </div>
+
+      <div className="mt-2 border-t border-current/15 pt-2">
+        <button
+          type="button"
+          aria-expanded={diagnosticsExpanded}
+          onClick={() => setDiagnosticsExpanded(!diagnosticsExpanded)}
+          className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-80 hover:opacity-100"
+        >
+          <ChevronDown className={`w-3 h-3 transition-transform ${diagnosticsExpanded ? 'rotate-180' : ''}`} />
+          GNSS Diagnostics
+        </button>
+        {diagnosticsExpanded && (
+          <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-[10px]" data-testid="gnss-diagnostics">
+            <span>PORT <strong>{diagnosticsUnavailable ? 'Unavailable' : serialDiagnostics ? `${serialDiagnostics.portName} @ ${serialDiagnostics.baudRate}` : '—'}</strong></span>
+            <span>STATE <strong>{diagnosticsUnavailable ? 'Unavailable' : serialDiagnostics?.state ?? '—'}</strong></span>
+            <span>SESSION <strong>{diagnosticsUnavailable ? '—' : serialDiagnostics?.sessionGeneration ?? '—'}</strong></span>
+            <span>RECONNECTS <strong>{diagnosticsUnavailable ? '—' : serialDiagnostics?.reconnectCount ?? '—'}</strong></span>
+            <span>LAST OPEN <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastSuccessfulOpenUtc)}</strong></span>
+            <span>LAST SERIAL <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastSerialDataUtc)}</strong></span>
+            <span>LAST NMEA <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastValidNmeaUtc)}</strong></span>
+            <span>LAST FIX <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastFixUtc)}</strong></span>
+            <span className="col-span-2 sm:col-span-4">FAILURE <strong>{diagnosticsUnavailable ? 'diagnostic_transport_unavailable' : serialDiagnostics?.lastFailureCategory ?? '—'}{!diagnosticsUnavailable && serialDiagnostics?.lastFailureMessage ? `: ${serialDiagnostics.lastFailureMessage}` : ''}</strong></span>
+          </div>
+        )}
       </div>
     </div>
   );

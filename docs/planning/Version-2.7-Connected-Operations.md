@@ -206,6 +206,10 @@ P.533 inputs, assets, provenance, parsing, regional paths, supported bands, aggr
 
 This correction is not the V2.7 release-completion decision. ToughBook hardware acceptance remains required after deployment.
 
+### GNSS structured diagnostics - 2026-08-29
+
+Persistent CF-20 GNSS unavailability recurred after deployment, and neither Tray nor Services.msc Agent restart recovered it. The existing coarse `GPS UNAVAILABLE` state could not distinguish serial-open failure from an opened but silent COM6 session, while expected `FieldOpsAgent` Application Event Log diagnostics were not available on hardware. Structured GNSS serial diagnostics were therefore added before further recovery changes. The diagnostic contract reports observed serial lifecycle state, session/reconnect counters, independent UTC activity timestamps, and bounded failure categories through the existing Agent location pipe, native endpoint, Dashboard API, and compact GPS details surface. This slice is observational only; it does not mark the GNSS defect fixed or establish hardware acceptance.
+
 ### V2.7-04 updater graceful-Agent-exit experiment - 2026-08-29
 
 Repeated post-development-update CF-20 GNSS failures continued after the cumulative-silence watchdog correction: the corrected watchdog reached its intended silent-session behavior, but ordinary provider retries did not restore GNSS and Windows reboot remained the recovery path. A controlled Services.msc test then established that restarting only `FieldOpsAgent` normally releases and reopens COM6 and reacquires GNSS. The updater-vs-service differential investigation identified updater-only post-stop force termination of a matching Agent process and a later installer stop; the first controlled experiment isolates the former while deliberately leaving the installer stop unchanged.

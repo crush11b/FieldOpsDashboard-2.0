@@ -30,7 +30,7 @@ import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coo
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
-import { readClockStatusPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { readClockStatusPipe, readGnssSerialDiagnosticsPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { DEFAULT_APPS } from './src/data/defaultConfig';
@@ -188,6 +188,7 @@ async function startServer() {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
+  app.get('/api/location/diagnostics', async (_req, res) => res.json(await readGnssSerialDiagnosticsPipe()));
   app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
   app.get('/api/observed-rf', async (_req, res) => {
     const location = await readLocationTelemetryPipe();

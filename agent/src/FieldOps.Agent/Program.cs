@@ -91,6 +91,9 @@ app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationTo
 app.MapGet("/api/v1/location/nmea", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireAsync(cancellationToken)));
 
+app.MapGet("/api/v1/location/nmea/diagnostics", (SerialNmeaLocationProvider provider) =>
+    Results.Ok(provider.GetDiagnostics()));
+
 app.MapGet("/api/v1/clock/gnss", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireTimeAsync(cancellationToken)));
 

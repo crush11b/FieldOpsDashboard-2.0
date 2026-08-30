@@ -11,6 +11,7 @@ internal sealed record LocationTelemetryRequest([property: JsonPropertyName("com
 internal sealed class LocationTelemetryPipeServer(
     NativeHealthAuthorizationPolicy authorizationPolicy,
     ISerialNmeaLocationService service,
+    SerialNmeaLocationProvider provider,
     GpsClockSynchronizer synchronizer,
     ILogger<LocationTelemetryPipeServer> logger)
 {
@@ -26,10 +27,11 @@ internal sealed class LocationTelemetryPipeServer(
                 await pipe.WaitForConnectionAsync(stoppingToken);
                 using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); operationTimeout.CancelAfter(OperationTimeout);
                 var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, operationTimeout.Token);
-                if (request.Command is not ("GetLocation" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock")) throw new InvalidDataException("Unsupported location request.");
+                if (request.Command is not ("GetLocation" or "GetDiagnostics" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock")) throw new InvalidDataException("Unsupported location request.");
                 object observation = request.Command switch
                 {
                     "GetLocation" => await service.AcquireAsync(operationTimeout.Token),
+                    "GetDiagnostics" => provider.GetDiagnostics(),
                     "GetGnssTime" => await service.AcquireTimeAsync(operationTimeout.Token),
                     "GetClockStatus" => await synchronizer.VerifyAsync(operationTimeout.Token),
                     _ => await synchronizer.SynchronizeAsync(request.Confirmed, operationTimeout.Token),

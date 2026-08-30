@@ -14,6 +14,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     private readonly Func<INmeaSerialReader> readerFactory;
     private readonly object stateLock = new();
     private LocationObservation latest = LocationObservation.WithoutTelemetry(LocationStatus.Initializing) with { Source = "SerialNmea" };
+    private GnssSerialDiagnostics diagnostics;
     private NmeaTimeEvidence latestTime = new(NmeaTimeStatus.Unavailable, null, "RMC");
     private long latestTimeReceivedAt;
     private NmeaTimeEvidence? priorTime;
@@ -26,7 +27,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
         : this(logger, configuration["Agent:Location:NmeaPort"] ?? "COM6", int.TryParse(configuration["Agent:Location:NmeaBaud"], out var baud) ? baud : 9600, TimeSpan.FromSeconds(2), noDataTimeout: TimeSpan.FromSeconds(ParseNoDataTimeoutSeconds(configuration["Agent:Location:NmeaNoDataTimeoutSeconds"]))) { }
 
     internal SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, string portName, int baudRate, TimeSpan retryDelay, Func<INmeaSerialReader>? readerFactory = null, TimeSpan? noDataTimeout = null)
-    { this.logger = logger; this.portName = portName; this.baudRate = baudRate; this.retryDelay = retryDelay; this.noDataTimeout = noDataTimeout ?? TimeSpan.FromSeconds(DefaultNoDataTimeoutSeconds); this.readerFactory = readerFactory ?? (() => new SerialPortNmeaReader(portName, baudRate)); }
+    { this.logger = logger; this.portName = portName; this.baudRate = baudRate; this.retryDelay = retryDelay; this.noDataTimeout = noDataTimeout ?? TimeSpan.FromSeconds(DefaultNoDataTimeoutSeconds); this.readerFactory = readerFactory ?? (() => new SerialPortNmeaReader(portName, baudRate)); diagnostics = GnssSerialDiagnostics.Stopped(portName, baudRate); }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -38,6 +39,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
             latestTime = new NmeaTimeEvidence(NmeaTimeStatus.Unavailable, null, "RMC");
             latestTimeReceivedAt = 0;
             priorTime = null;
+            diagnostics = diagnostics with { State = GnssSerialState.Opening };
             sessionCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
             sessionTask = RunSessionAsync(sessionCancellation.Token);
         }
@@ -76,6 +78,11 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
         lock (stateLock) return Task.FromResult(latest);
     }
 
+    public GnssSerialDiagnostics GetDiagnostics()
+    {
+        lock (stateLock) return diagnostics;
+    }
+
     public Task<NmeaTimeEvidence> GetTimeEvidenceAsync(CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
@@ -91,12 +98,23 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            var sessionOpened = false;
             try
             {
+                var attemptUtc = DateTimeOffset.UtcNow;
+                lock (stateLock)
+                {
+                    diagnostics = diagnostics with { State = GnssSerialState.Opening, SessionGeneration = diagnostics.SessionGeneration + 1, LastOpenAttemptUtc = attemptUtc };
+                }
                 using var port = readerFactory();
                 lock (stateLock) activeReader = port;
                 port.Open();
+                sessionOpened = true;
                 SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
+                lock (stateLock)
+                {
+                    diagnostics = diagnostics with { State = GnssSerialState.Open, LastSuccessfulOpenUtc = DateTimeOffset.UtcNow };
+                }
                 logger.LogInformation("NMEA port opened: {PortName}", portName);
                 NmeaFix? current = null;
                 var lastSerialDataReceived = Stopwatch.GetTimestamp();
@@ -109,20 +127,26 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                         continue;
                     }
                     lastSerialDataReceived = Stopwatch.GetTimestamp();
+                    lock (stateLock) diagnostics = diagnostics with { State = GnssSerialState.Receiving, LastSerialDataUtc = DateTimeOffset.UtcNow };
                     logger.LogDebug("NMEA serial data received on {PortName}", portName);
                     try { UpdateTimeEvidence(NmeaParser.ParseTime(line.Trim())); }
                     catch (Exception ex) { logger.LogInformation(ex, "GNSS time evidence evaluation failed; location telemetry remains independent."); }
                     if (!NmeaParser.TryParse(line.Trim(), out var parsed)) continue;
+                    lock (stateLock)
+                    {
+                        var observedUtc = DateTimeOffset.UtcNow;
+                        diagnostics = diagnostics with { LastValidNmeaUtc = observedUtc, LastFixUtc = parsed.HasFix ? observedUtc : diagnostics.LastFixUtc };
+                    }
                     current = Merge(current, parsed);
                     if (!parsed.HasFix) logger.LogDebug("NMEA traffic is active while GNSS fix remains unavailable on {PortName}", portName);
                     SetLatest(parsed.HasFix ? ToObservation(current) : LocationObservation.WithoutTelemetry(LocationStatus.NoFix));
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
-            catch (NmeaSilenceException ex) { SetUnavailable(); logger.LogWarning("NMEA port {PortName} received no serial data for {TimeoutSeconds} seconds; reconnecting.", portName, noDataTimeout.TotalSeconds); logger.LogDebug(ex, "NMEA silent-session watchdog expired"); }
-            catch (UnauthorizedAccessException ex) { SetUnavailable(); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
-            catch (IOException ex) { SetUnavailable(); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
-            catch (Exception ex) { SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Error)); logger.LogInformation(ex, "Unexpected NMEA reader failure"); }
+            catch (NmeaSilenceException ex) { SetUnavailable(); SetFailure(GnssSerialState.Silent, GnssSerialFailureCategory.SerialSilence, ex); logger.LogWarning("NMEA port {PortName} received no serial data for {TimeoutSeconds} seconds; reconnecting.", portName, noDataTimeout.TotalSeconds); logger.LogDebug(ex, "NMEA silent-session watchdog expired"); }
+            catch (UnauthorizedAccessException ex) { SetUnavailable(); SetFailure(GnssSerialState.OpenFailed, GnssSerialFailureCategory.AccessDenied, ex); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
+            catch (IOException ex) { SetUnavailable(); SetFailure(GnssSerialState.OpenFailed, GnssSerialFailureCategory.IoError, ex); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
+            catch (Exception ex) { SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Error)); SetFailure(sessionOpened ? GnssSerialState.Reconnecting : GnssSerialState.OpenFailed, GnssSerialFailureCategory.UnexpectedError, ex); logger.LogInformation(ex, "Unexpected NMEA reader failure"); }
             finally
             {
                 lock (stateLock) activeReader = null;
@@ -130,10 +154,12 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
 
             if (!cancellationToken.IsCancellationRequested)
             {
+                lock (stateLock) diagnostics = diagnostics with { State = GnssSerialState.Reconnecting, ReconnectCount = diagnostics.ReconnectCount + 1 };
                 try { await Task.Delay(retryDelay, cancellationToken); }
                 catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             }
         }
+        lock (stateLock) diagnostics = diagnostics with { State = GnssSerialState.Stopped };
     }
 
     private static int ParseNoDataTimeoutSeconds(string? configuredValue)
@@ -142,6 +168,19 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     private sealed class NmeaSilenceException(TimeSpan timeout) : IOException($"No NMEA serial data received for {timeout.TotalSeconds} seconds.");
 
     private void SetUnavailable() => SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Unavailable));
+    private void SetFailure(GnssSerialState state, GnssSerialFailureCategory category, Exception exception)
+    {
+        lock (stateLock)
+        {
+            diagnostics = diagnostics with
+            {
+                State = state,
+                LastFailureUtc = DateTimeOffset.UtcNow,
+                LastFailureCategory = category,
+                LastFailureMessage = exception.Message.Length > 240 ? exception.Message[..240] : exception.Message,
+            };
+        }
+    }
     private void UpdateTimeEvidence(NmeaTimeEvidence time)
     {
         if (time.Status == NmeaTimeStatus.Unavailable) return;

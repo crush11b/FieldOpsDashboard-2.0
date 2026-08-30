@@ -26,6 +26,74 @@ public sealed class SerialNmeaLocationProviderTests
         Assert.True(fake.Disposed);
     }
 
+    [Fact]
+    public async Task DiagnosticsRecordOpenTrafficValidNmeaAndFixWithoutChangingLocationTelemetry()
+    {
+        var fake = new FakeReader(Gga, Rmc);
+        var provider = Provider(fake);
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available);
+
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Equal("COM6", diagnostics.PortName);
+        Assert.Equal(9600, diagnostics.BaudRate);
+        Assert.Equal(GnssSerialState.Receiving, diagnostics.State);
+        Assert.Equal(1, diagnostics.SessionGeneration);
+        Assert.Equal(0, diagnostics.ReconnectCount);
+        Assert.NotNull(diagnostics.LastOpenAttemptUtc);
+        Assert.NotNull(diagnostics.LastSuccessfulOpenUtc);
+        Assert.NotNull(diagnostics.LastSerialDataUtc);
+        Assert.NotNull(diagnostics.LastValidNmeaUtc);
+        Assert.NotNull(diagnostics.LastFixUtc);
+        Assert.Equal(GnssSerialFailureCategory.None, diagnostics.LastFailureCategory);
+        Assert.Equal(LocationStatus.Available, (await provider.GetLocationAsync(CancellationToken.None)).Status);
+
+        await provider.StopAsync(CancellationToken.None);
+        Assert.Equal(GnssSerialState.Stopped, provider.GetDiagnostics().State);
+    }
+
+    [Fact]
+    public async Task DiagnosticsReportOpenBeforeAnySerialTraffic()
+    {
+        var provider = Provider(new BlockingReader());
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().State == GnssSerialState.Open);
+        Assert.Null(provider.GetDiagnostics().LastSerialDataUtc);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DiagnosticsRecordSilentSessionAndReconnectProgression()
+    {
+        var provider = Provider(new TimedReader(5, null), TimeSpan.FromMilliseconds(15));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.SerialSilence);
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Equal(GnssSerialFailureCategory.SerialSilence, diagnostics.LastFailureCategory);
+        Assert.NotNull(diagnostics.LastFailureUtc);
+        Assert.True(diagnostics.ReconnectCount >= 1);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DiagnosticsRetainAccessFailureCategoryAcrossReconnect()
+    {
+        var provider = Provider(new FakeReader(new UnauthorizedAccessException("COM6 is in use.")));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.AccessDenied);
+
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Equal(GnssSerialFailureCategory.AccessDenied, diagnostics.LastFailureCategory);
+        Assert.Equal("COM6 is in use.", diagnostics.LastFailureMessage);
+        Assert.NotNull(diagnostics.LastFailureUtc);
+        Assert.True(diagnostics.SessionGeneration >= 1);
+        Assert.True(diagnostics.ReconnectCount >= 1);
+
+        await provider.StopAsync(CancellationToken.None);
+    }
+
     [Fact] public async Task GgaOnlyReturnsFixWithoutFabricatedTimestamp() { var result = await Run(new FakeReader(Gga)); Assert.Equal(LocationStatus.Available, result.Status); Assert.Null(result.TimestampUtc); }
     [Fact] public async Task GnsOnlyReturnsFixWithoutRequiringTrustedTime() { var result = await Run(new FakeReader(Gns)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); Assert.InRange(result.Longitude!.Value, 11.5165, 11.5168); Assert.Null(result.TimestampUtc); }
     [Fact] public async Task IncoherentRmcDoesNotInvalidateValidGgaFix() { var result = await Run(new FakeReader(Gga, Rmc)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); }
