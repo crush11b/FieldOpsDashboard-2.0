@@ -262,6 +262,26 @@ function Ensure-FieldOpsTelemetryCredentials {
     if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
 }
 
+function Invoke-FieldOpsAgentInstaller {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallerPath,
+        [Parameter(Mandatory = $true)][string]$PublishPath,
+        [Parameter(Mandatory = $true)][string]$TrayPublishPath,
+        [Parameter(Mandatory = $true)][string]$OperatorAccount,
+        [AllowEmptyCollection()][string[]]$AdditionalServiceEnvironment = @()
+    )
+
+    $arguments = @{
+        PublishPath = $PublishPath
+        TrayPublishPath = $TrayPublishPath
+        OperatorAccount = $OperatorAccount
+    }
+    if ($AdditionalServiceEnvironment.Count -gt 0) {
+        $arguments.Add('AdditionalServiceEnvironment', $AdditionalServiceEnvironment)
+    }
+    & $InstallerPath @arguments
+}
+
 Write-Host '=======================================================' -ForegroundColor Cyan
 Write-Host ' FieldOps Dashboard - Validated Auto-Update Utility ' -ForegroundColor Cyan
 Write-Host '=======================================================' -ForegroundColor Cyan
@@ -428,7 +448,12 @@ try {
         'Agent__Location__Recovery__ControlPort=COM7',
         'Agent__Location__Recovery__ControlBaud=115200'
     ) } else { @() }
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount -AdditionalServiceEnvironment $serviceEnvironment
+    Invoke-FieldOpsAgentInstaller `
+        -InstallerPath (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') `
+        -PublishPath (Join-Path $artifactRoot 'agent') `
+        -TrayPublishPath (Join-Path $artifactRoot 'tray') `
+        -OperatorAccount $OperatorAccount `
+        -AdditionalServiceEnvironment $serviceEnvironment
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
 

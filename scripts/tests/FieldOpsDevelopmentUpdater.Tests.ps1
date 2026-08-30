@@ -86,6 +86,41 @@ Describe 'FieldOps CF-20 development updater' {
         $updater | Should Match 'AdditionalServiceEnvironment'
     }
 
+    It 'binds CF-20 service environment values as four separate strings across the installer boundary' {
+        $updaterPath = Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1'
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($updaterPath, [ref]$tokens, [ref]$parseErrors)
+        $helper = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FieldOpsAgentInstaller' }, $true)
+        Invoke-Expression $helper.Extent.Text
+        $probeRoot = Join-Path $env:TEMP ('fieldops-installer-binding-' + [Guid]::NewGuid().ToString('N'))
+        $probePath = Join-Path $probeRoot 'probe.ps1'
+        $outputPath = Join-Path $probeRoot 'result.json'
+        New-Item -ItemType Directory -Path $probeRoot -Force | Out-Null
+        @'
+param(
+    [string]$PublishPath,
+    [string]$TrayPublishPath,
+    [Parameter(Mandatory = $true)][string]$OperatorAccount,
+    [AllowEmptyCollection()][string[]]$AdditionalServiceEnvironment = @()
+)
+[IO.File]::WriteAllText($env:FIELDOPS_BINDING_OUTPUT, ($AdditionalServiceEnvironment | ConvertTo-Json -Compress))
+'@ | Set-Content -LiteralPath $probePath
+        try {
+            $env:FIELDOPS_BINDING_OUTPUT = $outputPath
+            $cf20 = @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
+            Invoke-FieldOpsAgentInstaller -InstallerPath $probePath -PublishPath 'agent' -TrayPublishPath 'tray' -OperatorAccount 'operator' -AdditionalServiceEnvironment $cf20
+            @(Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json) | Should Be $cf20
+
+            Remove-Item -LiteralPath $outputPath -Force
+            Invoke-FieldOpsAgentInstaller -InstallerPath $probePath -PublishPath 'agent' -TrayPublishPath 'tray' -OperatorAccount 'operator' -AdditionalServiceEnvironment @()
+            @(Get-Content -LiteralPath $outputPath -Raw | ConvertFrom-Json).Count | Should Be 0
+        } finally {
+            Remove-Item Env:FIELDOPS_BINDING_OUTPUT -ErrorAction SilentlyContinue
+            Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
+        }
+    }
+
     It 'self elevates once and preserves command arguments' {
         $script:batch | Should Match 'fltmc'
         $script:batch | Should Match "Start-Process -FilePath '%~f0' -Verb RunAs"
