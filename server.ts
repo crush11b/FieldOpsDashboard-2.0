@@ -61,6 +61,7 @@ import { createQsoRouter } from './server/qsoApi';
 import { QsoStore, getDefaultQsoPath } from './server/qsoStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { createClockRouter } from './server/clockApi';
+import { createGnssRecoveryRouter } from './server/gnssRecoveryApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
@@ -156,6 +157,7 @@ async function startServer() {
     offlineEvidence: { readGnssTime: readGnssTimePipe, readMissionForecast: briefId => missionForecastStore.getByBriefId(briefId), verifyP533: () => verifyP533Assets() },
   }));
   app.use(createClockRouter());
+  app.use(createGnssRecoveryRouter());
   app.use(createDashboardReadinessRouter({ distPath, baseUrl: `http://127.0.0.1:${PORT}` }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),

@@ -13,6 +13,7 @@ internal sealed class LocationTelemetryPipeServer(
     ISerialNmeaLocationService service,
     SerialNmeaLocationProvider provider,
     GpsClockSynchronizer synchronizer,
+    GnssRecoveryCoordinator recovery,
     ILogger<LocationTelemetryPipeServer> logger)
 {
     internal const string PipeName = "FieldOps.LocationTelemetry.v1";
@@ -25,16 +26,19 @@ internal sealed class LocationTelemetryPipeServer(
             {
                 using var pipe = NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, authorizationPolicy.CreateSecurity());
                 await pipe.WaitForConnectionAsync(stoppingToken);
-                using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); operationTimeout.CancelAfter(OperationTimeout);
-                var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, operationTimeout.Token);
-                if (request.Command is not ("GetLocation" or "GetDiagnostics" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock")) throw new InvalidDataException("Unsupported location request.");
+                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); requestTimeout.CancelAfter(OperationTimeout);
+                var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, requestTimeout.Token);
+                if (request.Command is not ("GetLocation" or "GetDiagnostics" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock" or "RecoverGnss")) throw new InvalidDataException("Unsupported location request.");
+                using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                operationTimeout.CancelAfter(request.Command == "RecoverGnss" ? TimeSpan.FromSeconds(45) : OperationTimeout);
                 object observation = request.Command switch
                 {
                     "GetLocation" => await service.AcquireAsync(operationTimeout.Token),
                     "GetDiagnostics" => provider.GetDiagnostics(),
                     "GetGnssTime" => await service.AcquireTimeAsync(operationTimeout.Token),
                     "GetClockStatus" => await synchronizer.VerifyAsync(operationTimeout.Token),
-                    _ => await synchronizer.SynchronizeAsync(request.Confirmed, operationTimeout.Token),
+                    "SynchronizeClock" => await synchronizer.SynchronizeAsync(request.Confirmed, operationTimeout.Token),
+                    _ => await recovery.RecoverAsync(operationTimeout.Token),
                 };
                 await NativeHealthMessageFraming.WriteAsync(pipe, observation, operationTimeout.Token);
             }

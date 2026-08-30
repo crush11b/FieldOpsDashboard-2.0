@@ -41,6 +41,7 @@ builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
 builder.Services.AddSingleton<ISystemClock, WindowsSystemClock>();
 builder.Services.AddSingleton<GpsClockSynchronizer>();
+builder.Services.AddSingleton<GnssRecoveryCoordinator>();
 builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<SerialNmeaLocationProvider>());
 builder.Services.AddSingleton<LocationTelemetryPipeServer>();
 builder.Services.AddSingleton<IPhysicalBatteryEnumerator, WindowsPhysicalBatteryEnumerator>();
@@ -101,6 +102,8 @@ app.MapGet("/api/v1/clock/status", async (GpsClockSynchronizer synchronizer, Can
 
 app.MapPost("/api/v1/clock/synchronize", async (GpsClockSynchronizer synchronizer, ClockSyncRequest request, CancellationToken cancellationToken) =>
     Results.Ok(await synchronizer.SynchronizeAsync(request.Confirmed, cancellationToken)));
+
+app.MapPost("/api/v1/location/recover", async (GnssRecoveryCoordinator recovery, CancellationToken cancellationToken) => Results.Ok(await recovery.RecoverAsync(cancellationToken)));
 
 app.MapGet("/api/v1/system", (WindowsSystemTelemetryProvider provider) => Results.Ok(provider.GetObservation()));
 

@@ -3,7 +3,8 @@ import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, 
 import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import { playTacticalClick } from '../utils/audio';
 import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
-import type { ClockSynchronizationEvidence, GnssSerialDiagnostics } from '../../server/locationTelemetryPipe';
+import type { ClockSynchronizationEvidence, GnssRecoveryResult, GnssSerialDiagnostics } from '../../server/locationTelemetryPipe';
+import { recoverGnss } from '../gnssRecoveryApi';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
@@ -39,6 +40,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const [clockConfirmed, setClockConfirmed] = useState(false);
   const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
   const [serialDiagnostics, setSerialDiagnostics] = useState<GnssSerialDiagnostics | null>(gnssDiagnostics ?? null);
+  const [recoveryState, setRecoveryState] = useState<GnssRecoveryResult | null>(null);
+  const [recoveryInProgress, setRecoveryInProgress] = useState(false);
   const gpsUpdateSequence = useRef(0);
   const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
   const nativeRequestInFlight = useRef<Promise<void> | null>(null);
@@ -128,6 +131,23 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const formatEvidenceTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC` : 'Not available';
   const formatDiagnosticTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(11, 19)} UTC` : '—';
   const diagnosticsUnavailable = serialDiagnostics?.transportStatus === 'unavailable';
+  const recoveryAvailable = serialDiagnostics?.lastFailureCategory === 'SerialSilence';
+  const recoveryMessage = recoveryState?.state === 'CommandAccepted'
+    ? 'GNSS session restarted; waiting for NMEA data.'
+    : recoveryState?.state === 'NmeaRecovered'
+      ? 'NMEA data recovered; acquiring GPS fix.'
+      : recoveryState?.state === 'Recovered'
+        ? 'GPS recovered.'
+        : recoveryState?.state === 'Failed' || recoveryState?.state === 'TimedOut'
+          ? 'GPS recovery did not restore NMEA data.'
+          : null;
+  const runGnssRecovery = async () => {
+    if (recoveryInProgress) return;
+    setRecoveryInProgress(true);
+    try { setRecoveryState(await recoverGnss()); }
+    catch { setRecoveryState({ state: 'Failed', failureCategory: 'UnexpectedError', failureMessage: 'The recovery request failed.', supported: true, available: false, providerType: null, controlPort: null, operationStartedUtc: null, operationCompletedUtc: null, commandAccepted: false, serialActivityRecovered: false, nmeaActivityRecovered: false, fixStatus: 'Error', attemptCount: 0, lastSerialBeforeUtc: null, lastSerialAfterUtc: null, lastNmeaAfterUtc: null }); }
+    finally { setRecoveryInProgress(false); }
+  };
 
   const cardBg = isNight
     ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
@@ -519,6 +539,18 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             <span>LAST NMEA <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastValidNmeaUtc)}</strong></span>
             <span>LAST FIX <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastFixUtc)}</strong></span>
             <span className="col-span-2 sm:col-span-4">FAILURE <strong>{diagnosticsUnavailable ? 'diagnostic_transport_unavailable' : serialDiagnostics?.lastFailureCategory ?? '—'}{!diagnosticsUnavailable && serialDiagnostics?.lastFailureMessage ? `: ${serialDiagnostics.lastFailureMessage}` : ''}</strong></span>
+            <div className="col-span-2 sm:col-span-4 mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={runGnssRecovery}
+                disabled={!recoveryAvailable || recoveryInProgress}
+                className="inline-flex items-center gap-1 rounded border border-amber-400/50 px-2 py-1 font-bold uppercase tracking-wider text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <RefreshCw className={`h-3 w-3 ${recoveryInProgress ? 'animate-spin' : ''}`} />
+                {recoveryInProgress ? 'Recovering GPS...' : 'Recover GPS'}
+              </button>
+              {recoveryMessage && <span role="status" className="text-amber-200">{recoveryMessage}</span>}
+            </div>
           </div>
         )}
       </div>

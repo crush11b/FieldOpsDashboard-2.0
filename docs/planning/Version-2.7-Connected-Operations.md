@@ -354,6 +354,12 @@ Active OPERATE now includes a compact read-only panel sourced from that endpoint
 
 Focused mapper, endpoint, and panel tests pass, and TypeScript typecheck passes. CF-20 hardware validation and full V2.7-05 acceptance remain pending; this is the 2.7-05A foundation slice only.
 
+### V2.7-05B implementation evidence - GNSS Operator Recovery
+
+The Agent now exposes an explicit, default-disabled `RecoverGnss` operation through the authenticated location pipe. It is limited to the configured `SierraEm7455B` provider and COM7 control port, sends only the bounded operator-authorized recovery operation, serializes concurrent requests, disposes the control port, and requires newer post-operation COM6 evidence before reporting recovery. Command acceptance, serial activity, NMEA activity, and fix acquisition remain separate outcomes; no automatic recovery is performed.
+
+The Dashboard exposes `Recover GPS` only in GNSS Diagnostics when persisted serial-silence evidence is present, disables repeated clicks while active, and reports accepted, NMEA-recovered/no-fix, fully recovered, and failed outcomes without displaying modem command details. Hardware acceptance on the CF-20 remains pending; this entry does not close 2.7-05 or the broader V2.7 release gate.
+
 ---
 
 ## 2.7-06 - Integrated OPERATE Console
