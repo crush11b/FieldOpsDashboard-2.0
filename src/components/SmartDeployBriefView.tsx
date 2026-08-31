@@ -68,7 +68,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
       <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3"><Detail label="BRIEF" value={brief.briefId} /><Detail label="PLAN SOURCE" value={readableLocationSource(brief.plannedOperatingSite.source)} /></div></details>
     </>}
     {phase === 'operate' && <>
-      <ActivationFoundationPanel brief={brief} initialActivation={activation} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') { setActiveActivations([next]); setPhase('operate'); } }} />
+      <ActivationFoundationPanel brief={brief} initialActivation={activation} initialQsoCount={qsoCount} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') { setActiveActivations([next]); setPhase('operate'); } }} />
       {activation?.status === 'active' && <LiveBandActivityPanel active />}
       {activation ? <ActivationNotesPanel brief={brief} /> : <p className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px] text-amber-200">Start the activation from PREPARE to enable Notes and the QSO Logger.</p>}
     </>}

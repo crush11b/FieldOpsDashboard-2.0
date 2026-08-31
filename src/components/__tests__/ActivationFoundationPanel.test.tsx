@@ -40,6 +40,8 @@ describe('ActivationFoundationPanel', () => {
     expect(screen.getByText('Technical Details').closest('details')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
     await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-26 12:00:00 UTC')).toBeTruthy());
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('K-1234 · Test Park');
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('0');
     expect(screen.getByRole('heading', { name: 'QSO LOG' })).toBeTruthy();
     expect(onActivationChange).toHaveBeenCalledWith(activeActivation);
     fireEvent.click(screen.getByText('Technical Details'));
@@ -55,6 +57,8 @@ describe('ActivationFoundationPanel', () => {
     vi.stubGlobal('fetch', fetcher);
     render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
     await waitFor(() => expect(screen.getByText('20m · SSB')).toBeTruthy());
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('20m / SSB');
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('MANUAL · OPERATOR-SET');
     expect(screen.getByText('Source: Manual operating context · Status: Current')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'END ACTIVATION' }));
     await waitFor(() => expect(screen.getByText('Current station state unavailable.')).toBeTruthy());

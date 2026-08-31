@@ -398,6 +398,12 @@ REVIEW may summarize source-backed operating facts that were actually retained w
 
 The active operator can work primarily from OPERATE without bouncing among FieldOps screens for logger, current station context, live observed RF, and retained plan context. Optional-source failures remain secondary and do not obstruct logging or ending the Activation.
 
+### 2.7-06A implementation evidence - Integrated OPERATE operational header
+
+The active OPERATE workspace now begins with a compact operational header showing the selected Activation identity, current band/mode/frequency, source and freshness, and the retained QSO count. The header reuses the existing Activation state, source-aware Current Station selection, and QSO Logger list refresh; it adds no persistence, API route, polling loop, runtime, or GNSS behavior. The detailed Current Station panel remains in place because its timestamps and explicit radio/CAT/RF limitations are not redundant with the compact summary.
+
+Fresh WSJT-X state is labeled `WSJT-X / LIVE`, stale WSJT-X state is labeled `WSJT-X / STALE`, and manual context is labeled `MANUAL / OPERATOR-SET`. Unknown or unavailable values remain unknown or unavailable, and inactive Activations show no active station context or QSO count. Focused Activation/current-station tests and TypeScript validation pass. This is implementation evidence for 2.7-06A only; CF-20 hardware acceptance and the broader 2.7-06 consolidation remain pending.
+
 ---
 
 ## 2.7-07 - Field Validation and Release Closure
