@@ -83,7 +83,7 @@ function Invoke-FieldOpsAgentInstaller {
         OperatorAccount = $OperatorAccount
     }
     [string[]]$normalizedServiceEnvironment = @($AdditionalServiceEnvironment)
-    if ($normalizedServiceEnvironment.Count -gt 0) {
+    if (@($normalizedServiceEnvironment)) {
         $arguments.Add('AdditionalServiceEnvironment', $normalizedServiceEnvironment)
     }
     & $InstallerPath @arguments

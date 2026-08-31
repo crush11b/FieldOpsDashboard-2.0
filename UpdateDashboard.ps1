@@ -277,10 +277,33 @@ function Invoke-FieldOpsAgentInstaller {
         OperatorAccount = $OperatorAccount
     }
     [string[]]$normalizedServiceEnvironment = @($AdditionalServiceEnvironment)
-    if ($normalizedServiceEnvironment.Count -gt 0) {
+    if (@($normalizedServiceEnvironment)) {
         $arguments.Add('AdditionalServiceEnvironment', $normalizedServiceEnvironment)
     }
     & $InstallerPath @arguments
+}
+
+function Invoke-FieldOpsAgentInstallStage {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallerPath,
+        [Parameter(Mandatory = $true)][string]$PublishPath,
+        [Parameter(Mandatory = $true)][string]$TrayPublishPath,
+        [Parameter(Mandatory = $true)][string]$OperatorAccount,
+        [switch]$EnableCf20GnssRecovery
+    )
+
+    $serviceEnvironment = if ($EnableCf20GnssRecovery) { @(
+        'Agent__Location__Recovery__Enabled=true',
+        'Agent__Location__Recovery__Provider=SierraEm7455B',
+        'Agent__Location__Recovery__ControlPort=COM7',
+        'Agent__Location__Recovery__ControlBaud=115200'
+    ) } else { @() }
+    Invoke-FieldOpsAgentInstaller `
+        -InstallerPath $InstallerPath `
+        -PublishPath $PublishPath `
+        -TrayPublishPath $TrayPublishPath `
+        -OperatorAccount $OperatorAccount `
+        -AdditionalServiceEnvironment $serviceEnvironment
 }
 
 Write-Host '=======================================================' -ForegroundColor Cyan
@@ -443,18 +466,12 @@ try {
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
     $runtimeMayHaveStarted = $true
-    $serviceEnvironment = if ($EnableCf20GnssRecovery) { @(
-        'Agent__Location__Recovery__Enabled=true',
-        'Agent__Location__Recovery__Provider=SierraEm7455B',
-        'Agent__Location__Recovery__ControlPort=COM7',
-        'Agent__Location__Recovery__ControlBaud=115200'
-    ) } else { @() }
-    Invoke-FieldOpsAgentInstaller `
+    Invoke-FieldOpsAgentInstallStage `
         -InstallerPath (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') `
         -PublishPath (Join-Path $artifactRoot 'agent') `
         -TrayPublishPath (Join-Path $artifactRoot 'tray') `
         -OperatorAccount $OperatorAccount `
-        -AdditionalServiceEnvironment $serviceEnvironment
+        -EnableCf20GnssRecovery:$EnableCf20GnssRecovery
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
 

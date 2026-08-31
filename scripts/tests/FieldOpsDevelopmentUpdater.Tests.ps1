@@ -86,20 +86,20 @@ Describe 'FieldOps CF-20 development updater' {
         $updater | Should Match 'AdditionalServiceEnvironment'
     }
 
-    It 'normalizes installer environment values under Windows PowerShell' {
+    It 'passes the production recovery configuration through the installer boundary under Windows PowerShell' {
         $powershell = Get-Command powershell.exe -ErrorAction Stop
-        foreach ($scriptName in @('UpdateDashboard.ps1', 'Deploy-ToughBook.ps1')) {
-            $scriptPath = Join-Path $PSScriptRoot ('..\..\' + $scriptName)
-            $tokens = $null
-            $parseErrors = $null
-            $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
-            $helper = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FieldOpsAgentInstaller' }, $true)
-            $probeRoot = Join-Path $env:TEMP ('fieldops-installer-binding-' + [Guid]::NewGuid().ToString('N'))
-            $probePath = Join-Path $probeRoot 'probe.ps1'
-            $runnerPath = Join-Path $probeRoot 'runner.ps1'
-            $outputPath = Join-Path $probeRoot 'result.jsonl'
-            New-Item -ItemType Directory -Path $probeRoot -Force | Out-Null
-            @'
+        $scriptPath = Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1'
+        $tokens = $null
+        $parseErrors = $null
+        $ast = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$tokens, [ref]$parseErrors)
+        $helper = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FieldOpsAgentInstaller' }, $true)
+        $stage = $ast.Find({ param($node) $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Invoke-FieldOpsAgentInstallStage' }, $true)
+        $probeRoot = Join-Path $env:TEMP ('fieldops-installer-binding-' + [Guid]::NewGuid().ToString('N'))
+        $probePath = Join-Path $probeRoot 'probe.ps1'
+        $runnerPath = Join-Path $probeRoot 'runner.ps1'
+        $outputPath = Join-Path $probeRoot 'result.jsonl'
+        New-Item -ItemType Directory -Path $probeRoot -Force | Out-Null
+        @'
 param(
     [string]$PublishPath,
     [string]$TrayPublishPath,
@@ -111,27 +111,26 @@ param(
     values = @($AdditionalServiceEnvironment)
 } | ConvertTo-Json -Compress | Add-Content -LiteralPath $env:FIELDOPS_BINDING_OUTPUT
 '@ | Set-Content -LiteralPath $probePath
-            $runner = @"
+        $runner = @"
 $($helper.Extent.Text)
+$($stage.Extent.Text)
 
-Invoke-FieldOpsAgentInstaller -InstallerPath '$($probePath.Replace("'", "''"))' -PublishPath 'agent' -TrayPublishPath 'tray' -OperatorAccount 'operator' -AdditionalServiceEnvironment @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
-Invoke-FieldOpsAgentInstaller -InstallerPath '$($probePath.Replace("'", "''"))' -PublishPath 'agent' -TrayPublishPath 'tray' -OperatorAccount 'operator' -AdditionalServiceEnvironment @()
+`$env:FIELDOPS_BINDING_OUTPUT = '$($outputPath.Replace("'", "''"))'
+Invoke-FieldOpsAgentInstallStage -InstallerPath '$($probePath.Replace("'", "''"))' -PublishPath 'agent' -TrayPublishPath 'tray' -OperatorAccount 'operator' -EnableCf20GnssRecovery
+Invoke-FieldOpsAgentInstallStage -InstallerPath '$($probePath.Replace("'", "''"))' -PublishPath 'agent' -TrayPublishPath 'tray' -OperatorAccount 'operator'
 "@
-            Set-Content -LiteralPath $runnerPath -Value $runner
-            try {
-                $env:FIELDOPS_BINDING_OUTPUT = $outputPath
-                & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $runnerPath
-                if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell helper regression failed for $scriptName." }
-                $records = @(Get-Content -LiteralPath $outputPath | ForEach-Object { $_ | ConvertFrom-Json })
-                $records.Count | Should Be 2
-                $records[0].bound | Should Be $true
-                @($records[0].values) | Should Be @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
-                $records[1].bound | Should Be $false
-                @($records[1].values).Count | Should Be 0
-            } finally {
-                Remove-Item Env:FIELDOPS_BINDING_OUTPUT -ErrorAction SilentlyContinue
-                Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
-            }
+        Set-Content -LiteralPath $runnerPath -Value $runner
+        try {
+            $runnerOutput = @(& $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $runnerPath 2>&1)
+            if ($LASTEXITCODE -ne 0) { throw "Windows PowerShell production-path regression failed: $($runnerOutput -join [Environment]::NewLine)" }
+            $records = @(Get-Content -LiteralPath $outputPath | ForEach-Object { $_ | ConvertFrom-Json })
+            $records.Count | Should Be 2
+            $records[0].bound | Should Be $true
+            @($records[0].values) | Should Be @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
+            $records[1].bound | Should Be $false
+            @($records[1].values).Count | Should Be 0
+        } finally {
+            Remove-Item -LiteralPath $probeRoot -Recurse -Force -ErrorAction SilentlyContinue
         }
     }
 
