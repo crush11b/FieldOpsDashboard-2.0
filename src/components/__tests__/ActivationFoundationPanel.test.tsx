@@ -37,6 +37,8 @@ describe('ActivationFoundationPanel', () => {
     render(<ActivationFoundationPanel brief={brief} initialActivation={plannedActivation} showReview={false} onActivationChange={onActivationChange} />);
 
     expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy();
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('PLANNED ACTIVATION');
+    expect(screen.getByRole('banner', { name: 'Operational header' })).not.toHaveTextContent('ACTIVE ACTIVATION');
     expect(screen.getByText('Technical Details').closest('details')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
     await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-26 12:00:00 UTC')).toBeTruthy());
@@ -62,6 +64,25 @@ describe('ActivationFoundationPanel', () => {
     expect(screen.getByText('Source: Manual operating context · Status: Current')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'END ACTIVATION' }));
     await waitFor(() => expect(screen.getByText('Current station state unavailable.')).toBeTruthy());
+  });
+
+  it('distinguishes completed and absent Activations without exposing current operation', () => {
+    const { rerender } = render(<ActivationFoundationPanel brief={brief} initialActivation={{ ...activeActivation, status: 'completed' }} initialQsoCount={4} showReview={false} />);
+    const header = screen.getByRole('banner', { name: 'Operational header' });
+    expect(header).toHaveTextContent('COMPLETED ACTIVATION');
+    expect(header).not.toHaveTextContent('ACTIVE ACTIVATION');
+    expect(header).toHaveTextContent('0');
+    expect(header).toHaveTextContent('CURRENT STATION');
+    expect(header).toHaveTextContent('Unavailable');
+    expect(screen.getByText('Current station state unavailable.')).toBeInTheDocument();
+
+    rerender(<ActivationFoundationPanel brief={brief} initialActivation={null} showReview={false} />);
+    const emptyHeader = screen.getByRole('banner', { name: 'Operational header' });
+    expect(emptyHeader).toHaveTextContent('NO CURRENT ACTIVATION');
+    expect(emptyHeader).not.toHaveTextContent('ACTIVE ACTIVATION');
+    expect(emptyHeader).toHaveTextContent('No current Activation');
+    expect(emptyHeader).toHaveTextContent('0');
+    expect(emptyHeader).toHaveTextContent('Unavailable');
   });
 
   it('reconstructs current station state for a new Activation without leaking the prior context', async () => {
