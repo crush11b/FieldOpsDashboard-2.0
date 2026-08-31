@@ -23,6 +23,9 @@ builder.Logging.AddEventLog(new EventLogSettings
     SourceName = serviceName,
     LogName = "Application",
 });
+builder.Logging.AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>(
+    "FieldOps.Agent.Location.GnssRecoveryCoordinator",
+    LogLevel.Information);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -65,6 +68,13 @@ builder.Services.AddHostedService<LocationTelemetryPipeService>();
 builder.Services.AddHostedService<SystemTelemetryPipeService>();
 
 var app = builder.Build();
+var recoveryConfigurationLogger = app.Services.GetRequiredService<ILogger<GnssRecoveryCoordinator>>();
+recoveryConfigurationLogger.LogInformation(
+    "GNSS recovery configuration loaded. Enabled={Enabled} Provider={Provider} ControlPort={ControlPort} ControlBaud={ControlBaud}",
+    bool.TryParse(builder.Configuration["Agent:Location:Recovery:Enabled"], out var recoveryEnabled) && recoveryEnabled,
+    builder.Configuration["Agent:Location:Recovery:Provider"] ?? "",
+    builder.Configuration["Agent:Location:Recovery:ControlPort"] ?? "",
+    builder.Configuration["Agent:Location:Recovery:ControlBaud"] ?? "");
 var credentialProvider = app.Services.GetRequiredService<AgentCredentialProvider>();
 await credentialProvider.InitializeAsync(app.Lifetime.ApplicationStopping);
 

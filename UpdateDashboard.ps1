@@ -293,6 +293,7 @@ function Invoke-FieldOpsAgentInstallStage {
     )
 
     $serviceEnvironment = if ($EnableCf20GnssRecovery) { @(
+        'DOTNET_ENVIRONMENT=Cf20',
         'Agent__Location__Recovery__Enabled=true',
         'Agent__Location__Recovery__Provider=SierraEm7455B',
         'Agent__Location__Recovery__ControlPort=COM7',

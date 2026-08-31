@@ -158,7 +158,7 @@ Invoke-FieldOpsAgentInstaller `
     -PublishPath $agentPublish `
     -TrayPublishPath $trayPublish `
     -OperatorAccount $OperatorAccount `
-    -AdditionalServiceEnvironment @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
+    -AdditionalServiceEnvironment @('DOTNET_ENVIRONMENT=Cf20', 'Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
 if ($LASTEXITCODE -ne 0) { throw "Agent installation failed with exit code $LASTEXITCODE." }
 Write-Host '[OK] Agent installed.' -ForegroundColor Green
 

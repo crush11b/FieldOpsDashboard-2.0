@@ -169,6 +169,28 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
+    public void Cf20DeploymentProfileAndEventLogRecoveryFilterAreExplicit()
+    {
+        var profilePath = Path.Combine(GetRepositoryRoot(), "agent", "src", "FieldOps.Agent", "appsettings.Cf20.json");
+        var profile = File.ReadAllText(profilePath);
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var deploy = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "Deploy-ToughBook.ps1"));
+        var program = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "agent", "src", "FieldOps.Agent", "Program.cs"));
+
+        Assert.Contains("\"Enabled\": true", profile);
+        Assert.Contains("\"Provider\": \"SierraEm7455B\"", profile);
+        Assert.Contains("\"ControlPort\": \"COM7\"", profile);
+        Assert.Contains("\"ControlBaud\": 115200", profile);
+        Assert.Contains("'DOTNET_ENVIRONMENT=Cf20'", updater);
+        Assert.Contains("'Agent__Location__Recovery__Enabled=true'", updater);
+        Assert.Contains("'DOTNET_ENVIRONMENT=Cf20'", deploy);
+        Assert.Contains("AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>", program);
+        Assert.Contains("FieldOps.Agent.Location.GnssRecoveryCoordinator", program);
+        Assert.Contains("GNSS recovery configuration loaded.", program);
+        Assert.Single(Regex.Matches(program, "GNSS recovery configuration loaded\\."));
+    }
+
+    [Fact]
     public void ToughBookDeploymentUsesIsolatedCurrentHeadAndHardParityGate()
     {
         var deployment = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "Deploy-ToughBook.ps1"));

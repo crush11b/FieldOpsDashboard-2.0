@@ -1,4 +1,5 @@
 using FieldOps.Agent.Location;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Threading.Channels;
@@ -74,6 +75,53 @@ public sealed class GnssRecoveryTests
         Assert.Contains(loggerProvider.Entries, entry => entry.Contains("newer NMEA evidence detected", StringComparison.OrdinalIgnoreCase));
         Assert.Contains(loggerProvider.Entries, entry => entry.Contains("final result", StringComparison.OrdinalIgnoreCase));
         await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public void MissingOrFalseRecoveryEnabledRemainsDisabled()
+    {
+        Assert.Equal(GnssRecoveryState.Disabled, ConfigurationCoordinator(new Dictionary<string, string?>()).GetStatus().State);
+        Assert.Equal(GnssRecoveryState.Disabled, ConfigurationCoordinator(new Dictionary<string, string?> { ["Agent:Location:Recovery:Enabled"] = "false" }).GetStatus().State);
+    }
+
+    [Fact]
+    public void ExplicitCf20RecoveryConfigurationEnablesRecoveryWithoutCoordinatorDefaults()
+    {
+        var coordinator = ConfigurationCoordinator(new Dictionary<string, string?>
+        {
+            ["Agent:Location:Recovery:Enabled"] = "true",
+            ["Agent:Location:Recovery:Provider"] = "SierraEm7455B",
+            ["Agent:Location:Recovery:ControlPort"] = "COM7",
+            ["Agent:Location:Recovery:ControlBaud"] = "115200",
+        });
+
+        var status = coordinator.GetStatus();
+        Assert.Equal(GnssRecoveryState.Available, status.State);
+        Assert.Equal("SierraEm7455B", status.ProviderType);
+        Assert.Equal("COM7", status.ControlPort);
+    }
+
+    [Fact]
+    public async Task UnsupportedDeploymentValuesDoNotUseCoordinatorHardCodedCf20Settings()
+    {
+        var coordinator = ConfigurationCoordinator(new Dictionary<string, string?>
+        {
+            ["Agent:Location:Recovery:Enabled"] = "true",
+            ["Agent:Location:Recovery:Provider"] = "OtherProvider",
+            ["Agent:Location:Recovery:ControlPort"] = "COM8",
+            ["Agent:Location:Recovery:ControlBaud"] = "57600",
+        });
+
+        var result = await coordinator.RecoverAsync(CancellationToken.None);
+        Assert.Equal(GnssRecoveryState.Unsupported, result.State);
+        Assert.Equal("OtherProvider", result.ProviderType);
+        Assert.Equal("COM8", result.ControlPort);
+    }
+
+    private static GnssRecoveryCoordinator ConfigurationCoordinator(IReadOnlyDictionary<string, string?> values)
+    {
+        var configuration = new ConfigurationBuilder().AddInMemoryCollection(values).Build();
+        return new GnssRecoveryCoordinator(SilentProvider(), configuration, NullLogger<GnssRecoveryCoordinator>.Instance);
     }
 
     private static SerialNmeaLocationProvider SilentProvider() => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => new TestReader(), TimeSpan.FromMilliseconds(10));
