@@ -10,10 +10,12 @@ interface LiveBandActivityPanelProps {
 
 type LoadState = 'loading' | 'ready' | 'error';
 
-export const LiveBandActivityPanel: React.FC<LiveBandActivityPanelProps> = ({ active }) => {
+const LiveBandActivityPanelView: React.FC<LiveBandActivityPanelProps> = ({ active }) => {
   const [activity, setActivity] = useState<LiveBandActivity | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('loading');
   const [error, setError] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const activityRef = useRef<LiveBandActivity | null>(null);
   const requestInFlight = useRef(false);
   const controller = useRef<AbortController | null>(null);
 
@@ -25,13 +27,14 @@ export const LiveBandActivityPanel: React.FC<LiveBandActivityPanelProps> = ({ ac
       requestInFlight.current = true;
       const nextController = new AbortController();
       controller.current = nextController;
-      if (!activity) setLoadState('loading');
+      if (!activityRef.current) setLoadState('loading');
+      else setRefreshing(true);
       try {
         const next = await fetchLiveBandActivity(nextController.signal);
-        if (!cancelled) { setActivity(next); setLoadState('ready'); setError(null); }
+        if (!cancelled) { activityRef.current = next; setActivity(next); setLoadState('ready'); setRefreshing(false); setError(null); }
       } catch (reason) {
         if (!cancelled && reason instanceof DOMException && reason.name === 'AbortError') return;
-        if (!cancelled) { setLoadState('error'); setError(reason instanceof Error ? reason.message : 'Live Band Activity is unavailable.'); }
+        if (!cancelled) { setLoadState(activityRef.current ? 'ready' : 'error'); setRefreshing(false); setError(reason instanceof Error ? reason.message : 'Live Band Activity is unavailable.'); }
       } finally {
         requestInFlight.current = false;
         controller.current = null;
@@ -48,6 +51,7 @@ export const LiveBandActivityPanel: React.FC<LiveBandActivityPanelProps> = ({ ac
       {activity && <StatusLabel activity={activity} />}
     </div>
     {loadState === 'loading' && <p role="status" className="text-[10px] text-slate-400">Loading recent activity...</p>}
+    {refreshing && <p role="status" className="text-[10px] text-slate-400">Refreshing recent activity; showing the retained observation until it completes.</p>}
     {loadState === 'error' && <p role="alert" className="text-[10px] text-amber-200">{error || 'Live Band Activity is unavailable.'}</p>}
     {loadState === 'ready' && activity && <>
       {activity.status === 'unavailable' ? <p className="text-[10px] text-amber-200">No observed-RF source is available; band counts are not asserted.</p> : <div className="grid grid-cols-2 sm:grid-cols-5 gap-1">{activity.bands.map(band => <div key={band.band} data-testid={`live-band-row-${band.band}`} className="rounded border border-slate-800 bg-slate-900/70 px-2 py-1.5"><strong className="block text-[11px] text-slate-100">{band.band}</strong><span className="block text-[10px] text-slate-300">{band.reportCount} {band.reportCount === 1 ? 'report' : 'reports'}</span><span className="block text-[9px] text-slate-500">{directionText(band)}</span></div>)}</div>}
@@ -55,6 +59,8 @@ export const LiveBandActivityPanel: React.FC<LiveBandActivityPanelProps> = ({ ac
     </>}
   </section>;
 };
+
+export const LiveBandActivityPanel = React.memo(LiveBandActivityPanelView);
 
 const StatusLabel: React.FC<{ activity: LiveBandActivity }> = ({ activity }) => {
   const total = activity.bands.reduce((sum, band) => sum + band.reportCount, 0);

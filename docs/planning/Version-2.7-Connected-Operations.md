@@ -404,6 +404,12 @@ The active OPERATE workspace now begins with a compact operational header showin
 
 Fresh WSJT-X state is labeled `WSJT-X / LIVE`, stale WSJT-X state is labeled `WSJT-X / STALE`, and manual context is labeled `MANUAL / OPERATOR-SET`. Unknown or unavailable values remain unknown or unavailable, and inactive Activations show no active station context or QSO count. Focused Activation/current-station tests and TypeScript validation pass. This is implementation evidence for 2.7-06A only; CF-20 hardware acceptance and the broader 2.7-06 consolidation remain pending.
 
+### V2.7-06B implementation evidence - OPERATE Live Band Activity runtime
+
+CF-20 validation found repeatable mid-90% CPU and low-90% GPU utilization with Live Band Activity active, plus roughly three minutes of settling while the view refreshed an approximately 450-report retained observation. The traced path was the active OPERATE `SmartDeployBriefView` through `LiveBandActivityPanel`, its 30-second fetch, the Express `/api/live-band-activity` route, `ObservedRfService.getSnapshot()`, and the `createLiveBandActivity()` read model. The client rendered ten bounded band rows, but the read model repeatedly scanned each retained report set once per band and once for each direction count; the polling effect also captured its initial empty activity value, so every refresh re-entered `loading` while the retained status badge still showed the old report count.
+
+The bounded correction keeps the existing singleton PSKReporter/Observed RF ownership and 30-second cadence, isolates the summary panel from unrelated OPERATE parent renders, replaces repeated per-band scans with one aggregation pass, and keeps retained band summaries visible during refresh with explicit retained-observation wording. It does not add polling, APIs, persistence, workers, qualitative band judgments, or new evidence semantics. Live/cached/stale/unavailable provenance remains source-backed, and the observation remains digital reception evidence only. Automated focused and full Dashboard validation passes; CF-20 retest is still required to establish field performance and does not promise a specific CPU/GPU target.
+
 ---
 
 ## 2.7-07 - Field Validation and Release Closure

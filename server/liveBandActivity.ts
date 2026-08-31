@@ -5,7 +5,6 @@ import {
   OBSERVED_RF_WINDOW_MS,
   type ObservedRfConnectionStatus,
   type ObservedRfSnapshot,
-  type PskReceptionReport,
 } from '../src/propagation/observedRf';
 
 export const LIVE_BAND_ACTIVITY_WINDOW_MINUTES = OBSERVED_RF_WINDOW_MS / 60_000;
@@ -37,11 +36,16 @@ export interface LiveBandActivity {
 }
 
 export function createLiveBandActivity(snapshot: ObservedRfSnapshot): LiveBandActivity {
-  const reportsByBand = new Map<string, PskReceptionReport[]>();
+  const summaries = new Map<string, { reportCount: number; newestObservedAtUtc: string | null; inboundCount: number; outboundCount: number; localCount: number }>();
+  OBSERVED_RF_BANDS.forEach(band => summaries.set(band, { reportCount: 0, newestObservedAtUtc: null, inboundCount: 0, outboundCount: 0, localCount: 0 }));
   snapshot.reports.forEach(report => {
-    const reports = reportsByBand.get(report.band) ?? [];
-    reports.push(report);
-    reportsByBand.set(report.band, reports);
+    const summary = summaries.get(report.band);
+    if (!summary) return;
+    summary.reportCount += 1;
+    summary.newestObservedAtUtc = summary.newestObservedAtUtc === null || report.observedAtUtc > summary.newestObservedAtUtc ? report.observedAtUtc : summary.newestObservedAtUtc;
+    if (report.direction === 'inbound') summary.inboundCount += 1;
+    if (report.direction === 'outbound') summary.outboundCount += 1;
+    if (report.direction === 'local') summary.localCount += 1;
   });
   const newestObservedAtUtc = snapshot.reports.reduce<string | null>((newest, report) =>
     newest === null || report.observedAtUtc > newest ? report.observedAtUtc : newest, null);
@@ -57,16 +61,7 @@ export function createLiveBandActivity(snapshot: ObservedRfSnapshot): LiveBandAc
     operatingGrid4: snapshot.operatingGrid4,
     limitation: LIVE_BAND_ACTIVITY_LIMITATION,
     bands: OBSERVED_RF_BANDS.map(band => {
-      const reports = reportsByBand.get(band) ?? [];
-      return {
-        band,
-        reportCount: reports.length,
-        newestObservedAtUtc: reports.reduce<string | null>((newest, report) =>
-          newest === null || report.observedAtUtc > newest ? report.observedAtUtc : newest, null),
-        inboundCount: reports.filter(report => report.direction === 'inbound').length,
-        outboundCount: reports.filter(report => report.direction === 'outbound').length,
-        localCount: reports.filter(report => report.direction === 'local').length,
-      };
+      return { band, ...summaries.get(band)! };
     }),
   };
 }
