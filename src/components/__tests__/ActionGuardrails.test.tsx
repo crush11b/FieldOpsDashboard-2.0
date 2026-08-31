@@ -9,6 +9,29 @@ import { BatteryStatusWidget } from '../BatteryStatusWidget';
 import type { AppLauncherItem, DualBatteryStatus, GPSStatus } from '../../types';
 
 describe('misleading action guardrails', () => {
+  it('keeps the always-mounted header free of continuous compositing effects', () => {
+    const markup = renderToStaticMarkup(
+      <HeaderBar
+        callsign="N0CALL"
+        theme="dark_tactical"
+        onThemeChange={vi.fn()}
+        gps={gps}
+        battery={battery}
+        systemTelemetry={null}
+        audioEnabled={false}
+        onToggleAudio={vi.fn()}
+        onOpenConfig={vi.fn()}
+        onOpenRoadmap={vi.fn()}
+        onToggleTouchMenu={vi.fn()}
+        touchMenuOpen={false}
+      />,
+    );
+
+    expect(markup).not.toContain('backdrop-blur-md');
+    expect(markup).not.toContain('animate-pulse');
+    expect(markup).not.toContain('animate-spin-slow');
+  });
+
   it('marks automatic installation unavailable with native disabled semantics', () => {
     const markup = renderToStaticMarkup(
       <AppLauncherGrid

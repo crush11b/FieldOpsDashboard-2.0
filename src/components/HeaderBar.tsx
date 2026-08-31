@@ -83,7 +83,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
 
   return (
     <header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
-      <div className={`max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${headerBg} backdrop-blur-md`}>
+      <div className={`max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${headerBg}`}>
         
         {/* Left: Brand, operator callsign, and release version. */}
         <div className="flex items-center gap-3">
@@ -126,7 +126,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         <div className="hidden lg:flex items-center gap-3 font-mono">
           {/* Dual Clock Badge */}
           <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${badgeBorder}`}>
-            <Clock className="w-4 h-4 text-cyan-400 animate-pulse" />
+            <Clock className="w-4 h-4 text-cyan-400" />
             <div className="flex flex-col">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">TIME SYNC (LOCAL / UTC)</span>
               <span className="text-xs font-black text-cyan-300 tracking-wider">
@@ -193,7 +193,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             }`}
             title="Launch Field Tools (SmartDeploy, location, distance, and solar tools)"
           >
-            <Sparkles className="w-4 h-4 text-amber-400 animate-spin-slow" />
+            <Sparkles className="w-4 h-4 text-amber-400" />
             <span className="hidden md:inline uppercase">FIELD TOOLS</span>
           </button>
 

@@ -410,6 +410,8 @@ CF-20 validation found repeatable mid-90% CPU and low-90% GPU utilization with L
 
 The bounded correction keeps the existing singleton PSKReporter/Observed RF ownership and 30-second cadence, isolates the summary panel from unrelated OPERATE parent renders, replaces repeated per-band scans with one aggregation pass, and keeps retained band summaries visible during refresh with explicit retained-observation wording. It does not add polling, APIs, persistence, workers, qualitative band judgments, or new evidence semantics. Live/cached/stale/unavailable provenance remains source-backed, and the observation remains digital reception evidence only. Automated focused and full Dashboard validation passes; CF-20 retest is still required to establish field performance and does not promise a specific CPU/GPU target.
 
+The first post-correction CF-20 performance result remained failed, with sustained CPU/GPU utilization near 90%. A follow-up runtime audit found additional always-mounted dashboard costs outside the bounded Live Band Activity path: the global header used backdrop blur and continuous pulse/spin effects, and the GPS widget used continuous navigation/satellite animation. This 06B correction removes those decorative effects while preserving the existing polling cadences, GNSS controls, clock synchronization workflow, WSJT-X/QSO behavior, and evidence semantics. Focused GPS and action-guardrail tests, TypeScript validation, and production build validation pass; a fresh CF-20 retest remains required. No 2.7-06C or later slice is started.
+
 ---
 
 ## 2.7-07 - Field Validation and Release Closure

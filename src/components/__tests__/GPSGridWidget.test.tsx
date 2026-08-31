@@ -84,6 +84,8 @@ describe('GPS source guardrail presentation', () => {
     expect(markup).toContain('GNSS Diagnostics');
     expect(markup).toContain('aria-expanded="false"');
     expect(markup).not.toContain('RECEIVING');
+    expect(markup).not.toContain('animate-spin-slow');
+    expect(markup).not.toContain('animate-pulse');
   });
 
   it('shows honest missing timestamps and failure state when expanded', () => {

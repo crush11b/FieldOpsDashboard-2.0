@@ -248,7 +248,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-current/15">
         <div className="flex items-center gap-2">
-          <Navigation className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-emerald-400'} animate-spin-slow`} />
+          <Navigation className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-emerald-400'}`} />
           <h3 className="text-xs font-bold uppercase tracking-wider">
             GPS / MAIDENHEAD LOCATION BADGE
           </h3>
@@ -469,7 +469,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         isNight ? 'text-red-400' : isSunlight ? 'text-slate-800' : 'text-zinc-300'
       }`}>
         <div className="flex items-center gap-2">
-          <Satellite className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+          <Satellite className="w-3.5 h-3.5 text-cyan-400" />
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">
             GNSS SERIAL PORT:
           </span>
