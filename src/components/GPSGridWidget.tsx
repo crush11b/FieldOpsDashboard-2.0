@@ -132,15 +132,37 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const formatDiagnosticTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(11, 19)} UTC` : '—';
   const diagnosticsUnavailable = serialDiagnostics?.transportStatus === 'unavailable';
   const recoveryAvailable = serialDiagnostics?.lastFailureCategory === 'SerialSilence';
-  const recoveryMessage = recoveryState?.state === 'CommandAccepted'
-    ? 'GNSS session restarted; waiting for NMEA data.'
-    : recoveryState?.state === 'NmeaRecovered'
-      ? 'NMEA data recovered; acquiring GPS fix.'
-      : recoveryState?.state === 'Recovered'
-        ? 'GPS recovered.'
-        : recoveryState?.state === 'Failed' || recoveryState?.state === 'TimedOut'
-          ? 'GPS recovery did not restore NMEA data.'
-          : null;
+  const recoveryMessage = recoveryInProgress
+    ? 'Recovery requested; recovering GPS...'
+    : recoveryState?.state === 'Unsupported'
+      ? 'GPS recovery is unsupported for this device.'
+      : recoveryState?.state === 'Disabled'
+        ? 'GPS recovery is disabled.'
+        : recoveryState?.state === 'NotNeeded'
+          ? 'GPS recovery is not needed.'
+          : recoveryState?.state === 'Available'
+            ? 'GPS recovery is available.'
+            : recoveryState?.state === 'Running'
+              ? 'A GPS recovery operation is already running.'
+              : recoveryState?.state === 'CommandAccepted'
+      ? 'Command accepted; waiting for NMEA data.'
+      : recoveryState?.state === 'NmeaRecovered'
+        ? 'NMEA data recovered; acquiring GPS fix.'
+        : recoveryState?.state === 'Recovered'
+          ? 'GPS recovered.'
+          : recoveryState?.state === 'PortUnavailable'
+            ? 'GPS recovery could not open the control port.'
+            : recoveryState?.state === 'UnexpectedResponse'
+              ? 'GPS recovery received an unexpected modem response.'
+              : recoveryState?.state === 'AlreadyRunning'
+                ? 'A GPS recovery operation is already running.'
+                : recoveryState?.state === 'Cancelled'
+                  ? 'GPS recovery was cancelled.'
+                  : recoveryState?.state === 'Failed'
+                    ? 'GPS recovery failed.'
+                    : recoveryState?.state === 'TimedOut'
+                      ? 'GPS recovery timed out waiting for NMEA data.'
+                      : null;
   const runGnssRecovery = async () => {
     if (recoveryInProgress) return;
     setRecoveryInProgress(true);

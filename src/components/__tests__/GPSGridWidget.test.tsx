@@ -5,7 +5,10 @@ import { fireEvent, render as renderDom, screen, waitFor } from '@testing-librar
 import { describe, expect, it, vi } from 'vitest';
 import { GPSGridWidget } from '../GPSGridWidget';
 import type { GPSProvenance, GPSStatus } from '../../types';
-import type { ClockSynchronizationEvidence, GnssSerialDiagnostics } from '../../../server/locationTelemetryPipe';
+import type { ClockSynchronizationEvidence, GnssRecoveryResult, GnssSerialDiagnostics } from '../../../server/locationTelemetryPipe';
+import { recoverGnss } from '../../gnssRecoveryApi';
+
+vi.mock('../../gnssRecoveryApi', () => ({ recoverGnss: vi.fn() }));
 
 describe('GPS source guardrail presentation', () => {
   it('treats the real native SerialNmea observation as current GPS', () => {
@@ -93,6 +96,48 @@ describe('GPS source guardrail presentation', () => {
     fireEvent.click(screen.getByRole('button', { name: 'GNSS Diagnostics' }));
     expect(screen.getByTestId('gnss-diagnostics')).toHaveTextContent('OpenFailed');
     expect(screen.getByTestId('gnss-diagnostics')).toHaveTextContent('—');
+  });
+
+  it('acknowledges recovery immediately and surfaces the returned result', async () => {
+    let resolveRecovery!: (result: GnssRecoveryResult) => void;
+    vi.mocked(recoverGnss).mockReturnValue(new Promise(resolve => { resolveRecovery = resolve; }));
+    renderDom(
+      <GPSGridWidget
+        gps={baseGps({ lat: Number.NaN, lon: Number.NaN, gridSquare: '' })}
+        provenance={provenance('unavailable', 'serial_nmea')}
+        theme="dark_tactical"
+        audioEnabled={false}
+        onUpdateGPS={() => undefined}
+        gnssDiagnostics={{ ...diagnostics('Receiving'), lastFailureCategory: 'SerialSilence', lastFailureMessage: 'No NMEA serial data received for 10 seconds.' }}
+      />,
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'GNSS Diagnostics' }));
+    const recoverButton = screen.getByRole('button', { name: 'Recover GPS' });
+    fireEvent.click(recoverButton);
+    expect(screen.getByRole('status')).toHaveTextContent('Recovery requested; recovering GPS...');
+    expect(recoverButton).toBeDisabled();
+
+    resolveRecovery({
+      state: 'PortUnavailable',
+      failureCategory: 'AccessDenied',
+      failureMessage: 'COM7 is in use.',
+      supported: true,
+      available: false,
+      providerType: 'SierraEm7455B',
+      controlPort: 'COM7',
+      operationStartedUtc: null,
+      operationCompletedUtc: null,
+      commandAccepted: false,
+      serialActivityRecovered: false,
+      nmeaActivityRecovered: false,
+      fixStatus: 'Error',
+      attemptCount: 1,
+      lastSerialBeforeUtc: null,
+      lastSerialAfterUtc: null,
+      lastNmeaAfterUtc: null,
+    });
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('GPS recovery could not open the control port.'));
+    expect(screen.getByRole('button', { name: 'Recover GPS' })).not.toBeDisabled();
   });
 });
 

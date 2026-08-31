@@ -1,4 +1,5 @@
 using FieldOps.Agent.Location;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Threading.Channels;
 
@@ -45,6 +46,36 @@ public sealed class GnssRecoveryTests
         await provider.StopAsync(CancellationToken.None);
     }
 
+    [Fact]
+    public async Task SuccessfulRecoveryLogsCorrelatedStagesAndResult()
+    {
+        var reader = new TestReader();
+        using var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => reader, TimeSpan.FromMilliseconds(10));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.SerialSilence);
+        using var loggerProvider = new CapturingLoggerProvider();
+        using var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(loggerProvider));
+        var at = new FakeAtPort("OK", () => reader.Enqueue(Gga));
+        var result = await new GnssRecoveryCoordinator(provider, true, GnssRecoveryCoordinator.SupportedProvider, "COM7", 115200, (_, _) => at, loggerFactory.CreateLogger<GnssRecoveryCoordinator>()).RecoverAsync(CancellationToken.None);
+
+        Assert.Equal(GnssRecoveryState.NmeaRecovered, result.State);
+        Assert.NotEmpty(loggerProvider.Entries);
+        var correlationIds = loggerProvider.Entries
+            .Select(entry => entry.Split("CorrelationId=", StringSplitOptions.None).Skip(1).FirstOrDefault()?.Split(' ', StringSplitOptions.RemoveEmptyEntries).FirstOrDefault())
+            .Where(value => value is not null)
+            .Distinct()
+            .ToArray();
+        Assert.Single(correlationIds);
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("operation started", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("COM7 open succeeded", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("Category=OK", StringComparison.Ordinal));
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("observation phase started", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("newer serial evidence detected", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("newer NMEA evidence detected", StringComparison.OrdinalIgnoreCase));
+        Assert.Contains(loggerProvider.Entries, entry => entry.Contains("final result", StringComparison.OrdinalIgnoreCase));
+        await provider.StopAsync(CancellationToken.None);
+    }
+
     private static SerialNmeaLocationProvider SilentProvider() => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => new TestReader(), TimeSpan.FromMilliseconds(10));
     private static GnssRecoveryCoordinator Coordinator(SerialNmeaLocationProvider provider, FakeAtPort at) => new(provider, true, GnssRecoveryCoordinator.SupportedProvider, "COM7", 115200, (_, _) => at, NullLogger<GnssRecoveryCoordinator>.Instance);
     private static async Task Eventually(Func<bool> condition) { for (var attempt = 0; attempt < 100 && !condition(); attempt++) await Task.Delay(5); Assert.True(condition()); }
@@ -72,5 +103,20 @@ public sealed class GnssRecoveryTests
             await Task.Delay(15, cancellationToken);
             return lines.Reader.TryRead(out var line) ? line : null;
         }
+    }
+
+    private sealed class CapturingLoggerProvider : ILoggerProvider
+    {
+        public List<string> Entries { get; } = [];
+        public ILogger CreateLogger(string categoryName) => new CapturingLogger(Entries);
+        public void Dispose() { }
+    }
+
+    private sealed class CapturingLogger(List<string> entries) : ILogger
+    {
+        public IDisposable BeginScope<TState>(TState state) where TState : notnull => new NoopScope();
+        public bool IsEnabled(LogLevel logLevel) => true;
+        public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter) => entries.Add(formatter(state, exception));
+        private sealed class NoopScope : IDisposable { public void Dispose() { } }
     }
 }
