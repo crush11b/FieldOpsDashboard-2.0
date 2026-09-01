@@ -69,10 +69,24 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     </>}
     {phase === 'operate' && <>
       <ActivationFoundationPanel brief={brief} initialActivation={activation} initialQsoCount={qsoCount} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') { setActiveActivations([next]); setPhase('operate'); } }} />
-      {activation?.status === 'active' && <LiveBandActivityPanel active />}
       {activation ? <ActivationNotesPanel brief={brief} /> : <p className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px] text-amber-200">Start the activation from PREPARE to enable Notes and the QSO Logger.</p>}
+      <OperateSupportingContext brief={brief} />
+      {activation?.status === 'active' && <LiveBandActivityPanel active />}
     </>}
     {phase === 'review' && (activation ? <ActivationReviewPanel activation={activation} /> : <div className="rounded-xl border border-amber-700/60 bg-amber-950/20 p-3 space-y-2"><h3 className="font-black text-sm uppercase text-amber-300">REVIEW</h3><p className="text-[11px] text-slate-300">Open this plan in OPERATE first to create its durable Activation record, then return here for the retained-evidence review.</p><button type="button" onClick={() => setPhase('operate')} className="min-h-11 rounded border border-cyan-700 px-3 py-2 text-[10px] font-bold text-cyan-200">OPEN OPERATE</button></div>)}
+  </section>;
+};
+
+const OperateSupportingContext: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
+  const propagation = brief.sections.propagation.evidence;
+  const modeledBands = propagation.summary.strongestBandBySample.map(item => item.band).filter(Boolean);
+  const modeledBand = modeledBands.length ? [...new Set(modeledBands)].join(' / ') : 'Unavailable';
+  return <section aria-label="Operate supporting context" className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 space-y-2">
+    <h3 className="text-[10px] font-black uppercase text-amber-300">SUPPORTING CONTEXT</h3>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-2"><span className="block text-[9px] uppercase text-slate-500">PLANNED / MODELED</span><strong className="block mt-1 text-[11px] text-slate-100">Strongest modeled band: {modeledBand}</strong><span className="block mt-1 text-[10px] text-slate-400">Retained SmartDeploy/P.533 guidance. Not observed RF or actual station state.</span></div>
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-2"><span className="block text-[9px] uppercase text-slate-500">OBSERVED RF</span><strong className="block mt-1 text-[11px] text-slate-100">Recent digital activity</strong><span className="block mt-1 text-[10px] text-slate-400">PSKReporter reception evidence is shown separately below; it is not a forecast or station-state report.</span></div>
+    </div>
   </section>;
 };
 
