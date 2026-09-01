@@ -113,6 +113,30 @@ describe('ActivationFoundationPanel', () => {
     expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
   });
 
+  it('seeds the mounted untouched logger when WSJT-X becomes fresh after unavailable state', async () => {
+    let wsjtxCalls = 0;
+    const freshState = { band: '40m', frequencyMHz: 7.074, mode: 'FT8', source: 'wsjtx', observedAtUtc: '2026-08-27T12:00:00.000Z', freshness: 'fresh', status: 'available', limitation: 'WSJT-X application status; not CAT, direct radio, or RF confirmation.' };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/wsjtx/current')) {
+        wsjtxCalls += 1;
+        return wsjtxCalls === 1 ? { ok: true, json: async () => ({ status: 'unavailable', state: null }) } : { ok: true, json: async () => ({ status: 'available', state: freshState }) };
+      }
+      return { ok: true, json: async () => ({ qsos: [] }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('SSB'));
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('FT8'), { timeout: 2000 });
+    expect(screen.getByLabelText('BAND')).toHaveValue('40m');
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(7.074);
+
+    fireEvent.change(screen.getByLabelText('BAND'), { target: { value: '20m' } });
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.075' } });
+    await new Promise(resolve => setTimeout(resolve, 1100));
+    expect(screen.getByLabelText('BAND')).toHaveValue('20m');
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.075);
+  });
+
   it('keeps stale WSJT-X visible instead of flapping to manual state', async () => {
     const wsjtxState = { band: '40m', frequencyMHz: 7.074, mode: 'FT8', source: 'wsjtx', observedAtUtc: '2026-08-27T12:00:00.000Z', freshness: 'stale', status: 'stale', limitation: 'The last WSJT-X Status message is older than the fresh-state tolerance.' };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/wsjtx/current')

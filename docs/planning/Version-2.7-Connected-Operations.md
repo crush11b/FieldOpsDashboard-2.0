@@ -438,9 +438,32 @@ The initial CF-20 06C layout passed field use as a working surface, but three bo
 
 These corrections preserve the evidence boundaries: modeled P.533 guidance remains planned/modeled, Live Band Activity remains observed digital reception evidence, and WSJT-X remains application-reported operating context rather than CAT, direct-radio, transmit, or RF confirmation. 2.7-06 and Version 2.7 remain open pending the separate automated, hardware, field-validation, and release gates.
 
+### V2.7-06D/06E bounded CF-20 closeout preparation - 2026-09-01
+
+The deployed `9f311c7` CF-20 acceptance exercised the corrected WSJT-X freshness contract. CURRENT STATION was initially `STALE`, then transitioned to `LIVE` as fresh Status evidence arrived. This passed the hardware acceptance for the ten-second freshness behavior. While WSJT-X was not providing supported current operating state during WSPR use, CURRENT STATION correctly displayed unavailable. Live Band Activity remained operational; one overnight observation reported `LIVE · 178 REPORTS`: 160m 1, 80m 8, 40m 114, 30m 31, and 20m 24, with 17m through 6m at 0. These are observed PSKReporter activity counts only and must not be interpreted as propagation quality.
+
+No `local` classification occurred during this observation, so the `local-area` presentation change was not exercised, not failed. Logger station-state initialization did not occur on hardware. The bounded correction removes the cancelable deferred seed from the Logger lifecycle: an active, untouched mounted form now commits one seed when a supported fresh WSJT-X state arrives, even if the form first saw unavailable or stale state. The activation guard, one-seed guard, stale/unavailable exclusion, and operator-edit precedence remain in place. This commit does not declare 2.7-06 complete; one short CF-20 acceptance of this exact commit remains required.
+
+Focused automated validation passed: 2 test files and 27 tests. The full suite completed with 92 of 93 files passing and 940 of 941 tests passing; the sole failure was the known unrelated 60-second timeout in `src/propagation/__tests__/regionalP533.test.ts`, test `records the missing real-engine reference matrix under fixed assumptions`. TypeScript, production build, and `git diff --check` passed. Automated validation does not close 2.7-06 or replace the required hardware gate.
+
 ### Future layered band-planning architecture (documented only)
 
-Future planning may combine purpose-aware evidence in explicit layers: (1) modeled P.533/SmartDeploy guidance, (2) current space-weather conditions, (3) grid/local Live Band Activity, (4) future PSKReporter `MY SIGNAL` evidence for the operator's own signal, and (5) WSJT-X operating evidence. WSPR remains future intentional survey evidence, distinct from ordinary operating evidence. A later recommendation surface should show provenance, freshness, limitations, and an explainable purpose rather than a synthetic score or opaque quality rating; higher layers may refine lower layers but must not erase them or convert absence into failure.
+The eventual layered evidence model is explicitly:
+
+1. P.533 / SmartDeploy modeled propagation.
+2. Current space-weather context.
+3. PSKReporter grid/local Live Band Activity.
+4. Future PSKReporter `MY SIGNAL` FT8/FT4 station-specific evidence.
+5. Future WSPR station-specific propagation survey evidence.
+6. WSJT-X actual operating, decode, and QSO evidence.
+
+Higher layers refine earlier evidence; they do not erase it. Every layer must preserve source, freshness, provenance, and limitations. A future purpose-aware recommendation must remain explainable and must not reduce the evidence to an unexplained Poor/Fair/Good/Excellent label or opaque magic score.
+
+WSPR is not PSKReporter data and must not be modeled as a PSKReporter subtype or provider. WSJT-X can operate WSPR, but remote reported reception evidence requires a separate future external data-source boundary. WSPRnet/WSPR.live-derived data may be candidates, but Version 2.7 selects no permanent provider. Provider, API, licensing, availability, and freshness review are required before implementation. This slice adds no provider-specific production code or query examples.
+
+The operational concept is workflow-aware. For POTA/basecamp, WSPR may be useful during PREPARE: deploy the antenna and radio, begin a low-power WSPR propagation survey, let it run while camp or the base station is completed, and enter OPERATE with station-specific evidence from the actual deployed station. For SOTA or another fast activation, a long pre-activation WSPR survey may not fit; modeled guidance, space weather, and grid Live Band Activity can support a fast start, after which station-specific PSKReporter or WSJT-X evidence may refine the decision.
+
+WSPR survey evidence complements rather than replaces PSKReporter `MY SIGNAL`. WSPR answers an intentional low-power propagation-survey question. PSKReporter `MY SIGNAL` answers how the operator's actual FT8/FT4 operating signal is currently being received. Neither future source is implemented in Version 2.7.
 
 The proposed controlled experiment is a paired 40m/30m comparison under a declared time window, station setup, mode, power, antenna, and operator purpose, recording modeled guidance, space-weather context, Live Band Activity, any `MY SIGNAL` evidence, WSJT-X state, and actual logged outcomes separately. Results must be interpreted as observations under those controls, not as a universal band ranking or causal propagation claim. This architecture is deferred and is not part of 2.7-06C implementation.
 

@@ -23,13 +23,9 @@ export const QsoLoggerPanel: React.FC<Props> = ({ activation, initialStationStat
   useEffect(() => {
     const station = initialStationState;
     if (activation.status !== 'active' || formTouched.current || seededActivationId.current === activation.activationId || station?.source !== 'wsjtx' || station.freshness !== 'fresh') return;
-    const timer = window.setTimeout(() => {
-      if (formTouched.current || seededActivationId.current === activation.activationId) return;
-      formTouched.current = true;
-      setForm(previous => ({ ...previous, band: station.band, mode: station.mode, frequencyMHz: station.frequencyMHz === null ? '' : String(station.frequencyMHz), frequencyOrigin: station.frequencyMHz === null ? 'auto' : 'manual' }));
-      seededActivationId.current = activation.activationId;
-    });
-    return () => window.clearTimeout(timer);
+    formTouched.current = true;
+    setForm(previous => ({ ...previous, band: station.band, mode: station.mode, frequencyMHz: station.frequencyMHz === null ? '' : String(station.frequencyMHz), frequencyOrigin: station.frequencyMHz === null ? 'auto' : 'manual' }));
+    seededActivationId.current = activation.activationId;
   }, [activation.activationId, activation.status, initialStationState]);
   const markFormEdited = () => { formTouched.current = true; };
   useEffect(() => { if (form.callsign || form.rstSent || form.rstReceived) formTouched.current = true; }, [form.callsign, form.rstReceived, form.rstSent]);
