@@ -132,6 +132,19 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const formatDiagnosticTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(11, 19)} UTC` : '—';
   const diagnosticsUnavailable = serialDiagnostics?.transportStatus === 'unavailable';
   const recoveryAvailable = serialDiagnostics?.lastFailureCategory === 'SerialSilence';
+  const currentGnssHealthy = provenance.status === 'ok'
+    && provenance.source.type === 'serial_nmea'
+    && Number.isFinite(displayLocation?.lat)
+    && Number.isFinite(displayLocation?.lon)
+    && serialDiagnostics?.state === 'Receiving'
+    && Boolean(serialDiagnostics.lastSerialDataUtc)
+    && Boolean(serialDiagnostics.lastValidNmeaUtc)
+    && Boolean(serialDiagnostics.lastFixUtc);
+  const failureLabel = diagnosticsUnavailable
+    ? 'FAILURE'
+    : currentGnssHealthy
+      ? 'LAST FAILURE'
+      : 'FAILURE';
   const recoveryMessage = recoveryInProgress
     ? 'Recovery requested; recovering GPS...'
     : recoveryState?.state === 'Unsupported'
@@ -147,7 +160,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               : recoveryState?.state === 'CommandAccepted'
       ? 'Command accepted; waiting for NMEA data.'
       : recoveryState?.state === 'NmeaRecovered'
-        ? 'NMEA data recovered; acquiring GPS fix.'
+        ? currentGnssHealthy ? 'GNSS fix restored.' : 'NMEA data recovered; acquiring GPS fix.'
         : recoveryState?.state === 'Recovered'
           ? 'GPS recovered.'
           : recoveryState?.state === 'PortUnavailable'
@@ -560,7 +573,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             <span>LAST SERIAL <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastSerialDataUtc)}</strong></span>
             <span>LAST NMEA <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastValidNmeaUtc)}</strong></span>
             <span>LAST FIX <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastFixUtc)}</strong></span>
-            <span className="col-span-2 sm:col-span-4">FAILURE <strong>{diagnosticsUnavailable ? 'diagnostic_transport_unavailable' : serialDiagnostics?.lastFailureCategory ?? '—'}{!diagnosticsUnavailable && serialDiagnostics?.lastFailureMessage ? `: ${serialDiagnostics.lastFailureMessage}` : ''}</strong></span>
+            <span className="col-span-2 sm:col-span-4">{failureLabel} <strong>{diagnosticsUnavailable ? 'diagnostic_transport_unavailable' : serialDiagnostics?.lastFailureCategory ?? '—'}{!diagnosticsUnavailable && serialDiagnostics?.lastFailureMessage ? `: ${serialDiagnostics.lastFailureMessage}` : ''}</strong></span>
             <div className="col-span-2 sm:col-span-4 mt-2 flex flex-wrap items-center gap-2">
               <button
                 type="button"

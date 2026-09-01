@@ -98,6 +98,30 @@ describe('GPS source guardrail presentation', () => {
     expect(screen.getByTestId('gnss-diagnostics')).toHaveTextContent('—');
   });
 
+  it('keeps SerialSilence as last-failure evidence after a healthy Receiving fix', () => {
+    renderDom(<GPSGridWidget gps={baseGps({ lat: 38.1234, lon: -77.4567, gridSquare: 'FM18aa' })} provenance={provenance('ok', 'serial_nmea')} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} gnssDiagnostics={{ ...diagnostics('Receiving'), lastSerialDataUtc: '2026-08-29T20:01:00.000Z', lastValidNmeaUtc: '2026-08-29T20:01:00.000Z', lastFixUtc: '2026-08-29T20:01:00.000Z', lastFailureCategory: 'SerialSilence', lastFailureMessage: 'No NMEA serial data received for 10 seconds.' }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'GNSS Diagnostics' }));
+    expect(screen.getByTestId('gnss-diagnostics')).toHaveTextContent('LAST FAILURE SerialSilence: No NMEA serial data received for 10 seconds.');
+    expect(screen.getByTestId('gnss-diagnostics')).not.toHaveTextContent(/^FAILURE SerialSilence/m);
+  });
+
+  it('presents restored fix after NMEA recovery when current GNSS evidence is healthy', async () => {
+    vi.mocked(recoverGnss).mockResolvedValue({ state: 'NmeaRecovered', failureCategory: 'None', failureMessage: null, supported: true, available: true, providerType: 'SierraEm7455B', controlPort: 'COM7', controlBaud: 115200, configurationEnabled: true, operationStartedUtc: null, operationCompletedUtc: null, commandAccepted: true, serialActivityRecovered: true, nmeaActivityRecovered: true, fixStatus: 'NoFix', attemptCount: 1, lastSerialBeforeUtc: null, lastSerialAfterUtc: null, lastNmeaAfterUtc: null });
+    renderDom(<GPSGridWidget gps={baseGps({ lat: 38.1234, lon: -77.4567, gridSquare: 'FM18aa' })} provenance={provenance('ok', 'serial_nmea')} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} gnssDiagnostics={{ ...diagnostics('Receiving'), lastSerialDataUtc: '2026-08-29T20:01:00.000Z', lastValidNmeaUtc: '2026-08-29T20:01:00.000Z', lastFixUtc: '2026-08-29T20:01:00.000Z', lastFailureCategory: 'SerialSilence' }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'GNSS Diagnostics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Recover GPS' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('GNSS fix restored.'));
+    expect(screen.getByRole('status')).not.toHaveTextContent('acquiring GPS fix');
+  });
+
+  it('keeps acquiring-fix wording after NMEA recovery when current GNSS evidence has no fix', async () => {
+    vi.mocked(recoverGnss).mockResolvedValue({ state: 'NmeaRecovered', failureCategory: 'None', failureMessage: null, supported: true, available: true, providerType: 'SierraEm7455B', controlPort: 'COM7', controlBaud: 115200, configurationEnabled: true, operationStartedUtc: null, operationCompletedUtc: null, commandAccepted: true, serialActivityRecovered: true, nmeaActivityRecovered: true, fixStatus: 'NoFix', attemptCount: 1, lastSerialBeforeUtc: null, lastSerialAfterUtc: null, lastNmeaAfterUtc: null });
+    renderDom(<GPSGridWidget gps={baseGps({ lat: Number.NaN, lon: Number.NaN, gridSquare: '' })} provenance={provenance('connecting', 'gps_acquisition')} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} gnssDiagnostics={{ ...diagnostics('Receiving'), lastFailureCategory: 'SerialSilence' }} />);
+    fireEvent.click(screen.getByRole('button', { name: 'GNSS Diagnostics' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Recover GPS' }));
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('NMEA data recovered; acquiring GPS fix.'));
+  });
+
   it('acknowledges recovery immediately and surfaces the returned result', async () => {
     let resolveRecovery!: (result: GnssRecoveryResult) => void;
     vi.mocked(recoverGnss).mockReturnValue(new Promise(resolve => { resolveRecovery = resolve; }));
