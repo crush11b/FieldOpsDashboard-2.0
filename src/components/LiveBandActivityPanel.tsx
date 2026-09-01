@@ -68,8 +68,8 @@ const StatusLabel: React.FC<{ activity: LiveBandActivity }> = ({ activity }) => 
   return <span className="rounded border border-slate-700 px-2 py-1 text-[9px] font-black uppercase text-slate-300">{text}</span>;
 };
 
-function directionText(band: LiveBandActivity['bands'][number]): string {
+function directionText(band: LiveBandActivity['bands'][number]): React.ReactNode {
   const parts = [`${band.outboundCount} out`, `${band.inboundCount} in`];
-  if (band.localCount > 0) parts.push(`${band.localCount} local`);
-  return parts.join(' / ');
+  if (band.localCount > 0) parts.push(`${band.localCount} local-area`);
+  return parts.map(part => part.endsWith('local-area') ? <span key={part} title="Local-area digital activity; propagation mechanism unknown.">{part}</span> : part).reduce<React.ReactNode[]>((result, part, index) => index === 0 ? [part] : [...result, ' / ', part], []);
 }

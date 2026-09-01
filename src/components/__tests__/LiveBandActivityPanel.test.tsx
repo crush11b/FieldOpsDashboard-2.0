@@ -21,6 +21,14 @@ describe('LiveBandActivityPanel', () => {
     expect(screen.getByText(/not a propagation prediction/i)).toBeInTheDocument();
   });
 
+  it('labels local reports as local-area activity with unknown mechanism', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ ...activity('live', 1), bands: OBSERVED_RF_BANDS.map(band => ({ ...activity('live', 0).bands.find(item => item.band === band)!, localCount: band === '20m' ? 1 : 0 })) }) })));
+    render(<LiveBandActivityPanel active />);
+    const row = await screen.findByTestId('live-band-row-20m');
+    expect(row).toHaveTextContent('1 local-area');
+    expect(row.querySelector('[title="Local-area digital activity; propagation mechanism unknown."]')).toBeTruthy();
+  });
+
   it('renders source status without converting unavailable into zero activity', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => activity('unavailable') })));
     render(<LiveBandActivityPanel active />);

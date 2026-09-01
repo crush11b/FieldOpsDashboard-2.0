@@ -432,6 +432,18 @@ The 06C layout decision keeps one phase-owned OPERATE surface and makes the exis
 
 The three evidence classes remain independent: retained SmartDeploy/P.533 guidance is labeled planned/modeled, PSKReporter reports remain observed RF only, and manual or WSJT-X state remains actual station context. No new polling or data pipeline was introduced; existing QSO, WSJT-X, clock, notes, and 30-second Live Band Activity ownership and cadences are unchanged. The detailed evidence remains available through existing disclosures and lifecycle phases rather than being removed. 06C automated validation is required before one coherent commit; no 2.7-06C hardware acceptance or overall release completion is claimed here.
 
+### Bounded 06C semantic correction - 2026-08-29
+
+The initial CF-20 06C layout passed field use as a working surface, but three bounded presentation/ergonomic defects were identified. Live Band Activity rendered local reports only as `local`, which was opaque; the label now reads `local-area` with the limitation that the propagation mechanism is unknown. The `localCount` domain field and classification remain unchanged, and the UI does not call the activity NVIS. WSJT-X appeared suspiciously `STALE` because the implementation used a five-second boundary while the accepted contract documented ten seconds; the listener now uses the documented ten-second freshness interval, while still presenting stale state as stale and unavailable state as unavailable. Finally, the Logger always opened at `20m / SSB`; it now seeds an untouched active form once from fresh WSJT-X band, mode, and frequency, without replacing operator edits, in-progress contact fields, stale/unavailable state, or non-active Activation state.
+
+These corrections preserve the evidence boundaries: modeled P.533 guidance remains planned/modeled, Live Band Activity remains observed digital reception evidence, and WSJT-X remains application-reported operating context rather than CAT, direct-radio, transmit, or RF confirmation. 2.7-06 and Version 2.7 remain open pending the separate automated, hardware, field-validation, and release gates.
+
+### Future layered band-planning architecture (documented only)
+
+Future planning may combine purpose-aware evidence in explicit layers: (1) modeled P.533/SmartDeploy guidance, (2) current space-weather conditions, (3) grid/local Live Band Activity, (4) future PSKReporter `MY SIGNAL` evidence for the operator's own signal, and (5) WSJT-X operating evidence. WSPR remains future intentional survey evidence, distinct from ordinary operating evidence. A later recommendation surface should show provenance, freshness, limitations, and an explainable purpose rather than a synthetic score or opaque quality rating; higher layers may refine lower layers but must not erase them or convert absence into failure.
+
+The proposed controlled experiment is a paired 40m/30m comparison under a declared time window, station setup, mode, power, antenna, and operator purpose, recording modeled guidance, space-weather context, Live Band Activity, any `MY SIGNAL` evidence, WSJT-X state, and actual logged outcomes separately. Results must be interpreted as observations under those controls, not as a universal band ranking or causal propagation claim. This architecture is deferred and is not part of 2.7-06C implementation.
+
 ---
 
 ## 2.7-07 - Field Validation and Release Closure

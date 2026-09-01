@@ -4,7 +4,7 @@ import { normalizeQsoCallsign } from './qso';
 
 export const WSJTX_DEFAULT_HOST = '127.0.0.1';
 export const WSJTX_DEFAULT_PORT = 2237;
-export const WSJTX_STALE_AFTER_MS = 5_000;
+export const WSJTX_STALE_AFTER_MS = 10_000;
 export const WSJTX_UNAVAILABLE_AFTER_MS = 30_000;
 const WSJTX_MAGIC = 0xadbccbda;
 const WSJTX_SUPPORTED_SCHEMAS = new Set([2, 3]);

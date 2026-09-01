@@ -158,6 +158,17 @@ describe('QsoLoggerPanel', () => {
     expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(null);
   });
 
+  it('seeds a fresh WSJT-X context once without replacing an in-progress contact', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }));
+    const fresh = { band: '40m', frequencyMHz: 7.074, mode: 'FT8', source: 'wsjtx', freshness: 'fresh', status: 'available' } as any;
+    const { rerender } = render(<QsoLoggerPanel activation={activation} initialStationState={fresh} />);
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('FT8'));
+    fireEvent.change(screen.getByLabelText('CALLSIGN'), { target: { value: 'W1AW' } });
+    rerender(<QsoLoggerPanel activation={activation} initialStationState={{ ...fresh, band: '20m', frequencyMHz: 14.074 }} />);
+    expect(screen.getByLabelText('CALLSIGN')).toHaveValue('W1AW');
+    expect(screen.getByLabelText('BAND')).toHaveValue('40m');
+  });
+
   it('refreshes externally persisted QSOs while the logger remains mounted', async () => {
     vi.useFakeTimers();
     let current = { qsos: [] as any[] };

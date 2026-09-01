@@ -107,6 +107,9 @@ describe('ActivationFoundationPanel', () => {
     render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
     await waitFor(() => expect(screen.getByText('Source: WSJT-X · Live / fresh')).toBeTruthy());
     expect(screen.getByText('20m · FT8')).toBeTruthy();
+    expect(screen.getByLabelText('BAND')).toHaveValue('20m');
+    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('FT8'));
+    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
     expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
   });
 
