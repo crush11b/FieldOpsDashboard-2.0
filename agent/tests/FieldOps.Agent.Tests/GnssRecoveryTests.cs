@@ -99,6 +99,8 @@ public sealed class GnssRecoveryTests
         Assert.Equal(GnssRecoveryState.Available, status.State);
         Assert.Equal("SierraEm7455B", status.ProviderType);
         Assert.Equal("COM7", status.ControlPort);
+        Assert.Equal(115200, status.ControlBaud);
+        Assert.True(status.ConfigurationEnabled);
     }
 
     [Fact]

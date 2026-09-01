@@ -99,11 +99,13 @@ public sealed record GnssRecoveryResult(
     [property: JsonPropertyName("failureMessage")] string? FailureMessage,
     [property: JsonPropertyName("lastSerialBeforeUtc")] DateTimeOffset? LastSerialBeforeUtc,
     [property: JsonPropertyName("lastSerialAfterUtc")] DateTimeOffset? LastSerialAfterUtc,
-    [property: JsonPropertyName("lastNmeaAfterUtc")] DateTimeOffset? LastNmeaAfterUtc)
+    [property: JsonPropertyName("lastNmeaAfterUtc")] DateTimeOffset? LastNmeaAfterUtc,
+    [property: JsonPropertyName("controlBaud")] int? ControlBaud = null,
+    [property: JsonPropertyName("configurationEnabled")] bool? ConfigurationEnabled = null)
 {
-    public static GnssRecoveryResult Initial(bool enabled, string provider, string port) => new(
+    public static GnssRecoveryResult Initial(bool enabled, string provider, string port, int baud = 0) => new(
         provider.Equals("SierraEm7455B", StringComparison.OrdinalIgnoreCase), enabled, enabled ? GnssRecoveryState.Available : GnssRecoveryState.Disabled,
-        provider, port, null, null, false, false, false, null, 0, enabled ? GnssRecoveryFailureCategory.None : GnssRecoveryFailureCategory.Disabled, enabled ? null : "GNSS recovery is disabled.", null, null, null);
+        provider, port, null, null, false, false, false, null, 0, enabled ? GnssRecoveryFailureCategory.None : GnssRecoveryFailureCategory.Disabled, enabled ? null : "GNSS recovery is disabled.", null, null, null, baud, enabled);
 }
 
 public sealed class GnssRecoveryCoordinator
@@ -140,7 +142,7 @@ public sealed class GnssRecoveryCoordinator
         this.controlBaud = controlBaud;
         this.portFactory = portFactory;
         this.logger = logger;
-        latest = GnssRecoveryResult.Initial(enabled, providerType, controlPort);
+        latest = GnssRecoveryResult.Initial(enabled, providerType, controlPort, controlBaud);
     }
 
     public GnssRecoveryResult GetStatus()
@@ -171,7 +173,7 @@ public sealed class GnssRecoveryCoordinator
             operationTimeout.CancelAfter(MaximumOperationDuration);
             var token = operationTimeout.Token;
             logger.LogInformation("GNSS recovery operation started. CorrelationId={CorrelationId} Provider={Provider} ControlPort={ControlPort} ControlBaud={ControlBaud}", correlationId, providerType, controlPort, controlBaud);
-            Set(new GnssRecoveryResult(true, true, GnssRecoveryState.Running, providerType, controlPort, started, null, false, false, false, null, 1, GnssRecoveryFailureCategory.None, null, baselineSerial, null, baselineNmea));
+            Set(Configured(new GnssRecoveryResult(true, true, GnssRecoveryState.Running, providerType, controlPort, started, null, false, false, false, null, 1, GnssRecoveryFailureCategory.None, null, baselineSerial, null, baselineNmea)));
             bool accepted;
             try
             {
@@ -193,7 +195,7 @@ public sealed class GnssRecoveryCoordinator
             catch (Exception) { logger.LogWarning("GNSS recovery control operation failed. CorrelationId={CorrelationId} Category=unexpected failure", correlationId); return Finish(Fn(GnssRecoveryState.Failed, GnssRecoveryFailureCategory.UnexpectedError, "GNSS control operation failed.", started, initial, baselineSerial), correlationId, "control operation failure"); }
             if (!accepted) return Finish(Fn(GnssRecoveryState.UnexpectedResponse, GnssRecoveryFailureCategory.UnexpectedResponse, "The GNSS control port did not accept the recovery command.", started, initial, baselineSerial), correlationId, "unexpected command response");
             logger.LogInformation("GNSS recovery command accepted. CorrelationId={CorrelationId}", correlationId);
-            Set(new GnssRecoveryResult(true, true, GnssRecoveryState.CommandAccepted, providerType, controlPort, started, null, true, false, false, null, 1, GnssRecoveryFailureCategory.None, "GNSS session command accepted; waiting for NMEA data.", baselineSerial, null, baselineNmea));
+            Set(Configured(new GnssRecoveryResult(true, true, GnssRecoveryState.CommandAccepted, providerType, controlPort, started, null, true, false, false, null, 1, GnssRecoveryFailureCategory.None, "GNSS session command accepted; waiting for NMEA data.", baselineSerial, null, baselineNmea)));
             logger.LogInformation("GNSS recovery observation phase started. CorrelationId={CorrelationId}", correlationId);
             while (!token.IsCancellationRequested)
             {
@@ -205,7 +207,7 @@ public sealed class GnssRecoveryCoordinator
                     logger.LogInformation("GNSS recovery newer serial evidence detected. CorrelationId={CorrelationId}", correlationId);
                     if (nmeaRecovered) logger.LogInformation("GNSS recovery newer NMEA evidence detected. CorrelationId={CorrelationId}", correlationId);
                     var state = diagnostics.LastFixUtc is not null && IsNewer(diagnostics.LastFixUtc, baselineNmea, started) ? GnssRecoveryState.Recovered : GnssRecoveryState.NmeaRecovered;
-                    return Finish(new GnssRecoveryResult(true, true, state, providerType, controlPort, started, DateTimeOffset.UtcNow, true, true, nmeaRecovered, diagnostics.LastFixUtc is not null ? LocationStatus.Available : LocationStatus.NoFix, 1, GnssRecoveryFailureCategory.None, nmeaRecovered ? "NMEA data recovered; GPS fix state is reported separately." : "NMEA data recovered; acquiring GPS fix.", baselineSerial, diagnostics.LastSerialDataUtc, diagnostics.LastValidNmeaUtc), correlationId, state.ToString());
+                    return Finish(Configured(new GnssRecoveryResult(true, true, state, providerType, controlPort, started, DateTimeOffset.UtcNow, true, true, nmeaRecovered, diagnostics.LastFixUtc is not null ? LocationStatus.Available : LocationStatus.NoFix, 1, GnssRecoveryFailureCategory.None, nmeaRecovered ? "NMEA data recovered; GPS fix state is reported separately." : "NMEA data recovered; acquiring GPS fix.", baselineSerial, diagnostics.LastSerialDataUtc, diagnostics.LastValidNmeaUtc)), correlationId, state.ToString());
                 }
                 await Task.Delay(ObservationInterval, token);
             }
@@ -221,7 +223,8 @@ public sealed class GnssRecoveryCoordinator
     }
 
     private GnssRecoveryResult Final(GnssRecoveryState state, GnssRecoveryFailureCategory failure, string message, DateTimeOffset? started, GnssSerialDiagnostics before, DateTimeOffset? serialAfter, bool accepted, bool serial, bool nmea, DateTimeOffset? nmeaAfter) => new(
-        state is not GnssRecoveryState.Unsupported and not GnssRecoveryState.Disabled, state == GnssRecoveryState.Available, state, providerType, controlPort, started, started is null ? null : DateTimeOffset.UtcNow, accepted, serial, nmea, null, 0, failure, message, before.LastSerialDataUtc, serialAfter, nmeaAfter);
+        state is not GnssRecoveryState.Unsupported and not GnssRecoveryState.Disabled, state == GnssRecoveryState.Available, state, providerType, controlPort, started, started is null ? null : DateTimeOffset.UtcNow, accepted, serial, nmea, null, 0, failure, message, before.LastSerialDataUtc, serialAfter, nmeaAfter, controlBaud, enabled);
+    private GnssRecoveryResult Configured(GnssRecoveryResult result) => result with { ControlBaud = controlBaud, ConfigurationEnabled = enabled };
     private GnssRecoveryResult Fn(GnssRecoveryState state, GnssRecoveryFailureCategory failure, string message, DateTimeOffset started, GnssSerialDiagnostics before, DateTimeOffset? serialAfter) => Final(state, failure, message, started, before, serialAfter, state == GnssRecoveryState.CommandAccepted, false, false, null);
     private GnssRecoveryResult Set(GnssRecoveryResult value) { lock (stateLock) latest = value; return value; }
     private GnssRecoveryResult Finish(GnssRecoveryResult value, string correlationId, string reason)

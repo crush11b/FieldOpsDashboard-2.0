@@ -166,6 +166,9 @@ public sealed class InstallerScriptTests
         Assert.Contains("FieldOpsDevelopmentUpdater.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
         Assert.Contains("Set-Location -LiteralPath $installParent", updater);
+        var developmentUpdater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "FieldOpsDevelopmentUpdater.ps1"));
+        Assert.Contains("-NativeArtifactUrl \"https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip\"", developmentUpdater);
+        Assert.Contains("-EnableCf20GnssRecovery", developmentUpdater);
     }
 
     [Fact]
@@ -183,6 +186,7 @@ public sealed class InstallerScriptTests
         Assert.Contains("\"ControlBaud\": 115200", profile);
         Assert.Contains("'DOTNET_ENVIRONMENT=Cf20'", updater);
         Assert.Contains("'Agent__Location__Recovery__Enabled=true'", updater);
+        Assert.Contains("$NativeArtifactUrl -match '^https://github\\.com/[^/]+/[^/]+/releases/download/native-[0-9a-fA-F]{40}/fieldops-native-win-x64\\.zip$'", updater);
         Assert.Contains("'DOTNET_ENVIRONMENT=Cf20'", deploy);
         Assert.Contains("AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>", program);
         Assert.Contains("FieldOps.Agent.Location.GnssRecoveryCoordinator", program);

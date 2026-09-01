@@ -571,7 +571,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                 <RefreshCw className={`h-3 w-3 ${recoveryInProgress ? 'animate-spin' : ''}`} />
                 {recoveryInProgress ? 'Recovering GPS...' : 'Recover GPS'}
               </button>
-              {recoveryMessage && <span role="status" className="text-amber-200">{recoveryMessage}</span>}
+              {recoveryMessage && <span role="status" className="text-amber-200">{recoveryMessage}{recoveryState && recoveryState.controlBaud ? ` (${recoveryState.configurationEnabled ? 'enabled' : 'disabled'} / ${recoveryState.providerType ?? 'unknown'} / ${recoveryState.controlPort ?? 'unknown'} @ ${recoveryState.controlBaud})` : ''}</span>}
             </div>
           </div>
         )}

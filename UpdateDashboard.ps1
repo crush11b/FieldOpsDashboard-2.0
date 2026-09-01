@@ -292,7 +292,8 @@ function Invoke-FieldOpsAgentInstallStage {
         [switch]$EnableCf20GnssRecovery
     )
 
-    $serviceEnvironment = if ($EnableCf20GnssRecovery) { @(
+    $cf20ArtifactProfile = $NativeArtifactUrl -match '^https://github\.com/[^/]+/[^/]+/releases/download/native-[0-9a-fA-F]{40}/fieldops-native-win-x64\.zip$'
+    $serviceEnvironment = if ($EnableCf20GnssRecovery -or $cf20ArtifactProfile) { @(
         'DOTNET_ENVIRONMENT=Cf20',
         'Agent__Location__Recovery__Enabled=true',
         'Agent__Location__Recovery__Provider=SierraEm7455B',
