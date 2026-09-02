@@ -11,13 +11,13 @@ internal sealed record LocationTelemetryRequest([property: JsonPropertyName("com
 internal sealed class LocationTelemetryPipeServer(
     NativeHealthAuthorizationPolicy authorizationPolicy,
     ISerialNmeaLocationService service,
+    SerialNmeaLocationProvider provider,
     GpsClockSynchronizer synchronizer,
+    GnssRecoveryCoordinator recovery,
     ILogger<LocationTelemetryPipeServer> logger)
 {
     internal const string PipeName = "FieldOps.LocationTelemetry.v1";
-    private static readonly TimeSpan RequestTimeout = TimeSpan.FromSeconds(2);
-    private static readonly TimeSpan AcquisitionTimeout = TimeSpan.FromSeconds(12);
-    private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(2);
+    private static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(15);
     internal async Task RunAsync(CancellationToken stoppingToken)
     {
         while (!stoppingToken.IsCancellationRequested)
@@ -26,19 +26,21 @@ internal sealed class LocationTelemetryPipeServer(
             {
                 using var pipe = NamedPipeServerStreamAcl.Create(PipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, authorizationPolicy.CreateSecurity());
                 await pipe.WaitForConnectionAsync(stoppingToken);
-                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); requestTimeout.CancelAfter(RequestTimeout);
+                using var requestTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); requestTimeout.CancelAfter(OperationTimeout);
                 var request = await NativeHealthMessageFraming.ReadAsync<LocationTelemetryRequest>(pipe, requestTimeout.Token);
-                if (request.Command is not ("GetLocation" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock")) throw new InvalidDataException("Unsupported location request.");
-                using var acquisitionTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); acquisitionTimeout.CancelAfter(AcquisitionTimeout);
+                if (request.Command is not ("GetLocation" or "GetDiagnostics" or "GetGnssTime" or "GetClockStatus" or "SynchronizeClock" or "RecoverGnss")) throw new InvalidDataException("Unsupported location request.");
+                using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken);
+                operationTimeout.CancelAfter(request.Command == "RecoverGnss" ? TimeSpan.FromSeconds(45) : OperationTimeout);
                 object observation = request.Command switch
                 {
-                    "GetLocation" => await service.AcquireAsync(acquisitionTimeout.Token),
-                    "GetGnssTime" => await service.AcquireTimeAsync(acquisitionTimeout.Token),
-                    "GetClockStatus" => await synchronizer.VerifyAsync(acquisitionTimeout.Token),
-                    _ => await synchronizer.SynchronizeAsync(request.Confirmed, acquisitionTimeout.Token),
+                    "GetLocation" => await service.AcquireAsync(operationTimeout.Token),
+                    "GetDiagnostics" => provider.GetDiagnostics(),
+                    "GetGnssTime" => await service.AcquireTimeAsync(operationTimeout.Token),
+                    "GetClockStatus" => await synchronizer.VerifyAsync(operationTimeout.Token),
+                    "SynchronizeClock" => await synchronizer.SynchronizeAsync(request.Confirmed, operationTimeout.Token),
+                    _ => await recovery.RecoverAsync(operationTimeout.Token),
                 };
-                using var responseTimeout = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken); responseTimeout.CancelAfter(ResponseTimeout);
-                await NativeHealthMessageFraming.WriteAsync(pipe, observation, responseTimeout.Token);
+                await NativeHealthMessageFraming.WriteAsync(pipe, observation, operationTimeout.Token);
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
             catch (Exception ex) { logger.LogInformation(ex, "Location telemetry pipe client failed."); }

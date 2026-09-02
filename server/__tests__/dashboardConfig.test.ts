@@ -9,6 +9,7 @@ import {
   isLoopbackRequest,
   normalizeDashboardConfig,
   parseDashboardConfigJson,
+  resolveWsjtxConfiguration,
 } from '../dashboardConfig';
 
 const temporaryDirectories: string[] = [];
@@ -39,6 +40,24 @@ describe('product-owned Dashboard configuration', () => {
     expect(config.callsign).toBe('KQ4EVK');
     expect(config.theme).toBe('sunlight');
     expect(config.propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
+  });
+
+  it('defaults production WSJT-X to multicast without selecting an interface', () => {
+    const config = normalizeDashboardConfig({});
+    expect(config.wsjtx).toMatchObject({ mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: '', port: 2237 });
+    expect(resolveWsjtxConfiguration(config, {})).toEqual({ mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: undefined, port: 2237 });
+  });
+
+  it('gives explicit environment overrides precedence over persisted configuration', () => {
+    const config = normalizeDashboardConfig({ wsjtx: { mode: 'multicast', multicastAddress: '239.255.0.1', multicastInterface: '10.0.0.2', host: '10.0.0.3', port: 2240 } });
+    expect(resolveWsjtxConfiguration(config, { WSJTX_MODE: 'unicast', WSJTX_HOST: '127.0.0.9', WSJTX_PORT: '2238' })).toEqual({ mode: 'unicast', host: '127.0.0.9', port: 2238 });
+    expect(resolveWsjtxConfiguration(config, { WSJTX_MULTICAST_ADDRESS: '239.255.0.9', WSJTX_MULTICAST_INTERFACE: '10.0.0.4', WSJTX_PORT: '2241' })).toEqual({ mode: 'multicast', multicastAddress: '239.255.0.9', multicastInterface: '10.0.0.4', port: 2241 });
+  });
+
+  it('preserves deliberate persisted unicast compatibility', () => {
+    const config = normalizeDashboardConfig({ wsjtx: { mode: 'unicast', host: '127.0.0.8', port: 2239 } });
+    expect(resolveWsjtxConfiguration(config, {})).toEqual({ mode: 'unicast', host: '127.0.0.8', port: 2239 });
+    expect(resolveWsjtxConfiguration(normalizeDashboardConfig({}), { WSJTX_HOST: '127.0.0.7' })).toEqual({ mode: 'unicast', host: '127.0.0.7', port: 2237 });
   });
 
   it('round-trips valid station profiles and normalizes invalid fields independently', () => {

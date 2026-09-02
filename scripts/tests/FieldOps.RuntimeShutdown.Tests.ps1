@@ -53,15 +53,34 @@ Describe 'FieldOps runtime shutdown' {
             Assert-MockCalled Stop-Service -ModuleName FieldOps.RuntimeShutdown -Times 1 -Scope It
         }
 
-    It 'detects and terminates the FieldOps Agent process by exact path' {
+    It 'waits for the FieldOps Agent process to exit naturally by exact PID and path' {
             $global:FieldOpsTestServiceStatus = 'Stopped'
             $global:FieldOpsTestProcesses = @([pscustomobject]@{
                 Name = 'FieldOps.Agent.exe'; ProcessId = 101; ExecutablePath = 'C:\Program Files\FieldOpsDashboard\Agent\FieldOps.Agent.exe'; CommandLine = 'FieldOps.Agent.exe'
             })
+            $global:FieldOpsTestCimCalls = 0
+            Mock Get-CimInstance -ModuleName FieldOps.RuntimeShutdown {
+                $global:FieldOpsTestCimCalls++
+                if ($global:FieldOpsTestCimCalls -gt 1) { return @() }
+                return $global:FieldOpsTestProcesses
+            }
 
-            Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::FromSeconds(1))
+            $result = Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::FromSeconds(1))
 
-            Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeShutdown -Times 1 -Scope It -ParameterFilter { $Id -eq 101 }
+            $result.AgentProcessId | Should Be 101
+            $result.AgentExitElapsed | Should Not Be $null
+            Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeShutdown -Times 0 -Scope It
+    }
+
+    It 'fails closed when the FieldOps Agent process remains after service stop' {
+            $global:FieldOpsTestServiceStatus = 'Stopped'
+            $global:FieldOpsTestProcesses = @([pscustomobject]@{
+                Name = 'FieldOps.Agent.exe'; ProcessId = 107; ExecutablePath = 'C:\Program Files\FieldOpsDashboard\Agent\FieldOps.Agent.exe'; CommandLine = 'FieldOps.Agent.exe'
+            })
+
+            { Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::Zero) } |
+                Should Throw 'PID 107 did not exit naturally'
+            Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeShutdown -Times 0 -Scope It
         }
 
     It 'detects and terminates the FieldOps Tray process by exact path' {

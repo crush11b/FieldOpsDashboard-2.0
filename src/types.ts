@@ -171,6 +171,13 @@ export interface DashboardConfig {
   apps: AppLauncherItem[];
   gpsComPort?: string;
   gpsBaudRate?: number;
+  wsjtx: {
+    mode: 'multicast' | 'unicast';
+    multicastAddress: string;
+    multicastInterface: string;
+    host: string;
+    port: number;
+  };
   propagation: {
     stationProfile: StationProfile;
     destinationRegion: import('./propagation/regionalDestinations').PropagationRegionId;

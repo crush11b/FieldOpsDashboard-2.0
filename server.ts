@@ -30,15 +30,16 @@ import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coo
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
-import { readClockStatusPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { readClockStatusPipe, readGnssSerialDiagnosticsPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
-import { DEFAULT_APPS } from './src/data/defaultConfig';
-import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
+import { DEFAULT_APPS, INITIAL_CONFIG } from './src/data/defaultConfig';
+import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath, resolveWsjtxConfiguration } from './server/dashboardConfig';
 import { SpaceWeatherService } from './server/spaceWeather';
 import { SpaceWeatherSnapshotStore, getDefaultSpaceWeatherSnapshotPath } from './server/spaceWeatherSnapshotStore';
 import { createSpaceWeatherSnapshotRouter } from './server/spaceWeatherSnapshotApi';
 import { ObservedRfService } from './server/observedRf';
+import { createLiveBandActivityRouter } from './server/liveBandActivityApi';
 import type { OperatingLocation } from './src/location/operatingLocation';
 import { GuidanceRequestError, parseGuidanceRequest, PropagationGuidanceService } from './server/propagationGuidance';
 import { createPotaTargetRouter, PotaActivationTargetResolver } from './server/potaTargetResolver';
@@ -60,10 +61,14 @@ import { createQsoRouter } from './server/qsoApi';
 import { QsoStore, getDefaultQsoPath } from './server/qsoStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { createClockRouter } from './server/clockApi';
+import { createGnssRecoveryRouter } from './server/gnssRecoveryApi';
 import { enrichOperationsReadinessWeather } from './server/operationsReadinessWeather';
 import { createDashboardReadinessRouter } from './server/dashboardReadiness';
 import { createProductionStaticRouter } from './server/productionStatic';
 import { getDashboardRuntimeMode } from './server/runtimeMode';
+import { WsjtxListener } from './server/wsjtx';
+import { WsjtxQsoRouter } from './server/wsjtxQsoRouter';
+import { createWsjtxRouter } from './server/wsjtxApi';
 
 const execFileAsync = promisify(execFile);
 const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['scripts/p533-assets.mjs', '--verify-only'], { cwd: process.cwd() }); return { files: 27 }; };
@@ -110,7 +115,8 @@ async function startServer() {
     }
     next(error);
   });
-  app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
+  const dashboardConfigStore = new DashboardConfigStore(getDefaultDashboardConfigPath());
+  app.use(createDashboardConfigRouter(dashboardConfigStore));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
   app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
   const sotaDataStore = new SotaSummitDataStore(getDefaultSotaSummitDatasetPath());
@@ -118,12 +124,25 @@ async function startServer() {
   app.use(createSotaSummitDataRouter(sotaDataStore));
   const spaceWeatherService = new SpaceWeatherService();
   const observedRfService = new ObservedRfService();
+  app.use(createLiveBandActivityRouter({ observedRf: observedRfService, readLocation: readLocationTelemetryPipe }));
   const smartDeployBriefStore = new SmartDeployBriefStore(getDefaultSmartDeployBriefPath());
   const activationNotesStore = new ActivationNotesStore(getDefaultActivationNotesPath());
   const fieldReadinessChecklistStore = new FieldReadinessChecklistStore(getDefaultFieldReadinessChecklistPath());
   const missionForecastStore = new MissionForecastStore(getDefaultMissionForecastPath());
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
+  const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
+  const dashboardConfig = dashboardConfigStore.read();
+  const wsjtxConfiguration = resolveWsjtxConfiguration(dashboardConfig.kind === 'loaded' ? dashboardConfig.config : INITIAL_CONFIG);
+  const wsjtxListener = new WsjtxListener({
+    host: wsjtxConfiguration.host,
+    port: wsjtxConfiguration.port,
+    multicastAddress: wsjtxConfiguration.multicastAddress,
+    multicastInterface: wsjtxConfiguration.multicastInterface,
+    onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; },
+  });
+  wsjtxListener.start();
+  app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
@@ -147,6 +166,7 @@ async function startServer() {
     offlineEvidence: { readGnssTime: readGnssTimePipe, readMissionForecast: briefId => missionForecastStore.getByBriefId(briefId), verifyP533: () => verifyP533Assets() },
   }));
   app.use(createClockRouter());
+  app.use(createGnssRecoveryRouter());
   app.use(createDashboardReadinessRouter({ distPath, baseUrl: `http://127.0.0.1:${PORT}` }));
   app.use(createSmartDeployRouter({
     service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
@@ -179,6 +199,7 @@ async function startServer() {
     readSerialInventoryPipe().then(body => res.json(body));
   });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
+  app.get('/api/location/diagnostics', async (_req, res) => res.json(await readGnssSerialDiagnosticsPipe()));
   app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
   app.get('/api/observed-rf', async (_req, res) => {
     const location = await readLocationTelemetryPipe();

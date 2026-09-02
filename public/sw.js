@@ -1,5 +1,5 @@
-// FieldOps Dashboard 2.6.0 — Activation Operations - Offline Field Service Worker
-const CACHE_NAME = 'fieldops-2.6.0-shell-v1';
+// FieldOps Dashboard 2.7.0 — Connected Operations - Offline Field Service Worker
+const CACHE_NAME = 'fieldops-2.7.0-shell-v1';
 
 const PRECACHE_URLS = [
   '/',
@@ -30,7 +30,7 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Event: Stale-While-Revalidate Strategy for offline resilience
+// Fetch Event: network-first navigation with offline fallback
 self.addEventListener('fetch', (event) => {
   // Skip non-GET or chrome-extension requests
   if (event.request.method !== 'GET') return;
@@ -49,19 +49,14 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  const navigation = event.request.mode === 'navigate' || event.request.destination === 'document';
   event.respondWith(
-    caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request).then((networkResponse) => {
-        if (networkResponse && networkResponse.status === 200) {
-          const responseToCache = networkResponse.clone();
-          caches.open(CACHE_NAME).then((cache) => {
-            cache.put(event.request, responseToCache);
-          });
-        }
-        return networkResponse;
-      }).catch(() => cachedResponse);
-
-      return cachedResponse || fetchPromise;
-    })
+    fetch(event.request).then((networkResponse) => {
+      if (navigation && networkResponse && networkResponse.status === 200) {
+        const responseToCache = networkResponse.clone();
+        caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', responseToCache));
+      }
+      return networkResponse;
+    }).catch(() => caches.match(navigation ? '/index.html' : event.request))
   );
 });

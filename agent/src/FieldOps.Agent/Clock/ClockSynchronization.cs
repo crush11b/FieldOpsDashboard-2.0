@@ -1,11 +1,12 @@
 using System.ComponentModel;
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using FieldOps.Agent.Location;
 
 namespace FieldOps.Agent.Clock;
 
 public enum ClockSynchronizationStatus { Synchronized, NotSynchronized, Unknown, Unavailable, Error }
-public enum ClockSynchronizationError { None, ConfirmationRequired, GnssUnavailable, GnssStaleOrMalformed, UnsafeOffset, PrivilegeUnavailable, NativeFailure, UnsupportedPlatform }
+public enum ClockSynchronizationError { None, ConfirmationRequired, GnssUnavailable, GnssStaleOrMalformed, UnsafeOffset, SuspiciousEvidence, VerificationFailed, OperationTimedOut, PrivilegeUnavailable, NativeFailure, UnsupportedPlatform }
 public sealed record ClockSynchronizationEvidence(
     ClockSynchronizationStatus Status,
     ClockSynchronizationError Error,
@@ -13,17 +14,28 @@ public sealed record ClockSynchronizationEvidence(
     DateTimeOffset? LastSuccessfulSynchronizationUtc,
     double? OffsetBeforeSynchronizationSeconds,
     double? CurrentOffsetSeconds,
-    string? AttemptMessage);
+    string? AttemptMessage,
+    DateTimeOffset? OperationStartedAtUtc = null,
+    double? OperationDurationMilliseconds = null,
+    DateTimeOffset? GnssObservationReceivedAtUtc = null,
+    double? EvidenceAgeMilliseconds = null,
+    DateTimeOffset? ProjectedTargetUtc = null,
+    DateTimeOffset? WindowsUtcBeforeSet = null,
+    DateTimeOffset? WindowsUtcAfterSet = null,
+    double? VerificationOffsetSeconds = null,
+    int AttemptCount = 0);
 
 public interface ISystemClock
 {
     DateTimeOffset GetUtcNow();
+    long GetMonotonicTimestamp() => Stopwatch.GetTimestamp();
     bool SetUtc(DateTimeOffset utc, out string? error);
 }
 
 public sealed class WindowsSystemClock : ISystemClock
 {
     public DateTimeOffset GetUtcNow() => DateTimeOffset.UtcNow;
+    public long GetMonotonicTimestamp() => System.Diagnostics.Stopwatch.GetTimestamp();
     public bool SetUtc(DateTimeOffset utc, out string? error)
     {
         error = null;
@@ -60,29 +72,85 @@ public sealed class GpsClockSynchronizer(ISerialNmeaLocationService location, IS
 {
     public const double MaximumAutomaticCorrectionSeconds = 300;
     public const double MaximumVerificationOffsetSeconds = 2;
+    public const double SuspiciousEvidenceOffsetSeconds = 5;
+    public static readonly TimeSpan MaximumOperationDuration = TimeSpan.FromSeconds(15);
     private readonly object gate = new();
+    private readonly SemaphoreSlim operationGate = new(1, 1);
     private DateTimeOffset? lastSuccess;
+    private long? lastGoodVerificationMonotonicTimestamp;
     private ClockSynchronizationEvidence evidence = new(ClockSynchronizationStatus.Unknown, ClockSynchronizationError.None, new(NmeaTimeStatus.Unavailable, null, "RMC"), null, null, null, null);
     public ClockSynchronizationEvidence GetEvidence() { lock (gate) return evidence; }
     public async Task<ClockSynchronizationEvidence> VerifyAsync(CancellationToken cancellationToken)
     {
+        var startedUtc = DateTimeOffset.UtcNow;
+        var startedMonotonic = Stopwatch.GetTimestamp();
         var gnss = await location.AcquireTimeAsync(cancellationToken);
-        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."));
-        var offset = (gnss.TimestampUtc.Value - clock.GetUtcNow()).TotalSeconds;
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(Finish(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable."), startedUtc, startedMonotonic) with { AttemptCount = 0 });
+        DateTimeOffset comparedAt;
+        DateTimeOffset projected;
+        double? evidenceAge;
+        double offset;
+        try
+        {
+            comparedAt = clock.GetUtcNow();
+            projected = gnss.ReceivedAtMonotonicTimestamp == 0 ? gnss.TimestampUtc.Value : gnss.TimestampUtc.Value + Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp);
+            evidenceAge = gnss.ReceivedAtMonotonicTimestamp == 0 ? (double?)null : Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp).TotalMilliseconds;
+            offset = (projected - comparedAt).TotalSeconds;
+        }
+        catch (Exception ex)
+        {
+            var message = $"Windows UTC comparison was unavailable: {ex.Message}";
+            return Set(Finish(new(ClockSynchronizationStatus.Unknown, ClockSynchronizationError.VerificationFailed, gnss, lastSuccess, null, null, message), startedUtc, startedMonotonic) with { AttemptCount = 0 });
+        }
         var synchronized = Math.Abs(offset) <= MaximumVerificationOffsetSeconds;
-        return Set(new(synchronized ? ClockSynchronizationStatus.Synchronized : ClockSynchronizationStatus.NotSynchronized, synchronized ? ClockSynchronizationError.None : ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, null, offset, synchronized ? "Windows time currently agrees with fresh GNSS UTC evidence." : $"Windows time differs from fresh GNSS UTC evidence by {offset:F1} seconds."));
+        if (synchronized) lock (gate) lastGoodVerificationMonotonicTimestamp = Stopwatch.GetTimestamp();
+        return Set(Finish(new(synchronized ? ClockSynchronizationStatus.Synchronized : ClockSynchronizationStatus.NotSynchronized, synchronized ? ClockSynchronizationError.None : ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, null, offset, synchronized ? "Windows time currently agrees with fresh GNSS UTC evidence." : $"Windows time differs from fresh GNSS UTC evidence by {offset:F1} seconds."), startedUtc, startedMonotonic, projected, comparedAt, evidenceAge) with { AttemptCount = 0 });
     }
     public async Task<ClockSynchronizationEvidence> SynchronizeAsync(bool confirmed, CancellationToken cancellationToken)
     {
-        var gnss = await location.AcquireTimeAsync(cancellationToken);
+        var startedUtc = DateTimeOffset.UtcNow;
+        var startedMonotonic = clock.GetMonotonicTimestamp();
+        using var operationTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        operationTimeout.CancelAfter(MaximumOperationDuration);
+        var token = operationTimeout.Token;
+        try { await operationGate.WaitAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.OperationTimedOut, new NmeaTimeEvidence(NmeaTimeStatus.Unavailable, null, "RMC", "Clock synchronization could not start within its bounded operation duration."), lastSuccess, null, null, "Clock synchronization timed out or was cancelled before it started; Windows time was not changed."), startedUtc, startedMonotonic));
+        }
+        try
+        {
+        NmeaTimeEvidence gnss;
+        try { gnss = await location.AcquireTimeAsync(token); }
+        catch (OperationCanceledException) when (token.IsCancellationRequested)
+        {
+            return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.OperationTimedOut, new NmeaTimeEvidence(NmeaTimeStatus.Unavailable, null, "RMC", "Clock synchronization exceeded its bounded operation duration."), lastSuccess, null, null, "Clock synchronization timed out or was cancelled; Windows time was not changed."), startedUtc, startedMonotonic));
+        }
         var current = clock.GetUtcNow();
-        if (!confirmed) return Set(new(ClockSynchronizationStatus.NotSynchronized, ClockSynchronizationError.ConfirmationRequired, gnss, lastSuccess, null, null, "Explicit operator confirmation is required."));
-        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null) return Set(new(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Malformed ? ClockSynchronizationError.GnssStaleOrMalformed : ClockSynchronizationError.GnssUnavailable, gnss, lastSuccess, null, null, gnss.Error ?? "Fresh GNSS UTC evidence is unavailable."));
-        var offset = (gnss.TimestampUtc.Value - current).TotalSeconds;
-        if (Math.Abs(offset) > MaximumAutomaticCorrectionSeconds) return Set(new(ClockSynchronizationStatus.Error, ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, offset, null, $"The requested correction of {offset:F1} seconds exceeds the {MaximumAutomaticCorrectionSeconds:F0}-second safety limit."));
-        if (!clock.SetUtc(gnss.TimestampUtc.Value, out var error)) return Set(new(ClockSynchronizationStatus.Error, error?.Contains("privilege", StringComparison.OrdinalIgnoreCase) == true ? ClockSynchronizationError.PrivilegeUnavailable : ClockSynchronizationError.NativeFailure, gnss, lastSuccess, offset, null, error ?? "Windows rejected the system-time update."));
+        if (!confirmed) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.NotSynchronized, ClockSynchronizationError.ConfirmationRequired, gnss, lastSuccess, null, null, "Explicit operator confirmation is required."), startedUtc, startedMonotonic));
+        if (gnss.Status != NmeaTimeStatus.Available || gnss.TimestampUtc is null || !gnss.TemporalCoherent) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Unknown, gnss.Status == NmeaTimeStatus.Unavailable ? ClockSynchronizationError.GnssUnavailable : ClockSynchronizationError.GnssStaleOrMalformed, gnss, lastSuccess, null, null, gnss.RejectionReason ?? gnss.Error ?? "Temporally coherent GNSS UTC evidence is unavailable; Windows time was not changed."), startedUtc, startedMonotonic));
+        var evidenceAge = gnss.ReceivedAtMonotonicTimestamp == 0 ? (double?)null : Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp).TotalMilliseconds;
+        var projected = gnss.ReceivedAtMonotonicTimestamp == 0 ? gnss.TimestampUtc.Value : gnss.TimestampUtc.Value + Stopwatch.GetElapsedTime(gnss.ReceivedAtMonotonicTimestamp);
+        var offset = (projected - current).TotalSeconds;
+        var recentGood = false;
+        lock (gate) recentGood = lastGoodVerificationMonotonicTimestamp is long mark && Stopwatch.GetElapsedTime(mark) <= TimeSpan.FromSeconds(30);
+        if (recentGood && Math.Abs(offset) > SuspiciousEvidenceOffsetSeconds) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.SuspiciousEvidence, gnss, lastSuccess, offset, null, $"Fresh GNSS evidence disagrees with a recent good clock observation by {offset:F1} seconds; Windows time was not changed."), startedUtc, startedMonotonic, projected, current, evidenceAge));
+        if (Math.Abs(offset) > MaximumAutomaticCorrectionSeconds) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.UnsafeOffset, gnss, lastSuccess, offset, null, $"The requested correction of {offset:F1} seconds exceeds the {MaximumAutomaticCorrectionSeconds:F0}-second safety limit."), startedUtc, startedMonotonic, projected, current, evidenceAge));
+        if (Math.Abs(offset) <= MaximumVerificationOffsetSeconds)
+        {
+            lock (gate) lastGoodVerificationMonotonicTimestamp = Stopwatch.GetTimestamp();
+            return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Synchronized, ClockSynchronizationError.None, gnss, lastSuccess, offset, offset, "Windows time already agrees with fresh GNSS UTC evidence; no correction was required."), startedUtc, startedMonotonic, projected, current, evidenceAge) with { AttemptCount = 0 });
+        }
+        token.ThrowIfCancellationRequested();
+        if (!clock.SetUtc(projected, out var error)) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, error?.Contains("privilege", StringComparison.OrdinalIgnoreCase) == true ? ClockSynchronizationError.PrivilegeUnavailable : ClockSynchronizationError.NativeFailure, gnss, lastSuccess, offset, null, error ?? "Windows rejected the system-time update."), startedUtc, startedMonotonic, projected, current, evidenceAge));
+        var after = clock.GetUtcNow();
+        var verificationOffset = (projected - after).TotalSeconds;
+        if (Math.Abs(verificationOffset) > MaximumVerificationOffsetSeconds) return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Error, ClockSynchronizationError.VerificationFailed, gnss, lastSuccess, offset, verificationOffset, "Windows time was changed once but post-set verification did not converge."), startedUtc, startedMonotonic, projected, current, evidenceAge, after, verificationOffset));
         lock (gate) lastSuccess = DateTimeOffset.UtcNow;
-        return Set(new(ClockSynchronizationStatus.Synchronized, ClockSynchronizationError.None, gnss, lastSuccess, offset, 0, "Windows time was set from fresh GNSS UTC evidence."));
+        return Set(Finish(new ClockSynchronizationEvidence(ClockSynchronizationStatus.Synchronized, ClockSynchronizationError.None, gnss, lastSuccess, offset, verificationOffset, "Windows time was set once from projected GNSS UTC evidence and verified."), startedUtc, startedMonotonic, projected, current, evidenceAge, after, verificationOffset));
+        }
+        finally { operationGate.Release(); }
     }
+    private ClockSynchronizationEvidence Finish(ClockSynchronizationEvidence value, DateTimeOffset startedUtc, long startedMonotonic, DateTimeOffset? projected = null, DateTimeOffset? before = null, double? age = null, DateTimeOffset? after = null, double? verificationOffset = null) => value with { OperationStartedAtUtc = startedUtc, OperationDurationMilliseconds = Stopwatch.GetElapsedTime(startedMonotonic).TotalMilliseconds, GnssObservationReceivedAtUtc = value.GnssTime.ReceivedAtUtc, EvidenceAgeMilliseconds = age, ProjectedTargetUtc = projected, WindowsUtcBeforeSet = before, WindowsUtcAfterSet = after, VerificationOffsetSeconds = verificationOffset, AttemptCount = after is null ? 0 : 1 };
     private ClockSynchronizationEvidence Set(ClockSynchronizationEvidence value) { lock (gate) evidence = value; return value; }
 }

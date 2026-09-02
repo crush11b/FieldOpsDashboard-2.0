@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.7.0] - Release closure
+
+Version 2.7.0 completes Connected Operations for the supported single-operator ToughBook deployment.
+
+### Added
+- **Connected OPERATE workflow**: Source-aware Current Station state, live observed-RF activity, retained planning evidence, and integrated activation operation remain distinct and available offline where retained.
+- **WSJT-X QSO capture**: Type 5 QSO Logged and type 12 Logged ADIF events normalize through one Activation-owned persistence path with `wsjtx` provenance.
+- **Conservative duplicate suppression**: Repeated and cross-representation WSJT-X events are suppressed without blocking legitimate later QSOs or retries after failed persistence.
+
+### Validation
+- V2.7 field acceptance passed on a Panasonic ToughBook CF-20 Mk2, including sustained multicast reception at `239.255.0.0:2237`, Current Station tracking, FieldOps plus Otto coexistence, and real over-the-air QSO ingestion.
+- Final N2NDV validation accepted both type 5 and type 12, persisted one QSO, and suppressed the duplicate representation with zero parse failures.
+- Dashboard, TypeScript, production-build, native, and applicable release validation gates passed during the V2.7 implementation and closure sequence.
+
+### Deferred
+- CAT/PTT/radio control, WSJT-X transmit troubleshooting, recommendation engines, WSPR, PSKReporter `MY SIGNAL`, V2.8/V3 capabilities, and GitHub publication mechanics remain outside this source-closure commit.
+
+---
+
 ## [2.6.0] - Release preparation
 
 Version 2.6.0 completes the activation-operations workspace for the supported single-operator ToughBook deployment.

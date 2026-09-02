@@ -6,7 +6,7 @@ export const QSO_MAX_CALLSIGN_LENGTH = 32;
 export const QSO_MAX_TEXT_LENGTH = 500;
 export const QSO_MODES = ['SSB', 'CW', 'FM', 'AM', 'FT8', 'FT4'] as const;
 export type QsoMode = typeof QSO_MODES[number] | (string & {});
-export type QsoSource = 'manual' | 'adif_import';
+export type QsoSource = 'manual' | 'adif_import' | 'wsjtx';
 
 export interface Qso {
   readonly schemaVersion: typeof QSO_SCHEMA_VERSION;
@@ -56,7 +56,7 @@ export function normalizeQso(input: unknown): QsoNormalizationResult {
   if (!band) issues.push('band is required when frequency is unknown.');
   if (band && frequencyMHz !== undefined && !isCompatibleBand(band, frequencyMHz)) issues.push('frequencyMHz contradicts band.');
   const source = input.source === undefined ? 'manual' : input.source;
-  if (source !== 'manual' && source !== 'adif_import') issues.push('source is unsupported.');
+  if (source !== 'manual' && source !== 'adif_import' && source !== 'wsjtx') issues.push('source is unsupported.');
   const result: Qso = { schemaVersion: QSO_SCHEMA_VERSION, qsoId: qsoId!, activationId: activationId!, qsoDateTimeUtc: qsoDateTimeUtc!, callsign: callsign!, band: band!, ...(frequencyMHz === undefined ? {} : { frequencyMHz }), mode: mode as QsoMode, ...optionalText(input, issues), source: source as QsoSource, createdAtUtc: timestamp(input.createdAtUtc, 'createdAtUtc', issues)!, updatedAtUtc: timestamp(input.updatedAtUtc, 'updatedAtUtc', issues)! };
   return issues.length || !qsoId || !activationId || !qsoDateTimeUtc || !callsign || !band || !result.createdAtUtc || !result.updatedAtUtc ? invalid(issues) : { valid: true, qso: result, issues: [] };
 }
@@ -66,6 +66,7 @@ export function qsoFingerprint(qso: Pick<Qso, 'activationId'|'callsign'|'qsoDate
 export function bandForFrequency(value: number): string | undefined { const ranges: readonly [number, number, string][] = [[1.8,2,'160m'],[3.5,4,'80m'],[7,7.3,'40m'],[10.1,10.15,'30m'],[14,14.35,'20m'],[18.068,18.168,'17m'],[21,21.45,'15m'],[24.89,24.99,'12m'],[28,29.7,'10m'],[50,54,'6m'],[144,148,'2m'],[420,450,'70cm']]; return ranges.find(([min,max]) => value >= min && value <= max)?.[2]; }
 function isCompatibleBand(band: string, frequency: number): boolean { return bandForFrequency(frequency) === band || (band === '23cm' && frequency >= 1240 && frequency <= 1300); }
 function optionalText(input: Record<string, any>, issues: string[]): Record<string, string> { const fields: Record<string, string> = {}; for (const key of ['submode','rstSent','rstReceived','stationCallsign','operatorCallsign','myGridSquare','gridSquare','potaRef','sotaRef','notes']) { const value = text(input[key], key, QSO_MAX_TEXT_LENGTH, issues, false); if (value) fields[key] = value; } return fields; }
+export function normalizeQsoCallsign(value: unknown): string | undefined { if (typeof value !== 'string') return undefined; const result = value.trim().toUpperCase(); return result && result.length <= QSO_MAX_CALLSIGN_LENGTH && /^[A-Z0-9][A-Z0-9\-/]*$/.test(result) ? result : undefined; }
 function callsignValue(value: unknown, issues: string[]): string | undefined { const result = text(value, 'callsign', QSO_MAX_CALLSIGN_LENGTH, issues, true)?.toUpperCase(); if (result && !/^[A-Z0-9][A-Z0-9\-/]*$/.test(result)) issues.push('callsign is invalid.'); return result; }
 function text(value: unknown, field: string, max: number, issues: string[], required: boolean): string | undefined { if (value === undefined && !required) return undefined; if (typeof value !== 'string') { issues.push(`${field} must be a string.`); return undefined; } const result = value.trim(); if (!result && required) issues.push(`${field} cannot be blank.`); if (result.length > max) issues.push(`${field} exceeds the maximum length.`); return result || undefined; }
 function number(value: unknown, field: string, issues: string[]): number | undefined { if (value === undefined || value === null || value === '') return undefined; if (typeof value !== 'number' || !Number.isFinite(value) || value <= 0) { issues.push(`${field} must be a positive number.`); return undefined; } return value; }

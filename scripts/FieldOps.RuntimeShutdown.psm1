@@ -100,14 +100,45 @@ function Wait-FieldOpsServiceStopped {
     throw "FieldOps service '$ServiceName' did not reach Stopped before the $([int]$Timeout.TotalSeconds)-second deadline. Current status: $($service.Status)."
 }
 
+function Wait-FieldOpsAgentProcessExit {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)][int]$ProcessId,
+        [Parameter(Mandatory = $true)][string]$NativeRoot,
+        [Parameter(Mandatory = $true)][TimeSpan]$Timeout,
+        [int]$PollMilliseconds = 100
+    )
+
+    $expectedPath = ConvertTo-FieldOpsNormalizedPath -Path (Join-Path $NativeRoot 'Agent\FieldOps.Agent.exe')
+    $timer = [Diagnostics.Stopwatch]::StartNew()
+    do {
+        $remaining = @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+            [int]$_.ProcessId -eq $ProcessId -and
+            [string]$_.Name -ieq 'FieldOps.Agent.exe' -and
+            -not [string]::IsNullOrWhiteSpace([string]$_.ExecutablePath) -and
+            (ConvertTo-FieldOpsNormalizedPath -Path ([string]$_.ExecutablePath)) -eq $expectedPath
+        })
+        if ($remaining.Count -eq 0) {
+            return $timer.Elapsed
+        }
+        if ($timer.Elapsed -ge $Timeout) { break }
+        Start-Sleep -Milliseconds $PollMilliseconds
+    } while ($true)
+
+    throw "FieldOps Agent process PID $ProcessId did not exit naturally within the $([int]$Timeout.TotalSeconds)-second deadline. The update was aborted before file replacement."
+}
+
 function Stop-FieldOpsRuntimeProcesses {
     [CmdletBinding()]
     param(
         [Parameter(Mandatory = $true)][string]$DashboardRoot,
-        [Parameter(Mandatory = $true)][string]$NativeRoot
+        [Parameter(Mandatory = $true)][string]$NativeRoot,
+        [switch]$ExcludeAgent
     )
 
-    $processes = @(Get-FieldOpsOwnedRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot)
+    $processes = @(Get-FieldOpsOwnedRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot | Where-Object {
+        -not ($ExcludeAgent -and [string]$_.Name -ieq 'FieldOps.Agent.exe')
+    })
     foreach ($process in $processes) {
         try {
             Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop
@@ -161,15 +192,29 @@ function Invoke-FieldOpsRuntimeShutdown {
         return [pscustomobject]@{ Status = 'skipped'; Service = $null; Processes = @() }
     }
 
+    $initialProcesses = @(Get-FieldOpsOwnedRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot)
+    $agentProcesses = @($initialProcesses | Where-Object { [string]$_.Name -ieq 'FieldOps.Agent.exe' })
+    if ($agentProcesses.Count -gt 1) {
+        throw "Multiple FieldOps Agent processes were found before shutdown: $($agentProcesses.ProcessId -join ', '). The update was aborted before file replacement."
+    }
+    $agentProcessId = if ($agentProcesses.Count -eq 1) { [int]$agentProcesses[0].ProcessId } else { $null }
+
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     if ($null -ne $service -and $service.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped) {
         Stop-Service -Name $ServiceName -Force -ErrorAction Stop
         Wait-FieldOpsServiceStopped -ServiceName $ServiceName -Timeout $Timeout
+        Write-Host "[OK] FieldOps service '$ServiceName' reached Stopped."
     }
 
-    $stoppedProcesses = @(Stop-FieldOpsRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot)
+    $agentExitElapsed = $null
+    if ($null -ne $agentProcessId) {
+        $agentExitElapsed = Wait-FieldOpsAgentProcessExit -ProcessId $agentProcessId -NativeRoot $NativeRoot -Timeout $Timeout
+        Write-Host ("[OK] FieldOps Agent PID {0} disappeared naturally {1:N0} ms after service stopped." -f $agentProcessId, $agentExitElapsed.TotalMilliseconds)
+    }
+
+    $stoppedProcesses = @(Stop-FieldOpsRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ExcludeAgent)
     $state = Wait-FieldOpsRuntimeQuiescent -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ServiceName $ServiceName -Timeout $Timeout
-    return [pscustomobject]@{ Status = 'quiescent'; Service = $service; Processes = $stoppedProcesses; FinalState = $state }
+    return [pscustomobject]@{ Status = 'quiescent'; Service = $service; AgentProcessId = $agentProcessId; AgentExitElapsed = $agentExitElapsed; Processes = $stoppedProcesses; FinalState = $state }
 }
 
-Export-ModuleMember -Function Get-FieldOpsOwnedRuntimeProcesses, Get-FieldOpsRuntimeState, Wait-FieldOpsServiceStopped, Stop-FieldOpsRuntimeProcesses, Wait-FieldOpsRuntimeQuiescent, Invoke-FieldOpsRuntimeShutdown
+Export-ModuleMember -Function Get-FieldOpsOwnedRuntimeProcesses, Get-FieldOpsRuntimeState, Wait-FieldOpsServiceStopped, Wait-FieldOpsAgentProcessExit, Stop-FieldOpsRuntimeProcesses, Wait-FieldOpsRuntimeQuiescent, Invoke-FieldOpsRuntimeShutdown

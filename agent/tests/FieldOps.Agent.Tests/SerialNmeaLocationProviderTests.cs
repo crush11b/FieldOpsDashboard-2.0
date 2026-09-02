@@ -6,6 +6,7 @@ namespace FieldOps.Agent.Tests;
 public sealed class SerialNmeaLocationProviderTests
 {
     private const string Gga = "$GPGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,";
+    private const string Gns = "$GNGNS,123519.00,4807.038,N,01131.000,E,AA,08,0.9,545.4, M,0.0";
     private const string Rmc = "$GPRMC,123519.00,A,4807.038,N,01131.000,E,000.0,000.0,230394,,,A";
 
     [Fact]
@@ -25,9 +26,85 @@ public sealed class SerialNmeaLocationProviderTests
         Assert.True(fake.Disposed);
     }
 
+    [Fact]
+    public async Task DiagnosticsRecordOpenTrafficValidNmeaAndFixWithoutChangingLocationTelemetry()
+    {
+        var fake = new FakeReader(Gga, Rmc);
+        var provider = Provider(fake);
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available);
+
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Equal("COM6", diagnostics.PortName);
+        Assert.Equal(9600, diagnostics.BaudRate);
+        Assert.Equal(GnssSerialState.Receiving, diagnostics.State);
+        Assert.Equal(1, diagnostics.SessionGeneration);
+        Assert.Equal(0, diagnostics.ReconnectCount);
+        Assert.NotNull(diagnostics.LastOpenAttemptUtc);
+        Assert.NotNull(diagnostics.LastSuccessfulOpenUtc);
+        Assert.NotNull(diagnostics.LastSerialDataUtc);
+        Assert.NotNull(diagnostics.LastValidNmeaUtc);
+        Assert.NotNull(diagnostics.LastFixUtc);
+        Assert.Equal(GnssSerialFailureCategory.None, diagnostics.LastFailureCategory);
+        Assert.Equal(LocationStatus.Available, (await provider.GetLocationAsync(CancellationToken.None)).Status);
+
+        await provider.StopAsync(CancellationToken.None);
+        Assert.Equal(GnssSerialState.Stopped, provider.GetDiagnostics().State);
+    }
+
+    [Fact]
+    public async Task DiagnosticsReportOpenBeforeAnySerialTraffic()
+    {
+        var provider = Provider(new BlockingReader());
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().State == GnssSerialState.Open);
+        Assert.Null(provider.GetDiagnostics().LastSerialDataUtc);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DiagnosticsRecordSilentSessionAndReconnectProgression()
+    {
+        var provider = Provider(new TimedReader(5, null), TimeSpan.FromMilliseconds(15));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.SerialSilence);
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Equal(GnssSerialFailureCategory.SerialSilence, diagnostics.LastFailureCategory);
+        Assert.NotNull(diagnostics.LastFailureUtc);
+        Assert.True(diagnostics.ReconnectCount >= 1);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task DiagnosticsRetainAccessFailureCategoryAcrossReconnect()
+    {
+        var provider = Provider(new FakeReader(new UnauthorizedAccessException("COM6 is in use.")));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.AccessDenied);
+
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Equal(GnssSerialFailureCategory.AccessDenied, diagnostics.LastFailureCategory);
+        Assert.Equal("COM6 is in use.", diagnostics.LastFailureMessage);
+        Assert.NotNull(diagnostics.LastFailureUtc);
+        Assert.True(diagnostics.SessionGeneration >= 1);
+        Assert.True(diagnostics.ReconnectCount >= 1);
+
+        await provider.StopAsync(CancellationToken.None);
+    }
+
     [Fact] public async Task GgaOnlyReturnsFixWithoutFabricatedTimestamp() { var result = await Run(new FakeReader(Gga)); Assert.Equal(LocationStatus.Available, result.Status); Assert.Null(result.TimestampUtc); }
+    [Fact] public async Task GnsOnlyReturnsFixWithoutRequiringTrustedTime() { var result = await Run(new FakeReader(Gns)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); Assert.InRange(result.Longitude!.Value, 11.5165, 11.5168); Assert.Null(result.TimestampUtc); }
+    [Fact] public async Task IncoherentRmcDoesNotInvalidateValidGgaFix() { var result = await Run(new FakeReader(Gga, Rmc)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); }
+    [Fact] public async Task MalformedRmcTimeDoesNotInvalidateValidRmcPosition() { var provider = Provider(new FakeReader("$GPRMC,not-a-time,A,4807.038,N,01131.000,E,000.0,000.0,230394,,,A")); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available); Assert.Equal(LocationStatus.Available, (await provider.GetLocationAsync(CancellationToken.None)).Status); Assert.Equal(NmeaTimeStatus.Malformed, (await provider.GetTimeEvidenceAsync(CancellationToken.None)).Status); await provider.StopAsync(CancellationToken.None); }
     [Fact] public async Task RmcOnlyReturnsTimestamp() { var result = await Run(new FakeReader(Rmc)); Assert.Equal(LocationStatus.Available, result.Status); Assert.NotNull(result.TimestampUtc); }
     [Fact] public async Task RmcTimeIsAvailableEvenWithoutPositionFix() { var provider = Provider(new FakeReader("$GPRMC,123519.00,A,,,,,000.0,000.0,230394,,,A")); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetTimeEvidenceAsync(CancellationToken.None)).Status == NmeaTimeStatus.Available); var result = await provider.GetTimeEvidenceAsync(CancellationToken.None); Assert.Equal("1994-03-23T12:35:19.0000000+00:00", result.TimestampUtc?.ToString("O")); await provider.StopAsync(CancellationToken.None); }
+    [Fact] public async Task NewlyReceivedOldRmcIsNotTrustedAsCurrentTime() { var provider = Provider(new FakeReader(Rmc)); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetTimeEvidenceAsync(CancellationToken.None)).Status == NmeaTimeStatus.Available); var result = await provider.GetTimeEvidenceAsync(CancellationToken.None); Assert.False(result.TemporalCoherent); Assert.Contains("two sequential", result.RejectionReason); await provider.StopAsync(CancellationToken.None); }
+    [Fact] public async Task ReplayedAndBurstRmcTimestampsAreRejected() { var provider = Provider(new FakeReader(Rmc, Rmc, Rmc.Replace("123519", "123520"))); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetTimeEvidenceAsync(CancellationToken.None)).TimestampDeltaSeconds is not null); var result = await provider.GetTimeEvidenceAsync(CancellationToken.None); Assert.False(result.TemporalCoherent); Assert.NotNull(result.ReceiptElapsedSeconds); await provider.StopAsync(CancellationToken.None); }
+    [Fact] public async Task ReplayedRmcDoesNotInvalidateCurrentValidLocation() { var result = await Run(new FakeReader(Gga, Rmc, Rmc)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); }
+    [Fact] public async Task SequentialUtcObservationsWithMatchingReceiptIntervalsBecomeTrusted() { var provider = Provider(new FakeReader(50, Rmc, Rmc.Replace("123519.00", "123519.05"))); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetTimeEvidenceAsync(CancellationToken.None)).TimestampDeltaSeconds is not null); var result = await provider.GetTimeEvidenceAsync(CancellationToken.None); Assert.True(result.TemporalCoherent); Assert.Equal(0.05, result.TimestampDeltaSeconds); await provider.StopAsync(CancellationToken.None); }
+    [Fact] public async Task SequentialOneHzRmcWithRealisticReceiptJitterRemainsTrusted() { var provider = Provider(new FakeReader(850, Rmc, Rmc.Replace("123519", "123520"))); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetTimeEvidenceAsync(CancellationToken.None)).TimestampDeltaSeconds is not null, 500); var result = await provider.GetTimeEvidenceAsync(CancellationToken.None); Assert.True(result.TemporalCoherent); Assert.Equal(1, result.TimestampDeltaSeconds); Assert.InRange(result.ReceiptElapsedSeconds!.Value, 0.8, 1.1); await provider.StopAsync(CancellationToken.None); }
     [Fact] public async Task MalformedRmcTimeIsReportedSeparately() { var provider = Provider(new FakeReader("$GPRMC,not-a-time,A,4807.038,N,01131.000,E,000.0,000.0,230394,,,A")); await provider.StartAsync(CancellationToken.None); await Eventually(async () => (await provider.GetTimeEvidenceAsync(CancellationToken.None)).Status == NmeaTimeStatus.Malformed); Assert.Null((await provider.GetTimeEvidenceAsync(CancellationToken.None)).TimestampUtc); await provider.StopAsync(CancellationToken.None); }
     [Fact] public async Task EmptyOrMalformedStreamReturnsNoFix() { var result = await Run(new FakeReader("garbage", "$GPGGA,1,2,3")); Assert.Equal(LocationStatus.NoFix, result.Status); }
     [Fact] public async Task PortFailureIsUnavailable() { var result = await Run(new FakeReader(openError: new UnauthorizedAccessException())); Assert.Equal(LocationStatus.Unavailable, result.Status); }
@@ -79,11 +156,141 @@ public sealed class SerialNmeaLocationProviderTests
 
         Assert.True(reader.Disposed);
     }
+    [Fact]
+    public async Task ContinuousNmeaTrafficDoesNotTriggerWatchdogReconnect()
+    {
+        var reader = new FakeReader();
+        var provider = Provider(reader, TimeSpan.FromMilliseconds(60));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => reader.OpenCount == 1);
+
+        for (var index = 0; index < 6; index++)
+        {
+            reader.Enqueue(Gga);
+            await Task.Delay(20);
+        }
+
+        Assert.Equal(1, reader.OpenCount);
+        Assert.False(reader.Disposed);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ContinuousNoFixTrafficDoesNotTriggerWatchdogReconnect()
+    {
+        var reader = new FakeReader();
+        var provider = Provider(reader, TimeSpan.FromMilliseconds(60));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => reader.OpenCount == 1);
+
+        for (var index = 0; index < 6; index++)
+        {
+            reader.Enqueue("$GPGGA,123519.00,4807.038,N,01131.000,E,0,00,99.9,545.4,M,46.9,M,,");
+            await Task.Delay(20);
+        }
+
+        Assert.Equal(LocationStatus.NoFix, (await provider.GetLocationAsync(CancellationToken.None)).Status);
+        Assert.Equal(1, reader.OpenCount);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SilentSessionIsDisposedAndReopened()
+    {
+        var silent = new TimedReader(5);
+        var recovered = new FakeReader(Gga);
+        var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { silent, recovered });
+        var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => recovered.OpenCount == 1, 500);
+        await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available);
+
+        Assert.True(silent.Disposed);
+        await provider.StopAsync(CancellationToken.None);
+        Assert.True(recovered.Disposed);
+    }
+
+    [Fact]
+    public async Task TrafficStoppingAfterAWorkingSessionStartsAReplacementSession()
+    {
+        var first = new TimedReader(5, null, Gga);
+        var second = new FakeReader(Gga);
+        var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { first, second });
+        var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => first.OpenCount == 1);
+        await Eventually(() => second.OpenCount == 1, 500);
+
+        Assert.True(first.Disposed);
+        await provider.StopAsync(CancellationToken.None);
+        Assert.True(second.Disposed);
+    }
+
+    [Fact]
+    public async Task ShutdownDuringSilentWatchdogPreventsReopen()
+    {
+        var silent = new TimedReader(5);
+        var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { silent });
+        var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => silent.OpenCount == 1);
+        await provider.StopAsync(CancellationToken.None);
+
+        Assert.True(silent.Disposed);
+        Assert.Equal(1, silent.OpenCount);
+    }
+
+    [Fact]
+    public async Task RepeatedSerialTimeoutNullsTriggerReconnect()
+    {
+        var silent = new TimedReader(5);
+        var recovered = new FakeReader(Gga);
+        var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { silent, recovered });
+        var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => recovered.OpenCount == 1, 500);
+
+        Assert.True(silent.Disposed);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task SerialTimeoutNullsDoNotResetWatchdogButActualTrafficDoes()
+    {
+        var reader = new TimedReader(5, Gga, null, null, Gga, null, null, Gga);
+        var provider = Provider(reader, TimeSpan.FromMilliseconds(80));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => reader.Consumed >= 8, 500);
+
+        Assert.Equal(1, reader.OpenCount);
+        Assert.False(reader.Disposed);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task NoFixNmeaTrafficResetsWatchdog()
+    {
+        var noFix = "$GPGGA,123519.00,4807.038,N,01131.000,E,0,00,99.9,545.4,M,46.9,M,,";
+        var reader = new TimedReader(5, noFix);
+        var provider = Provider(reader, TimeSpan.FromMilliseconds(30));
+
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => reader.Consumed >= 5, 500);
+
+        Assert.Equal(LocationStatus.NoFix, (await provider.GetLocationAsync(CancellationToken.None)).Status);
+        Assert.Equal(1, reader.OpenCount);
+        await provider.StopAsync(CancellationToken.None);
+    }
     [Fact] public async Task LaterInvalidRmcMakesGgaCycleNoFix() { var result = await Run(new FakeReader(Gga, "$GPRMC,123519.00,V,4807.038,N,01131.000,E,0,0,230394,,,A")); Assert.Equal(LocationStatus.NoFix, result.Status); }
     [Fact] public async Task LaterInvalidGgaMakesRmcCycleNoFix() { var result = await Run(new FakeReader(Rmc, Gga.Replace(",1,08,", ",0,08,"))); Assert.Equal(LocationStatus.NoFix, result.Status); }
     [Fact] public async Task InvalidThenValidProducesAvailable() { var result = await Run(new FakeReader("$GPRMC,123519.00,V,4807.038,N,01131.000,E,0,0,230394,,,A", Gga)); Assert.Equal(LocationStatus.Available, result.Status); }
 
-    private static SerialNmeaLocationProvider Provider(INmeaSerialReader reader) => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(80), () => reader);
+    private static SerialNmeaLocationProvider Provider(INmeaSerialReader reader, TimeSpan? noDataTimeout = null) => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(80), () => reader, noDataTimeout);
     private static async Task<LocationObservation> Run(FakeReader fake)
     {
         var provider = Provider(fake); await provider.StartAsync(CancellationToken.None); await Eventually(() => fake.OpenCount == 1);
@@ -91,15 +298,17 @@ public sealed class SerialNmeaLocationProviderTests
         var result = await provider.GetLocationAsync(CancellationToken.None); await provider.StopAsync(CancellationToken.None); return result;
     }
     private static async Task Eventually(Func<bool> condition) { for (var i = 0; i < 100 && !condition(); i++) await Task.Delay(5); Assert.True(condition()); }
-    private static async Task Eventually(Func<Task<bool>> condition) { for (var i = 0; i < 100 && !await condition(); i++) await Task.Delay(5); Assert.True(await condition()); }
+    private static async Task Eventually(Func<bool> condition, int attempts) { for (var i = 0; i < attempts && !condition(); i++) await Task.Delay(5); Assert.True(condition()); }
+    private static async Task Eventually(Func<Task<bool>> condition, int attempts = 100) { for (var i = 0; i < attempts && !await condition(); i++) await Task.Delay(5); Assert.True(await condition()); }
 
     private sealed class FakeReader(params string[] lines) : INmeaSerialReader
     {
-        private readonly Queue<string> values = new(lines); private readonly SemaphoreSlim signal = new(lines.Length); private readonly Exception? openError; private int consumed; public bool Disposed { get; private set; } public int OpenCount { get; private set; } public int Total { get; } = lines.Length; public int Consumed => Volatile.Read(ref consumed);
+        private readonly Queue<string> values = new(lines); private readonly SemaphoreSlim signal = new(lines.Length); private readonly Exception? openError; private readonly int delayMs; private int consumed; public bool Disposed { get; private set; } public int OpenCount { get; private set; } public int Total { get; } = lines.Length; public int Consumed => Volatile.Read(ref consumed);
+        public FakeReader(int delayMs, params string[] lines) : this(lines) => this.delayMs = delayMs;
         public FakeReader(Exception openError) : this(Array.Empty<string>()) => this.openError = openError;
         public void Open() { OpenCount++; if (openError is not null) throw openError; }
         public void Enqueue(string line) { lock (values) values.Enqueue(line); signal.Release(); }
-        public async Task<string?> ReadLineAsync(CancellationToken token) { await signal.WaitAsync(token); lock (values) { var line = values.Dequeue(); Interlocked.Increment(ref consumed); return line; } }
+        public async Task<string?> ReadLineAsync(CancellationToken token) { await signal.WaitAsync(token); if (delayMs > 0) await Task.Delay(delayMs, token); lock (values) { var line = values.Dequeue(); Interlocked.Increment(ref consumed); return line; } }
         public void Dispose() => Disposed = true;
     }
 
@@ -118,5 +327,34 @@ public sealed class SerialNmeaLocationProviderTests
         public void Open() => OpenCount++;
         public Task<string?> ReadLineAsync(CancellationToken cancellationToken) => released.Task;
         public void Dispose() { Disposed = true; released.TrySetResult(null); }
+    }
+
+    private sealed class TimedReader : INmeaSerialReader
+    {
+        private readonly Queue<string?> values;
+        private readonly int delayMs;
+        private readonly string? fallback;
+        private int consumed;
+        public bool Disposed { get; private set; }
+        public int OpenCount { get; private set; }
+        public int Consumed => Volatile.Read(ref consumed);
+
+        public TimedReader(int delayMs, string? fallback = null, params string?[] valuesToReturn)
+        {
+            this.delayMs = delayMs;
+            this.fallback = fallback;
+            values = new Queue<string?>(valuesToReturn);
+        }
+
+        public void Open() => OpenCount++;
+
+        public async Task<string?> ReadLineAsync(CancellationToken token)
+        {
+            await Task.Delay(delayMs, token);
+            Interlocked.Increment(ref consumed);
+            lock (values) return values.Count > 0 ? values.Dequeue() : fallback;
+        }
+
+        public void Dispose() => Disposed = true;
     }
 }

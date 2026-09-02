@@ -1,152 +1,129 @@
-import {readFile} from 'node:fs/promises';
 import path from 'node:path';
+import {existsSync} from 'node:fs';
 import {pathToFileURL} from 'node:url';
-import {getP533RuntimePath} from '../scripts/p533-runtime-path.mjs';
+import {Worker} from 'node:worker_threads';
 import {
-  createP533Input,
-  parseP533Report,
   validateP533CircuitRequest,
-  type P533AssetProvenance,
   type P533CircuitExecution,
   type P533ErrorCode,
   type P533CircuitRequest,
-  type P533CircuitResult,
 } from '../src/propagation/p533';
 
-interface P533Module {
-  readonly FS: {
-    mkdirTree(path: string): void;
-    writeFile(path: string, data: Uint8Array | string): void;
-    readFile(path: string): Uint8Array;
-  };
-  callMain(args: readonly string[]): number;
+interface P533WorkerMessage {
+  readonly id: number;
+  readonly result: P533CircuitExecution;
 }
 
-interface P533Factory {
-  (options: Record<string, unknown>): Promise<P533Module>;
+export interface P533WorkerLike {
+  on(event: 'message', listener: (message: P533WorkerMessage) => void): this;
+  on(event: 'error', listener: (error: Error) => void): this;
+  on(event: 'exit', listener: (code: number) => void): this;
+  postMessage(message: unknown): void;
+  terminate(): Promise<number>;
+  unref?(): void;
 }
 
-interface P533Manifest {
-  readonly modelName: string;
-  readonly recommendation: string;
-  readonly modelVersion: string;
-  readonly p533MjsSha256: string;
-  readonly p533WasmSha256: string;
-  readonly wasmReleaseId: number;
-  readonly dataReleaseId: number;
-  readonly wasmSourceRevision: string;
-  readonly dataVersion: string;
-  readonly dataFiles: readonly { readonly runtimeName: string }[];
-  readonly installedFileSha256: Readonly<Record<string, string>>;
+interface PendingRequest {
+  readonly resolve: (result: P533CircuitExecution) => void;
+  readonly reject: (error: Error) => void;
 }
 
+export type P533WorkerFactory = () => P533WorkerLike;
+
+export class P533WorkerClient {
+  private worker: P533WorkerLike | null = null;
+  private nextRequestId = 1;
+  private readonly pending = new Map<number, PendingRequest>();
+
+  constructor(private readonly createWorker: P533WorkerFactory = createDefaultWorker) {}
+
+  execute(request: P533CircuitRequest): Promise<P533CircuitExecution> {
+    const worker = this.ensureWorker();
+    const id = this.nextRequestId++;
+    return new Promise((resolve, reject) => {
+      this.pending.set(id, { resolve, reject });
+      try {
+        worker.postMessage({ id, request });
+      } catch (error) {
+        this.pending.delete(id);
+        reject(toError(error));
+      }
+    });
+  }
+
+  async shutdown(): Promise<void> {
+    const worker = this.worker;
+    this.worker = null;
+    if (!worker) return;
+    this.rejectPending(new Error('P.533 worker was shut down.'));
+    await worker.terminate();
+  }
+
+  private ensureWorker(): P533WorkerLike {
+    if (this.worker) return this.worker;
+    const worker = this.createWorker();
+    this.worker = worker;
+    worker.unref?.();
+    worker.on('message', message => this.resolveMessage(worker, message));
+    worker.on('error', error => this.failWorker(worker, error));
+    worker.on('exit', code => this.failWorker(worker, new Error(`P.533 worker exited with code ${code}.`)));
+    return worker;
+  }
+
+  private resolveMessage(worker: P533WorkerLike, message: P533WorkerMessage): void {
+    if (this.worker !== worker) return;
+    const pending = this.pending.get(message.id);
+    if (!pending) return;
+    this.pending.delete(message.id);
+    pending.resolve(message.result);
+  }
+
+  private failWorker(worker: P533WorkerLike, error: Error): void {
+    if (this.worker !== worker) return;
+    this.worker = null;
+    this.rejectPending(error);
+    void worker.terminate();
+  }
+
+  private rejectPending(error: Error): void {
+    for (const pending of this.pending.values()) pending.reject(error);
+    this.pending.clear();
+  }
+}
+
+const workerClient = new P533WorkerClient();
 let executionQueue = Promise.resolve();
-let modulePromise: Promise<P533Module> | null = null;
 
 export function executeP533Circuit(request: P533CircuitRequest): Promise<P533CircuitExecution> {
   const issues = validateP533CircuitRequest(request);
   if (issues.length > 0) return Promise.resolve(failure('invalid_request', issues.join('; ')));
-  const execution = executionQueue.then(() => executeSerialized(request));
+  const execution = executionQueue.then(() => workerClient.execute(request).catch(error => failure('engine_initialization_failed', errorMessage(error))));
   executionQueue = execution.then(() => undefined, () => undefined);
   return execution;
 }
 
-async function executeSerialized(request: P533CircuitRequest): Promise<P533CircuitExecution> {
-  try {
-    const module = await getP533Module();
-    const manifest = await readManifest();
-    const started = Date.now();
-    await populateDataFiles(module, manifest, request.month);
-    module.FS.writeFile('/input.txt', createP533Input(request));
-    const returnCode = module.callMain(['/input.txt', '/tmp/output.txt']);
-    if (returnCode !== 0) return failure('execution_failed', `P.533 engine returned exit code ${returnCode}.`);
-    let rawReport: string;
-    try {
-      rawReport = new TextDecoder().decode(module.FS.readFile('/tmp/output.txt'));
-    } catch {
-      return failure('report_missing', 'P.533 engine did not produce /tmp/output.txt.');
-    }
-    const parsed = parseP533Report(rawReport);
-    if (!parsed) return failure('report_parse_failed', 'P.533 report did not contain a parseable calculated-parameters row.');
-    const frequency = parsed.frequencies.find(value => Math.abs(value.frequencyMHz - request.frequencyMHz) < 0.001);
-    if (!frequency) return failure('report_parse_failed', 'P.533 report did not contain the requested modeled frequency.');
-    const result: P533CircuitResult = {
-      sourceState: 'modeled',
-      model: 'ITU-R P.533',
-      modelVersion: 'P.533-14',
-      engine: 'ITU-R-HF v14.3',
-      request,
-      modeledPeriod: { year: request.year, month: request.month, day: request.day, utcHour: request.utcHour },
-      frequency,
-      elapsedMs: Date.now() - started,
-      reportBytes: rawReport.length,
-      rawReport,
-      assetProvenance: toAssetProvenance(manifest),
-    };
-    return { ok: true, result };
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
-    return failure(message.includes('ENOENT') ? 'assets_unavailable' : 'engine_initialization_failed', message);
-  }
+export async function shutdownP533Worker(): Promise<void> {
+  await workerClient.shutdown();
 }
 
-async function getP533Module(): Promise<P533Module> {
-  if (!modulePromise) {
-    modulePromise = initializeP533Module().catch(error => {
-      modulePromise = null;
-      throw error;
-    });
-  }
-  return modulePromise;
-}
-
-async function initializeP533Module(): Promise<P533Module> {
-  const wasmBinary = new Uint8Array(await readFile(getP533RuntimePath('p533.wasm')));
-  const imported = await import(pathToFileURL(getP533RuntimePath('p533.mjs')).href) as { default: P533Factory };
-  return imported.default({
-    wasmBinary,
-    noInitialRun: true,
-    noExitRuntime: true,
-    print: () => undefined,
-    printErr: () => undefined,
-  });
-}
-
-async function populateDataFiles(module: P533Module, manifest: P533Manifest, month: number): Promise<void> {
-  module.FS.mkdirTree('/data');
-  module.FS.mkdirTree('/tmp');
-  const monthCode = String(month).padStart(2, '0');
-  const expected = new Set([`ionos${monthCode}.bin`, `COEFF${monthCode}W.txt`, 'P1239-3 Decile Factors.txt']);
-  for (const entry of manifest.dataFiles) {
-    if (!expected.has(entry.runtimeName)) continue;
-    module.FS.writeFile(`/data/${entry.runtimeName}`, new Uint8Array(await readFile(getP533RuntimePath(entry.runtimeName))));
-  }
-}
-
-async function readManifest(): Promise<P533Manifest> {
-  const runtimePath = getP533RuntimePath();
-  const manifestPath = path.resolve(runtimePath, '..', 'manifest.json');
-  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Omit<P533Manifest, 'installedFileSha256'>;
-  const provenance = JSON.parse(await readFile(path.join(runtimePath, 'provenance.json'), 'utf8')) as { installedFiles?: Readonly<Record<string, string>> };
-  return { ...manifest, installedFileSha256: provenance.installedFiles ?? {} };
-}
-
-function toAssetProvenance(manifest: P533Manifest): P533AssetProvenance {
-  return {
-    modelName: manifest.modelName,
-    recommendation: manifest.recommendation,
-    modelVersion: manifest.modelVersion,
-    dataVersion: manifest.dataVersion,
-    wasmReleaseId: manifest.wasmReleaseId,
-    dataReleaseId: manifest.dataReleaseId,
-    wasmSourceRevision: manifest.wasmSourceRevision,
-    p533MjsSha256: manifest.p533MjsSha256,
-    p533WasmSha256: manifest.p533WasmSha256,
-    installedFileSha256: manifest.installedFileSha256,
-    runtimeNetworkRequired: false,
-  };
+function createDefaultWorker(): P533WorkerLike {
+  const sourceDirectory = path.join(process.cwd(), 'server');
+  const bundledWorkerPath = path.join(path.dirname(process.argv[1] ?? ''), 'p533Worker.cjs');
+  if (existsSync(bundledWorkerPath)) return new Worker(bundledWorkerPath) as unknown as P533WorkerLike;
+  const execArgv = process.execArgv.some(argument => argument.includes('tsx'))
+    ? process.execArgv
+    : [...process.execArgv, '--import', pathToFileURL(path.resolve('node_modules/tsx/dist/loader.mjs')).href];
+  return new Worker(pathToFileURL(path.join(sourceDirectory, 'p533Worker.ts')), { execArgv }) as unknown as P533WorkerLike;
 }
 
 function failure(code: P533ErrorCode, message: string): P533CircuitExecution {
   return { ok: false, error: { code, message } } as P533CircuitExecution;
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+function toError(error: unknown): Error {
+  return error instanceof Error ? error : new Error(String(error));
 }

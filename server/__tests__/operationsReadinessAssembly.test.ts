@@ -64,6 +64,20 @@ describe('Operations Readiness assembly', () => {
     expect(deps.briefStore.get).toHaveBeenCalledWith('brief-1');
   });
 
+  it('preserves the passive calculated clock offset for readiness evidence', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readClockStatus: vi.fn(async () => ({
+        status: 'Synchronized', error: 'None',
+        gnssTime: { status: 'Available', timestampUtc: evaluatedAtUtc, sentenceType: 'RMC' },
+        lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: null,
+        currentOffsetSeconds: -0.482, attemptMessage: 'Windows time already agrees with fresh GNSS UTC evidence; no correction was required.',
+      })) as never,
+    }));
+
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') expect(result.summary.findings.find(finding => finding.id === 'clock-synchronization')).toMatchObject({ status: 'ready' });
+  });
+
   it('keeps the default assembly local-only and performs opt-in enrichment on the retained planned site', async () => {
     const enrichWeather = vi.fn(async () => ({
       weather: { status: 'live' as const, source: { id: 'weather', type: 'provider' } },

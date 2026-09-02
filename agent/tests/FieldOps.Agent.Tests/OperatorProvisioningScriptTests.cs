@@ -170,9 +170,10 @@ public sealed class OperatorProvisioningScriptTests
     public void DesktopUpdaterResolvesAndForwardsTheOperatorAccount()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var topLevelParameters = PowerShellScriptAssertions.GetTopLevelParameterBlock(updater);
 
-        Assert.Contains("[string]$OperatorAccount", updater);
-        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Matches(@"(?m)^\s*\[string\]\$OperatorAccount\s*,?\s*$", topLevelParameters);
+        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", topLevelParameters);
         Assert.Contains("-OperatorAccount $OperatorAccount", updater);
         Assert.Contains("Resolve-FieldOpsInteractiveOperator", updater);
         Assert.Contains("FieldOps.OperatorProvisioning.psm1", updater);

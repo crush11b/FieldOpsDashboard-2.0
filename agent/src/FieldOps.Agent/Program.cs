@@ -23,6 +23,9 @@ builder.Logging.AddEventLog(new EventLogSettings
     SourceName = serviceName,
     LogName = "Application",
 });
+builder.Logging.AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>(
+    "FieldOps.Agent.Location.GnssRecoveryCoordinator",
+    LogLevel.Information);
 
 builder.WebHost.ConfigureKestrel(options =>
 {
@@ -41,6 +44,7 @@ builder.Services.AddSingleton<SerialNmeaLocationProvider>();
 builder.Services.AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>();
 builder.Services.AddSingleton<ISystemClock, WindowsSystemClock>();
 builder.Services.AddSingleton<GpsClockSynchronizer>();
+builder.Services.AddSingleton<GnssRecoveryCoordinator>();
 builder.Services.AddSingleton<IHostedService>(sp => sp.GetRequiredService<SerialNmeaLocationProvider>());
 builder.Services.AddSingleton<LocationTelemetryPipeServer>();
 builder.Services.AddSingleton<IPhysicalBatteryEnumerator, WindowsPhysicalBatteryEnumerator>();
@@ -64,6 +68,13 @@ builder.Services.AddHostedService<LocationTelemetryPipeService>();
 builder.Services.AddHostedService<SystemTelemetryPipeService>();
 
 var app = builder.Build();
+var recoveryConfigurationLogger = app.Services.GetRequiredService<ILogger<GnssRecoveryCoordinator>>();
+recoveryConfigurationLogger.LogInformation(
+    "GNSS recovery configuration loaded. Enabled={Enabled} Provider={Provider} ControlPort={ControlPort} ControlBaud={ControlBaud}",
+    bool.TryParse(builder.Configuration["Agent:Location:Recovery:Enabled"], out var recoveryEnabled) && recoveryEnabled,
+    builder.Configuration["Agent:Location:Recovery:Provider"] ?? "",
+    builder.Configuration["Agent:Location:Recovery:ControlPort"] ?? "",
+    builder.Configuration["Agent:Location:Recovery:ControlBaud"] ?? "");
 var credentialProvider = app.Services.GetRequiredService<AgentCredentialProvider>();
 await credentialProvider.InitializeAsync(app.Lifetime.ApplicationStopping);
 
@@ -91,6 +102,9 @@ app.MapGet("/api/v1/location", async (ILocationProvider provider, CancellationTo
 app.MapGet("/api/v1/location/nmea", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireAsync(cancellationToken)));
 
+app.MapGet("/api/v1/location/nmea/diagnostics", (SerialNmeaLocationProvider provider) =>
+    Results.Ok(provider.GetDiagnostics()));
+
 app.MapGet("/api/v1/clock/gnss", async (ISerialNmeaLocationService service, CancellationToken cancellationToken) =>
     Results.Ok(await service.AcquireTimeAsync(cancellationToken)));
 
@@ -98,6 +112,8 @@ app.MapGet("/api/v1/clock/status", async (GpsClockSynchronizer synchronizer, Can
 
 app.MapPost("/api/v1/clock/synchronize", async (GpsClockSynchronizer synchronizer, ClockSyncRequest request, CancellationToken cancellationToken) =>
     Results.Ok(await synchronizer.SynchronizeAsync(request.Confirmed, cancellationToken)));
+
+app.MapPost("/api/v1/location/recover", async (GnssRecoveryCoordinator recovery, CancellationToken cancellationToken) => Results.Ok(await recovery.RecoverAsync(cancellationToken)));
 
 app.MapGet("/api/v1/system", (WindowsSystemTelemetryProvider provider) => Results.Ok(provider.GetObservation()));
 

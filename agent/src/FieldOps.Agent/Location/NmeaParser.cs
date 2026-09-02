@@ -8,7 +8,20 @@ internal sealed record NmeaFix(
     bool IsGga = false, bool IsRmc = false);
 
 public enum NmeaTimeStatus { Available, Unavailable, Malformed }
-public sealed record NmeaTimeEvidence(NmeaTimeStatus Status, DateTimeOffset? TimestampUtc, string SentenceType, string? Error = null);
+public sealed record NmeaTimeEvidence(
+    NmeaTimeStatus Status,
+    DateTimeOffset? TimestampUtc,
+    string SentenceType,
+    string? Error = null,
+    DateTimeOffset? ReceivedAtUtc = null,
+    long ReceivedAtMonotonicTimestamp = 0,
+    string? RawUtcField = null,
+    string? RawDateField = null,
+    DateTimeOffset? PriorTimestampUtc = null,
+    double? TimestampDeltaSeconds = null,
+    double? ReceiptElapsedSeconds = null,
+    bool TemporalCoherent = false,
+    string? RejectionReason = null);
 
 internal static class NmeaParser
 {
@@ -27,8 +40,8 @@ internal static class NmeaParser
         var fields = body.Split(',');
         if (fields.Length == 0) return false;
         var type = fields[0];
-        if (type.Length < 5 || (!type.EndsWith("GGA", StringComparison.Ordinal) && !type.EndsWith("RMC", StringComparison.Ordinal))) return false;
-        return type.EndsWith("GGA", StringComparison.Ordinal) ? TryGga(fields, out fix) : TryRmc(fields, out fix);
+        if (type.Length < 5 || (!type.EndsWith("GGA", StringComparison.Ordinal) && !type.EndsWith("GNS", StringComparison.Ordinal) && !type.EndsWith("RMC", StringComparison.Ordinal))) return false;
+        return type.EndsWith("GGA", StringComparison.Ordinal) || type.EndsWith("GNS", StringComparison.Ordinal) ? TryGga(fields, out fix) : TryRmc(fields, out fix);
     }
 
     public static NmeaTimeEvidence ParseTime(string sentence)
@@ -38,7 +51,7 @@ internal static class NmeaParser
         var timestamp = ParseDateTime(fields[9], fields[1]);
         return timestamp is null
             ? new(NmeaTimeStatus.Malformed, null, "RMC", "RMC UTC time or date was malformed.")
-            : new(NmeaTimeStatus.Available, timestamp, "RMC");
+            : new(NmeaTimeStatus.Available, timestamp, "RMC", null, null, 0, fields[1], fields[9]);
     }
 
     private static bool TryGetFields(string sentence, out string[] fields)
@@ -60,7 +73,9 @@ internal static class NmeaParser
     {
         fix = default!;
         if (f.Length < 10 || !TryCoordinate(f[2], f[3], f[4], f[5], out var lat, out var lon) || !ValidOptionalNumber(f[8]) || !ValidOptionalNumber(f[9])) return false;
-        int? quality = Int(f[6]); var hasFix = quality is > 0;
+        int? quality = Int(f[6]); var hasFix = f[0].EndsWith("GNS", StringComparison.Ordinal)
+            ? !string.IsNullOrWhiteSpace(f[6]) && !string.Equals(f[6], "N", StringComparison.OrdinalIgnoreCase)
+            : quality is > 0;
         fix = new(lat, lon, Double(f[9]), null, null, null, Int(f[7]), Double(f[8]), quality, hasFix, true, false);
         return true;
     }

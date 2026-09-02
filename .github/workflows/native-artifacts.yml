@@ -2,14 +2,24 @@ name: Native artifacts
 
 on:
   push:
-    branches: [main, feature/2.4-field-tools-coordinate-workspace]
+    branches: [main, feature/2.4-field-tools-coordinate-workspace, feature/2.7-connected-operations]
   workflow_dispatch:
+    inputs:
+      source_revision:
+        description: 'Exact checked-out commit SHA to publish'
+        required: false
+        type: string
+
+permissions:
+  contents: write
 
 jobs:
   publish:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source_revision || github.sha }}
       - uses: actions/setup-node@v4
         with:
           node-version: 22.x
@@ -27,12 +37,20 @@ jobs:
         run: dotnet test agent/FieldOps.Agent.sln --configuration Release
       - name: Publish native artifacts
         shell: pwsh
-        run: ./agent/scripts/Publish-FieldOpsArtifacts.ps1 -AllowDirty -SourceRevision $env:GITHUB_SHA
+        run: ./agent/scripts/Publish-FieldOpsArtifacts.ps1 -SourceRevision '${{ inputs.source_revision || github.sha }}'
       - name: Package native artifacts
         shell: pwsh
         run: |
-          Compress-Archive -Path agent/artifacts/publish/win-x64/agent,agent/artifacts/publish/win-x64/tray,agent/artifacts/publish/win-x64/artifact-manifest.json -DestinationPath fieldops-native-win-x64.zip
+          Compress-Archive -Path agent/artifacts/publish/win-x64/agent,agent/artifacts/publish/win-x64/tray,agent/artifacts/publish/win-x64/p533-assets,agent/artifacts/publish/win-x64/artifact-manifest.json -DestinationPath fieldops-native-win-x64.zip
+      - name: Validate packaged native artifact
+        shell: pwsh
+        run: ./agent/scripts/Test-FieldOpsNativePackage.ps1 -PackagePath fieldops-native-win-x64.zip -ExpectedRevision '${{ inputs.source_revision || github.sha }}'
       - uses: actions/upload-artifact@v4
         with:
-          name: fieldops-native-win-x64
+          name: fieldops-native-win-x64-${{ inputs.source_revision || github.sha }}
           path: fieldops-native-win-x64.zip
+      - name: Publish immutable development release asset
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./agent/scripts/Publish-ImmutableNativeRelease.ps1 -PackagePath fieldops-native-win-x64.zip -SourceRevision '${{ inputs.source_revision || github.sha }}' -Repository '${{ github.repository }}'

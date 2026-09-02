@@ -181,7 +181,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 font-mono">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 font-mono">
       <div className={`max-w-4xl w-full max-h-[90vh] flex flex-col rounded-2xl border ${
         isNight ? 'bg-black border-red-900 text-red-400' : 'bg-[#0F1115] border-zinc-800 text-zinc-100'
       } shadow-2xl overflow-hidden`}>
@@ -189,7 +189,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         {/* Header */}
         <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400 animate-spin-slow" />
+            <Sparkles className="w-5 h-5 text-amber-400" />
             <h2 className="font-black text-base uppercase tracking-wider text-zinc-100">
               ROADMAP SMART MODULES ({PRODUCT_METADATA.displayVersion})
             </h2>

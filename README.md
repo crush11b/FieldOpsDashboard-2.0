@@ -2,8 +2,8 @@
 
 > A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-[![Version 2.6.0](https://img.shields.io/badge/version-2.6.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.6.0)
-[![Status](https://img.shields.io/badge/status-2.6%20release%20preparation-C47F00?style=for-the-badge)](#current-release)
+[![Version 2.7.0](https://img.shields.io/badge/version-2.7.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.7.0)
+[![Status](https://img.shields.io/badge/status-2.7%20release%20closure-C47F00?style=for-the-badge)](#current-release)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
 
 ## What it is
@@ -20,9 +20,9 @@ The project prioritizes practical single-operator field usefulness, trustworthy 
 
 ## Current release
 
-**Version 2.6.0 - Activation Operations release preparation**
+**Version 2.7.0 - Connected Operations release closure**
 
-This release completes the activation-operations workspace on top of the dependable Windows Local Agent and Tray baseline. It is designed for single-operator ToughBook use with local and offline operation, honest source and freshness states, and retained activation evidence.
+This release completes Connected Operations on top of the dependable Windows Local Agent and Tray baseline. It is designed for single-operator ToughBook use with local and offline operation, honest source and freshness states, retained activation evidence, and source-aware live operating context.
 
 Operations Assistant includes:
 
@@ -37,9 +37,11 @@ Operations Assistant includes:
 - **Mission-window evidence**: Retained terrestrial forecasts, brief-scoped space-weather evidence, and an offline P.533 band outlook remain available across restart and offline use; forecasts and propagation are not guarantees.
 - **Activation lifecycle**: PLAN, PREPARE, OPERATE, and REVIEW support activation start, QSO logging, Activation Notes, completion, and retained evidence review.
 - **QSO Logger and ADIF**: Activation-owned contacts support manual logging, bounded ADIF import, and ADIF export.
+- **WSJT-X Connected Operations**: Current Station consumes read-only WSJT-X state, and type 5/type 12 logged-QSO events share one provenance-aware ingestion path with conservative duplicate suppression.
+- **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [Version 2.6 changelog](CHANGELOG.md) and the [Version 2.6 activation plan](docs/planning/Version-2.6-Activation-Operations.md).
+See the [Version 2.7 changelog](CHANGELOG.md) and the [Version 2.7 activation plan](docs/planning/Version-2.7-Connected-Operations.md).
 
 ## What works today
 
@@ -72,11 +74,13 @@ FieldOps uses explicit source, freshness, and status semantics throughout the da
 
 An unavailable Internet source does not make a modeled result a measurement, and a valid zero is not silently treated as missing.
 
-## Version 2.6 boundary
+## Version 2.7 boundary
 
-Version 2.6.0 is scoped to a trustworthy, locally operated activation workspace. Live providers still require connectivity, and modeled or retained evidence remains distinct from live measurements.
+Version 2.7.0 is scoped to a trustworthy, locally operated Connected Operations workspace. Live providers still require connectivity, and modeled, observed, retained, manual, and WSJT-X application evidence remain distinct.
 
-Radio/CAT integration, direct WSJT-X integration, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain deferred.
+Implemented in Version 2.7.0: read-only WSJT-X Current Station integration and WSJT-X logged-QSO ingestion. These capabilities observe and ingest WSJT-X evidence; FieldOps does not control WSJT-X or the radio.
+
+CAT/direct radio control, PTT/transmit control, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain deferred.
 
 ## SmartDeploy and activation-support scope
 

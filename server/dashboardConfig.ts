@@ -15,6 +15,17 @@ const APP_CATEGORIES: readonly AppCategory[] = [
   'logging', 'mapping', 'radio_control', 'custom',
 ];
 const VALID_BAUD_RATES = new Set([4800, 9600, 19200, 38400, 57600, 115200]);
+const WSJTX_DEFAULT_PORT = 2237;
+const WSJTX_DEFAULT_MULTICAST_ADDRESS = '239.255.0.0';
+const WSJTX_DEFAULT_HOST = '127.0.0.1';
+
+export interface ResolvedWsjtxConfiguration {
+  readonly mode: 'multicast' | 'unicast';
+  readonly host?: string;
+  readonly port: number;
+  readonly multicastAddress?: string;
+  readonly multicastInterface?: string;
+}
 
 export type DashboardConfigFileResult =
   | { kind: 'missing' }
@@ -53,6 +64,7 @@ export function normalizeDashboardConfig(input: unknown): DashboardConfig {
     potaParkRef: boundedString(source.potaParkRef, defaultConfig.potaParkRef).trim(),
     gpsComPort: boundedString(source.gpsComPort, defaultConfig.gpsComPort ?? '').trim(),
     gpsBaudRate: typeof source.gpsBaudRate === 'number' && VALID_BAUD_RATES.has(source.gpsBaudRate) ? source.gpsBaudRate : defaultConfig.gpsBaudRate,
+    wsjtx: normalizeWsjtxConfig(source.wsjtx),
     propagation: {
       stationProfile: normalizeStationProfile(isRecord(source.propagation) ? source.propagation.stationProfile : undefined),
       destinationRegion: isRecord(source.propagation) && PROPAGATION_REGION_IDS.includes(source.propagation.destinationRegion as PropagationRegionId)
@@ -60,6 +72,27 @@ export function normalizeDashboardConfig(input: unknown): DashboardConfig {
         : defaultConfig.propagation.destinationRegion,
     },
     apps: completeApps,
+  };
+}
+
+export function resolveWsjtxConfiguration(
+  config: DashboardConfig,
+  environment: NodeJS.ProcessEnv = process.env,
+): ResolvedWsjtxConfiguration {
+  const configuredMode = environment.WSJTX_MODE?.trim().toLowerCase();
+  const mode = configuredMode === 'unicast' || (!configuredMode && environment.WSJTX_HOST?.trim() && !environment.WSJTX_MULTICAST_ADDRESS?.trim())
+    ? 'unicast'
+    : configuredMode === 'multicast' || environment.WSJTX_MULTICAST_ADDRESS?.trim() || config.wsjtx.mode === 'multicast'
+      ? 'multicast'
+      : 'unicast';
+  const portValue = Number.parseInt(environment.WSJTX_PORT || '', 10);
+  const port = Number.isInteger(portValue) && portValue > 0 ? portValue : config.wsjtx.port;
+  if (mode === 'unicast') return { mode, host: environment.WSJTX_HOST?.trim() || config.wsjtx.host || WSJTX_DEFAULT_HOST, port };
+  return {
+    mode,
+    port,
+    multicastAddress: environment.WSJTX_MULTICAST_ADDRESS?.trim() || config.wsjtx.multicastAddress || WSJTX_DEFAULT_MULTICAST_ADDRESS,
+    multicastInterface: environment.WSJTX_MULTICAST_INTERFACE?.trim() || config.wsjtx.multicastInterface || undefined,
   };
 }
 
@@ -171,6 +204,19 @@ function normalizeApp(input: unknown): AppLauncherItem | null {
   if (typeof input.workingDir === 'string') app.workingDir = input.workingDir.slice(0, MAX_TEXT_LENGTH);
   if (Array.isArray(input.deps)) app.deps = input.deps.filter((dep): dep is string => typeof dep === 'string').slice(0, 32).map(dep => dep.slice(0, 128));
   return app;
+}
+
+function normalizeWsjtxConfig(input: unknown): DashboardConfig['wsjtx'] {
+  const source = isRecord(input) ? input : {};
+  const mode = source.mode === 'unicast' ? 'unicast' : 'multicast';
+  const port = typeof source.port === 'number' && Number.isInteger(source.port) && source.port > 0 && source.port <= 65535 ? source.port : WSJTX_DEFAULT_PORT;
+  return {
+    mode,
+    multicastAddress: boundedString(source.multicastAddress, WSJTX_DEFAULT_MULTICAST_ADDRESS).trim() || WSJTX_DEFAULT_MULTICAST_ADDRESS,
+    multicastInterface: boundedString(source.multicastInterface, '').trim(),
+    host: boundedString(source.host, WSJTX_DEFAULT_HOST).trim() || WSJTX_DEFAULT_HOST,
+    port,
+  };
 }
 
 function cloneApp(app: AppLauncherItem): AppLauncherItem {

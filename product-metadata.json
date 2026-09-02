@@ -2,7 +2,7 @@
   "productName": "FieldOps Dashboard",
   "productId": "FieldOpsDashboard",
   "packageName": "fieldops-dashboard",
-  "version": "2.6.0",
-  "releaseName": "Activation Operations",
+  "version": "2.7.0",
+  "releaseName": "Connected Operations",
   "repository": "crush11b/FieldOpsDashboard-2.0"
 }

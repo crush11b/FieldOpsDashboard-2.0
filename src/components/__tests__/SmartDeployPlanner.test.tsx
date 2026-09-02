@@ -59,6 +59,15 @@ function fillRequiredFields(program: 'POTA' | 'SOTA' = 'POTA', reference = progr
 afterEach(() => vi.unstubAllGlobals());
 
 describe('SmartDeploy planner', () => {
+  it('marks Radio as required and explains its planning purpose', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => input === '/api/smartdeploy/briefs'
+      ? { ok: true, json: async () => ({ briefs: [] }) }
+      : { ok: true, json: async () => ({ state: 'UNAVAILABLE', metadata: null }) }));
+    render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
+    expect(screen.getByLabelText('Radio')).toBeRequired();
+    expect(screen.getByText(/planning brief records the station equipment/i)).toBeTruthy();
+  });
+
   it('renders the operator form with a modern POTA example and current location', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ briefs: [] }) })));
     render(<SmartDeployPlanner operatingLocation={location} stationProfile={profile} />);
@@ -307,6 +316,55 @@ describe('SmartDeploy brief rendering', () => {
     expect(fetcher).toHaveBeenCalledWith('/api/activations/from-brief', expect.objectContaining({ method: 'POST' }));
     expect(fetcher).toHaveBeenCalledWith(`/api/activations/${plannedActivation.activationId}/status`, expect.objectContaining({ method: 'PATCH' }));
     expect(screen.queryByRole('button', { name: 'START ACTIVATION' })).toBeNull();
+  });
+
+  it('keeps the active OPERATE work surface usable when optional evidence is unavailable', async () => {
+    const activeActivation = { activationId: 'activation-operate', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'active', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [activeActivation] }) };
+      if (path === `/api/activation-notes/brief/${v2Brief.briefId}`) return { ok: true, json: async () => ({ kind: 'activation_notes_empty' }) };
+      if (path === '/api/live-band-activity') return { ok: false, status: 503, json: async () => ({}) };
+      if (path.includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
+      if (path.includes('/wsjtx/')) return { ok: true, json: async () => ({ status: 'unavailable', state: null }) };
+      return { ok: true, json: async () => ({ record: null }) };
+    }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    fireEvent.click(screen.getByRole('button', { name: 'operate' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'QSO LOG' })).toBeTruthy());
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('ACTIVE ACTIVATION');
+    expect(screen.getByRole('heading', { name: 'ACTIVATION NOTES' })).toBeTruthy();
+    expect(screen.getByRole('region', { name: 'Operate supporting context' })).toHaveTextContent('PLANNED / MODELED');
+    expect(screen.getByRole('region', { name: 'Live Band Activity' })).toHaveTextContent('Live Band Activity request failed');
+    expect(screen.getByLabelText('QSO logging').compareDocumentPosition(screen.getByRole('region', { name: 'Operate supporting context' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('clears a stale ambiguity warning when PREPARE start returns the reconciled active Activation', async () => {
+    const plannedActivation = { activationId: 'activation-new', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'planned', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow } as any;
+    const oldActiveActivations = [
+      { ...plannedActivation, activationId: 'activation-old-1', reference: 'OLD-1', status: 'active' },
+      { ...plannedActivation, activationId: 'activation-old-2', reference: 'OLD-2', status: 'active' },
+    ];
+    const activeActivation = { ...plannedActivation, status: 'active', startedAtUtc: '2026-08-29T12:00:00.000Z' };
+    const readiness = { kind: 'operations_readiness', briefId: v2Brief.briefId, summary: { evaluatedAtUtc: '2026-08-29T11:00:00.000Z', plan: { status: 'ready', briefId: v2Brief.briefId, activationReference: 'US-1234', plannedSite: 'FM17' }, toughBook: { status: 'ready', chargePercent: 100, powerSource: 'AC', charging: true, runtimeEstimateSeconds: 3600 }, findings: [], nextActions: [] }, diagnostics: [], displayEvidence: { weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: { id: 'weather', type: 'local' } }, alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: { id: 'alerts', type: 'local' } } } };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: oldActiveActivations }) };
+      if (path === `/api/operations-readiness/${v2Brief.briefId}`) return { ok: true, json: async () => readiness };
+      if (path === '/api/activations/from-brief') return { ok: true, json: async () => ({ kind: 'activation', activation: plannedActivation }) };
+      if (path === `/api/activations/${plannedActivation.activationId}/status`) return { ok: true, json: async () => ({ kind: 'activation', status: 'updated', activation: activeActivation, reconciledActivationIds: oldActiveActivations.map(item => item.activationId) }) };
+      if (path.includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText('AMBIGUOUS ACTIVE ACTIVATION STATE')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
+    await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-29 12:00:00 UTC')).toBeTruthy());
+    expect(screen.queryByText('AMBIGUOUS ACTIVE ACTIVATION STATE')).toBeNull();
+    expect(fetcher).toHaveBeenCalledWith(`/api/activations/${plannedActivation.activationId}/status`, expect.objectContaining({ method: 'PATCH' }));
   });
 
   it('renders partial samples, modeled mode limitation, and temporal RF status', () => {

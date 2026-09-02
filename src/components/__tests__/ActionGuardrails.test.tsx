@@ -1,6 +1,8 @@
+/* @vitest-environment jsdom */
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { AppLauncherGrid } from '../AppLauncherGrid';
 import { HeaderBar } from '../HeaderBar';
 import { RoadmapToolsModal } from '../RoadmapToolsModal';
@@ -9,6 +11,29 @@ import { BatteryStatusWidget } from '../BatteryStatusWidget';
 import type { AppLauncherItem, DualBatteryStatus, GPSStatus } from '../../types';
 
 describe('misleading action guardrails', () => {
+  it('keeps the always-mounted header free of continuous compositing effects', () => {
+    const markup = renderToStaticMarkup(
+      <HeaderBar
+        callsign="N0CALL"
+        theme="dark_tactical"
+        onThemeChange={vi.fn()}
+        gps={gps}
+        battery={battery}
+        systemTelemetry={null}
+        audioEnabled={false}
+        onToggleAudio={vi.fn()}
+        onOpenConfig={vi.fn()}
+        onOpenRoadmap={vi.fn()}
+        onToggleTouchMenu={vi.fn()}
+        touchMenuOpen={false}
+      />,
+    );
+
+    expect(markup).not.toContain('backdrop-blur-md');
+    expect(markup).not.toContain('animate-pulse');
+    expect(markup).not.toContain('animate-spin-slow');
+  });
+
   it('marks automatic installation unavailable with native disabled semantics', () => {
     const markup = renderToStaticMarkup(
       <AppLauncherGrid
@@ -117,6 +142,49 @@ describe('misleading action guardrails', () => {
     expect(calculatorMarkup).toContain('ANTENNA LENGTH CALCULATOR');
     expect(calculatorMarkup).toContain('31.59 FT (9.63 METERS)');
     expect(calculatorMarkup).toContain('15.80 FT (4.81 METERS)');
+  });
+
+  it('keeps the SmartDeploy modal shell static and preserves its tab across parent rerenders', () => {
+    const onClose = vi.fn();
+    const view = render(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={onClose}
+        callsign="N0CALL"
+        gridSquare=""
+        gps={gps}
+        gpsProvenance={{ status: 'connecting', source: { id: 'gps:test', type: 'gps_acquisition' } }}
+        initialTab="smart_deploy"
+      />,
+    );
+
+    expect(view.container.querySelector('#tab-smart-deploy')).toBeTruthy();
+    expect(view.container.innerHTML).not.toContain('backdrop-blur-md');
+    expect(view.container.innerHTML).not.toContain('animate-spin-slow');
+    expect(view.container.innerHTML).not.toContain('animate-pulse');
+
+    fireEvent.click(screen.getByRole('button', { name: /LOCATION/i }));
+    expect(screen.getByText('OPERATING LOCATION')).toBeTruthy();
+    view.rerender(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={onClose}
+        callsign="N0CALL"
+        gridSquare=""
+        gps={{ ...gps, gridSquare: 'FM18aa' }}
+        gpsProvenance={{ status: 'connecting', source: { id: 'gps:test', type: 'gps_acquisition' } }}
+        initialTab="smart_deploy"
+      />,
+    );
+    expect(screen.getByText('OPERATING LOCATION')).toBeTruthy();
+    expect(onClose).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'CLOSE SUITE' }));
+    expect(onClose).toHaveBeenCalledOnce();
   });
 
   it('does not simulate hardware attachment from the disconnected battery card', () => {

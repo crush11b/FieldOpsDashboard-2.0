@@ -7,7 +7,8 @@ import { ActivationFoundationPanel } from './ActivationFoundationPanel';
 import { OperationsReadinessWorkspace } from './OperationsReadinessWorkspace';
 import { ActivationReviewPanel } from './ActivationReviewPanel';
 import { listQsos } from '../qsoApi';
-import { startActivationFromBrief } from '../activationApi';
+import { reconcileActiveActivation, startActivationFromBrief } from '../activationApi';
+import { LiveBandActivityPanel } from './LiveBandActivityPanel';
 
 interface SmartDeployBriefViewProps {
   brief: SmartDeployBrief;
@@ -20,14 +21,19 @@ export const SmartDeployBriefView: React.FC<SmartDeployBriefViewProps> = ({ brie
 const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
   const [phase, setPhase] = useState<'plan' | 'prepare' | 'operate' | 'review'>('plan');
   const [activation, setActivation] = useState<Activation | null>(null);
+  const [activeActivations, setActiveActivations] = useState<Activation[]>([]);
+  const [reconciliationMessage, setReconciliationMessage] = useState<string | null>(null);
   const [qsoCount, setQsoCount] = useState<number | null>(null);
-  useEffect(() => { let cancelled = false; void fetch('/api/activations').then(response => response.ok ? response.json() : null).then(payload => { if (cancelled) return; const match = payload?.activations?.find((item: Activation) => item.briefId === brief.briefId); if (match) { setActivation(match); setPhase(match.status === 'active' ? 'operate' : match.status === 'completed' ? 'review' : 'plan'); } }).catch(() => undefined); return () => { cancelled = true; }; }, [brief.briefId]);
+  useEffect(() => { let cancelled = false; void fetch('/api/activations').then(response => response.ok ? response.json() : null).then(payload => { if (cancelled) return; const activations = (payload?.activations || []) as Activation[]; setActiveActivations(activations.filter(item => item.status === 'active')); const match = activations.find(item => item.briefId === brief.briefId); if (match) { setActivation(match); setPhase(match.status === 'active' ? 'operate' : match.status === 'completed' ? 'review' : 'plan'); } }).catch(() => undefined); return () => { cancelled = true; }; }, [brief.briefId]);
+  const repairActiveActivations = async (keepActivationId: string) => { setReconciliationMessage(null); const result = await reconcileActiveActivation(keepActivationId); if (result.kind !== 'activation') { setReconciliationMessage(result.message); return; } setActiveActivations([result.activation]); setReconciliationMessage(`Reconciled ${result.reconciledActivationIds?.length || 0} stale active Activation record(s) as completed.`); if (activation?.activationId === keepActivationId) setActivation(result.activation); };
   useEffect(() => { if (!activation) { setQsoCount(null); return; } void listQsos(activation.activationId).then(result => setQsoCount(result.qsos.length)).catch(() => setQsoCount(null)); }, [activation]);
   const propagation = brief.sections.propagation.evidence;
   const solar = brief.sections.solar.evidence;
   const observedRf = brief.sections.observedRf;
   const geometry = propagationGeometry(propagation);
   return <section id="smartdeploy-brief" className="space-y-3" aria-live="polite">
+    {activeActivations.length > 1 && <div role="alert" className="rounded-xl border border-red-700/70 bg-red-950/30 p-3 space-y-2"><strong className="text-[11px] uppercase text-red-200">AMBIGUOUS ACTIVE ACTIVATION STATE</strong><p className="text-[11px] text-red-100">WSJT-X QSOs are paused until one active Activation is kept. Historical records and QSOs will be preserved; the other active records will be completed.</p><div className="flex flex-wrap gap-2">{activeActivations.map(item => <button key={item.activationId} type="button" onClick={() => void repairActiveActivations(item.activationId)} className="min-h-11 rounded border border-red-500 px-3 py-2 text-[10px] font-bold text-red-100">KEEP {item.reference || item.activationId} ACTIVE</button>)}</div></div>}
+    {reconciliationMessage && <p role="status" className="rounded border border-emerald-700/70 bg-emerald-950/30 p-3 text-[11px] text-emerald-200">{reconciliationMessage}</p>}
     <header className="sticky top-0 z-10 rounded-xl border border-cyan-700/70 bg-slate-950/95 p-3 shadow-lg">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div><h3 className="font-black text-sm uppercase text-cyan-200">{brief.activation.reference}{brief.activation.displayName ? ` · ${brief.activation.displayName}` : ''}</h3><p className="text-[10px] text-slate-400">{brief.activation.program} · {brief.activation.gridSquare || 'Grid unavailable'} · {formatUtc(brief.missionWindow.start)} to {formatUtc(brief.missionWindow.end)} · {activation?.status || 'PLANNED'}</p></div>
@@ -57,15 +63,30 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3 space-y-2"><Detail label="SCHEMA / BRIEF" value={`${brief.schemaVersion} / ${brief.briefId}`} /><Detail label="GENERATED" value={formatUtc(brief.generatedAtUtc)} /><Detail label="MISSION UTC" value={`${brief.missionWindow.start} / ${brief.missionWindow.midpoint} / ${brief.missionWindow.end}`} /><Detail label="CURRENT DEVICE" value={brief.currentDeviceLocation ? `${brief.currentDeviceLocation.gridSquare || formatCoordinates(brief.currentDeviceLocation.coordinates)} (context only)` : 'Unavailable'} /><Detail label="ACTIVATION COORDINATES" value={`${formatCoordinates(brief.activation.coordinates)} / ${brief.activation.gridSquare || 'Grid unavailable'}`} /><Detail label="PLANNED COORDINATES / PROVENANCE" value={`${formatCoordinates(brief.plannedOperatingSite.location.coordinates)} / ${brief.plannedOperatingSite.description} / raw location provenance: ${brief.plannedOperatingSite.location.provenance} / planning source: ${brief.plannedOperatingSite.source}`} /><Detail label="RF REGION" value={`${brief.propagationObjective.regionId} / ${brief.propagationObjective.regionLabel}`} /><Detail label="OBSERVED RF WINDOW / STATUS" value={`${observedRf.evidence.observationWindow.startsAt ? `${formatUtc(observedRf.evidence.observationWindow.startsAt)} to ${formatUtc(observedRf.evidence.observationWindow.endsAt)}` : 'Unavailable'} / ${observedRf.status}`} /><Detail label="MODEL" value="ITU-R P.533 representative regional paths; long-lived solar-cycle model input; no mission-time forecast." /><h4 className="pt-2 text-[10px] font-black uppercase text-amber-300">Structured limitations</h4><ul className="list-disc pl-5 space-y-1 text-[10px] text-slate-300">{brief.limitations.map(limitation => <li key={limitation.code}><strong>{limitation.code}:</strong> {limitation.message}</li>)}</ul></div></details>
     </>}
     {phase === 'prepare' && <>
-      <OperationsReadinessWorkspace brief={brief} onStartActivation={async () => { const result = await startActivationFromBrief(brief.briefId); if (result.kind !== 'activation') throw new Error(result.message); setActivation(result.activation); setPhase('operate'); }} />
+      <OperationsReadinessWorkspace brief={brief} onStartActivation={async () => { const result = await startActivationFromBrief(brief.briefId); if (result.kind !== 'activation') throw new Error(result.message); setActivation(result.activation); setActiveActivations([result.activation]); setPhase('operate'); }} />
       <FieldReadinessChecklistPanel brief={brief} />
       <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3"><Detail label="BRIEF" value={brief.briefId} /><Detail label="PLAN SOURCE" value={readableLocationSource(brief.plannedOperatingSite.source)} /></div></details>
     </>}
     {phase === 'operate' && <>
-      <ActivationFoundationPanel brief={brief} initialActivation={activation} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') setPhase('operate'); }} />
+      <ActivationFoundationPanel brief={brief} initialActivation={activation} initialQsoCount={qsoCount} showReview={false} onActivationChange={next => { setActivation(next); if (next?.status === 'active') { setActiveActivations([next]); setPhase('operate'); } }} />
       {activation ? <ActivationNotesPanel brief={brief} /> : <p className="rounded-lg border border-amber-700/60 bg-amber-950/20 p-3 text-[11px] text-amber-200">Start the activation from PREPARE to enable Notes and the QSO Logger.</p>}
+      <OperateSupportingContext brief={brief} />
+      {activation?.status === 'active' && <LiveBandActivityPanel active />}
     </>}
     {phase === 'review' && (activation ? <ActivationReviewPanel activation={activation} /> : <div className="rounded-xl border border-amber-700/60 bg-amber-950/20 p-3 space-y-2"><h3 className="font-black text-sm uppercase text-amber-300">REVIEW</h3><p className="text-[11px] text-slate-300">Open this plan in OPERATE first to create its durable Activation record, then return here for the retained-evidence review.</p><button type="button" onClick={() => setPhase('operate')} className="min-h-11 rounded border border-cyan-700 px-3 py-2 text-[10px] font-bold text-cyan-200">OPEN OPERATE</button></div>)}
+  </section>;
+};
+
+const OperateSupportingContext: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
+  const propagation = brief.sections.propagation.evidence;
+  const modeledBands = propagation.summary.strongestBandBySample.map(item => item.band).filter(Boolean);
+  const modeledBand = modeledBands.length ? [...new Set(modeledBands)].join(' / ') : 'Unavailable';
+  return <section aria-label="Operate supporting context" className="rounded-lg border border-slate-700 bg-slate-950/50 p-3 space-y-2">
+    <h3 className="text-[10px] font-black uppercase text-amber-300">SUPPORTING CONTEXT</h3>
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-2"><span className="block text-[9px] uppercase text-slate-500">PLANNED / MODELED</span><strong className="block mt-1 text-[11px] text-slate-100">Strongest modeled band: {modeledBand}</strong><span className="block mt-1 text-[10px] text-slate-400">Retained SmartDeploy/P.533 guidance. Not observed RF or actual station state.</span></div>
+      <div className="rounded border border-slate-800 bg-slate-900/70 p-2"><span className="block text-[9px] uppercase text-slate-500">OBSERVED RF</span><strong className="block mt-1 text-[11px] text-slate-100">Recent digital activity</strong><span className="block mt-1 text-[10px] text-slate-400">PSKReporter reception evidence is shown separately below; it is not a forecast or station-state report.</span></div>
+    </div>
   </section>;
 };
 

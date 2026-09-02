@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock } from 'lucide-react';
+import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock, ChevronDown } from 'lucide-react';
 import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
 import { playTacticalClick } from '../utils/audio';
 import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
-import type { ClockSynchronizationEvidence } from '../../server/locationTelemetryPipe';
+import type { ClockSynchronizationEvidence, GnssRecoveryResult, GnssSerialDiagnostics } from '../../server/locationTelemetryPipe';
+import { recoverGnss } from '../gnssRecoveryApi';
 
 interface GPSGridWidgetProps {
   gps: GPSStatus;
@@ -16,6 +17,7 @@ interface GPSGridWidgetProps {
   onSelectComPort?: (port: string, baud: number) => void;
   clockEvidence?: ClockSynchronizationEvidence;
   onSynchronizeClock?: () => Promise<void>;
+  gnssDiagnostics?: GnssSerialDiagnostics;
 }
 
 export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
@@ -29,12 +31,17 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   onSelectComPort,
   clockEvidence,
   onSynchronizeClock,
+  gnssDiagnostics,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const [inputLat, setInputLat] = useState(Number.isFinite(gps.lat) ? gps.lat.toString() : '');
   const [inputLon, setInputLon] = useState(Number.isFinite(gps.lon) ? gps.lon.toString() : '');
   const [inputGrid, setInputGrid] = useState(gps.gridSquare);
   const [clockConfirmed, setClockConfirmed] = useState(false);
+  const [diagnosticsExpanded, setDiagnosticsExpanded] = useState(false);
+  const [serialDiagnostics, setSerialDiagnostics] = useState<GnssSerialDiagnostics | null>(gnssDiagnostics ?? null);
+  const [recoveryState, setRecoveryState] = useState<GnssRecoveryResult | null>(null);
+  const [recoveryInProgress, setRecoveryInProgress] = useState(false);
   const gpsUpdateSequence = useRef(0);
   const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
   const nativeRequestInFlight = useRef<Promise<void> | null>(null);
@@ -95,6 +102,19 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
     return () => { cancelled = true; clearInterval(interval); };
   }, [isEditing]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const requestDiagnostics = async () => {
+      try {
+        const response = await fetch('/api/location/diagnostics');
+        if (!cancelled && response.ok) setSerialDiagnostics(await response.json() as GnssSerialDiagnostics);
+      } catch { /* diagnostic transport is optional and must not affect location */ }
+    };
+    requestDiagnostics();
+    const interval = setInterval(requestDiagnostics, 10000);
+    return () => { cancelled = true; clearInterval(interval); };
+  }, []);
+
   const requestNativeFix = async () => {
     manualLocationActive.current = false;
     if (!nativeRequestInFlight.current) nativeRequestInFlight.current = nativeLocationRequest.current().then(() => undefined).finally(() => { nativeRequestInFlight.current = null; });
@@ -109,6 +129,60 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       ? 'NOT GPS-SYNCHRONIZED'
       : 'GNSS TIME UNAVAILABLE';
   const formatEvidenceTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(0, 19).replace('T', ' ')} UTC` : 'Not available';
+  const formatDiagnosticTime = (value: string | null | undefined) => value ? `${new Date(value).toISOString().slice(11, 19)} UTC` : '—';
+  const diagnosticsUnavailable = serialDiagnostics?.transportStatus === 'unavailable';
+  const recoveryAvailable = serialDiagnostics?.lastFailureCategory === 'SerialSilence';
+  const currentGnssHealthy = provenance.status === 'ok'
+    && provenance.source.type === 'serial_nmea'
+    && Number.isFinite(displayLocation?.lat)
+    && Number.isFinite(displayLocation?.lon)
+    && serialDiagnostics?.state === 'Receiving'
+    && Boolean(serialDiagnostics.lastSerialDataUtc)
+    && Boolean(serialDiagnostics.lastValidNmeaUtc)
+    && Boolean(serialDiagnostics.lastFixUtc);
+  const failureLabel = diagnosticsUnavailable
+    ? 'FAILURE'
+    : currentGnssHealthy
+      ? 'LAST FAILURE'
+      : 'FAILURE';
+  const recoveryMessage = recoveryInProgress
+    ? 'Recovery requested; recovering GPS...'
+    : recoveryState?.state === 'Unsupported'
+      ? 'GPS recovery is unsupported for this device.'
+      : recoveryState?.state === 'Disabled'
+        ? 'GPS recovery is disabled.'
+        : recoveryState?.state === 'NotNeeded'
+          ? 'GPS recovery is not needed.'
+          : recoveryState?.state === 'Available'
+            ? 'GPS recovery is available.'
+            : recoveryState?.state === 'Running'
+              ? 'A GPS recovery operation is already running.'
+              : recoveryState?.state === 'CommandAccepted'
+      ? 'Command accepted; waiting for NMEA data.'
+      : recoveryState?.state === 'NmeaRecovered'
+        ? currentGnssHealthy ? 'GNSS fix restored.' : 'NMEA data recovered; acquiring GPS fix.'
+        : recoveryState?.state === 'Recovered'
+          ? 'GPS recovered.'
+          : recoveryState?.state === 'PortUnavailable'
+            ? 'GPS recovery could not open the control port.'
+            : recoveryState?.state === 'UnexpectedResponse'
+              ? 'GPS recovery received an unexpected modem response.'
+              : recoveryState?.state === 'AlreadyRunning'
+                ? 'A GPS recovery operation is already running.'
+                : recoveryState?.state === 'Cancelled'
+                  ? 'GPS recovery was cancelled.'
+                  : recoveryState?.state === 'Failed'
+                    ? 'GPS recovery failed.'
+                    : recoveryState?.state === 'TimedOut'
+                      ? 'GPS recovery timed out waiting for NMEA data.'
+                      : null;
+  const runGnssRecovery = async () => {
+    if (recoveryInProgress) return;
+    setRecoveryInProgress(true);
+    try { setRecoveryState(await recoverGnss()); }
+    catch { setRecoveryState({ state: 'Failed', failureCategory: 'UnexpectedError', failureMessage: 'The recovery request failed.', supported: true, available: false, providerType: null, controlPort: null, operationStartedUtc: null, operationCompletedUtc: null, commandAccepted: false, serialActivityRecovered: false, nmeaActivityRecovered: false, fixStatus: 'Error', attemptCount: 0, lastSerialBeforeUtc: null, lastSerialAfterUtc: null, lastNmeaAfterUtc: null }); }
+    finally { setRecoveryInProgress(false); }
+  };
 
   const cardBg = isNight
     ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
@@ -209,7 +283,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
       {/* Header */}
       <div className="flex items-center justify-between mb-2.5 pb-2 border-b border-current/15">
         <div className="flex items-center gap-2">
-          <Navigation className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-emerald-400'} animate-spin-slow`} />
+          <Navigation className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-emerald-400'}`} />
           <h3 className="text-xs font-bold uppercase tracking-wider">
             GPS / MAIDENHEAD LOCATION BADGE
           </h3>
@@ -411,7 +485,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                 <span className={`font-bold ${clockEvidence?.status === 'Synchronized' ? 'text-emerald-400' : 'text-amber-300'}`}>{clockStatus}</span>
                 <div className="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-1 text-[10px] opacity-85">
                   <span>LAST GPS SYNC: {formatEvidenceTime(clockEvidence?.lastSuccessfulSynchronizationUtc)}</span>
-                  <span>PRE-SYNC OFFSET: {typeof clockEvidence?.offsetBeforeSynchronizationSeconds === 'number' ? `${clockEvidence.offsetBeforeSynchronizationSeconds.toFixed(3)} s` : 'Not available'}</span>
+                  <span>CALCULATED OFFSET: {typeof (clockEvidence?.currentOffsetSeconds ?? clockEvidence?.offsetBeforeSynchronizationSeconds) === 'number' ? `${(clockEvidence.currentOffsetSeconds ?? clockEvidence.offsetBeforeSynchronizationSeconds)!.toFixed(3)} s` : 'Not available'}</span>
                   <span>SOURCE: FieldOps Agent / COM6</span>
                 </div>
                 {onSynchronizeClock && <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -430,7 +504,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         isNight ? 'text-red-400' : isSunlight ? 'text-slate-800' : 'text-zinc-300'
       }`}>
         <div className="flex items-center gap-2">
-          <Satellite className="w-3.5 h-3.5 text-cyan-400 animate-pulse" />
+          <Satellite className="w-3.5 h-3.5 text-cyan-400" />
           <span className="text-[10px] font-extrabold uppercase tracking-wider text-cyan-300">
             GNSS SERIAL PORT:
           </span>
@@ -477,6 +551,43 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             DIRECT GNSS HARDWARE STREAM
           </span>
         </div>
+      </div>
+
+      <div className="mt-2 border-t border-current/15 pt-2">
+        <button
+          type="button"
+          aria-expanded={diagnosticsExpanded}
+          onClick={() => setDiagnosticsExpanded(!diagnosticsExpanded)}
+          className="flex items-center gap-1 text-[10px] font-bold uppercase tracking-wider opacity-80 hover:opacity-100"
+        >
+          <ChevronDown className={`w-3 h-3 transition-transform ${diagnosticsExpanded ? 'rotate-180' : ''}`} />
+          GNSS Diagnostics
+        </button>
+        {diagnosticsExpanded && (
+          <div className="mt-2 grid grid-cols-2 sm:grid-cols-4 gap-x-3 gap-y-1 text-[10px]" data-testid="gnss-diagnostics">
+            <span>PORT <strong>{diagnosticsUnavailable ? 'Unavailable' : serialDiagnostics ? `${serialDiagnostics.portName} @ ${serialDiagnostics.baudRate}` : '—'}</strong></span>
+            <span>STATE <strong>{diagnosticsUnavailable ? 'Unavailable' : serialDiagnostics?.state ?? '—'}</strong></span>
+            <span>SESSION <strong>{diagnosticsUnavailable ? '—' : serialDiagnostics?.sessionGeneration ?? '—'}</strong></span>
+            <span>RECONNECTS <strong>{diagnosticsUnavailable ? '—' : serialDiagnostics?.reconnectCount ?? '—'}</strong></span>
+            <span>LAST OPEN <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastSuccessfulOpenUtc)}</strong></span>
+            <span>LAST SERIAL <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastSerialDataUtc)}</strong></span>
+            <span>LAST NMEA <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastValidNmeaUtc)}</strong></span>
+            <span>LAST FIX <strong>{diagnosticsUnavailable ? '—' : formatDiagnosticTime(serialDiagnostics?.lastFixUtc)}</strong></span>
+            <span className="col-span-2 sm:col-span-4">{failureLabel} <strong>{diagnosticsUnavailable ? 'diagnostic_transport_unavailable' : serialDiagnostics?.lastFailureCategory ?? '—'}{!diagnosticsUnavailable && serialDiagnostics?.lastFailureMessage ? `: ${serialDiagnostics.lastFailureMessage}` : ''}</strong></span>
+            <div className="col-span-2 sm:col-span-4 mt-2 flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={runGnssRecovery}
+                disabled={!recoveryAvailable || recoveryInProgress}
+                className="inline-flex items-center gap-1 rounded border border-amber-400/50 px-2 py-1 font-bold uppercase tracking-wider text-amber-300 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <RefreshCw className={`h-3 w-3 ${recoveryInProgress ? 'animate-spin' : ''}`} />
+                {recoveryInProgress ? 'Recovering GPS...' : 'Recover GPS'}
+              </button>
+              {recoveryMessage && <span role="status" className="text-amber-200">{recoveryMessage}{recoveryState && recoveryState.controlBaud ? ` (${recoveryState.configurationEnabled ? 'enabled' : 'disabled'} / ${recoveryState.providerType ?? 'unknown'} / ${recoveryState.controlPort ?? 'unknown'} @ ${recoveryState.controlBaud})` : ''}</span>}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

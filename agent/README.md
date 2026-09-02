@@ -129,10 +129,15 @@ ADR-003 documents the architecture decision and field-validation requirements. T
 
 Developers build the native bundle with `powershell -ExecutionPolicy Bypass -File .\agent\scripts\Build-FieldOpsNativePackage.ps1`. This writes `agent\artifacts\packages\fieldops-native-win-x64.zip`; upload it to the configured `mvp-native` release asset. The ToughBook updater downloads it automatically and does not require the .NET SDK.
 
-The repository-root `UpdateDashboard.bat` is the supported single-operator entry point. Copy
-`UpdateDashboard.bat` and `UpdateDashboard.ps1` together to the Desktop once; the updater resolves
-the active interactive operator automatically. For an explicit override, pass
-`-OperatorAccount '.\stick'`. Future runs update
+The repository-root `UpdateDashboard.bat` is the supported single-operator entry point. Run
+`scripts\Install-FieldOpsDevelopmentUpdater.ps1` once from the development checkout to put the
+`Deploy FieldOps Development` shortcut on the Desktop. Double-click it, approve UAC, confirm the
+displayed branch and full SHA, and wait for `FIELDOPS DEVELOPMENT UPDATE VERIFIED`. The launcher
+resolves `feature/2.7-connected-operations` through GitHub, downloads `UpdateDashboard.ps1` from
+that exact SHA, and never uses a moving branch or local checkout on the installed side. To deploy
+a specifically validated revision, run the Desktop BAT with the full SHA as its only argument.
+
+The exact-revision updater then updates
 `C:\FieldOpsDashboard`, publish the agent and tray, delegate installation/startup registration to
 the existing installer, provision the protected dashboard telemetry credential, and immediately
 launch the installed Tray through the resolved operator's explorer-owned primary token. This
@@ -141,6 +146,6 @@ for future logons. The launch is bounded and verified by executable path, operat
 an unavailable or exited Tray is reported as a failed deployment verification. The updater then
 launches the production server with `npm start`. Do not use `npm run dev` for an installed deployment.
 
-The BAT remains a deliberately small bootstrap and does not select a Git revision or native artifact.
 For a controlled offline update, select the intended 40-character revision and pass the matching local
-package explicitly with `-Revision` and `-NativeArtifactPath`; desktop bootstrap refinement is deferred.
+package explicitly to `UpdateDashboard.ps1` with `-Revision` and `-NativeArtifactPath`; this is
+separate from the development Desktop launcher.

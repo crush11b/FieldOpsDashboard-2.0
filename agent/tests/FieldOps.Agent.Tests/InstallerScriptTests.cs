@@ -131,10 +131,11 @@ public sealed class InstallerScriptTests
     public void DesktopUpdaterUsesCurrentPublishAndProductionInstallPath()
     {
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var topLevelParameters = PowerShellScriptAssertions.GetTopLevelParameterBlock(updater);
         var runtimeReadiness = File.ReadAllText(FindScript("FieldOps.RuntimeReadiness.psm1"));
         Assert.DoesNotContain("feature/E1-telemetry-foundation", updater);
-        Assert.Contains("[string]$OperatorAccount", updater);
-        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", updater);
+        Assert.Matches(@"(?m)^\s*\[string\]\$OperatorAccount\s*,?\s*$", topLevelParameters);
+        Assert.DoesNotContain("[Parameter(Mandatory = $true)][string]$OperatorAccount", topLevelParameters);
         Assert.Contains("Resolve-FieldOpsInteractiveOperator", updater);
         Assert.Contains("[ValidatePattern('^[0-9a-fA-F]{40}$')][string]$Revision", updater);
         Assert.Contains("Resolve-DeploymentRevision", updater);
@@ -162,9 +163,35 @@ public sealed class InstallerScriptTests
         Assert.DoesNotContain("Start-Process -FilePath 'npm.cmd'", updater);
         Assert.DoesNotContain("npm run dev", updater);
         var batch = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.bat"));
-        Assert.Contains("UpdateDashboard.ps1", batch);
+        Assert.Contains("FieldOpsDevelopmentUpdater.ps1", batch);
         Assert.Contains("C:\\FieldOpsDashboard", updater);
         Assert.Contains("Set-Location -LiteralPath $installParent", updater);
+        var developmentUpdater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "FieldOpsDevelopmentUpdater.ps1"));
+        Assert.Contains("-NativeArtifactUrl \"https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip\"", developmentUpdater);
+        Assert.Contains("-EnableCf20GnssRecovery", developmentUpdater);
+    }
+
+    [Fact]
+    public void Cf20DeploymentProfileAndEventLogRecoveryFilterAreExplicit()
+    {
+        var profilePath = Path.Combine(GetRepositoryRoot(), "agent", "src", "FieldOps.Agent", "appsettings.Cf20.json");
+        var profile = File.ReadAllText(profilePath);
+        var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
+        var deploy = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "Deploy-ToughBook.ps1"));
+        var program = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "agent", "src", "FieldOps.Agent", "Program.cs"));
+
+        Assert.Contains("\"Enabled\": true", profile);
+        Assert.Contains("\"Provider\": \"SierraEm7455B\"", profile);
+        Assert.Contains("\"ControlPort\": \"COM7\"", profile);
+        Assert.Contains("\"ControlBaud\": 115200", profile);
+        Assert.Contains("'DOTNET_ENVIRONMENT=Cf20'", updater);
+        Assert.Contains("'Agent__Location__Recovery__Enabled=true'", updater);
+        Assert.Contains("$NativeArtifactUrl -match '^https://github\\.com/[^/]+/[^/]+/releases/download/native-[0-9a-fA-F]{40}/fieldops-native-win-x64\\.zip$'", updater);
+        Assert.Contains("'DOTNET_ENVIRONMENT=Cf20'", deploy);
+        Assert.Contains("AddFilter<Microsoft.Extensions.Logging.EventLog.EventLogLoggerProvider>", program);
+        Assert.Contains("FieldOps.Agent.Location.GnssRecoveryCoordinator", program);
+        Assert.Contains("GNSS recovery configuration loaded.", program);
+        Assert.Single(Regex.Matches(program, "GNSS recovery configuration loaded\\."));
     }
 
     [Fact]
@@ -394,5 +421,57 @@ public sealed class InstallerScriptTests
             directory = directory.Parent;
         }
         throw new DirectoryNotFoundException("Could not locate repository root.");
+    }
+}
+
+internal static class PowerShellScriptAssertions
+{
+    public static string GetTopLevelParameterBlock(string script)
+    {
+        var match = Regex.Match(script, @"\A(?:(?:[ \t]*#.*(?:\r?\n|$))|[ \t\r\n])*(?:\[[^\]]+\][ \t\r\n]*)?param\s*\(");
+        if (!match.Success)
+        {
+            throw new InvalidOperationException("Could not locate the top-level PowerShell parameter block.");
+        }
+
+        var openingParenthesis = match.Index + match.Length - 1;
+        var depth = 0;
+        var quote = '\0';
+
+        for (var index = openingParenthesis; index < script.Length; index++)
+        {
+            var character = script[index];
+            if (quote != '\0')
+            {
+                if (character == quote)
+                {
+                    if (quote == '\'' && index + 1 < script.Length && script[index + 1] == '\'')
+                    {
+                        index++;
+                    }
+                    else
+                    {
+                        quote = '\0';
+                    }
+                }
+
+                continue;
+            }
+
+            if (character is '\'' or '"')
+            {
+                quote = character;
+            }
+            else if (character == '(')
+            {
+                depth++;
+            }
+            else if (character == ')' && --depth == 0)
+            {
+                return script.Substring(openingParenthesis, index - openingParenthesis + 1);
+            }
+        }
+
+        throw new InvalidOperationException("The top-level PowerShell parameter block is unbalanced.");
     }
 }

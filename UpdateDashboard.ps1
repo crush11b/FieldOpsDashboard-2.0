@@ -10,7 +10,8 @@ param(
     [string]$NativeArtifactPath,
     [string]$NativeArtifactUrl = 'https://github.com/crush11b/FieldOpsDashboard-2.0/releases/download/mvp-native/fieldops-native-win-x64.zip',
     [switch]$SkipProcessStop,
-    [switch]$SimulateCopyFailure
+    [switch]$SimulateCopyFailure,
+    [switch]$EnableCf20GnssRecovery
 )
 
 Set-StrictMode -Version Latest
@@ -261,6 +262,52 @@ function Ensure-FieldOpsTelemetryCredentials {
     if ($LASTEXITCODE -ne 0) { throw "Telemetry credential provisioning failed with exit code $LASTEXITCODE." }
 }
 
+function Invoke-FieldOpsAgentInstaller {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallerPath,
+        [Parameter(Mandatory = $true)][string]$PublishPath,
+        [Parameter(Mandatory = $true)][string]$TrayPublishPath,
+        [Parameter(Mandatory = $true)][string]$OperatorAccount,
+        [AllowEmptyCollection()][string[]]$AdditionalServiceEnvironment = @()
+    )
+
+    $arguments = @{
+        PublishPath = $PublishPath
+        TrayPublishPath = $TrayPublishPath
+        OperatorAccount = $OperatorAccount
+    }
+    [string[]]$normalizedServiceEnvironment = @($AdditionalServiceEnvironment)
+    if (@($normalizedServiceEnvironment)) {
+        $arguments.Add('AdditionalServiceEnvironment', $normalizedServiceEnvironment)
+    }
+    & $InstallerPath @arguments
+}
+
+function Invoke-FieldOpsAgentInstallStage {
+    param(
+        [Parameter(Mandatory = $true)][string]$InstallerPath,
+        [Parameter(Mandatory = $true)][string]$PublishPath,
+        [Parameter(Mandatory = $true)][string]$TrayPublishPath,
+        [Parameter(Mandatory = $true)][string]$OperatorAccount,
+        [switch]$EnableCf20GnssRecovery
+    )
+
+    $cf20ArtifactProfile = $NativeArtifactUrl -match '^https://github\.com/[^/]+/[^/]+/releases/download/native-[0-9a-fA-F]{40}/fieldops-native-win-x64\.zip$'
+    $serviceEnvironment = if ($EnableCf20GnssRecovery -or $cf20ArtifactProfile) { @(
+        'DOTNET_ENVIRONMENT=Cf20',
+        'Agent__Location__Recovery__Enabled=true',
+        'Agent__Location__Recovery__Provider=SierraEm7455B',
+        'Agent__Location__Recovery__ControlPort=COM7',
+        'Agent__Location__Recovery__ControlBaud=115200'
+    ) } else { @() }
+    Invoke-FieldOpsAgentInstaller `
+        -InstallerPath $InstallerPath `
+        -PublishPath $PublishPath `
+        -TrayPublishPath $TrayPublishPath `
+        -OperatorAccount $OperatorAccount `
+        -AdditionalServiceEnvironment $serviceEnvironment
+}
+
 Write-Host '=======================================================' -ForegroundColor Cyan
 Write-Host ' FieldOps Dashboard - Validated Auto-Update Utility ' -ForegroundColor Cyan
 Write-Host '=======================================================' -ForegroundColor Cyan
@@ -336,7 +383,10 @@ try {
 
     if ([string]::IsNullOrWhiteSpace($NativeArtifactPath)) {
         $NativeArtifactPath = Join-Path $downloadRoot 'fieldops-native-win-x64.zip'
-        try { Invoke-WebRequest -Uri $NativeArtifactUrl -OutFile $NativeArtifactPath -UseBasicParsing } catch { throw "Native artifact download failed from '$NativeArtifactUrl': $($_.Exception.Message)" }
+        $artifactUrl = $NativeArtifactUrl
+        try {
+            Invoke-WebRequest -Uri $artifactUrl -OutFile $NativeArtifactPath -UseBasicParsing
+        } catch { throw "Native artifact download failed from '$artifactUrl': $($_.Exception.Message)" }
     }
     $nativeRoot = Assert-NativeArtifact -Path $NativeArtifactPath -ExpectedRevision $deploymentRevision
     $p533RuntimeRoot = Assert-P533RuntimeArtifact -PackageRoot $packageRoot -NativeRoot $nativeRoot -ExpectedRevision $deploymentRevision
@@ -418,7 +468,12 @@ try {
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'agent') -Destination $artifactRoot -Recurse -Force
     Copy-Item -LiteralPath (Join-Path $nativeRoot 'tray') -Destination $artifactRoot -Recurse -Force
     $runtimeMayHaveStarted = $true
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') -PublishPath (Join-Path $artifactRoot 'agent') -TrayPublishPath (Join-Path $artifactRoot 'tray') -OperatorAccount $OperatorAccount
+    Invoke-FieldOpsAgentInstallStage `
+        -InstallerPath (Join-Path $resolvedInstallPath 'agent\scripts\Install-FieldOpsAgent.ps1') `
+        -PublishPath (Join-Path $artifactRoot 'agent') `
+        -TrayPublishPath (Join-Path $artifactRoot 'tray') `
+        -OperatorAccount $OperatorAccount `
+        -EnableCf20GnssRecovery:$EnableCf20GnssRecovery
     if ($LASTEXITCODE -ne 0) { throw "FieldOps agent/tray installation failed with exit code $LASTEXITCODE." }
     Ensure-FieldOpsTelemetryCredentials
 
@@ -460,6 +515,7 @@ try {
         -SkipLaunch:$SkipLaunch
     if ($readiness.Agent.Status -eq 'Passed') {
         Write-Host "[OK] Agent: $($readiness.Agent.Detail)" -ForegroundColor Green
+        Write-Host "[OK] Agent PID after restart: $($readiness.Agent.ProcessId)" -ForegroundColor Green
     } else {
         Write-Host "[X] Agent: $($readiness.Agent.Detail)" -ForegroundColor Red
     }

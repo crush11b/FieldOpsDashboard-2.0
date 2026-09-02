@@ -2,7 +2,8 @@
 param(
     [string]$PublishPath,
     [string]$TrayPublishPath,
-    [Parameter(Mandatory = $true)][string]$OperatorAccount
+    [Parameter(Mandatory = $true)][string]$OperatorAccount,
+    [AllowEmptyCollection()][string[]]$AdditionalServiceEnvironment = @()
 )
 
 Set-StrictMode -Version Latest
@@ -153,6 +154,10 @@ $operatorProvisioning = $null
 $operatorEnvironmentConfigured = $false
 $operatorEnvironmentSnapshot = $null
 
+foreach ($entry in $AdditionalServiceEnvironment) {
+    if ([string]$entry -notmatch '^[^=]+=.*$') { throw "Invalid service environment entry '$entry'." }
+}
+
 try {
     if ($upgrade) {
         Stop-Service -Name $serviceName -Force -ErrorAction Stop
@@ -245,7 +250,8 @@ try {
 
     $operatorEnvironmentSnapshot = Get-FieldOpsServiceEnvironment -ServiceName $serviceName
     Set-FieldOpsOperatorServiceEnvironment -ServiceName $serviceName `
-        -GroupSid $operatorProvisioning.GroupSid
+        -GroupSid $operatorProvisioning.GroupSid `
+        -AdditionalEntries $AdditionalServiceEnvironment
     $operatorEnvironmentConfigured = $true
 
     Start-Service -Name $serviceName
