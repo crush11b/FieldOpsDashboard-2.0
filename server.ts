@@ -33,8 +33,8 @@ import { readSerialInventoryPipe } from './server/serialInventoryPipe';
 import { readClockStatusPipe, readGnssSerialDiagnosticsPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
-import { DEFAULT_APPS } from './src/data/defaultConfig';
-import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath } from './server/dashboardConfig';
+import { DEFAULT_APPS, INITIAL_CONFIG } from './src/data/defaultConfig';
+import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath, resolveWsjtxConfiguration } from './server/dashboardConfig';
 import { SpaceWeatherService } from './server/spaceWeather';
 import { SpaceWeatherSnapshotStore, getDefaultSpaceWeatherSnapshotPath } from './server/spaceWeatherSnapshotStore';
 import { createSpaceWeatherSnapshotRouter } from './server/spaceWeatherSnapshotApi';
@@ -115,7 +115,8 @@ async function startServer() {
     }
     next(error);
   });
-  app.use(createDashboardConfigRouter(new DashboardConfigStore(getDefaultDashboardConfigPath())));
+  const dashboardConfigStore = new DashboardConfigStore(getDefaultDashboardConfigPath());
+  app.use(createDashboardConfigRouter(dashboardConfigStore));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
   app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
   const sotaDataStore = new SotaSummitDataStore(getDefaultSotaSummitDatasetPath());
@@ -131,12 +132,13 @@ async function startServer() {
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
   const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
-  const configuredWsjtxPort = Number.parseInt(process.env.WSJTX_PORT || '', 10);
+  const dashboardConfig = dashboardConfigStore.read();
+  const wsjtxConfiguration = resolveWsjtxConfiguration(dashboardConfig.kind === 'loaded' ? dashboardConfig.config : INITIAL_CONFIG);
   const wsjtxListener = new WsjtxListener({
-    host: process.env.WSJTX_HOST || undefined,
-    port: Number.isInteger(configuredWsjtxPort) && configuredWsjtxPort > 0 ? configuredWsjtxPort : undefined,
-    multicastAddress: process.env.WSJTX_MULTICAST_ADDRESS || undefined,
-    multicastInterface: process.env.WSJTX_MULTICAST_INTERFACE || undefined,
+    host: wsjtxConfiguration.host,
+    port: wsjtxConfiguration.port,
+    multicastAddress: wsjtxConfiguration.multicastAddress,
+    multicastInterface: wsjtxConfiguration.multicastInterface,
     onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; },
   });
   wsjtxListener.start();

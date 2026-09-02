@@ -146,7 +146,7 @@ describe('WSJT-X protocol and listener', () => {
     expect(listener.getDiagnostics().listenerState).not.toBe('active');
 
     await vi.advanceTimersByTimeAsync(1000);
-    expect(listener.getDiagnostics()).toMatchObject({ listenerState: 'active', multicastJoined: true });
+    expect(listener.getDiagnostics()).toMatchObject({ listenerState: 'active', multicastJoined: true, lastSocketError: 'network interface stopped' });
     expect(dgram.createSocket).toHaveBeenCalledTimes(2);
     expect(availableSockets).toHaveLength(0);
     vi.useRealTimers();

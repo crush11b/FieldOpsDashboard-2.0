@@ -1,6 +1,12 @@
 import type { CurrentStationState } from './currentStationState';
 
 export interface WsjtxDiagnostics {
+  readonly listenerMode: 'unicast' | 'multicast';
+  readonly listenerState: 'stopped' | 'starting' | 'active' | 'failed' | 'recovering';
+  readonly multicastAddress: string | null;
+  readonly multicastInterface: string | null;
+  readonly multicastJoined: boolean;
+  readonly lastSocketError: string | null;
   readonly packetsReceived: number;
   readonly lastPacketReceivedAtUtc: string | null;
   readonly statusPacketsAccepted: number;
