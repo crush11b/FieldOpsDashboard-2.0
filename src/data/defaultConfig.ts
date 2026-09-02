@@ -455,6 +455,7 @@ export const INITIAL_CONFIG: DashboardConfig = {
   potaParkRef: 'K-0182',
   gpsComPort: 'COM6 (GPS Receiver)',
   gpsBaudRate: 9600,
+  wsjtx: { mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: '', host: '127.0.0.1', port: 2237 },
   propagation: { stationProfile: DEFAULT_STATION_PROFILE, destinationRegion: 'western_europe' },
   apps: DEFAULT_APPS,
 };

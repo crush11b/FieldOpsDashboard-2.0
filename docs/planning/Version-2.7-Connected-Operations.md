@@ -158,6 +158,12 @@ For a simple single-consumer setup, the default listener remains unicast on `127
 - The correction requests shared multicast-port reuse, binds multicast on `0.0.0.0`, records listener configuration and membership state, exposes socket failure diagnostics, and performs at most three delayed listener recovery attempts without creating duplicate sockets or memberships.
 - The correction is not hardware acceptance. The CF-20 retest gate remains: prove sustained multicast reception through band changes, WSJT-X restart, and an independent subscriber, then verify honest listener diagnostics and no regression to default unicast operation.
 
+### 2.7-03 production multicast configuration wiring - 2026-09-02
+
+- Revision `aa5daa31` was deployed to the CF-20, but Current Station remained unavailable and the WSJT-X packet count stayed at zero through three band changes. `/api/wsjtx/diagnostics` proved that FieldOps was active in unicast mode with `multicastAddress=null` and `multicastJoined=false`, while WSJT-X was transmitting to `239.255.0.0:2237`; the multicast reliability correction had therefore not actually been exercised.
+- The root issue was production configuration wiring: deployed Dashboard launchers supplied only `NODE_ENV`, while `WSJTX_MULTICAST_ADDRESS` existed only as an environment override and was never provided to the Dashboard process. Dashboard-owned configuration now supplies the production multicast default and preserves deliberate unicast compatibility.
+- Hardware acceptance remains pending after this correction. This record does not declare multicast validated.
+
 ---
 
 ## 2.7-03 - WSJT-X Read-Only Integration
