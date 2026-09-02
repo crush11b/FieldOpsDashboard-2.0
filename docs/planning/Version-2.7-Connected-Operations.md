@@ -1,6 +1,6 @@
 # Version 2.7 - Connected Operations
 
-- Status: Approved planning baseline; 2.7-01 through 2.7-03 accepted
+- Status: **V2.7.0 release-ready source closure; 2.7-01 through 2.7-07 accepted on CF-20 hardware**
 - Baseline: Version 2.6.0 - Activation Operations
 - Supported deployment: single operator on one locally operated Windows field computer
 - Primary field target: ToughBook/ToughPad activation workflow
@@ -507,6 +507,8 @@ The proposed controlled experiment is a paired 40m/30m comparison under a declar
 
 ### V2.7-07 real field activation - 2026-09-01
 
+The final CF-20 Mk2 acceptance evidence below supersedes the earlier interim observations in this section where they described multicast or WSJT-X-assisted logging as pending.
+
 The operator created a mission, used PLAN, PREPARE, OPERATE, and REVIEW, and ended the Activation successfully. During the same acceptance cycle, PLAN/PREPARE observations were: Mission Forecast required manual refresh; Retained Space Weather required manual refresh; Operations Readiness reported Location Ready, GPS Ready, Clock Ready, ToughBook Ready, Weather Unknown, Alerts Unknown, Space Weather Ready, and Propagation Ready. These are release punch-list observations, not automatically blockers.
 
 On the CF-20 with WSJT-X, Chrome Dashboard, the Node/local Dashboard server, the Command Prompt server window, and VS Code still running, CPU was generally approximately 30-50% with brief increases into the 70% range, and GPU remained below 10%. This is acceptable representative hardware behavior and passes relative to the prior sustained 90%+ CPU/GPU regression.
@@ -519,13 +521,38 @@ Because the radio transmit path was unsuccessful, QSOs were logged manually. Man
 
 ### V2.7-07 release classification and acceptance review
 
+### V2.7-07 final CF-20 release-closure acceptance - 2026-09-02
+
+Final production hardware was a Panasonic ToughBook CF-20 Mk2. WSJT-X was configured for multicast group `239.255.0.0` on UDP port `2237`; FieldOps was observed joined on `127.0.0.1` and `192.168.0.94`.
+
+The root cause of the prolonged zero-packet investigation was a malformed WSJT-X multicast destination containing an extra character after `239.255.0.0`. After correcting the destination to exactly `239.255.0.0`, the existing Node/Express production architecture received sustained multicast traffic. This confirms Windows multicast reception and FieldOps transport validity; Windows Defender Firewall was not the root cause, Otto did not monopolize the socket, and no native/.NET multicast bridge is required. The separate `FieldOps.WsjtxMulticastProof` project remains diagnostic/proof-only.
+
+Final field gates passed:
+
+- Sustained multicast reception: PASS; packet count continuously increased during real WSJT-X operation.
+- Current Station: PASS; live WSJT-X band, mode, and frequency changes were tracked.
+- Multi-consumer coexistence: PASS; Otto reached Ready while FieldOps continued receiving the multicast stream.
+- Real over-the-air QSO ingestion: PASS; AA4SS / 40m / FT8 was previously persisted, and the final controlled N2NDV / 40m / FT8 QSO was persisted without manually clicking Log QSO.
+- Type 5 and type 12 acceptance: PASS; N2NDV caused both `QSO Logged` type `5` and `Logged ADIF` type `12` events, both parsed successfully and converged on the existing normalized Activation ingestion path.
+- Cross-type duplicate suppression: PASS; the N2NDV QSO persisted once and its second representation was suppressed.
+- Current Station timing: PASS; Status receive/parse/state-update timestamps, `/current`, and frontend polling remained healthy.
+- Manual logger fallback and keyboard ergonomics: PASS; previously field-validated during the Activation.
+
+Immediately after the completed N2NDV QSO, diagnostics recorded `6652` packets received, type 5 accepted/parse failures `2 / 0`, type 12 accepted/parse failures `2 / 0`, duplicate WSJT-X events suppressed `2`, total Logged QSO parse failures `0`, last callsign/band/mode `N2NDV / 40m / FT8`, last import success `2026-09-02T23:22:15.136Z`, and final import result `dedupe:duplicate` with failure stage/reason `dedupe / duplicate`. Before this QSO, type 5 accepted was `1`, type 12 accepted was `1`, and duplicates suppressed was `1`.
+
+One completed RI1FJL QSO appeared in the WSJT-X ADIF log without a logging event visible to FieldOps at that time. Later, manually clicking WSJT-X Log QSO caused WSJT-X to emit an event for OK7CM even though that QSO had not completed. FieldOps correctly received and deduplicated the type 5 and type 12 events that WSJT-X actually emitted. This is recorded as intermittent upstream WSJT-X logging behavior, not a FieldOps ingestion failure or V2.7 blocker; no speculative FieldOps compensation was added.
+
+The V2.7-07 gates are satisfied: full PLAN -> PREPARE -> OPERATE -> REVIEW lifecycle, GNSS/clock readiness, source-aware Current Station, sustained multicast, independent multicast consumer coexistence, real WSJT-X-assisted persistence, type 5/type 12 compatibility, duplicate suppression, manual fallback, observed-RF presentation, offline/local operation, and retained REVIEW evidence are accepted within the documented limitations. No V2.7-owned release blocker remains.
+
+**V2.7-07 - COMPLETE. V2.7 Connected Operations is release-ready for independent ChatGPT release review.**
+
 **Release blocker:** No FieldOps-owned blocker was found in the completed PLAN -> PREPARE -> OPERATE -> REVIEW lifecycle, successful Activation completion, exercised GNSS/clock readiness, previously exercised real WSJT-X Current Station, Live Band Activity, manual QSO logging, graceful unavailable-WSJT-X fallback, CF-20 performance, or retained Activation evidence. WSJT-X-assisted actual QSO capture was not fully field-exercised because the FX-4CR/WSJT-X transmit stack failed externally. It remains a planned evidence gap, but does not block the defined Connected Operations release because controlled/automated parser-routing-persistence evidence exists and manual fallback was successfully demonstrated. This is an explicit acceptance decision, not a silent waiver.
 
 **Fix if cheap / safe:** The Logger keyboard sequence and focus restoration, plus configured WSJT-X multicast coexistence, are the bounded low-risk corrections in this pass.
 
 **Deferred:** Installed operator launcher, automatic PLAN forecast/space-weather refresh, duration-aware Retained Mission Forecast, Weather/Alerts Unknown investigation unless a current regression is proven, layered propagation recommendations, PSKReporter `MY SIGNAL`, WSPR survey integration, FX-4CR/WSJT-X radio-control troubleshooting, and FT8CN/FT8TW Bluetooth QSO-completion troubleshooting remain outside this release-closure pass.
 
-This evidence supports V2.7 Connected Operations acceptance preparation, but this commit does not declare `v2.7.0` released. Final release closure still requires the resulting commit's focused hardware acceptance and the normal release decision.
+This dated evidence was an interim acceptance record. The final CF-20 acceptance and release-closure decision are recorded in the V2.7-07 final closure entry above; this source-closure commit does not tag or publish a GitHub release.
 
 Validation for this correction pass: focused Logger, Activation, WSJT-X listener/API, and WSJT-X QSO-routing coverage passed with 50 tests across 5 files. TypeScript, production build, and `git diff --check` passed. The full automated suite passed with 944 tests across 93 files. No WSPR, PSKReporter `MY SIGNAL`, recommendation-engine, CAT/PTT, launcher, or forecast-redesign implementation was added.
 
@@ -617,11 +644,11 @@ The intended progression is:
 - **2.7 - Connected Operations:** What is my station actually doing now, and what is being observed on the air around me?
 - **3.0 - Field Operations Assistant:** Given the mission, equipment, environment, retained intelligence, and current field evidence, how should I conduct the operation?
 
-## Preliminary Version 2.7 release acceptance statement
+## Version 2.7 release acceptance statement
 
 Version 2.7 is successful when an operator can begin an Activation, have FieldOps automatically understand supported current digital operating band/mode/frequency from WSJT-X, automatically capture supported WSJT-X-logged QSOs with provenance, display truthful live observed-RF activity alongside retained propagation guidance, and continue operating manually and honestly when any optional integration or network source is unavailable.
 
-## Preliminary release-end state
+## Release-end state
 
 Compared with Version 2.6:
 
