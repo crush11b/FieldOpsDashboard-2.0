@@ -20,6 +20,30 @@ describe('QsoLoggerPanel', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('/api/activations/activation-1/qsos', expect.objectContaining({ method: 'POST' }));
   });
 
+  it('orders the contact-entry tab sequence and returns focus to Callsign after Enter submission', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => { if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }); return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 }); });
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByLabelText('CALLSIGN')).toBeInTheDocument());
+    expect(screen.getByLabelText('CALLSIGN')).toHaveProperty('tabIndex', 1);
+    expect(screen.getByLabelText('RST SENT')).toHaveProperty('tabIndex', 2);
+    expect(screen.getByLabelText('RST RECEIVED')).toHaveProperty('tabIndex', 3);
+    fireEvent.change(screen.getByLabelText('CALLSIGN'), { target: { value: 'W1AW' } });
+    fireEvent.submit(screen.getByLabelText('CALLSIGN').closest('form')!);
+    await waitFor(() => expect(fetchMock).toHaveBeenLastCalledWith('/api/activations/activation-1/qsos', expect.objectContaining({ method: 'POST' })));
+    expect(screen.getByLabelText('CALLSIGN')).toHaveValue('');
+    expect(document.activeElement).toBe(screen.getByLabelText('CALLSIGN'));
+    expect(screen.getByLabelText('BAND')).toHaveValue('20m');
+    expect(screen.getByLabelText('MODE')).toHaveValue('SSB');
+  });
+
+  it('does not submit an invalid contact when Callsign is empty', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => init ? new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 }) : new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }));
+    render(<QsoLoggerPanel activation={activation} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'LOG QSO' })).toBeInTheDocument());
+    fireEvent.submit(screen.getByLabelText('CALLSIGN').closest('form')!);
+    expect(fetchMock).not.toHaveBeenCalledWith('/api/activations/activation-1/qsos', expect.objectContaining({ method: 'POST' }));
+  });
+
   it('supplies the 20m FT8 default and keeps a manual override in the same context', async () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
       if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 });

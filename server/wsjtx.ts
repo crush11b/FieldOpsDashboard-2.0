@@ -122,6 +122,7 @@ export function deriveAmateurBand(frequencyMHz: number): string | null {
 
 export class WsjtxListener {
   private socket: dgram.Socket | null = null;
+  private multicastJoined = false;
   private latest: WsjtxObservation | null = null;
   private lastError: string | null = null;
   private packetsReceived = 0;
@@ -144,15 +145,20 @@ export class WsjtxListener {
   private lastCurrentRequestId: number | null = null;
   private lastCurrentRequestReceivedAtUtc: string | null = null;
   private lastCurrentResponseProducedAtUtc: string | null = null;
-  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
+  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
 
   start(): void {
     if (this.socket) return;
     const socket = dgram.createSocket('udp4');
     socket.on('message', packet => this.handlePacket(packet));
-    socket.on('error', error => { this.lastError = error.message; socket.close(); this.socket = null; });
-    socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, this.options.host ?? WSJTX_DEFAULT_HOST);
+    socket.on('error', error => { this.lastError = error.message; this.leaveMulticast(socket); socket.close(); this.socket = null; });
+    const bindHost = this.options.multicastAddress ? '0.0.0.0' : this.options.host ?? WSJTX_DEFAULT_HOST;
     this.socket = socket;
+    socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, bindHost, () => {
+      if (!this.options.multicastAddress) return;
+      try { socket.addMembership(this.options.multicastAddress, this.options.multicastInterface); this.multicastJoined = true; this.lastError = null; }
+      catch (error) { this.lastError = error instanceof Error ? error.message : 'WSJT-X multicast join failed.'; socket.close(); this.socket = null; }
+    });
   }
 
   handlePacket(packet: Uint8Array): void {
@@ -198,7 +204,14 @@ export class WsjtxListener {
 
   getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
 
-  stop(): void { this.socket?.close(); this.socket = null; }
+  stop(): void { if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
+
+  private leaveMulticast(socket: dgram.Socket): void {
+    if (this.multicastJoined && this.options.multicastAddress) {
+      try { socket.dropMembership(this.options.multicastAddress, this.options.multicastInterface); } catch { /* socket is already closing */ }
+      this.multicastJoined = false;
+    }
+  }
 
   getSnapshot(now = this.options.now ?? (() => new Date())): WsjtxSnapshot {
     if (!this.latest) return { status: this.lastError ? 'unavailable' : 'unavailable', state: null, receivedAtUtc: null, limitation: this.lastError || 'No WSJT-X Status message has been received.' };

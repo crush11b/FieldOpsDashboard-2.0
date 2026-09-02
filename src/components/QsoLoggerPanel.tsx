@@ -13,6 +13,7 @@ const initialForm = (): Form => ({ qsoDateTimeUtc: nowUtc(), callsign: '', band:
 const optionsWithValue = (options: readonly { readonly value: string; readonly label: string }[], value: string) => options.some(option => option.value === value) || !value ? options : [...options, { value, label: `${value} (imported)` }];
 export const QsoLoggerPanel: React.FC<Props> = ({ activation, initialStationState = null, onOperatingContextChange, onQsoCountChange }) => {
   const [form, setForm] = useState<Form>(initialForm); const [qsos, setQsos] = useState<Qso[]>([]); const [editing, setEditing] = useState<Qso | null>(null); const [message, setMessage] = useState<string | null>(null); const [busy, setBusy] = useState(false);
+  const callsignRef = useRef<HTMLInputElement>(null);
   const formTouched = useRef(false); const seededActivationId = useRef<string | null>(null);
   const load = async () => { try { const result = await listQsos(activation.activationId); setQsos(result.qsos); onOperatingContextChange?.(undefined, result.qsos.length); onQsoCountChange?.(result.qsos.length); if (result.error) setMessage(result.error); } catch { setMessage('QSOs could not be loaded.'); } };
   useEffect(() => {
@@ -27,12 +28,20 @@ export const QsoLoggerPanel: React.FC<Props> = ({ activation, initialStationStat
     setForm(previous => ({ ...previous, band: station.band, mode: station.mode, frequencyMHz: station.frequencyMHz === null ? '' : String(station.frequencyMHz), frequencyOrigin: station.frequencyMHz === null ? 'auto' : 'manual' }));
     seededActivationId.current = activation.activationId;
   }, [activation.activationId, activation.status, initialStationState]);
+  useEffect(() => {
+    const callsignField = document.querySelector<HTMLInputElement>('section[aria-label="QSO logging"] input[aria-label="CALLSIGN"]');
+    callsignRef.current = callsignField;
+    const formElement = callsignField?.form;
+    if (!formElement) return;
+    const orderedFields = ['CALLSIGN', 'RST SENT', 'RST RECEIVED'];
+    orderedFields.forEach((label, index) => { const field = formElement.querySelector<HTMLElement>(`[aria-label="${label}"]`); if (field) field.tabIndex = index + 1; });
+  }, []);
   const markFormEdited = () => { formTouched.current = true; };
   useEffect(() => { if (form.callsign || form.rstSent || form.rstReceived) formTouched.current = true; }, [form.callsign, form.rstReceived, form.rstSent]);
   useEffect(() => { onOperatingContextChange?.(createManualCurrentStationState(form)); }, [form.band, form.frequencyMHz, form.mode, onOperatingContextChange]);
   const updateOperatingContext = (changes: Pick<Form, 'band' | 'mode'>) => { markFormEdited(); setForm(previous => { const frequency = getConventionalFrequencyMHz(changes.band, changes.mode); return { ...previous, ...changes, frequencyMHz: frequency === undefined ? '' : String(frequency), frequencyOrigin: 'auto' }; }); };
   const changeFrequency = (frequencyMHz: string) => { markFormEdited(); setForm(previous => ({ ...previous, frequencyMHz, frequencyOrigin: 'manual' })); };
-  const submit = async (event: React.FormEvent) => { event.preventDefault(); setBusy(true); setMessage(null); const { frequencyOrigin: _frequencyOrigin, ...values } = form; const input = { ...values, frequencyMHz: form.frequencyMHz ? Number(form.frequencyMHz) : undefined }; const result = editing ? await updateQso(activation.activationId, editing.qsoId, input) : await createQso(activation.activationId, input); if (result.kind === 'qso') { setQsos(current => { const next = editing ? current.map(qso => qso.qsoId === result.qso.qsoId ? result.qso : qso) : [result.qso, ...current]; onQsoCountChange?.(next.length); return next; }); setForm(previous => ({ ...previous, qsoDateTimeUtc: nowUtc(), callsign: '', rstSent: '', rstReceived: '' })); setEditing(null); } else setMessage(result.message); setBusy(false); };
+  const submit = async (event: React.FormEvent) => { event.preventDefault(); if (!event.currentTarget.checkValidity()) return; setBusy(true); setMessage(null); const { frequencyOrigin: _frequencyOrigin, ...values } = form; const input = { ...values, frequencyMHz: form.frequencyMHz ? Number(form.frequencyMHz) : undefined }; const result = editing ? await updateQso(activation.activationId, editing.qsoId, input) : await createQso(activation.activationId, input); if (result.kind === 'qso') { setQsos(current => { const next = editing ? current.map(qso => qso.qsoId === result.qso.qsoId ? result.qso : qso) : [result.qso, ...current]; onQsoCountChange?.(next.length); return next; }); setForm(previous => ({ ...previous, qsoDateTimeUtc: nowUtc(), callsign: '', rstSent: '', rstReceived: '' })); setEditing(null); callsignRef.current?.focus(); } else setMessage(result.message); setBusy(false); };
   const edit = (qso: Qso) => { setEditing(qso); setForm({ qsoDateTimeUtc: qso.qsoDateTimeUtc, callsign: qso.callsign, band: qso.band, frequencyMHz: qso.frequencyMHz?.toString() || '', mode: qso.mode, rstSent: qso.rstSent || '', rstReceived: qso.rstReceived || '', frequencyOrigin: 'manual' }); };
   const remove = async (qso: Qso) => { if (!window.confirm(`Delete QSO with ${qso.callsign}?`)) return; if (await deleteQso(activation.activationId, qso.qsoId)) setQsos(current => { const next = current.filter(item => item.qsoId !== qso.qsoId); onQsoCountChange?.(next.length); return next; }); else setMessage('The QSO could not be deleted.'); };
   const readFile = async (event: React.ChangeEvent<HTMLInputElement>) => { const file = event.target.files?.[0]; event.target.value = ''; if (!file) return; setBusy(true); const result = await importAdif(activation.activationId, await file.text()); setMessage(result.kind === 'qso_import' ? `ADIF: ${result.imported} imported, ${result.duplicates} duplicates, ${result.skipped} skipped.${result.errors.length ? ` ${result.errors.length} errors.` : ''}` : result.message); await load(); setBusy(false); };

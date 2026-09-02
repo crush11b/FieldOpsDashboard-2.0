@@ -131,7 +131,14 @@ async function startServer() {
   const activationStore = new ActivationStore(getDefaultActivationPath());
   const qsoStore = new QsoStore(getDefaultQsoPath());
   const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
-  const wsjtxListener = new WsjtxListener({ onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; } });
+  const configuredWsjtxPort = Number.parseInt(process.env.WSJTX_PORT || '', 10);
+  const wsjtxListener = new WsjtxListener({
+    host: process.env.WSJTX_HOST || undefined,
+    port: Number.isInteger(configuredWsjtxPort) && configuredWsjtxPort > 0 ? configuredWsjtxPort : undefined,
+    multicastAddress: process.env.WSJTX_MULTICAST_ADDRESS || undefined,
+    multicastInterface: process.env.WSJTX_MULTICAST_INTERFACE || undefined,
+    onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; },
+  });
   wsjtxListener.start();
   app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());

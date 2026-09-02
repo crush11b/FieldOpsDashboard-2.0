@@ -94,6 +94,28 @@ describe('WSJT-X protocol and listener', () => {
     expect(createSpy).toHaveBeenCalledTimes(1);
   });
 
+  it('joins configured multicast and accepts packets without creating duplicate sockets', () => {
+    const socket = { on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn(), dropMembership: vi.fn(), close: vi.fn() };
+    vi.spyOn(dgram, 'createSocket').mockReturnValue(socket as any);
+    const listener = new WsjtxListener({ port: 2237, multicastAddress: '239.255.0.0', multicastInterface: '192.168.1.20', now: clock('2026-08-27T12:00:00.000Z') });
+    listener.start();
+    listener.start();
+
+    expect(socket.bind).toHaveBeenCalledWith(2237, '0.0.0.0', expect.any(Function));
+    expect(socket.addMembership).toHaveBeenCalledOnce();
+    expect(socket.addMembership).toHaveBeenCalledWith('239.255.0.0', '192.168.1.20');
+    const messageHandler = socket.on.mock.calls.find(([event]) => event === 'message')?.[1] as ((packet: Uint8Array) => void);
+    messageHandler(statusPacket(7_074_000, 'FT8'));
+    expect(listener.getSnapshot()).toMatchObject({ status: 'available', state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
+
+    listener.stop();
+    expect(socket.dropMembership).toHaveBeenCalledWith('239.255.0.0', '192.168.1.20');
+    expect(socket.close).toHaveBeenCalledOnce();
+    listener.start();
+    expect(dgram.createSocket).toHaveBeenCalledTimes(2);
+    expect(socket.addMembership).toHaveBeenCalledTimes(2);
+  });
+
   it('keeps Status observations independent from interleaved Logged QSO events', async () => {
     const logged = vi.fn();
     const listener = new WsjtxListener({ now: clock('2026-08-27T12:00:00.000Z'), onLoggedQso: logged });

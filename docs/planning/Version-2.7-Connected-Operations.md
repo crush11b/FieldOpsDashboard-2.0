@@ -135,6 +135,8 @@ Initial source vocabulary should be no broader than real 2.7 consumers require. 
 - Supported protocol fields are the WSJT-X header, client ID, dial frequency, and mode. Frequency is preserved in MHz, bands are conservatively derived from the shared amateur-band vocabulary, and unknown modes/bands remain source-faithful rather than being relabeled.
 - WSJT-X state means application-reported operating context only; it is not CAT, direct radio, transmit, or RF confirmation. CAT, Hamlib, rigctld, QSO automation, PSKReporter, and later integrations remain deferred.
 
+For a simple single-consumer setup, the default listener remains unicast on `127.0.0.1:2237`. When multiple WSJT-X consumers share the computer, configure WSJT-X multicast instead: set WSJT-X UDP Server to `239.255.0.0`, UDP port to `2237`, and select the appropriate outgoing interface. FieldOps can be configured with `WSJTX_MULTICAST_ADDRESS=239.255.0.0` and, when needed, `WSJTX_MULTICAST_INTERFACE=<local-interface-address>`; it binds the port on `0.0.0.0` and joins the group. `WSJTX_HOST` and `WSJTX_PORT` remain available for explicit unicast configuration. FieldOps is one telemetry subscriber, not the exclusive owner; other companion or logging applications may subscribe independently. Otto is not a FieldOps dependency or integration.
+
 ### CF-20 acceptance evidence - 2026-08-27
 
 - Version 2.7-03 CF-20 hardware acceptance passed on a Panasonic ToughBook CF-20 Mk2 with WSJT-X v3.0.0-rc1. See [Version 2.7-03 WSJT-X CF-20 Field Acceptance](../validation/Version-2.7-03-WSJTX-CF20-Field-Acceptance-2026-08-27.md).
@@ -470,6 +472,30 @@ The proposed controlled experiment is a paired 40m/30m comparison under a declar
 ---
 
 ## 2.7-07 - Field Validation and Release Closure
+
+### V2.7-07 real field activation - 2026-09-01
+
+The operator created a mission, used PLAN, PREPARE, OPERATE, and REVIEW, and ended the Activation successfully. During the same acceptance cycle, PLAN/PREPARE observations were: Mission Forecast required manual refresh; Retained Space Weather required manual refresh; Operations Readiness reported Location Ready, GPS Ready, Clock Ready, ToughBook Ready, Weather Unknown, Alerts Unknown, Space Weather Ready, and Propagation Ready. These are release punch-list observations, not automatically blockers.
+
+On the CF-20 with WSJT-X, Chrome Dashboard, the Node/local Dashboard server, the Command Prompt server window, and VS Code still running, CPU was generally approximately 30-50% with brief increases into the 70% range, and GPU remained below 10%. This is acceptable representative hardware behavior and passes relative to the prior sustained 90%+ CPU/GPU regression.
+
+The activation modeled/preferred 17m, where only two contacts were made; 20m was substantially busier. This single activation does not show that the model was wrong. It supports the layered architecture: modeled viability is not contact density, and live observed activity plus actual station/QSO evidence may refine operator choice. No recommendation engine is implemented.
+
+The FX-4CR and WSJT-X did not successfully complete transmit control: WSJT-X visually indicated transmitting, but RF/transmit did not reach the radio as expected. This is an external radio/software integration limitation, not evidence that FieldOps failed; CAT/PTT or FX-4CR troubleshooting is outside this task. During FT8CN/FT8TW operation over Bluetooth, initial replies were sometimes received, while repeated follow-up transmissions and CQ exchanges often failed to complete the QSO. This is field-stack evidence for separate investigation; no cause is assigned here.
+
+Because the radio transmit path was unsuccessful, QSOs were logged manually. Manual logging preserved the Activation workflow and exposed the Callsign/RST keyboard and focus defects corrected in this slice. This confirms graceful manual fallback. Another WSJT-X consumer, Otto, could not coexist with FieldOps under loopback unicast `127.0.0.1:2237`; the field guidance is to use multicast for multiple consumers. This task implements protocol/configuration coexistence only, not Otto integration.
+
+### V2.7-07 release classification and acceptance review
+
+**Release blocker:** No FieldOps-owned blocker was found in the completed PLAN -> PREPARE -> OPERATE -> REVIEW lifecycle, successful Activation completion, exercised GNSS/clock readiness, previously exercised real WSJT-X Current Station, Live Band Activity, manual QSO logging, graceful unavailable-WSJT-X fallback, CF-20 performance, or retained Activation evidence. WSJT-X-assisted actual QSO capture was not fully field-exercised because the FX-4CR/WSJT-X transmit stack failed externally. It remains a planned evidence gap, but does not block the defined Connected Operations release because controlled/automated parser-routing-persistence evidence exists and manual fallback was successfully demonstrated. This is an explicit acceptance decision, not a silent waiver.
+
+**Fix if cheap / safe:** The Logger keyboard sequence and focus restoration, plus configured WSJT-X multicast coexistence, are the bounded low-risk corrections in this pass.
+
+**Deferred:** Installed operator launcher, automatic PLAN forecast/space-weather refresh, duration-aware Retained Mission Forecast, Weather/Alerts Unknown investigation unless a current regression is proven, layered propagation recommendations, PSKReporter `MY SIGNAL`, WSPR survey integration, FX-4CR/WSJT-X radio-control troubleshooting, and FT8CN/FT8TW Bluetooth QSO-completion troubleshooting remain outside this release-closure pass.
+
+This evidence supports V2.7 Connected Operations acceptance preparation, but this commit does not declare `v2.7.0` released. Final release closure still requires the resulting commit's focused hardware acceptance and the normal release decision.
+
+Validation for this correction pass: focused Logger, Activation, WSJT-X listener/API, and WSJT-X QSO-routing coverage passed with 50 tests across 5 files. TypeScript, production build, and `git diff --check` passed. The full automated suite passed with 944 tests across 93 files. No WSPR, PSKReporter `MY SIGNAL`, recommendation-engine, CAT/PTT, launcher, or forecast-redesign implementation was added.
 
 ### Required validation
 
