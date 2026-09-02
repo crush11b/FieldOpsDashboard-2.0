@@ -2,6 +2,7 @@ import dgram from 'node:dgram';
 import os from 'node:os';
 import type { CurrentStationState } from '../src/currentStationState';
 import { normalizeQsoCallsign } from './qso';
+import { parseAdif } from './qsoAdif';
 
 export const WSJTX_DEFAULT_HOST = '127.0.0.1';
 export const WSJTX_DEFAULT_PORT = 2237;
@@ -11,6 +12,7 @@ const WSJTX_MAGIC = 0xadbccbda;
 const WSJTX_SUPPORTED_SCHEMAS = new Set([2, 3]);
 const WSJTX_STATUS_MESSAGE = 1;
 const WSJTX_QSO_LOGGED_MESSAGE = 5;
+const WSJTX_LOGGED_ADIF_MESSAGE = 12;
 
 export interface WsjtxObservation {
   readonly state: CurrentStationState;
@@ -48,6 +50,11 @@ export interface WsjtxDiagnostics {
   readonly lastStatusStateUpdatedAtUtc: string | null;
   readonly loggedQsoPacketsAccepted: number;
   readonly loggedQsoParseFailures: number;
+  readonly loggedQsoType5Accepted: number;
+  readonly loggedQsoType5ParseFailures: number;
+  readonly loggedAdifPacketsAccepted: number;
+  readonly loggedAdifParseFailures: number;
+  readonly loggedQsoDuplicatesSuppressed: number;
   readonly lastLoggedQsoAtUtc: string | null;
   readonly lastLoggedQsoResult: string | null;
   readonly lastLoggedQsoCallsign: string | null;
@@ -115,7 +122,25 @@ export function parseWsjtxLoggedQsoPacket(packet: Uint8Array): WsjtxLoggedQsoCan
   const normalizedCallsign = normalizeQsoCallsign(callsign);
   if (!normalizedCallsign) return null;
   const frequencyMHz = frequencyHz / 1_000_000;
-  return { qsoDateTimeUtc: timeOn, callsign: normalizedCallsign, band: deriveAmateurBand(frequencyMHz), frequencyMHz, mode: mode.toUpperCase(), ...(rstSent ? { rstSent } : {}), ...(rstReceived ? { rstReceived } : {}), ...(grid ? { gridSquare: grid } : {}), ...(operatorCallsign ? { operatorCallsign } : {}), ...(stationCallsign ? { stationCallsign } : {}), ...(myGridSquare ? { myGridSquare } : {}), source: 'wsjtx' };
+  return { eventType: 5, qsoDateTimeUtc: timeOn, callsign: normalizedCallsign, band: deriveAmateurBand(frequencyMHz), frequencyMHz, mode: mode.toUpperCase(), ...(rstSent ? { rstSent } : {}), ...(rstReceived ? { rstReceived } : {}), ...(grid ? { gridSquare: grid } : {}), ...(operatorCallsign ? { operatorCallsign } : {}), ...(stationCallsign ? { stationCallsign } : {}), ...(myGridSquare ? { myGridSquare } : {}), source: 'wsjtx' };
+}
+
+export function parseWsjtxLoggedAdifPacket(packet: Uint8Array): WsjtxLoggedQsoCandidate | null {
+  const reader = new PacketReader(packet);
+  if (reader.readUint32() !== WSJTX_MAGIC) return null;
+  const schema = reader.readUint32();
+  if (schema === null || !WSJTX_SUPPORTED_SCHEMAS.has(schema) || reader.readUint32() !== WSJTX_LOGGED_ADIF_MESSAGE) return null;
+  if (reader.readString() === null) return null;
+  const adif = reader.readString();
+  if (reader.isMalformed || adif === null) return null;
+  const parsed = parseAdif(adif);
+  if (parsed.recordsFound !== 1 || parsed.records.length !== 1 || parsed.errors.length > 0) return null;
+  const record = parsed.records[0];
+  const callsign = normalizeQsoCallsign(record.callsign);
+  const frequencyMHz = typeof record.frequencyMHz === 'number' && Number.isFinite(record.frequencyMHz) && record.frequencyMHz > 0 ? record.frequencyMHz : undefined;
+  const mode = typeof record.mode === 'string' ? record.mode.trim().toUpperCase() : '';
+  if (!callsign || typeof record.qsoDateTimeUtc !== 'string' || !record.qsoDateTimeUtc || !mode || frequencyMHz === undefined) return null;
+  return { eventType: 12, qsoDateTimeUtc: record.qsoDateTimeUtc, callsign, band: typeof record.band === 'string' && record.band.trim() ? record.band.trim().toLowerCase() : deriveAmateurBand(frequencyMHz), frequencyMHz, mode, ...(typeof record.submode === 'string' && record.submode.trim() ? { submode: record.submode.trim().toUpperCase() } : {}), ...(typeof record.rstSent === 'string' && record.rstSent.trim() ? { rstSent: record.rstSent.trim() } : {}), ...(typeof record.rstReceived === 'string' && record.rstReceived.trim() ? { rstReceived: record.rstReceived.trim() } : {}), ...(typeof record.gridSquare === 'string' && record.gridSquare.trim() ? { gridSquare: record.gridSquare.trim() } : {}), ...(typeof record.operatorCallsign === 'string' && record.operatorCallsign.trim() ? { operatorCallsign: record.operatorCallsign.trim() } : {}), ...(typeof record.stationCallsign === 'string' && record.stationCallsign.trim() ? { stationCallsign: record.stationCallsign.trim() } : {}), ...(typeof record.myGridSquare === 'string' && record.myGridSquare.trim() ? { myGridSquare: record.myGridSquare.trim() } : {}), source: 'wsjtx' };
 }
 
 export function deriveAmateurBand(frequencyMHz: number): string | null {
@@ -145,6 +170,11 @@ export class WsjtxListener {
   private lastStatusStateUpdatedAtUtc: string | null = null;
   private loggedQsoPacketsAccepted = 0;
   private loggedQsoParseFailures = 0;
+  private loggedQsoType5Accepted = 0;
+  private loggedQsoType5ParseFailures = 0;
+  private loggedAdifPacketsAccepted = 0;
+  private loggedAdifParseFailures = 0;
+  private loggedQsoDuplicatesSuppressed = 0;
   private lastLoggedQsoAtUtc: string | null = null;
   private lastLoggedQsoResult: string | null = null;
   private lastLoggedQsoCallsign: string | null = null;
@@ -198,9 +228,11 @@ export class WsjtxListener {
     if (isStatusPacket(packet)) this.lastStatusPacketReceivedAtUtc = receivedAtUtc;
     const observation = parseWsjtxStatusPacket(packet, this.options.now);
     if (observation) { this.latest = observation; this.statusPacketsAccepted += 1; this.lastStatusParsedAtUtc = observation.receivedAtUtc; this.lastStatusStateUpdatedAtUtc = observation.receivedAtUtc; this.lastError = null; }
-    const loggedQso = parseWsjtxLoggedQsoPacket(packet);
+    const loggedQso = parseWsjtxLoggedQsoPacket(packet) ?? parseWsjtxLoggedAdifPacket(packet);
     if (loggedQso) {
       this.loggedQsoPacketsAccepted += 1;
+      if (loggedQso.eventType === 5) this.loggedQsoType5Accepted += 1;
+      else this.loggedAdifPacketsAccepted += 1;
       this.lastLoggedQsoAtUtc = this.options.now?.().toISOString() ?? new Date().toISOString();
       this.lastLoggedQsoCallsign = loggedQso.callsign;
       this.lastLoggedQsoBand = loggedQso.band;
@@ -211,6 +243,7 @@ export class WsjtxListener {
           const result = this.options.onLoggedQso?.(loggedQso);
           const outcome = typeof result === 'string' ? result : 'received';
           this.lastLoggedQsoResult = outcome;
+          if (outcome === 'duplicate' || outcome === 'dedupe:duplicate') this.loggedQsoDuplicatesSuppressed += 1;
           if (outcome === 'persisted') this.lastImportSuccessAtUtc = this.lastLoggedQsoAtUtc;
           else {
             const separator = outcome.indexOf(':');
@@ -225,6 +258,8 @@ export class WsjtxListener {
       });
     } else if (isLoggedQsoPacket(packet)) {
       this.loggedQsoParseFailures += 1;
+      if (isMessageType(packet, WSJTX_LOGGED_ADIF_MESSAGE)) this.loggedAdifParseFailures += 1;
+      else this.loggedQsoType5ParseFailures += 1;
       this.lastLoggedQsoResult = 'parse_failed';
     }
   }
@@ -232,7 +267,7 @@ export class WsjtxListener {
   recordCurrentRequest(requestId: number, receivedAtUtc: string): void { this.lastCurrentRequestId = requestId; this.lastCurrentRequestReceivedAtUtc = receivedAtUtc; }
   recordCurrentResponse(producedAtUtc: string): void { this.lastCurrentResponseProducedAtUtc = producedAtUtc; }
 
-  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastInterfaces: [...this.joinedMulticastInterfaces], multicastJoined: this.joinedMulticastInterfaces.size > 0, lastSocketError: this.lastSocketError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
+  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastInterfaces: [...this.joinedMulticastInterfaces], multicastJoined: this.joinedMulticastInterfaces.size > 0, lastSocketError: this.lastSocketError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, loggedQsoType5Accepted: this.loggedQsoType5Accepted, loggedQsoType5ParseFailures: this.loggedQsoType5ParseFailures, loggedAdifPacketsAccepted: this.loggedAdifPacketsAccepted, loggedAdifParseFailures: this.loggedAdifParseFailures, loggedQsoDuplicatesSuppressed: this.loggedQsoDuplicatesSuppressed, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
 
   stop(): void { this.listenerState = 'stopped'; this.recoveryAttempts = 0; if (this.recoveryTimer) clearTimeout(this.recoveryTimer); this.recoveryTimer = null; if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
 
@@ -296,11 +331,13 @@ class PacketReader {
 }
 
 export interface WsjtxLoggedQsoCandidate {
+  readonly eventType?: 5 | 12;
   readonly qsoDateTimeUtc: string;
   readonly callsign: string;
   readonly band: string | null;
   readonly frequencyMHz: number;
   readonly mode: string;
+  readonly submode?: string;
   readonly rstSent?: string;
   readonly rstReceived?: string;
   readonly gridSquare?: string;
@@ -311,9 +348,13 @@ export interface WsjtxLoggedQsoCandidate {
 }
 
 function isLoggedQsoPacket(packet: Uint8Array): boolean {
+  return isMessageType(packet, WSJTX_QSO_LOGGED_MESSAGE) || isMessageType(packet, WSJTX_LOGGED_ADIF_MESSAGE);
+}
+
+function isMessageType(packet: Uint8Array, messageType: number): boolean {
   if (packet.length < 12) return false;
   const view = new DataView(packet.buffer, packet.byteOffset, packet.byteLength);
-  return view.getUint32(0) === WSJTX_MAGIC && WSJTX_SUPPORTED_SCHEMAS.has(view.getUint32(4)) && view.getUint32(8) === WSJTX_QSO_LOGGED_MESSAGE;
+  return view.getUint32(0) === WSJTX_MAGIC && WSJTX_SUPPORTED_SCHEMAS.has(view.getUint32(4)) && view.getUint32(8) === messageType;
 }
 
 function isStatusPacket(packet: Uint8Array): boolean {

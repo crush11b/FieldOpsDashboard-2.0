@@ -348,6 +348,14 @@ Accepted limitations:
 
 V2.7-05 may now begin. This acceptance does not mark the V2.7 release complete.
 
+### V2.7 WSJT-X logging hardening - field finding and bounded correction
+
+- The final field validation found that the zero-packet failure was caused by a malformed WSJT-X multicast destination. After correcting the destination to exactly `239.255.0.0`, FieldOps sustained multicast reception, Current Station tracking, and simultaneous FieldOps plus Otto multicast consumption all succeeded.
+- A real over-the-air WSJT-X-assisted QSO was received and persisted by FieldOps. Diagnostics recorded `3192` packets received, `2` accepted Logged QSO packets, `0` Logged QSO parse failures, last import result `persisted`, and last QSO `AA4SS / 40m / FT8`.
+- The two accepted events represented the same QSO because the WSJT-X Log QSO action was invoked twice. Final bounded V2.7 hardening therefore adds conservative duplicate suppression across repeated type-5 events and type-5/type-12 pairs, while allowing a later QSO with the same station. A failed first persistence attempt does not retain a dedupe entry, so a valid retry remains possible.
+- WSJT-X message type `12` (`Logged ADIF`) is now recognized for supported schemas and parsed through the existing ADIF utility into the same normalized candidate and Activation validation/persistence path as message type `5` (`QSO Logged`). Type-12 compatibility is implementation- and test-validated only; no type-12 hardware validation is claimed.
+- Diagnostics distinguish type-5 and type-12 accepted events, malformed events, duplicate suppression, and persisted imports. The separate .NET multicast proof remains diagnostic only and is not production architecture.
+
 ---
 
 ## 2.7-05 - Live Band Activity

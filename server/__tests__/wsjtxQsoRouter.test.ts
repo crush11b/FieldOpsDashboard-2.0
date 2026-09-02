@@ -11,6 +11,7 @@ import type { WsjtxLoggedQsoCandidate } from '../wsjtx';
 const directories: string[] = [];
 const now = () => new Date('2026-08-27T18:00:00.000Z');
 const candidate: WsjtxLoggedQsoCandidate = { qsoDateTimeUtc: '2026-08-27T17:42:00.000Z', callsign: 'W1AW', band: '20m', frequencyMHz: 14.074, mode: 'FT8', rstSent: '-10', rstReceived: '-12', gridSquare: 'FN31', operatorCallsign: 'N0CALL', stationCallsign: 'N0CALL', myGridSquare: 'FM17', source: 'wsjtx' };
+const adifCandidate: WsjtxLoggedQsoCandidate = { ...candidate, eventType: 12, submode: 'FT8' };
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 
 function setup(status: Activation['status'] = 'active') {
@@ -69,5 +70,22 @@ describe('WSJT-X QSO routing', () => {
     router.route(candidate);
     expect(router.route({ ...candidate, qsoDateTimeUtc: '2026-08-27T17:43:00.000Z' }).status).toBe('persisted');
     expect(stores.qsoStore.listByActivation('activation-1').qsos).toHaveLength(2);
+  });
+
+  it('persists a type-12 candidate once and suppresses a type-5/type-12 pair', () => {
+    const stores = setup();
+    const router = new WsjtxQsoRouter(stores);
+    expect(router.route(adifCandidate).status).toBe('persisted');
+    expect(router.route(candidate).status).toBe('duplicate');
+    expect(stores.qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
+  });
+
+  it('does not poison dedupe state when the first persistence attempt fails', () => {
+    const stores = setup();
+    let failed = true;
+    const router = new WsjtxQsoRouter({ activationStore: stores.activationStore, qsoStore: { listByActivation: stores.qsoStore.listByActivation.bind(stores.qsoStore), create: input => { if (failed) { failed = false; throw new Error('write failed'); } return stores.qsoStore.create(input); } } });
+    expect(router.route(candidate).status).toBe('unavailable');
+    expect(router.route(candidate).status).toBe('persisted');
+    expect(stores.qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
   });
 });

@@ -7,13 +7,14 @@ import { updateActivationStatus } from '../activation';
 import { ActivationStore } from '../activationStore';
 import { QsoStore } from '../qsoStore';
 import { WsjtxQsoRouter } from '../wsjtxQsoRouter';
-import { WSJTX_STALE_AFTER_MS, WSJTX_UNAVAILABLE_AFTER_MS, WsjtxListener, deriveAmateurBand, parseWsjtxLoggedQsoPacket, parseWsjtxStatusPacket } from '../wsjtx';
+import { WSJTX_STALE_AFTER_MS, WSJTX_UNAVAILABLE_AFTER_MS, WsjtxListener, deriveAmateurBand, parseWsjtxLoggedAdifPacket, parseWsjtxLoggedQsoPacket, parseWsjtxStatusPacket } from '../wsjtx';
 
 const text = new TextEncoder();
 const stringField = (value: string | null) => { if (value === null) return Buffer.from([0xff, 0xff, 0xff, 0xff]); const bytes = text.encode(value); const buffer = Buffer.alloc(4 + bytes.length); buffer.writeUInt32BE(bytes.length); Buffer.from(bytes).copy(buffer, 4); return buffer; };
 const statusPacket = (frequencyHz = 14_074_000, mode: string | null = 'FT8', messageType = 1, schema = 2, id: string | null = 'WSJT-X') => { const header = Buffer.alloc(12); header.writeUInt32BE(0xadbccbda); header.writeUInt32BE(schema, 4); header.writeUInt32BE(messageType, 8); const frequency = Buffer.alloc(8); frequency.writeBigUInt64BE(BigInt(frequencyHz)); return Buffer.concat([header, stringField(id), frequency, stringField(mode)]); };
 const dateTimeField = (iso = '2026-08-27T17:43:19.000Z') => { const date = new Date(iso); const julianDay = BigInt(Math.floor(date.getTime() / 86_400_000) + 2_440_588); const milliseconds = date.getUTCHours() * 3_600_000 + date.getUTCMinutes() * 60_000 + date.getUTCSeconds() * 1_000 + date.getUTCMilliseconds(); const buffer = Buffer.alloc(13); buffer.writeBigInt64BE(julianDay); buffer.writeUInt32BE(milliseconds, 8); buffer.writeUInt8(1, 12); return buffer; };
 const loggedQsoPacket = (frequencyHz = 14_074_000, mode = 'FT8', schema = 2, callsign = 'W1AW', reports: [string, string] = ['-10', '-12']) => { const header = Buffer.alloc(12); header.writeUInt32BE(0xadbccbda); header.writeUInt32BE(schema, 4); header.writeUInt32BE(5, 8); const fields = [stringField('WSJT-X'), dateTimeField(), stringField(callsign), stringField('FN31'), Buffer.alloc(8), stringField(mode), stringField(reports[0]), stringField(reports[1]), stringField('50W'), stringField(''), stringField('Alice'), dateTimeField('2026-08-27T17:42:00.000Z'), stringField('OP1'), stringField('MY1'), stringField('FN20'), stringField(null), stringField(null), stringField('FT8')]; fields[4].writeBigUInt64BE(BigInt(frequencyHz)); return Buffer.concat([header, ...fields]); };
+const loggedAdifPacket = (adif = '<CALL:4>W1AW<QSO_DATE:8>20260827<TIME_ON:6>174200<BAND:3>20M<FREQ:6>14.074<MODE:3>FT8<SUBMODE:3>FT8<RST_SENT:3>-10<RST_RCVD:3>-12<GRIDSQUARE:4>FN31<EOR>') => { const header = Buffer.alloc(12); header.writeUInt32BE(0xadbccbda); header.writeUInt32BE(3, 4); header.writeUInt32BE(12, 8); return Buffer.concat([header, stringField('WSJT-X'), stringField(adif)]); };
 const fixedLoggedQsoFixture = Uint8Array.from(Buffer.from('adbccbda00000002000000050000000657534a542d580000000000258e6003cd7ed801000000045731415700000004464e33310000000000d6c09000000003465438000000032d3130000000032d3132000000033530570000000000000005416c6963650000000000258e6003cc4a4001000000034f5031000000034d593100000004464e3230ffffffffffffffff00000003465438', 'hex'));
 const clock = (value: string) => () => new Date(value);
 const sockets: WsjtxListener[] = [];
@@ -34,6 +35,15 @@ describe('WSJT-X protocol and listener', () => {
   it('parses schema 2 and 3 Logged QSO candidates with normalized fields', () => {
     expect(parseWsjtxLoggedQsoPacket(loggedQsoPacket()) ).toMatchObject({ qsoDateTimeUtc: '2026-08-27T17:42:00.000Z', callsign: 'W1AW', band: '20m', frequencyMHz: 14.074, mode: 'FT8', rstSent: '-10', rstReceived: '-12', gridSquare: 'FN31', source: 'wsjtx' });
     expect(parseWsjtxLoggedQsoPacket(loggedQsoPacket(7_074_000, 'FT4', 3, 'k1abc', ['+05', '-07']))).toMatchObject({ callsign: 'K1ABC', band: '40m', frequencyMHz: 7.074, mode: 'FT4', rstSent: '+05', rstReceived: '-07' });
+  });
+
+  it('parses Logged ADIF type 12 into the normalized candidate shape', () => {
+    expect(parseWsjtxLoggedAdifPacket(loggedAdifPacket())).toMatchObject({ eventType: 12, qsoDateTimeUtc: '2026-08-27T17:42:00.000Z', callsign: 'W1AW', band: '20m', frequencyMHz: 14.074, mode: 'FT8', submode: 'FT8', rstSent: '-10', rstReceived: '-12', gridSquare: 'FN31', source: 'wsjtx' });
+  });
+
+  it('rejects malformed or insufficient Logged ADIF type 12 records', () => {
+    expect(parseWsjtxLoggedAdifPacket(loggedAdifPacket('<CALL:4>W1AW<MODE:3>FT8<EOR>'))).toBeNull();
+    expect(parseWsjtxLoggedAdifPacket(loggedAdifPacket().subarray(0, -1))).toBeNull();
   });
 
   it('parses the independently fixed real-wire Logged QSO fixture', () => {
@@ -72,6 +82,15 @@ describe('WSJT-X protocol and listener', () => {
     const listener = new WsjtxListener({ now: clock('2026-08-27T12:00:00.000Z') });
     listener.handlePacket(loggedQsoPacket().subarray(0, -1));
     expect(listener.getDiagnostics()).toMatchObject({ loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 1, lastLoggedQsoResult: 'parse_failed' });
+  });
+
+  it('distinguishes type 5, type 12, and duplicate outcomes in diagnostics', async () => {
+    const results: string[] = [];
+    const listener = new WsjtxListener({ onLoggedQso: candidate => { results.push(candidate.eventType === 12 ? 'duplicate' : 'persisted'); return results.at(-1); } });
+    listener.handlePacket(loggedQsoPacket());
+    listener.handlePacket(loggedAdifPacket());
+    await new Promise<void>(resolve => setImmediate(resolve));
+    expect(listener.getDiagnostics()).toMatchObject({ loggedQsoPacketsAccepted: 2, loggedQsoType5Accepted: 1, loggedAdifPacketsAccepted: 1, loggedQsoDuplicatesSuppressed: 1 });
   });
 
   it('reports unavailable, fresh, and stale snapshots', () => {

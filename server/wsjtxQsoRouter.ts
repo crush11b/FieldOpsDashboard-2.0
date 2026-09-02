@@ -1,4 +1,4 @@
-import { normalizeQso, qsoFingerprint, type Qso } from './qso';
+import { normalizeQso, type Qso } from './qso';
 import type { ActivationStore } from './activationStore';
 import type { WsjtxLoggedQsoCandidate } from './wsjtx';
 import type { QsoStore } from './qsoStore';
@@ -15,6 +15,8 @@ export interface WsjtxQsoRouterOptions {
 }
 
 export class WsjtxQsoRouter {
+  private readonly recent = new Map<string, { readonly qso: Qso; readonly timestamp: number }>();
+
   constructor(private readonly options: WsjtxQsoRouterOptions) {}
 
   route(candidate: WsjtxLoggedQsoCandidate): WsjtxQsoRouteResult {
@@ -33,6 +35,7 @@ export class WsjtxQsoRouter {
       band: candidate.band ?? undefined,
       frequencyMHz: candidate.frequencyMHz,
       mode: candidate.mode,
+      submode: candidate.submode,
       rstSent: candidate.rstSent,
       rstReceived: candidate.rstReceived,
       gridSquare: candidate.gridSquare,
@@ -41,15 +44,26 @@ export class WsjtxQsoRouter {
       myGridSquare: candidate.myGridSquare,
       source: 'wsjtx' as const,
     };
-    const fingerprint = qsoFingerprint({ ...input, submode: undefined } as Qso);
-    const duplicate = existing.qsos.find(qso => qsoFingerprint(qso) === fingerprint);
+    const identity = dedupeIdentity(input);
+    const timestamp = Date.parse(candidate.qsoDateTimeUtc);
+    for (const [key, entry] of this.recent) if (timestamp - entry.timestamp > 600_000) this.recent.delete(key);
+    const recentDuplicate = this.recent.get(identity);
+    if (recentDuplicate && Math.abs(timestamp - recentDuplicate.timestamp) <= 2_000) return { status: 'duplicate', qso: recentDuplicate.qso };
+    const duplicate = existing.qsos.find(qso => dedupeIdentity(qso) === identity && Math.abs(timestamp - Date.parse(qso.qsoDateTimeUtc)) <= 2_000);
     if (duplicate) return { status: 'duplicate', qso: duplicate };
     const normalized = normalizeQso({ ...input, qsoId: 'diagnostic', schemaVersion: 1, createdAtUtc: candidate.qsoDateTimeUtc, updatedAtUtc: candidate.qsoDateTimeUtc });
     if (!normalized.valid || !normalized.qso) return { status: 'unavailable', reason: 'normalization_failed' };
     try {
-      return { status: 'persisted', qso: this.options.qsoStore.create(input).qso };
+      const qso = this.options.qsoStore.create(input).qso;
+      this.recent.set(identity, { qso, timestamp });
+      while (this.recent.size > 256) this.recent.delete(this.recent.keys().next().value!);
+      return { status: 'persisted', qso };
     } catch {
       return { status: 'unavailable', reason: 'persistence_failed' };
     }
   }
+}
+
+function dedupeIdentity(value: Pick<Qso, 'activationId' | 'callsign' | 'band' | 'frequencyMHz' | 'mode'>): string {
+  return [value.activationId, value.callsign.trim().toUpperCase(), value.mode.trim().toUpperCase(), value.band.trim().toLowerCase(), value.frequencyMHz === undefined ? '' : value.frequencyMHz.toFixed(6)].join('|');
 }

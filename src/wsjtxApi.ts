@@ -15,6 +15,11 @@ export interface WsjtxDiagnostics {
   readonly lastStatusStateUpdatedAtUtc: string | null;
   readonly loggedQsoPacketsAccepted: number;
   readonly loggedQsoParseFailures: number;
+  readonly loggedQsoType5Accepted?: number;
+  readonly loggedQsoType5ParseFailures?: number;
+  readonly loggedAdifPacketsAccepted?: number;
+  readonly loggedAdifParseFailures?: number;
+  readonly loggedQsoDuplicatesSuppressed?: number;
   readonly lastLoggedQsoAtUtc: string | null;
   readonly lastLoggedQsoResult: string | null;
   readonly lastLoggedQsoCallsign: string | null;
