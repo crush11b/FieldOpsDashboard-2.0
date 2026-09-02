@@ -78,7 +78,9 @@ An unavailable Internet source does not make a modeled result a measurement, and
 
 Version 2.7.0 is scoped to a trustworthy, locally operated Connected Operations workspace. Live providers still require connectivity, and modeled, observed, retained, manual, and WSJT-X application evidence remain distinct.
 
-Radio/CAT integration, direct WSJT-X integration, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain deferred.
+Implemented in Version 2.7.0: read-only WSJT-X Current Station integration and WSJT-X logged-QSO ingestion. These capabilities observe and ingest WSJT-X evidence; FieldOps does not control WSJT-X or the radio.
+
+CAT/direct radio control, PTT/transmit control, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain deferred.
 
 ## SmartDeploy and activation-support scope
 
