@@ -164,6 +164,12 @@ For a simple single-consumer setup, the default listener remains unicast on `127
 - The root issue was production configuration wiring: deployed Dashboard launchers supplied only `NODE_ENV`, while `WSJTX_MULTICAST_ADDRESS` existed only as an environment override and was never provided to the Dashboard process. Dashboard-owned configuration now supplies the production multicast default and preserves deliberate unicast compatibility.
 - Hardware acceptance remains pending after this correction. This record does not declare multicast validated.
 
+### 2.7-03 Windows multicast interface membership correction - 2026-09-02
+
+- Revision `042839ff` was deployed successfully. FieldOps correctly reported multicast, active, joined, and `239.255.0.0`, but five WSJT-X decode cycles produced zero FieldOps packets. WSJT-X was sending through `wireless_32768` and `loopback_0`; Otto then received the same multicast traffic while FieldOps remained at zero packets.
+- This proves the sender, group, port, and local subscriber coexistence are functioning. The remaining failure is FieldOps automatic multicast interface membership on Windows: the prior listener allowed the OS to select one interface when no explicit address was configured.
+- FieldOps now enumerates unique local IPv4 addresses and joins the group on each eligible address, while retaining explicit-interface and bounded lifecycle behavior. Hardware acceptance remains pending.
+
 ---
 
 ## 2.7-03 - WSJT-X Read-Only Integration

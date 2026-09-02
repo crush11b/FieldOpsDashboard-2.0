@@ -155,7 +155,7 @@ describe('ActivationFoundationPanel', () => {
 
   it('shows collapsed WSJT-X diagnostics and refreshes them while active', async () => {
     vi.useFakeTimers();
-    let diagnostics = { listenerMode: 'multicast', listenerState: 'active', multicastAddress: '239.255.0.0', multicastInterface: null, multicastJoined: true, lastSocketError: null, packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
+    let diagnostics = { listenerMode: 'multicast', listenerState: 'active', multicastAddress: '239.255.0.0', multicastInterface: null, multicastInterfaces: ['127.0.0.1', '192.168.1.20'], multicastJoined: true, lastSocketError: null, packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/wsjtx/diagnostics')
       ? { ok: true, json: async () => diagnostics }
       : { ok: true, json: async () => ({ status: 'unavailable', state: null, qsos: [] }) });
@@ -169,6 +169,7 @@ describe('ActivationFoundationPanel', () => {
     fireEvent.click(screen.getByText('WSJT-X DIAGNOSTICS'));
     expect(screen.getByText('multicast')).toBeInTheDocument();
     expect(screen.getByText('239.255.0.0')).toBeInTheDocument();
+    expect(screen.getByText('127.0.0.1, 192.168.1.20')).toBeInTheDocument();
     expect(screen.getByText('Yes')).toBeInTheDocument();
     expect(screen.getByText('persisted')).toBeInTheDocument();
     expect(screen.getByText('W1AW / 20m / FT8')).toBeInTheDocument();

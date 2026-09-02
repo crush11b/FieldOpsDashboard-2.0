@@ -132,6 +132,43 @@ describe('WSJT-X protocol and listener', () => {
     expect(dgram.createSocket).toHaveBeenNthCalledWith(2, { type: 'udp4', reuseAddr: true });
   });
 
+  it('joins each unique eligible IPv4 interface when multicast interface is omitted', () => {
+    const socket = { on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn(), dropMembership: vi.fn(), close: vi.fn() };
+    vi.spyOn(dgram, 'createSocket').mockReturnValue(socket as any);
+    const listener = new WsjtxListener({ multicastAddress: '239.255.0.0', port: 2237, networkInterfaces: () => ({
+      WiFi: [{ address: '192.168.1.20', netmask: '255.255.255.0', family: 'IPv4', mac: '', internal: false, cidr: '192.168.1.20/24' }, { address: '2001:db8::1', netmask: 'ffff:ffff::', family: 'IPv6', mac: '', internal: false, cidr: '2001:db8::1/64', scopeid: 0 }],
+      Loopback: [{ address: '127.0.0.1', netmask: '255.0.0.0', family: 'IPv4', mac: '', internal: true, cidr: '127.0.0.1/8' }, { address: '192.168.1.20', netmask: '255.255.255.0', family: 'IPv4', mac: '', internal: false, cidr: '192.168.1.20/24' }],
+    }) });
+    listener.start();
+
+    expect(socket.addMembership).toHaveBeenCalledTimes(2);
+    expect(socket.addMembership).toHaveBeenNthCalledWith(1, '239.255.0.0', '127.0.0.1');
+    expect(socket.addMembership).toHaveBeenNthCalledWith(2, '239.255.0.0', '192.168.1.20');
+    expect(listener.getDiagnostics()).toMatchObject({ multicastJoined: true, multicastInterfaces: ['127.0.0.1', '192.168.1.20'] });
+    listener.stop();
+    expect(socket.dropMembership).toHaveBeenNthCalledWith(1, '239.255.0.0', '127.0.0.1');
+    expect(socket.dropMembership).toHaveBeenNthCalledWith(2, '239.255.0.0', '192.168.1.20');
+  });
+
+  it('keeps a listener active when one automatic membership fails', () => {
+    const socket = { on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn((_: string, networkInterface?: string) => { if (networkInterface === '10.0.0.2') throw new Error('not usable'); }), dropMembership: vi.fn(), close: vi.fn() };
+    vi.spyOn(dgram, 'createSocket').mockReturnValue(socket as any);
+    const listener = new WsjtxListener({ multicastAddress: '239.255.0.0', networkInterfaces: () => ({ a: [{ address: '10.0.0.1', netmask: '', family: 'IPv4', mac: '', internal: false, cidr: null }], b: [{ address: '10.0.0.2', netmask: '', family: 'IPv4', mac: '', internal: false, cidr: null }] }) });
+    listener.start();
+
+    expect(listener.getDiagnostics()).toMatchObject({ listenerState: 'active', multicastJoined: true, multicastInterfaces: ['10.0.0.1'], lastSocketError: 'Some WSJT-X multicast memberships failed: 10.0.0.2: not usable' });
+    expect(listener.getSnapshot()).toMatchObject({ status: 'unavailable' });
+  });
+
+  it('fails honestly when no automatic membership can be established', () => {
+    const socket = { on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn(() => { throw new Error('membership denied'); }), dropMembership: vi.fn(), close: vi.fn() };
+    vi.spyOn(dgram, 'createSocket').mockReturnValue(socket as any);
+    const listener = new WsjtxListener({ multicastAddress: '239.255.0.0', networkInterfaces: () => ({ WiFi: [{ address: '10.0.0.1', netmask: '', family: 'IPv4', mac: '', internal: false, cidr: null }] }) });
+    listener.start();
+
+    expect(listener.getDiagnostics()).toMatchObject({ listenerState: 'recovering', multicastJoined: false, multicastInterfaces: [], lastSocketError: '10.0.0.1: membership denied' });
+  });
+
   it('reports socket failure and performs one bounded restart without duplicate membership', async () => {
     vi.useFakeTimers();
     const allSockets = [1, 2].map(() => ({ on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn(), dropMembership: vi.fn(), close: vi.fn() }));

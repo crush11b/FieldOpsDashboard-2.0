@@ -1,4 +1,5 @@
 import dgram from 'node:dgram';
+import os from 'node:os';
 import type { CurrentStationState } from '../src/currentStationState';
 import { normalizeQsoCallsign } from './qso';
 
@@ -37,6 +38,7 @@ export interface WsjtxDiagnostics {
   readonly listenerState: 'stopped' | 'starting' | 'active' | 'failed' | 'recovering';
   readonly multicastAddress: string | null;
   readonly multicastInterface: string | null;
+  readonly multicastInterfaces: readonly string[];
   readonly multicastJoined: boolean;
   readonly lastSocketError: string | null;
   readonly packetsReceived: number;
@@ -128,7 +130,7 @@ export function deriveAmateurBand(frequencyMHz: number): string | null {
 
 export class WsjtxListener {
   private socket: dgram.Socket | null = null;
-  private multicastJoined = false;
+  private joinedMulticastInterfaces = new Set<string>();
   private listenerState: WsjtxDiagnostics['listenerState'] = 'stopped';
   private recoveryTimer: NodeJS.Timeout | null = null;
   private recoveryAttempts = 0;
@@ -155,7 +157,7 @@ export class WsjtxListener {
   private lastCurrentRequestId: number | null = null;
   private lastCurrentRequestReceivedAtUtc: string | null = null;
   private lastCurrentResponseProducedAtUtc: string | null = null;
-  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
+  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
 
   start(): void {
     if (this.socket || this.recoveryTimer) return;
@@ -167,7 +169,7 @@ export class WsjtxListener {
     socket.on('close', () => {
       if (this.socket !== socket || this.listenerState === 'stopped') return;
       this.socket = null;
-      this.multicastJoined = false;
+      this.joinedMulticastInterfaces.clear();
       this.lastError = 'WSJT-X listener socket closed unexpectedly.';
       this.scheduleRecovery();
     });
@@ -175,8 +177,15 @@ export class WsjtxListener {
     this.socket = socket;
     socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, bindHost, () => {
       if (!this.options.multicastAddress) { this.listenerState = 'active'; this.lastError = null; return; }
-      try { socket.addMembership(this.options.multicastAddress, this.options.multicastInterface); this.multicastJoined = true; this.lastError = null; }
-      catch (error) { this.failSocket(socket, error instanceof Error ? error.message : 'WSJT-X multicast join failed.'); return; }
+      const interfaces = this.options.multicastInterface ? [this.options.multicastInterface] : this.getEligibleMulticastInterfaces();
+      const failures: string[] = [];
+      for (const networkInterface of interfaces) {
+        try { socket.addMembership(this.options.multicastAddress, networkInterface); this.joinedMulticastInterfaces.add(networkInterface); }
+        catch (error) { failures.push(`${networkInterface}: ${error instanceof Error ? error.message : 'membership failed'}`); }
+      }
+      if (this.joinedMulticastInterfaces.size === 0) { this.failSocket(socket, failures.join('; ') || 'No eligible IPv4 multicast interfaces were found.'); return; }
+      this.lastError = failures.length ? `Some WSJT-X multicast memberships failed: ${failures.join('; ')}` : null;
+      if (failures.length) this.lastSocketError = this.lastError;
       this.listenerState = 'active';
       this.recoveryAttempts = 0;
     });
@@ -223,7 +232,7 @@ export class WsjtxListener {
   recordCurrentRequest(requestId: number, receivedAtUtc: string): void { this.lastCurrentRequestId = requestId; this.lastCurrentRequestReceivedAtUtc = receivedAtUtc; }
   recordCurrentResponse(producedAtUtc: string): void { this.lastCurrentResponseProducedAtUtc = producedAtUtc; }
 
-  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastJoined: this.multicastJoined, lastSocketError: this.lastSocketError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
+  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastInterfaces: [...this.joinedMulticastInterfaces], multicastJoined: this.joinedMulticastInterfaces.size > 0, lastSocketError: this.lastSocketError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
 
   stop(): void { this.listenerState = 'stopped'; this.recoveryAttempts = 0; if (this.recoveryTimer) clearTimeout(this.recoveryTimer); this.recoveryTimer = null; if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
 
@@ -245,10 +254,22 @@ export class WsjtxListener {
   }
 
   private leaveMulticast(socket: dgram.Socket): void {
-    if (this.multicastJoined && this.options.multicastAddress) {
-      try { socket.dropMembership(this.options.multicastAddress, this.options.multicastInterface); } catch { /* socket is already closing */ }
-      this.multicastJoined = false;
+    if (this.options.multicastAddress) {
+      for (const networkInterface of this.joinedMulticastInterfaces) {
+        try { socket.dropMembership(this.options.multicastAddress, networkInterface); } catch { /* socket is already closing */ }
+      }
+      this.joinedMulticastInterfaces.clear();
     }
+  }
+
+  private getEligibleMulticastInterfaces(): string[] {
+    const addresses = new Set<string>();
+    for (const entries of Object.values(this.options.networkInterfaces?.() ?? os.networkInterfaces())) {
+      for (const entry of entries ?? []) {
+        if (entry.family === 'IPv4') addresses.add(entry.address);
+      }
+    }
+    return [...addresses].sort();
   }
 
   getSnapshot(now = this.options.now ?? (() => new Date())): WsjtxSnapshot {

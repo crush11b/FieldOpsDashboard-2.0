@@ -5,6 +5,7 @@ export interface WsjtxDiagnostics {
   readonly listenerState: 'stopped' | 'starting' | 'active' | 'failed' | 'recovering';
   readonly multicastAddress: string | null;
   readonly multicastInterface: string | null;
+  readonly multicastInterfaces: readonly string[];
   readonly multicastJoined: boolean;
   readonly lastSocketError: string | null;
   readonly packetsReceived: number;
