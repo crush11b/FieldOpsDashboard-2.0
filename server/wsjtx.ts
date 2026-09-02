@@ -33,6 +33,12 @@ export interface WsjtxTimingEvidence {
 }
 
 export interface WsjtxDiagnostics {
+  readonly listenerMode: 'unicast' | 'multicast';
+  readonly listenerState: 'stopped' | 'starting' | 'active' | 'failed' | 'recovering';
+  readonly multicastAddress: string | null;
+  readonly multicastInterface: string | null;
+  readonly multicastJoined: boolean;
+  readonly lastSocketError: string | null;
   readonly packetsReceived: number;
   readonly lastPacketReceivedAtUtc: string | null;
   readonly statusPacketsAccepted: number;
@@ -123,6 +129,10 @@ export function deriveAmateurBand(frequencyMHz: number): string | null {
 export class WsjtxListener {
   private socket: dgram.Socket | null = null;
   private multicastJoined = false;
+  private listenerState: WsjtxDiagnostics['listenerState'] = 'stopped';
+  private recoveryTimer: NodeJS.Timeout | null = null;
+  private recoveryAttempts = 0;
+  private lastSocketError: string | null = null;
   private latest: WsjtxObservation | null = null;
   private lastError: string | null = null;
   private packetsReceived = 0;
@@ -148,16 +158,27 @@ export class WsjtxListener {
   constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
 
   start(): void {
-    if (this.socket) return;
-    const socket = dgram.createSocket('udp4');
+    if (this.socket || this.recoveryTimer) return;
+    if (this.listenerState === 'stopped') this.recoveryAttempts = 0;
+    this.listenerState = 'starting';
+    const socket = this.options.multicastAddress ? dgram.createSocket({ type: 'udp4', reuseAddr: true }) : dgram.createSocket('udp4');
     socket.on('message', packet => this.handlePacket(packet));
-    socket.on('error', error => { this.lastError = error.message; this.leaveMulticast(socket); socket.close(); this.socket = null; });
+    socket.on('error', error => this.failSocket(socket, error.message));
+    socket.on('close', () => {
+      if (this.socket !== socket || this.listenerState === 'stopped') return;
+      this.socket = null;
+      this.multicastJoined = false;
+      this.lastError = 'WSJT-X listener socket closed unexpectedly.';
+      this.scheduleRecovery();
+    });
     const bindHost = this.options.multicastAddress ? '0.0.0.0' : this.options.host ?? WSJTX_DEFAULT_HOST;
     this.socket = socket;
     socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, bindHost, () => {
-      if (!this.options.multicastAddress) return;
+      if (!this.options.multicastAddress) { this.listenerState = 'active'; this.lastError = null; return; }
       try { socket.addMembership(this.options.multicastAddress, this.options.multicastInterface); this.multicastJoined = true; this.lastError = null; }
-      catch (error) { this.lastError = error instanceof Error ? error.message : 'WSJT-X multicast join failed.'; socket.close(); this.socket = null; }
+      catch (error) { this.failSocket(socket, error instanceof Error ? error.message : 'WSJT-X multicast join failed.'); return; }
+      this.listenerState = 'active';
+      this.recoveryAttempts = 0;
     });
   }
 
@@ -202,9 +223,26 @@ export class WsjtxListener {
   recordCurrentRequest(requestId: number, receivedAtUtc: string): void { this.lastCurrentRequestId = requestId; this.lastCurrentRequestReceivedAtUtc = receivedAtUtc; }
   recordCurrentResponse(producedAtUtc: string): void { this.lastCurrentResponseProducedAtUtc = producedAtUtc; }
 
-  getDiagnostics(): WsjtxDiagnostics { return { packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
+  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastJoined: this.multicastJoined, lastSocketError: this.lastError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
 
-  stop(): void { if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
+  stop(): void { this.listenerState = 'stopped'; this.recoveryAttempts = 0; if (this.recoveryTimer) clearTimeout(this.recoveryTimer); this.recoveryTimer = null; if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
+
+  private failSocket(socket: dgram.Socket, message: string): void {
+    if (this.socket !== socket) return;
+    this.lastError = message;
+    this.lastSocketError = message;
+    this.leaveMulticast(socket);
+    socket.close();
+    this.socket = null;
+    this.scheduleRecovery();
+  }
+
+  private scheduleRecovery(): void {
+    this.listenerState = this.recoveryAttempts < 3 ? 'recovering' : 'failed';
+    if (this.listenerState !== 'recovering') return;
+    this.recoveryAttempts += 1;
+    this.recoveryTimer = setTimeout(() => { this.recoveryTimer = null; this.start(); }, 1000);
+  }
 
   private leaveMulticast(socket: dgram.Socket): void {
     if (this.multicastJoined && this.options.multicastAddress) {

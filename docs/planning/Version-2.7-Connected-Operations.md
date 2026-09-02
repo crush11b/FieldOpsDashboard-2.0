@@ -152,6 +152,12 @@ For a simple single-consumer setup, the default listener remains unicast on `127
 - Source loss transitions honestly to stale/unavailable according to defined timing semantics.
 - Tests prove that unknown/stale values are not silently promoted to live facts.
 
+### 2.7-03 multicast reliability correction - 2026-08-29
+
+- CF-20 field retest initially received WSJT-X multicast traffic and reached 51 packets. FieldOps and Otto initially coexisted, but FieldOps then froze; closing Otto, changing bands/decode cycles, and restarting WSJT-X did not restore traffic. The HTTP/API and frontend diagnostics paths remained healthy, so sustained multicast reception was classified as a release blocker.
+- The correction requests shared multicast-port reuse, binds multicast on `0.0.0.0`, records listener configuration and membership state, exposes socket failure diagnostics, and performs at most three delayed listener recovery attempts without creating duplicate sockets or memberships.
+- The correction is not hardware acceptance. The CF-20 retest gate remains: prove sustained multicast reception through band changes, WSJT-X restart, and an independent subscriber, then verify honest listener diagnostics and no regression to default unicast operation.
+
 ---
 
 ## 2.7-03 - WSJT-X Read-Only Integration

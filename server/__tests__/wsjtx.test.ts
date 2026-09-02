@@ -101,12 +101,15 @@ describe('WSJT-X protocol and listener', () => {
     listener.start();
     listener.start();
 
+    expect(dgram.createSocket).toHaveBeenCalledWith({ type: 'udp4', reuseAddr: true });
     expect(socket.bind).toHaveBeenCalledWith(2237, '0.0.0.0', expect.any(Function));
     expect(socket.addMembership).toHaveBeenCalledOnce();
     expect(socket.addMembership).toHaveBeenCalledWith('239.255.0.0', '192.168.1.20');
     const messageHandler = socket.on.mock.calls.find(([event]) => event === 'message')?.[1] as ((packet: Uint8Array) => void);
     messageHandler(statusPacket(7_074_000, 'FT8'));
-    expect(listener.getSnapshot()).toMatchObject({ status: 'available', state: { band: '40m', frequencyMHz: 7.074, mode: 'FT8' } });
+    messageHandler(statusPacket(14_074_000, 'FT4'));
+    expect(listener.getDiagnostics()).toMatchObject({ listenerMode: 'multicast', listenerState: 'active', multicastAddress: '239.255.0.0', multicastInterface: '192.168.1.20', multicastJoined: true, packetsReceived: 2 });
+    expect(listener.getSnapshot()).toMatchObject({ status: 'available', state: { band: '20m', frequencyMHz: 14.074, mode: 'FT4' } });
 
     listener.stop();
     expect(socket.dropMembership).toHaveBeenCalledWith('239.255.0.0', '192.168.1.20');
@@ -114,6 +117,39 @@ describe('WSJT-X protocol and listener', () => {
     listener.start();
     expect(dgram.createSocket).toHaveBeenCalledTimes(2);
     expect(socket.addMembership).toHaveBeenCalledTimes(2);
+  });
+
+  it('allows independent multicast subscribers to share the configured port', () => {
+    const sockets = [1, 2].map(() => ({ on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn(), dropMembership: vi.fn(), close: vi.fn() }));
+    vi.spyOn(dgram, 'createSocket').mockImplementation(() => sockets.shift() as any);
+    const first = new WsjtxListener({ multicastAddress: '239.255.0.0', port: 2237 });
+    const second = new WsjtxListener({ multicastAddress: '239.255.0.0', port: 2237 });
+    first.start();
+    second.start();
+
+    expect(dgram.createSocket).toHaveBeenCalledTimes(2);
+    expect(dgram.createSocket).toHaveBeenNthCalledWith(1, { type: 'udp4', reuseAddr: true });
+    expect(dgram.createSocket).toHaveBeenNthCalledWith(2, { type: 'udp4', reuseAddr: true });
+  });
+
+  it('reports socket failure and performs one bounded restart without duplicate membership', async () => {
+    vi.useFakeTimers();
+    const allSockets = [1, 2].map(() => ({ on: vi.fn(), bind: vi.fn((_port: number, _host: string, ready: () => void) => ready()), addMembership: vi.fn(), dropMembership: vi.fn(), close: vi.fn() }));
+    const availableSockets = [...allSockets];
+    vi.spyOn(dgram, 'createSocket').mockImplementation(() => availableSockets.shift() as any);
+    const listener = new WsjtxListener({ multicastAddress: '239.255.0.0', multicastInterface: '192.168.1.20', port: 2237 });
+    listener.start();
+    const firstSocket = allSockets[0];
+    const onError = firstSocket?.on.mock.calls.find(([event]: [string]) => event === 'error')?.[1] as ((error: Error) => void);
+    onError(new Error('network interface stopped'));
+    expect(listener.getDiagnostics()).toMatchObject({ listenerState: 'recovering', multicastJoined: false, lastSocketError: 'network interface stopped' });
+    expect(listener.getDiagnostics().listenerState).not.toBe('active');
+
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(listener.getDiagnostics()).toMatchObject({ listenerState: 'active', multicastJoined: true });
+    expect(dgram.createSocket).toHaveBeenCalledTimes(2);
+    expect(availableSockets).toHaveLength(0);
+    vi.useRealTimers();
   });
 
   it('keeps Status observations independent from interleaved Logged QSO events', async () => {
