@@ -170,6 +170,12 @@ For a simple single-consumer setup, the default listener remains unicast on `127
 - This proves the sender, group, port, and local subscriber coexistence are functioning. The remaining failure is FieldOps automatic multicast interface membership on Windows: the prior listener allowed the OS to select one interface when no explicit address was configured.
 - FieldOps now enumerates unique local IPv4 addresses and joins the group on each eligible address, while retaining explicit-interface and bounded lifecycle behavior. Hardware acceptance remains pending.
 
+### V2.7-07 Windows native receiver proof - 2026-09-02
+
+- Revision `a523846` was deployed to the CF-20. FieldOps successfully joined `127.0.0.1` and `192.168.0.94`, but its packet count remained zero. A loopback-only WSJT-X test also remained at zero, and temporarily disabling Windows Defender Firewall did not change the result.
+- With FieldOps closed, a standalone Node receiver bound `0.0.0.0:2237`, joined both addresses, and remained at zero packets through three WSJT-X decode cycles. Otto had already demonstrated successful WSJT-X multicast reception on the same system.
+- A separate Windows-native .NET receiver proof is therefore being tested before any architecture change. It reports raw UDP transport evidence only and does not move WSJT-X interpretation or domain ownership out of Express. Hardware acceptance remains pending; .NET receive success is not yet claimed.
+
 ---
 
 ## 2.7-03 - WSJT-X Read-Only Integration
