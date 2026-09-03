@@ -50,9 +50,15 @@ describe('mission forecast adapter', () => {
   });
 
   it('uses interval intersection and includes both deterministic boundaries', async () => {
-    const fetcher = vi.fn(async () => providerResponse({ time: ['2026-08-19T11:30', '2026-08-19T14:00', '2026-08-19T15:00'], temperature_2m: [1, 2, 3], precipitation_probability: [0, 0, 0], wind_speed_10m: [0, 0, 0], wind_direction_10m: [0, 0, 0], wind_gusts_10m: [0, 0, 0], weather_code: [0, 0, 0] }));
+    const fetcher = vi.fn(async () => providerResponse({ time: ['2026-08-19T11:00', '2026-08-19T13:00', '2026-08-19T14:00'], temperature_2m: [1, 2, 3], precipitation_probability: [0, 0, 0], wind_speed_10m: [0, 0, 0], wind_direction_10m: [0, 0, 0], wind_gusts_10m: [0, 0, 0], weather_code: [0, 0, 0] }));
     const result = await retrieveMissionForecast(brief(), { fetcher: fetcher as typeof fetch, now: new Date('2026-08-19T11:00:00.000Z') });
-    expect(result.record?.periods.map(period => period.startsAtUtc)).toEqual(['2026-08-19T11:30:00.000Z']);
+    expect(result.record?.periods.map(period => period.startsAtUtc)).toEqual(['2026-08-19T13:00:00.000Z']);
+  });
+
+  it('rejects non-hour-aligned provider timestamps as unusable', async () => {
+    const result = await retrieveMissionForecast(brief(), { fetcher: vi.fn(async () => providerResponse({ time: ['2026-08-19T12:30'], temperature_2m: [1], precipitation_probability: [0], wind_speed_10m: [1], wind_direction_10m: [0], weather_code: [0] })) as typeof fetch });
+    expect(result.status).toBe('provider_unusable');
+    expect(result.record).toBeNull();
   });
 
   it('excludes a provider interval beginning exactly at mission end', async () => {
