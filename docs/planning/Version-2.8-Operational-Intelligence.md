@@ -358,6 +358,14 @@ Each concept has one primary home. Other phases may show compact context, but mu
 
 ## Document status and change control
 
-This document is the authoritative Version 2.8 planning contract and architecture boundary. It records no production implementation. It does not change schemas, tests, package versions, release metadata, tags, releases, deployment artifacts, or hardware acceptance evidence.
+This document is the authoritative Version 2.8 planning contract and architecture boundary. The dated evidence below records the bounded 2.8-01 implementation only. It does not change package versions, release metadata, tags, releases, deployment artifacts, or hardware acceptance evidence.
+
+### 2026-08-29 - 2.8-01 implementation evidence
+
+- SmartDeploy mission windows now accept up to seven days and reject longer or invalid intervals; the mission window remains planning context.
+- P.533 remains a start, midpoint, and end representative sample and now discloses that it is not continuous multi-day coverage.
+- Activation schema and store v2 retain actual start/end timestamps and structured objectives. Schema/store v1 records are normalized in memory without fabricated timestamps or read-time rewrite; lifecycle transitions use one injected clock value.
+- Review and Foundation surfaces distinguish actual operating timing from the planned mission window and identify migrated historical timing as unknown.
+- TX Context and Station Signal Observation are pure contracts with validation only. No provider, persistence, MY SIGNAL UI, recommendation rule, WSPR, inventory/loadout, CAT/PTT, or release work is included.
 
 Any future implementation must name the contract section and acceptance gate it satisfies. A new evidence family, provider, goal, deadline meaning, or equipment concept requires an explicit contract revision and independent review rather than an implicit extension of a consumer.

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { executeMissionWindowPropagation, missionSampleTimes } from '../missionWindowPropagation';
+import { executeMissionWindowPropagation, missionSampleTimes, MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION } from '../missionWindowPropagation';
 import type { SmartDeployExecutionRequest } from '../../src/planning/smartDeployPlanning';
 
 const planningRequest = {
@@ -28,6 +28,11 @@ describe('mission-window propagation adapter', () => {
     expect(missionSampleTimes({ start: '2026-08-18T14:00:00Z', end: '2026-08-18T18:00:00Z' }).map(sample => sample.modelDateTimeUtc)).toEqual(['2026-08-18T14:00:00.000Z', '2026-08-18T16:00:00.000Z', '2026-08-18T18:00:00.000Z']);
     expect(missionSampleTimes({ start: '2026-08-18T23:00:00Z', end: '2026-08-19T01:00:00Z' }).map(sample => sample.modelDateTimeUtc)).toEqual(['2026-08-18T23:00:00.000Z', '2026-08-19T00:00:00.000Z', '2026-08-19T01:00:00.000Z']);
     expect(missionSampleTimes({ start: '2026-08-18T00:00:00Z', end: '2026-08-18T00:00:05Z' }).map(sample => sample.modelDateTimeUtc)).toEqual(['2026-08-18T00:00:00.000Z', '2026-08-18T00:00:02.500Z', '2026-08-18T00:00:05.000Z']);
+  });
+
+  it('discloses representative samples rather than continuous multi-day coverage', async () => {
+    const result = await executeMissionWindowPropagation({ planningRequest: { ...planningRequest, missionWindow: { start: '2026-08-18T00:00:00Z', end: '2026-08-25T00:00:00Z' } }, ssn: 100 }, undefined, async request => success(request));
+    expect(result.summary.limitations).toContain(MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION);
   });
 
   it('passes mission sample UTC components to P.533 despite a different current clock', async () => {

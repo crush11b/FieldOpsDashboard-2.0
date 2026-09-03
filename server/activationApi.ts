@@ -32,7 +32,8 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
       const notes = options.notesStore.getByBriefId(briefId).collections[0];
       if (notes) notesCollectionId = notes.collectionId;
       else if (source.type !== 'General') notesCollectionId = options.notesStore.create({ briefId, activation: { program: source.type, reference: source.reference ?? '', ...(source.title ? { displayName: source.title } : {}) } }).collection.collectionId;
-      const created = options.store.create({ ...source, briefId, ...(notesCollectionId ? { notesCollectionId } : {}) });
+      const operatingObjective = request.body?.operatingObjective;
+      const created = options.store.create({ ...source, briefId, ...(notesCollectionId ? { notesCollectionId } : {}), ...(operatingObjective === undefined ? {} : { operatingObjective }) });
       response.status(201).json({ kind: 'activation', status: 'created', activation: created.activation, diagnostics: [...briefResult.diagnostics, ...created.diagnostics] });
     } catch (error) { options.logger?.warn('Activation creation failed.'); response.status(422).json(errorPayload('invalid_brief', error instanceof Error ? error.message : 'The SmartDeploy brief could not initialize an Activation.')); }
   });

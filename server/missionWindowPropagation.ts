@@ -7,6 +7,7 @@ import type { RegionalP533Result } from '../src/propagation/regionalP533';
 import { executeP533Circuit } from './p533Engine';
 
 export const MISSION_WINDOW_SAMPLE_POSITIONS = ['start', 'midpoint', 'end'] as const;
+export const MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION = 'P.533 results are representative samples at mission start, midpoint, and end; they do not provide continuous multi-day coverage or a continuous propagation forecast.';
 export type MissionWindowSamplePosition = (typeof MISSION_WINDOW_SAMPLE_POSITIONS)[number];
 export type MissionWindowPropagationStatus = 'complete' | 'partial' | 'unavailable';
 
@@ -191,7 +192,7 @@ function buildResult(
       strongestBandBySample,
       consistentStrongestBand: strongestBands.length === samples.length && new Set(strongestBands).size === 1 ? strongestBands[0] : null,
       limitations: [
-        'Samples are discrete P.533 model observations at mission start, midpoint, and end.',
+        MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION,
         ...(status === 'partial' ? ['One or more mission samples or bands were unavailable; no continuous trend is inferred.'] : []),
         ...(status === 'unavailable' ? ['No modeled sample was available; no band recommendation is provided.'] : []),
       ],

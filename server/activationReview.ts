@@ -15,7 +15,7 @@ export interface ActivationReview {
   readonly kind: 'activation_review';
   readonly reviewVersion: 1;
   readonly reviewedAtUtc: string;
-  readonly activation: Pick<Activation, 'activationId' | 'type' | 'reference' | 'title' | 'status' | 'createdAtUtc' | 'updatedAtUtc' | 'briefId' | 'notesCollectionId'>;
+  readonly activation: Pick<Activation, 'activationId' | 'type' | 'reference' | 'title' | 'status' | 'createdAtUtc' | 'updatedAtUtc' | 'startedAtUtc' | 'endedAtUtc' | 'operatingObjective' | 'briefId' | 'notesCollectionId'>;
   readonly plan: { readonly state: ReviewEvidenceState; readonly briefId: string | null; readonly type: string; readonly reference: string | null; readonly displayName: string | null; readonly plannedLocation: { readonly latitude: number; readonly longitude: number; readonly gridSquare?: string } | null; readonly missionWindow: { readonly start: string; readonly end: string } | null; readonly bands: readonly string[]; readonly modes: readonly string[]; readonly powerWatts: number | null; readonly sequence: string | null; readonly briefAssociation: ReviewEvidenceState };
   readonly environment: { readonly forecast: { readonly state: ReviewEvidenceState; readonly record: MissionForecastRecord | null }; readonly alerts: { readonly state: ReviewEvidenceState; readonly message: string }; readonly spaceWeather: { readonly state: ReviewEvidenceState; readonly record: RetainedSpaceWeatherSnapshot | null } };
   readonly propagation: { readonly state: ReviewEvidenceState; readonly modeled: unknown | null; readonly observedRf: unknown | null; readonly source: string };
@@ -67,7 +67,7 @@ export function assembleActivationReview(dependencies: ActivationReviewDependenc
   if (noteResult?.status === 'found' && noteResult.collection.notes.length > 0) findings.push('Activation Notes are present.');
   return {
     kind: 'activation_review', reviewVersion: 1, reviewedAtUtc,
-    activation: { activationId: activation.activationId, type: activation.type, reference: activation.reference, title: activation.title, status: activation.status, createdAtUtc: activation.createdAtUtc, updatedAtUtc: activation.updatedAtUtc, briefId: activation.briefId, notesCollectionId: activation.notesCollectionId },
+    activation: { activationId: activation.activationId, type: activation.type, reference: activation.reference, title: activation.title, status: activation.status, createdAtUtc: activation.createdAtUtc, updatedAtUtc: activation.updatedAtUtc, startedAtUtc: activation.startedAtUtc, endedAtUtc: activation.endedAtUtc, operatingObjective: activation.operatingObjective, briefId: activation.briefId, notesCollectionId: activation.notesCollectionId },
     plan,
     environment: {
       forecast: { state: forecastResult?.status === 'found' ? 'retained' : 'unavailable', record: forecastResult?.status === 'found' ? forecastResult.record : null },
