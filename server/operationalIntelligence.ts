@@ -1,58 +1,50 @@
-export const VALUE_PROVENANCES = ['operator_supplied', 'wsjtx_reported', 'pskreporter_reported', 'wspr_reported', 'program_default'] as const;
-export type ValueProvenance = typeof VALUE_PROVENANCES[number];
+import { isHfBand, isPropagationMode, type HfBand, type PropagationMode } from '../src/propagation/domain';
 
-export interface FieldProvenance {
-  readonly radioSetup?: ValueProvenance;
-  readonly antenna?: ValueProvenance;
-  readonly transmitPowerWatts?: ValueProvenance;
-  readonly band?: ValueProvenance;
-  readonly mode?: ValueProvenance;
-  readonly frequencyMHz?: ValueProvenance;
-}
-export interface TxContext {
-  readonly contextId: string;
-  readonly activationId: string;
-  readonly startedAtUtc: string;
-  readonly endedAtUtc?: string;
-  readonly radioSetupLabel: string;
-  readonly antennaLabel: string;
-  readonly transmitPowerWatts: number;
-  readonly band: string;
-  readonly mode: string;
-  readonly frequencyMHz?: number;
-  readonly provenance: FieldProvenance;
-}
-export interface StationSignalObservation {
-  readonly observationId: string;
-  readonly activationId: string;
-  readonly contextId: string;
-  readonly startsAtUtc: string;
-  readonly endsAtUtc: string;
-  readonly source: 'pskreporter' | 'wspr';
-  readonly status: 'retained' | 'unavailable';
-  readonly matchingReports: number;
-  readonly uniqueReceivers: number;
-  readonly reportsPerMinute?: number;
-  readonly uniqueReceiversPerMinute?: number;
-  readonly newestReportAtUtc?: string;
-  readonly limitation: string;
-}
+export const OPERATIONAL_INTELLIGENCE_PROVENANCES = ['operator_entered', 'operator_confirmed_plan', 'wsjtx_application'] as const;
+export type OperationalIntelligenceProvenance = typeof OPERATIONAL_INTELLIGENCE_PROVENANCES[number];
+export const OPERATIONAL_INTELLIGENCE_MAX_ID_LENGTH = 128;
+export const OPERATIONAL_INTELLIGENCE_MAX_LABEL_LENGTH = 128;
+export interface TxContextProvenance { readonly radioSetup: 'operator_entered' | 'operator_confirmed_plan'; readonly antenna: 'operator_entered' | 'operator_confirmed_plan'; readonly transmitPowerWatts: 'operator_entered' | 'operator_confirmed_plan'; readonly band: OperationalIntelligenceProvenance; readonly mode: OperationalIntelligenceProvenance; readonly frequencyMHz?: OperationalIntelligenceProvenance; }
+export interface TxContext { readonly segmentId: string; readonly activationId: string; readonly startedAtUtc: string; readonly endedAtUtc?: string; readonly radioSetupLabel: string; readonly antennaLabel: string; readonly transmitPowerWatts: number; readonly band: HfBand; readonly mode: PropagationMode; readonly frequencyMHz?: number; readonly provenance: TxContextProvenance; }
+export interface DistanceSummary { readonly derivation: 'maidenhead_locator_centers'; readonly approximate: true; readonly locatedReportCount: number; readonly nearestKm: number; readonly medianKm: number; readonly farthestKm: number; }
+export interface SnrSummary { readonly reportCount: number; readonly minimumDb: number; readonly medianDb: number; readonly maximumDb: number; }
+export interface StationSignalObservation { readonly observationId: string; readonly activationId: string; readonly txContextSegmentId: string; readonly source: 'pskreporter' | 'wspr'; readonly sourceSemantics: 'observed_digital_reception_report' | 'source_reported_wspr_reception'; readonly startsAtUtc: string; readonly endsAtUtc: string; readonly status: 'live' | 'retained' | 'stale' | 'unavailable'; readonly matchingReportCount: number; readonly uniqueReceiverCount: number; readonly reportsPerMinute?: number; readonly uniqueReceiversPerMinute?: number; readonly newestMatchingReportAtUtc: string | null; readonly limitations: readonly string[]; readonly distance?: DistanceSummary; readonly snr?: SnrSummary; readonly sourceReportedTransmitPowerWatts?: number; }
 
 export function normalizeTxContext(value: unknown): TxContext | null {
-  if (!isRecord(value) || !nonEmpty(value.contextId) || !nonEmpty(value.activationId) || !utc(value.startedAtUtc) || (value.endedAtUtc !== undefined && !utc(value.endedAtUtc)) || !nonEmpty(value.radioSetupLabel) || !nonEmpty(value.antennaLabel) || !positive(value.transmitPowerWatts) || !nonEmpty(value.band) || !nonEmpty(value.mode) || (value.frequencyMHz !== undefined && !positive(value.frequencyMHz)) || !isProvenance(value.provenance)) return null;
+  if (!record(value) || !bounded(value.segmentId) || !bounded(value.activationId) || !utc(value.startedAtUtc) || !optionalUtc(value.endedAtUtc) || !bounded(value.radioSetupLabel) || !bounded(value.antennaLabel) || !positive(value.transmitPowerWatts) || !isHfBand(value.band) || !isPropagationMode(value.mode) || !optionalPositive(value.frequencyMHz)) return null;
   if (value.endedAtUtc !== undefined && Date.parse(value.endedAtUtc) < Date.parse(value.startedAtUtc)) return null;
-  return value as TxContext;
+  const provenance = txProvenance(value.provenance, value.frequencyMHz !== undefined); if (!provenance) return null;
+  return { segmentId: trim(value.segmentId), activationId: trim(value.activationId), startedAtUtc: normalizeUtc(value.startedAtUtc), ...(value.endedAtUtc === undefined ? {} : { endedAtUtc: normalizeUtc(value.endedAtUtc) }), radioSetupLabel: trim(value.radioSetupLabel), antennaLabel: trim(value.antennaLabel), transmitPowerWatts: value.transmitPowerWatts, band: value.band, mode: value.mode, ...(value.frequencyMHz === undefined ? {} : { frequencyMHz: value.frequencyMHz }), provenance };
 }
 
 export function normalizeStationSignalObservation(value: unknown): StationSignalObservation | null {
-  if (!isRecord(value) || !nonEmpty(value.observationId) || !nonEmpty(value.activationId) || !nonEmpty(value.contextId) || !utc(value.startsAtUtc) || !utc(value.endsAtUtc) || Date.parse(value.endsAtUtc) < Date.parse(value.startsAtUtc) || (value.source !== 'pskreporter' && value.source !== 'wspr') || (value.status !== 'retained' && value.status !== 'unavailable') || !count(value.matchingReports) || !count(value.uniqueReceivers) || !nonNegativeOptional(value.reportsPerMinute) || !nonNegativeOptional(value.uniqueReceiversPerMinute) || (value.newestReportAtUtc !== undefined && !utc(value.newestReportAtUtc)) || !nonEmpty(value.limitation)) return null;
-  return value as StationSignalObservation;
+  if (!record(value) || !bounded(value.observationId) || !bounded(value.activationId) || !bounded(value.txContextSegmentId) || !utc(value.startsAtUtc) || !utc(value.endsAtUtc) || Date.parse(value.endsAtUtc) < Date.parse(value.startsAtUtc) || !boundedArray(value.limitations) || !count(value.matchingReportCount) || !count(value.uniqueReceiverCount) || !optionalRate(value.reportsPerMinute) || !optionalRate(value.uniqueReceiversPerMinute) || (value.newestMatchingReportAtUtc !== null && !optionalUtc(value.newestMatchingReportAtUtc))) return null;
+  const sourceSemantics = value.source === 'pskreporter' ? 'observed_digital_reception_report' : value.source === 'wspr' ? 'source_reported_wspr_reception' : null;
+  if (!sourceSemantics || value.sourceSemantics !== sourceSemantics || !['live', 'retained', 'stale', 'unavailable'].includes(value.status)) return null;
+  if (hasForbiddenField(value)) return null;
+  const duration = Date.parse(value.endsAtUtc) - Date.parse(value.startsAtUtc);
+  if ((value.reportsPerMinute !== undefined && (duration <= 0 || value.matchingReportCount === 0 && value.reportsPerMinute > 0)) || (value.uniqueReceiversPerMinute !== undefined && (duration <= 0 || value.uniqueReceiverCount === 0 && value.uniqueReceiversPerMinute > 0))) return null;
+  if (value.newestMatchingReportAtUtc !== null && value.newestMatchingReportAtUtc !== undefined && (Date.parse(value.newestMatchingReportAtUtc) < Date.parse(value.startsAtUtc) || Date.parse(value.newestMatchingReportAtUtc) > Date.parse(value.endsAtUtc))) return null;
+  const distance = normalizeDistance(value.distance, value.matchingReportCount); if (value.distance !== undefined && !distance) return null;
+  const snr = normalizeSnr(value.snr, value.matchingReportCount); if (value.snr !== undefined && !snr) return null;
+  if (value.source === 'pskreporter' && value.sourceReportedTransmitPowerWatts !== undefined) return null;
+  if (value.source === 'wspr' && value.sourceReportedTransmitPowerWatts !== undefined && !positive(value.sourceReportedTransmitPowerWatts)) return null;
+  return { observationId: trim(value.observationId), activationId: trim(value.activationId), txContextSegmentId: trim(value.txContextSegmentId), source: value.source, sourceSemantics, startsAtUtc: normalizeUtc(value.startsAtUtc), endsAtUtc: normalizeUtc(value.endsAtUtc), status: value.status, matchingReportCount: value.matchingReportCount, uniqueReceiverCount: value.uniqueReceiverCount, ...(value.reportsPerMinute === undefined ? {} : { reportsPerMinute: value.reportsPerMinute }), ...(value.uniqueReceiversPerMinute === undefined ? {} : { uniqueReceiversPerMinute: value.uniqueReceiversPerMinute }), newestMatchingReportAtUtc: value.newestMatchingReportAtUtc === null ? null : normalizeUtc(value.newestMatchingReportAtUtc), limitations: value.limitations.map(item => trim(item)), ...(distance ? { distance } : {}), ...(snr ? { snr } : {}), ...(value.sourceReportedTransmitPowerWatts === undefined ? {} : { sourceReportedTransmitPowerWatts: value.sourceReportedTransmitPowerWatts }) };
 }
-
-function isProvenance(value: unknown): value is FieldProvenance { return isRecord(value) && Object.values(value).every(item => typeof item === 'string' && (VALUE_PROVENANCES as readonly string[]).includes(item)); }
-function nonEmpty(value: unknown): value is string { return typeof value === 'string' && value.trim().length > 0; }
-function positive(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value) && value > 0; }
+function txProvenance(value: unknown, hasFrequency: boolean): TxContextProvenance | null { if (!record(value)) return null; const keys = Object.keys(value); const required = ['radioSetup', 'antenna', 'transmitPowerWatts', 'band', 'mode', ...(hasFrequency ? ['frequencyMHz'] : [])]; if (keys.length !== required.length || required.some(key => !(key in value))) return null; const operator = (item: unknown) => item === 'operator_entered' || item === 'operator_confirmed_plan'; const radio = operator(value.radioSetup); const antenna = operator(value.antenna); const power = operator(value.transmitPowerWatts); const app = (item: unknown) => operator(item) || item === 'wsjtx_application'; if (!radio || !antenna || !power || !app(value.band) || !app(value.mode) || (hasFrequency && !app(value.frequencyMHz))) return null; return { radioSetup: value.radioSetup, antenna: value.antenna, transmitPowerWatts: value.transmitPowerWatts, band: value.band, mode: value.mode, ...(hasFrequency ? { frequencyMHz: value.frequencyMHz } : {}) } as TxContextProvenance; }
+function normalizeDistance(value: unknown, total: number): DistanceSummary | null { if (!record(value) || value.derivation !== 'maidenhead_locator_centers' || value.approximate !== true || !count(value.locatedReportCount) || value.locatedReportCount > total || !nonnegative(value.nearestKm) || !nonnegative(value.medianKm) || !nonnegative(value.farthestKm) || value.nearestKm > value.medianKm || value.medianKm > value.farthestKm) return null; return { derivation: value.derivation, approximate: true, locatedReportCount: value.locatedReportCount, nearestKm: value.nearestKm, medianKm: value.medianKm, farthestKm: value.farthestKm }; }
+function normalizeSnr(value: unknown, total: number): SnrSummary | null { if (!record(value) || !count(value.reportCount) || value.reportCount > total || !finite(value.minimumDb) || !finite(value.medianDb) || !finite(value.maximumDb) || value.minimumDb > value.medianDb || value.medianDb > value.maximumDb) return null; return { reportCount: value.reportCount, minimumDb: value.minimumDb, medianDb: value.medianDb, maximumDb: value.maximumDb }; }
+function hasForbiddenField(value: Record<string, any>): boolean { return ['receiverPopulation', 'observableReceiverPopulation', 'receiverPopulationRatio', 'percentageHearing', 'percentHeard', 'contactProbability', 'confidence', 'confidenceScore', 'rating', 'propagationRating'].some(key => key in value); }
+function boundedArray(value: unknown): value is string[] { return Array.isArray(value) && value.length <= 16 && value.every(item => bounded(item)); }
+function bounded(value: unknown): value is string { return typeof value === 'string' && trim(value).length > 0 && trim(value).length <= OPERATIONAL_INTELLIGENCE_MAX_LABEL_LENGTH; }
 function count(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0; }
-function nonNegativeOptional(value: unknown): boolean { return value === undefined || (typeof value === 'number' && Number.isFinite(value) && value >= 0); }
-function utc(value: unknown): value is string { return typeof value === 'string' && !Number.isNaN(Date.parse(value)) && value.endsWith('Z'); }
-function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
+function positive(value: unknown): value is number { return finite(value) && value > 0; }
+function optionalPositive(value: unknown): boolean { return value === undefined || positive(value); }
+function optionalRate(value: unknown): boolean { return value === undefined || nonnegative(value); }
+function nonnegative(value: unknown): value is number { return finite(value) && value >= 0; }
+function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }
+function utc(value: unknown): value is string { return typeof value === 'string' && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value) && !Number.isNaN(Date.parse(value)); }
+function optionalUtc(value: unknown): boolean { return value === undefined || utc(value); }
+function normalizeUtc(value: string): string { return new Date(value).toISOString(); }
+function trim(value: string): string { return value.trim(); }
+function record(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }

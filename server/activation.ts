@@ -10,6 +10,8 @@ export const ACTIVATION_MAX_ID_LENGTH = 128;
 export const ACTIVATION_MAX_REFERENCE_LENGTH = 64;
 export const ACTIVATION_MAX_TITLE_LENGTH = 160;
 export const ACTIVATION_MAX_OBJECTIVE_LABEL_LENGTH = 128;
+export const ACTIVATION_TIMING_STATUSES = ['recorded', 'unknown_historical'] as const;
+export type ActivationTimingStatus = typeof ACTIVATION_TIMING_STATUSES[number];
 export const ACTIVATION_GOALS = ['secure_activation', 'maximize_contacts', 'chase_dx', 'explore_bands'] as const;
 export type ActivationGoal = typeof ACTIVATION_GOALS[number];
 export const ACTIVATION_THRESHOLD_PROVENANCES = ['operator_entered', 'program_default'] as const;
@@ -41,6 +43,8 @@ export interface Activation {
   readonly status: ActivationStatus;
   readonly startedAtUtc?: string;
   readonly endedAtUtc?: string;
+  readonly actualTimingStatus?: ActivationTimingStatus;
+  readonly actualTimingOrigin?: 'schema_v1';
   readonly operatingObjective?: ActivationOperatingObjective;
   readonly createdAtUtc: string;
   readonly updatedAtUtc: string;
@@ -52,27 +56,36 @@ export interface CreateActivationInput { readonly type: string; readonly referen
 export function createActivation(input: CreateActivationInput, options: { readonly now?: () => Date; readonly createId?: () => string } = {}): Activation {
   const now = utcNow(options.now);
   const status = input.status ?? 'planned';
-  const candidate = { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId: options.createId?.() ?? randomUUID(), type: input.type, reference: input.reference, title: input.title, plannedLocation: input.plannedLocation, missionWindow: input.missionWindow, status, startedAtUtc: input.startedAtUtc ?? (status === 'active' ? now : undefined), endedAtUtc: input.endedAtUtc, operatingObjective: input.operatingObjective, createdAtUtc: now, updatedAtUtc: now, briefId: input.briefId, notesCollectionId: input.notesCollectionId };
-  const normalized = normalizeActivation(candidate);
+  const candidate = { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId: options.createId?.() ?? randomUUID(), type: input.type, reference: input.reference, title: input.title, plannedLocation: input.plannedLocation, missionWindow: input.missionWindow, status, actualTimingStatus: status === 'planned' ? undefined : 'recorded' as const, startedAtUtc: input.startedAtUtc ?? (status === 'planned' ? undefined : now), endedAtUtc: input.endedAtUtc ?? (status === 'completed' ? now : undefined), operatingObjective: input.operatingObjective, createdAtUtc: now, updatedAtUtc: now, briefId: input.briefId, notesCollectionId: input.notesCollectionId };
+  const normalized = normalizeActivationValue(candidate, false);
   if (!normalized.valid || !normalized.activation) throw new Error(`The activation value is invalid: ${normalized.issues.join(' ')}`);
   return normalized.activation;
 }
 
 export function updateActivationStatus(activation: Activation, status: string, now = () => new Date()): Activation {
+  if ((activation.status === 'planned' && status !== 'active') || (activation.status === 'active' && status !== 'completed') || activation.status === 'completed') throw new Error(`An Activation cannot move from ${activation.status} to ${status}.`);
   const timestamp = utcNow(now);
   const candidate = status === 'active' && activation.status === 'planned'
-    ? { ...activation, status, startedAtUtc: activation.startedAtUtc ?? timestamp, updatedAtUtc: timestamp }
+    ? { ...activation, status, actualTimingStatus: 'recorded' as const, startedAtUtc: timestamp, updatedAtUtc: timestamp }
     : status === 'completed' && activation.status === 'active'
-      ? { ...activation, status, endedAtUtc: activation.endedAtUtc ?? (activation.startedAtUtc ? timestamp : undefined), updatedAtUtc: timestamp }
+      ? { ...activation, status, actualTimingStatus: activation.actualTimingStatus ?? 'recorded', endedAtUtc: activation.actualTimingStatus === 'unknown_historical' ? undefined : timestamp, updatedAtUtc: timestamp }
       : { ...activation, status, updatedAtUtc: timestamp };
-  const normalized = normalizeActivation(candidate);
+  const normalized = normalizeActivationValue(candidate, migratedHistoricalActivations.has(activation));
   if (!normalized.valid || !normalized.activation) throw new Error(`The activation value is invalid: ${normalized.issues.join(' ')}`);
   return normalized.activation;
 }
 
+const migratedHistoricalActivations = new WeakSet<object>();
 export function validateActivation(value: unknown): value is Activation { return normalizeActivation(value).valid; }
+export function validateOperatingObjective(value: unknown): boolean { const issues: string[] = []; return objective(value, issues) !== undefined && issues.length === 0; }
+export function normalizePersistedActivation(value: unknown): ActivationNormalizationResult {
+  const result = normalizeActivationValue(value, true);
+  if (result.valid && result.activation && isRecord(value) && value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION && (value.status === 'active' || value.status === 'completed') && (!value.startedAtUtc || !value.endedAtUtc)) migratedHistoricalActivations.add(result.activation);
+  return result;
+}
 export interface ActivationNormalizationResult { readonly valid: boolean; readonly activation: Activation | null; readonly issues: readonly string[]; }
-export function normalizeActivation(value: unknown): ActivationNormalizationResult {
+export function normalizeActivation(value: unknown): ActivationNormalizationResult { return normalizeActivationValue(value, false); }
+function normalizeActivationValue(value: unknown, allowHistorical: boolean): ActivationNormalizationResult {
   const issues: string[] = [];
   if (!isRecord(value)) return invalid(['activation must be an object.']);
   if (value.schemaVersion !== ACTIVATION_SCHEMA_VERSION && value.schemaVersion !== ACTIVATION_PREVIOUS_SCHEMA_VERSION) issues.push('schemaVersion is unsupported.');
@@ -91,14 +104,24 @@ export function normalizeActivation(value: unknown): ActivationNormalizationResu
   const updatedAtUtc = timestamp(value.updatedAtUtc, 'updatedAtUtc', issues);
   const startedAtUtc = optionalTimestamp(value.startedAtUtc, 'startedAtUtc', issues);
   const endedAtUtc = optionalTimestamp(value.endedAtUtc, 'endedAtUtc', issues);
+  const actualTimingStatus = value.actualTimingStatus === undefined ? undefined : enumValue(value.actualTimingStatus, ACTIVATION_TIMING_STATUSES, 'actualTimingStatus', issues);
   const operatingObjective = objective(value.operatingObjective, issues);
   if (status === 'planned' && (startedAtUtc || endedAtUtc)) issues.push('planned Activations cannot have actual operating timestamps.');
-  if (status === 'active' && value.schemaVersion === ACTIVATION_SCHEMA_VERSION && !startedAtUtc) issues.push('active Activations require startedAtUtc.');
+  if (status === 'planned' && actualTimingStatus) issues.push('planned Activations cannot have actual timing status.');
+  if (status === 'active' && !startedAtUtc && !(allowHistorical && (value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION || actualTimingStatus === 'unknown_historical'))) issues.push('active Activations require startedAtUtc.');
+  if (status === 'active' && endedAtUtc) issues.push('active Activations cannot have endedAtUtc.');
+  if (status === 'completed' && (!startedAtUtc || !endedAtUtc) && !(allowHistorical && (value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION || actualTimingStatus === 'unknown_historical'))) issues.push('completed Activations require startedAtUtc and endedAtUtc.');
+  if (actualTimingStatus === 'unknown_historical' && !allowHistorical && !migratedHistoricalActivations.has(value)) issues.push('unknown_historical timing is reserved for schema-v1 migration.');
+  if (actualTimingStatus === 'unknown_historical' && value.actualTimingOrigin !== 'schema_v1') issues.push('unknown_historical timing requires schema-v1 migration origin.');
   if (endedAtUtc && !startedAtUtc) issues.push('endedAtUtc requires startedAtUtc.');
   if (startedAtUtc && endedAtUtc && Date.parse(endedAtUtc) < Date.parse(startedAtUtc)) issues.push('endedAtUtc cannot precede startedAtUtc.');
   if (createdAtUtc && updatedAtUtc && Date.parse(updatedAtUtc) < Date.parse(createdAtUtc)) issues.push('updatedAtUtc cannot precede createdAtUtc.');
   if (issues.length || !activationId || !type || !status || !createdAtUtc || !updatedAtUtc) return invalid(issues);
-  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(operatingObjective ? { operatingObjective } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}) }, issues: [] };
+  const migratedUnknown = allowHistorical && value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION && (status === 'active' || status === 'completed') && (!startedAtUtc || !endedAtUtc);
+  const unknown = migratedUnknown || actualTimingStatus === 'unknown_historical';
+  if (status === 'completed' && unknown && !allowHistorical) issues.push('historical unknown timing is not valid for current input.');
+  if (issues.length) return invalid(issues);
+  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}) }, issues: [] };
 }
 
 function location(value: unknown, issues: string[]): ActivationLocation | undefined {
