@@ -33,6 +33,6 @@ describe('Activation Review assembly', () => {
     expect(review.plan.bands).toEqual([]);
     expect(review.results).toMatchObject({ total: 2, inWindowTotal: 1, outsideWindowTotal: 1, firstQsoUtc: '2026-08-25T12:05:00.000Z', lastQsoUtc: '2026-08-25T12:05:00.000Z' });
     expect(review.findings).not.toContain('Planned 160m operation has no logged 160m contacts.');
-    expect(review.findings).toContain('1 associated QSO falls outside the retained Activation window.');
+    expect(review.findings).toContain('1 associated QSO falls outside the retained planned mission window.');
   });
 });

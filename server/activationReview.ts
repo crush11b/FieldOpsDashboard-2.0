@@ -59,7 +59,7 @@ export function assembleActivationReview(dependencies: ActivationReviewDependenc
   if (!spaceWeatherResult || spaceWeatherResult.status !== 'found') findings.push('No retained space-weather evidence is available.');
   if (!noteResult || noteResult.status !== 'found') findings.push('No Activation Notes are present.');
   if (activation.status !== 'completed') findings.push(`Results are provisional while the Activation is ${activation.status}.`);
-  if (outsideWindowQsos.length) findings.push(`${outsideWindowQsos.length} associated QSO${outsideWindowQsos.length === 1 ? '' : 's'} fall${outsideWindowQsos.length === 1 ? 's' : ''} outside the retained Activation window.`);
+  if (outsideWindowQsos.length) findings.push(`${outsideWindowQsos.length} associated QSO${outsideWindowQsos.length === 1 ? '' : 's'} fall${outsideWindowQsos.length === 1 ? 's' : ''} outside the retained planned mission window.`);
   const plannedBands = plan.bands;
   for (const band of plannedBands) if (!qsos.some(qso => qso.band === band)) findings.push(`Planned ${band} operation has no logged ${band} contacts.`);
   for (const band of Object.keys(countBy(qsos, qso => qso.band))) if (!plannedBands.includes(band)) findings.push(`Logged contacts include unplanned band ${band}.`);

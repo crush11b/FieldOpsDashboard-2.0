@@ -56,4 +56,20 @@ describe('operational intelligence contracts', () => {
     expect(normalizeStationSignalObservation({ ...baseObservation, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', endsAtUtc: '2026-08-25T10:00:00Z', reportsPerMinute: 0 })).toBeNull();
     for (const field of ['receiverPopulation', 'observableReceiverPopulation', 'receiverPopulationRatio', 'percentageHearing', 'percentHeard', 'contactProbability', 'confidence', 'confidenceScore', 'rating', 'propagationRating']) expect(normalizeStationSignalObservation({ ...baseObservation, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', [field]: 1 })).toBeNull();
   });
+  it('rejects missing or malformed required newest-report values without throwing', () => {
+    const valid = { observationId: 'observation-1', activationId: 'activation-1', txContextSegmentId: 'segment-1', startsAtUtc: '2026-08-25T10:00:00Z', endsAtUtc: '2026-08-25T10:05:00Z', source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', status: 'retained', matchingReportCount: 1, uniqueReceiverCount: 1, newestMatchingReportAtUtc: '2026-08-25T10:04:00Z', limitations: ['Observed RF only'] };
+    for (const candidate of [{ ...valid, newestMatchingReportAtUtc: undefined }, { ...valid, newestMatchingReportAtUtc: 'malformed' }, (() => { const { newestMatchingReportAtUtc: _, ...missing } = valid; return missing; })()]) { expect(() => normalizeStationSignalObservation(candidate)).not.toThrow(); expect(normalizeStationSignalObservation(candidate)).toBeNull(); }
+  });
+  it('enforces observation count and summary consistency', () => {
+    const valid = { observationId: 'observation-1', activationId: 'activation-1', txContextSegmentId: 'segment-1', startsAtUtc: '2026-08-25T10:00:00Z', endsAtUtc: '2026-08-25T10:05:00Z', source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', status: 'retained', matchingReportCount: 2, uniqueReceiverCount: 1, newestMatchingReportAtUtc: '2026-08-25T10:04:00Z', limitations: ['Observed RF only'] };
+    expect(normalizeStationSignalObservation({ ...valid, uniqueReceiverCount: 3 })).toBeNull();
+    expect(normalizeStationSignalObservation({ ...valid, matchingReportCount: 0, uniqueReceiverCount: 0, newestMatchingReportAtUtc: null })).toBeTruthy();
+    expect(normalizeStationSignalObservation({ ...valid, matchingReportCount: 0, uniqueReceiverCount: 0, newestMatchingReportAtUtc: '2026-08-25T10:04:00Z' })).toBeNull();
+    expect(normalizeStationSignalObservation({ ...valid, matchingReportCount: 2, newestMatchingReportAtUtc: null })).toBeNull();
+    const distance = { derivation: 'maidenhead_locator_centers', approximate: true, locatedReportCount: 0, nearestKm: 0, medianKm: 0, farthestKm: 0 };
+    expect(normalizeStationSignalObservation({ ...valid, distance })).toBeTruthy();
+    expect(normalizeStationSignalObservation({ ...valid, distance: { ...distance, farthestKm: 1 } })).toBeNull();
+    expect(normalizeStationSignalObservation({ ...valid, snr: { reportCount: 0, minimumDb: 0, medianDb: 0, maximumDb: 0 } })).toBeNull();
+    expect(normalizeStationSignalObservation({ ...valid, limitations: [] })).toBeNull();
+  });
 });

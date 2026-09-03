@@ -70,7 +70,7 @@ export function updateActivationStatus(activation: Activation, status: string, n
     : status === 'completed' && activation.status === 'active'
       ? { ...activation, status, actualTimingStatus: activation.actualTimingStatus ?? 'recorded', endedAtUtc: activation.actualTimingStatus === 'unknown_historical' ? undefined : timestamp, updatedAtUtc: timestamp }
       : { ...activation, status, updatedAtUtc: timestamp };
-  const normalized = normalizeActivationValue(candidate, migratedHistoricalActivations.has(activation));
+  const normalized = normalizeActivationValue(candidate, migratedHistoricalActivations.has(activation) || (activation.actualTimingStatus === 'unknown_historical' && activation.actualTimingOrigin === 'schema_v1'));
   if (!normalized.valid || !normalized.activation) throw new Error(`The activation value is invalid: ${normalized.issues.join(' ')}`);
   return normalized.activation;
 }

@@ -94,6 +94,24 @@ describe('Activation model and store', () => {
     expect(() => store.reconcileActive('legacy-planned')).toThrow();
     expect(store.reconcileActive('legacy-active').reconciledActivationIds).toEqual([]);
   });
+  it('completes a persisted historical active Activation after store reconstruction', () => {
+    const { activationPath } = stores();
+    const legacy = { schemaVersion: 1, activationId: 'restart-active', type: 'General', status: 'active', createdAtUtc: '2026-08-25T10:00:00Z', updatedAtUtc: '2026-08-25T10:00:00Z' };
+    fs.writeFileSync(activationPath, JSON.stringify({ storeVersion: 1, activations: [legacy] }));
+    const firstStore = new ActivationStore(activationPath, { now });
+    const loaded = firstStore.get('restart-active');
+    if (loaded.status !== 'found') throw new Error('Expected migrated Activation.');
+    firstStore.save(loaded.activation);
+    const secondStore = new ActivationStore(activationPath, { now });
+    const reloaded = secondStore.get('restart-active');
+    if (reloaded.status !== 'found') throw new Error('Expected persisted historical Activation.');
+    const completed = updateActivationStatus(reloaded.activation, 'completed', now);
+    secondStore.save(completed);
+    const finalStore = new ActivationStore(activationPath, { now });
+    expect(finalStore.get('restart-active')).toMatchObject({ status: 'found', activation: { status: 'completed', actualTimingStatus: 'unknown_historical', actualTimingOrigin: 'schema_v1' } });
+    const final = finalStore.get('restart-active');
+    if (final.status === 'found') { expect(final.activation.startedAtUtc).toBeUndefined(); expect(final.activation.endedAtUtc).toBeUndefined(); }
+  });
 });
 
 describe('Activation API', () => {

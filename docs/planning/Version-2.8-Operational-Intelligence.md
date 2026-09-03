@@ -99,7 +99,7 @@ The Activation operating window is the actual bounded operating event inside the
 - Only one active Activation remains the current invariant; existing reconciliation behavior is preserved.
 - The copied `missionWindow` remains planning context and is never relabeled as the actual operation.
 
-Future implementation must define explicit backward-compatible schema and store migration behavior for existing persisted Activations, SmartDeploy briefs, QSOs, and REVIEW paths. Migration must preserve readable historical records, distinguish absent historical operating timestamps from known values, and avoid fabricating start/end times. No migration is implemented in this task.
+The V2.8-01 implementation defines explicit backward-compatible Activation schema and store-wrapper migration behavior. Migration preserves readable historical records, distinguishes absent historical operating timestamps from known values, avoids fabricating start/end times, and remains restart-safe when migrated records are reloaded before later lifecycle transitions.
 
 ## Operator goals and progress
 
@@ -175,7 +175,7 @@ For PSKReporter, candidate retained measurements may include:
 
 Distance derived from Maidenhead locator centers is approximate. Reports per minute measure reports during observed exposure; they are not a probability of contact. No reports means exactly `No matching reports observed`. Raw counts across unequal exposure periods are not directly comparable. Finalized comparisons require intentionally retained observation summaries because the current Observed RF cache is rolling and ephemeral.
 
-Station-specific observation is not station success, contact probability, or proof of RF transmission unless a separate accepted evidence source establishes that fact. General observed RF remains separate from station-specific observation.
+Station-specific observation is not station success, contact probability, or proof of RF transmission unless a separate accepted evidence source establishes that fact. General observed RF remains separate from station-specific observation. Required fields and consistency rules preserve zero-evidence semantics: zero matching reports means zero unique receivers and a null newest-report timestamp; positive matching reports require a newest-report timestamp; receiver counts, distance summaries, SNR summaries, and limitations are bounded and internally consistent.
 
 ## PSKReporter feasibility decision
 
@@ -367,6 +367,6 @@ This document is the authoritative Version 2.8 planning contract and architectur
 - Activation schema and store v2 retain actual start/end timestamps and structured objectives. Schema/store v1 records are normalized in memory with explicit `unknown_historical` timing where actual timestamps are absent, without fabrication or read-time rewrite; strict lifecycle transitions use one injected clock value.
 - Review and Foundation surfaces distinguish actual operating timing from the planned mission window and identify migrated historical timing as unknown.
 - TX Context uses exactly `operator_entered`, `operator_confirmed_plan`, and `wsjtx_application` with complete field-specific provenance. Station Signal Observation distinguishes PSKReporter observed reception from WSPR source-reported power and rejects synthetic denominator/confidence fields. No provider, persistence, MY SIGNAL UI, recommendation rule, WSPR access, inventory/loadout, CAT/PTT, or release work is included.
-- Validation evidence: focused correction tests pass (46 tests); TypeScript check passes; production build passes; full automated suite passes (94 files, 968 tests); `git diff --check` passes.
+- Validation evidence: focused correction tests pass (67 tests); TypeScript check passes; production build passes; full automated suite passes (94 files, 971 tests); `git diff --check` passes.
 
 Any future implementation must name the contract section and acceptance gate it satisfies. A new evidence family, provider, goal, deadline meaning, or equipment concept requires an explicit contract revision and independent review rather than an implicit extension of a consumer.
