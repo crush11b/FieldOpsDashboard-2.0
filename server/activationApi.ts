@@ -1,6 +1,6 @@
 import express, { type Router } from 'express';
 import type { SmartDeployBrief } from './smartDeployBrief';
-import { ACTIVATION_STATUSES, ACTIVATION_TYPES, updateActivationStatus, type Activation, type ActivationStatus } from './activation';
+import { ACTIVATION_STATUSES, ACTIVATION_TYPES, updateActivationStatus, validateOperatingObjective, type Activation, type ActivationStatus } from './activation';
 import type { ActivationStore, ActivationStoreReadResult } from './activationStore';
 import type { ActivationNotesStore } from './activationNotesStore';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
@@ -22,6 +22,7 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
   router.post('/api/activations/from-brief', (request, response) => {
     const briefId = request.body?.briefId;
     if (typeof briefId !== 'string' || !briefId.trim()) { response.status(400).json(error('invalid_request', 'A SmartDeploy briefId is required.')); return; }
+    if (request.body?.operatingObjective !== undefined && !validateOperatingObjective(request.body.operatingObjective)) { response.status(400).json(error('invalid_operating_objective', 'The structured operating objective is invalid.')); return; }
     const briefResult = options.briefStore.get(briefId);
     if (briefResult.status === 'notFound') { response.status(hasIoError(briefResult.diagnostics) ? 503 : 404).json(error(hasIoError(briefResult.diagnostics) ? 'persistence_unavailable' : 'brief_not_found', hasIoError(briefResult.diagnostics) ? 'SmartDeploy briefs are temporarily unavailable.' : 'The SmartDeploy brief was not found.', briefResult.diagnostics)); return; }
     const existing = options.store.list().activations.find(item => item.briefId === briefId);
@@ -32,7 +33,8 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
       const notes = options.notesStore.getByBriefId(briefId).collections[0];
       if (notes) notesCollectionId = notes.collectionId;
       else if (source.type !== 'General') notesCollectionId = options.notesStore.create({ briefId, activation: { program: source.type, reference: source.reference ?? '', ...(source.title ? { displayName: source.title } : {}) } }).collection.collectionId;
-      const created = options.store.create({ ...source, briefId, ...(notesCollectionId ? { notesCollectionId } : {}) });
+      const operatingObjective = request.body?.operatingObjective;
+      const created = options.store.create({ ...source, briefId, ...(notesCollectionId ? { notesCollectionId } : {}), ...(operatingObjective === undefined ? {} : { operatingObjective }) });
       response.status(201).json({ kind: 'activation', status: 'created', activation: created.activation, diagnostics: [...briefResult.diagnostics, ...created.diagnostics] });
     } catch (error) { options.logger?.warn('Activation creation failed.'); response.status(422).json(errorPayload('invalid_brief', error instanceof Error ? error.message : 'The SmartDeploy brief could not initialize an Activation.')); }
   });

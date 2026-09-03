@@ -65,6 +65,53 @@ describe('Activation model and store', () => {
     fs.writeFileSync(filePath, JSON.stringify({ storeVersion: 1, activations: [{ activationId: 'bad', type: 'POTA' }] }));
     expect(store.list()).toMatchObject({ status: 'loaded', activations: [], diagnostics: [{ code: 'invalid_activation' }] });
   });
+  it('enforces lifecycle transitions and current timing invariants', () => {
+    const activation = createActivation({ type: 'General' }, { now, createId: () => 'transition-1' });
+    const active = updateActivationStatus(activation, 'active', now);
+    expect(active.actualTimingStatus).toBe('recorded');
+    expect(() => updateActivationStatus(active, 'active', now)).toThrow();
+    expect(() => updateActivationStatus(active, 'planned', now)).toThrow();
+    const completed = updateActivationStatus(active, 'completed', now);
+    expect(completed.endedAtUtc).toBe(now().toISOString());
+    expect(() => updateActivationStatus(completed, 'completed', now)).toThrow();
+    expect(normalizeActivation({ ...active, endedAtUtc: now().toISOString() }).valid).toBe(false);
+    expect(normalizeActivation({ ...completed, startedAtUtc: undefined }).valid).toBe(false);
+    expect(normalizeActivation({ ...completed, endedAtUtc: '2026-08-25T11:00:00.000Z' }).valid).toBe(false);
+  });
+  it('migrates historical timing explicitly without rewriting and permits later writes', () => {
+    const { activationPath } = stores();
+    const legacy = { schemaVersion: 1, activationId: 'legacy-active', type: 'General', status: 'active', createdAtUtc: '2026-08-25T10:00:00Z', updatedAtUtc: '2026-08-25T10:00:00Z' };
+    fs.writeFileSync(activationPath, JSON.stringify({ storeVersion: 1, activations: [legacy, { ...legacy, activationId: 'legacy-planned', status: 'planned' }, { ...legacy, activationId: 'legacy-completed', status: 'completed' }] }));
+    const before = fs.readFileSync(activationPath, 'utf8');
+    const store = new ActivationStore(activationPath, { now });
+    const loaded = store.list();
+    expect(fs.readFileSync(activationPath, 'utf8')).toBe(before);
+    expect(loaded.activations.find(item => item.activationId === 'legacy-active')).toMatchObject({ actualTimingStatus: 'unknown_historical', status: 'active' });
+    expect(loaded.activations.find(item => item.activationId === 'legacy-completed')).toMatchObject({ actualTimingStatus: 'unknown_historical', status: 'completed' });
+    const historical = store.get('legacy-active');
+    expect(historical.status).toBe('found');
+    if (historical.status === 'found') store.save(historical.activation);
+    expect(() => store.reconcileActive('legacy-planned')).toThrow();
+    expect(store.reconcileActive('legacy-active').reconciledActivationIds).toEqual([]);
+  });
+  it('completes a persisted historical active Activation after store reconstruction', () => {
+    const { activationPath } = stores();
+    const legacy = { schemaVersion: 1, activationId: 'restart-active', type: 'General', status: 'active', createdAtUtc: '2026-08-25T10:00:00Z', updatedAtUtc: '2026-08-25T10:00:00Z' };
+    fs.writeFileSync(activationPath, JSON.stringify({ storeVersion: 1, activations: [legacy] }));
+    const firstStore = new ActivationStore(activationPath, { now });
+    const loaded = firstStore.get('restart-active');
+    if (loaded.status !== 'found') throw new Error('Expected migrated Activation.');
+    firstStore.save(loaded.activation);
+    const secondStore = new ActivationStore(activationPath, { now });
+    const reloaded = secondStore.get('restart-active');
+    if (reloaded.status !== 'found') throw new Error('Expected persisted historical Activation.');
+    const completed = updateActivationStatus(reloaded.activation, 'completed', now);
+    secondStore.save(completed);
+    const finalStore = new ActivationStore(activationPath, { now });
+    expect(finalStore.get('restart-active')).toMatchObject({ status: 'found', activation: { status: 'completed', actualTimingStatus: 'unknown_historical', actualTimingOrigin: 'schema_v1' } });
+    const final = finalStore.get('restart-active');
+    if (final.status === 'found') { expect(final.activation.startedAtUtc).toBeUndefined(); expect(final.activation.endedAtUtc).toBeUndefined(); }
+  });
 });
 
 describe('Activation API', () => {
@@ -82,6 +129,18 @@ describe('Activation API', () => {
       expect(existing.status).toBe(200);
       const transition = await fetch(`http://127.0.0.1:${address.port}/api/activations/activation-1/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) });
       expect(transition.status).toBe(409);
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+  it('rejects malformed caller objectives as invalid objective requests', async () => {
+    const { activation, notes } = stores();
+    const brief = { schemaVersion: 2, briefId: 'brief-2', activation: { program: 'General', reference: '', displayName: 'Test' }, plannedOperatingSite: { location: { coordinates: null, gridSquare: null } }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' } } as any;
+    const app = express(); app.use(express.json()); app.use(createActivationRouter({ store: activation, notesStore: notes, briefStore: { get: () => ({ status: 'found', brief, diagnostics: [] }) } as any, now }));
+    const server = await new Promise<ReturnType<typeof app.listen>>(resolve => { const listener = app.listen(0, () => resolve(listener)); });
+    try {
+      const address = server.address() as { port: number };
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/activations/from-brief`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId: 'brief-2', operatingObjective: { goal: 'balanced', label: 'Bad' } }) });
+      const payload = await response.json() as any;
+      expect(response.status).toBe(400); expect(payload.code).toBe('invalid_operating_objective'); expect(payload.message).not.toContain('brief');
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   });
 });

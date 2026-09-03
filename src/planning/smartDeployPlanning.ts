@@ -16,7 +16,7 @@ import {
 import { isPropagationRegionId, type PropagationRegionId } from '../propagation/regionalDestinations';
 import { TELEMETRY_STATUSES, type TelemetrySource } from '../telemetry';
 
-export const SMART_DEPLOY_MAX_MISSION_DURATION_MS = 12 * 60 * 60 * 1000;
+export const SMART_DEPLOY_MAX_MISSION_DURATION_MS = 7 * 24 * 60 * 60 * 1000;
 export const SMART_DEPLOY_MAX_OBJECTIVE_LENGTH = 256;
 export const SMART_DEPLOY_MAX_DEPLOYMENT_NOTES_LENGTH = 256;
 
@@ -221,7 +221,7 @@ function validateMissionWindow(input: unknown, issues: SmartDeployPlanningIssue[
   if (start === null || end === null) return;
   const duration = end - start;
   if (duration <= 0) addIssue(issues, 'missionWindow', 'invalid_value', duration === 0 ? 'Mission start and end must differ.' : 'Mission end must be after mission start.');
-  else if (duration > SMART_DEPLOY_MAX_MISSION_DURATION_MS) addIssue(issues, 'missionWindow', 'duration_exceeded', 'Mission window cannot exceed 12 hours.');
+  else if (duration > SMART_DEPLOY_MAX_MISSION_DURATION_MS) addIssue(issues, 'missionWindow', 'duration_exceeded', 'Mission window cannot exceed seven days.');
 }
 
 function validateEquipment(input: unknown, issues: SmartDeployPlanningIssue[]): void {

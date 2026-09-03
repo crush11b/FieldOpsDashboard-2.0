@@ -46,7 +46,7 @@ describe('SmartDeploy Slice 1 planning contract', () => {
     expect(result.request?.activationTarget.displayName).toBeUndefined();
   });
 
-  it('accepts same-day, midnight-crossing, and exactly twelve-hour windows', () => {
+  it('accepts same-day, midnight-crossing, and exactly seven-day windows', () => {
     expect(validate().valid).toBe(true);
     expect(validate({ missionWindow: { start: '2026-08-18T23:00:00Z', end: '2026-08-19T05:00:00Z' } }).valid).toBe(true);
     expect(validate({ missionWindow: { start: '2026-08-18T06:00:00Z', end: new Date(Date.parse('2026-08-18T06:00:00Z') + SMART_DEPLOY_MAX_MISSION_DURATION_MS).toISOString() } }).valid).toBe(true);
@@ -72,7 +72,7 @@ describe('SmartDeploy Slice 1 planning contract', () => {
     expect(validate({ missionWindow: { start: 'not-a-date', end: '2026-08-18T18:00:00Z' } }).issues).toContainEqual(expect.objectContaining({ path: 'missionWindow.start', code: 'invalid_timestamp' }));
     expect(validate({ missionWindow: { start: '2026-08-18T12:00:00Z', end: '2026-08-18T12:00:00Z' } }).valid).toBe(false);
     expect(validate({ missionWindow: { start: '2026-08-18T18:00:00Z', end: '2026-08-18T12:00:00Z' } }).valid).toBe(false);
-    expect(validate({ missionWindow: { start: '2026-08-18T00:00:00Z', end: '2026-08-18T12:01:00Z' } }).issues).toContainEqual(expect.objectContaining({ code: 'duration_exceeded' }));
+    expect(validate({ missionWindow: { start: '2026-08-18T00:00:00Z', end: new Date(Date.parse('2026-08-18T00:00:00Z') + SMART_DEPLOY_MAX_MISSION_DURATION_MS + 1).toISOString() } }).issues).toContainEqual(expect.objectContaining({ code: 'duration_exceeded' }));
   });
 
   it('accepts multiple modes and deterministically removes duplicate modes', () => {

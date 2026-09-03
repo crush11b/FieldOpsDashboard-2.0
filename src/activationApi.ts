@@ -1,9 +1,9 @@
-import type { Activation, ActivationStatus } from '../server/activation';
+import type { Activation, ActivationOperatingObjective, ActivationStatus } from '../server/activation';
 
 export type ActivationApiResult = { readonly kind: 'activation'; readonly status?: 'created' | 'existing' | 'updated' | 'reconciled'; readonly activation: Activation; readonly diagnostics?: readonly unknown[]; readonly reconciledActivationIds?: readonly string[] } | { readonly kind: 'activation_error'; readonly code: string; readonly message: string };
 
-export async function openActivationFromBrief(briefId: string): Promise<ActivationApiResult> {
-  const response = await fetch('/api/activations/from-brief', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId }) });
+export async function openActivationFromBrief(briefId: string, operatingObjective?: ActivationOperatingObjective): Promise<ActivationApiResult> {
+  const response = await fetch('/api/activations/from-brief', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId, ...(operatingObjective ? { operatingObjective } : {}) }) });
   return readResult(response, 'The Activation could not be opened.');
 }
 export async function updateActivationStatus(activationId: string, status: ActivationStatus): Promise<ActivationApiResult> {
@@ -14,8 +14,8 @@ export async function reconcileActiveActivation(keepActivationId: string): Promi
   const response = await fetch('/api/activations/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keepActivationId }) });
   return readResult(response, 'The active Activations could not be reconciled.');
 }
-export async function startActivationFromBrief(briefId: string): Promise<ActivationApiResult> {
-  const opened = await openActivationFromBrief(briefId);
+export async function startActivationFromBrief(briefId: string, operatingObjective?: ActivationOperatingObjective): Promise<ActivationApiResult> {
+  const opened = await openActivationFromBrief(briefId, operatingObjective);
   if (opened.kind !== 'activation') return opened;
   return updateActivationStatus(opened.activation.activationId, 'active');
 }
