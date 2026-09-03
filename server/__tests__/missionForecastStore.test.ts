@@ -3,12 +3,11 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { MissionForecastStore } from '../missionForecastStore';
-import type { MissionForecastRecord } from '../missionForecast';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 
-function record(briefId: string): MissionForecastRecord {
+function record(briefId: string): any {
   return { schemaVersion: 1, briefId, activation: { program: 'POTA', reference: 'US-1' }, plannedSite: { latitude: 40, longitude: -75, gridSquare: null, provenance: 'manual' }, missionWindow: { start: '2026-08-19T12:00:00.000Z', end: '2026-08-19T14:00:00.000Z' }, provider: { id: 'open-meteo-mission-forecast', name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-19T11:00:00.000Z', periods: [{ startsAtUtc: '2026-08-19T12:00:00.000Z', endsAtUtc: '2026-08-19T13:00:00.000Z', temperatureF: 0, precipitationProbability: 0, windSpeedMph: 0, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }], status: 'live', sourceUrl: 'https://api.open-meteo.com/v1/forecast', limitations: [], diagnostics: [], updatedAtUtc: '2026-08-19T11:00:00.000Z' };
 }
 
@@ -63,9 +62,21 @@ describe('mission forecast store', () => {
     const before = fs.readFileSync(filePath, 'utf8'); const restarted = new MissionForecastStore(filePath); const loaded = restarted.getByBriefId('legacy-brief');
     expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
     expect(loaded).toMatchObject({ status: 'found', record: { schemaVersion: 2, freshness: 'retained', hourly: [{ startsAtUtc: legacy.periods[0].startsAtUtc }], operatingPeriods: expect.any(Array) } });
-    if (loaded.status === 'found') restarted.save(loaded.record);
+    if (loaded.status === 'found') {
+      const saved = restarted.save(loaded.record);
+      expect(saved.record.freshness).toBe('retained');
+      expect(saved.record.operatingPeriods.every(period => period.freshness === 'retained')).toBe(true);
+    }
     expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).storeVersion).toBe(2);
     const reloaded = new MissionForecastStore(filePath).getByBriefId('legacy-brief');
-    expect(reloaded).toMatchObject({ status: 'found', record: { schemaVersion: 2, freshness: 'retained' } });
+    expect(reloaded).toMatchObject({ status: 'found', record: { schemaVersion: 2, freshness: 'retained', operatingPeriods: [{ freshness: 'retained' }] } });
+  });
+
+  it('rejects contradictory schema-v2 aggregate traceability', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-forecast-store-v2-invalid-')); directories.push(directory);
+    const filePath = path.join(directory, 'mission-forecasts.json'); const store = new MissionForecastStore(filePath); store.save(record('brief-v2-invalid'));
+    const document = JSON.parse(fs.readFileSync(filePath, 'utf8')); document.records[0].record.operatingPeriods[0].hourlyObservationIndexes = [99];
+    fs.writeFileSync(filePath, JSON.stringify(document));
+    expect(store.getByBriefId('brief-v2-invalid')).toMatchObject({ status: 'notFound', diagnostics: [{ code: 'invalid_record' }] });
   });
 });

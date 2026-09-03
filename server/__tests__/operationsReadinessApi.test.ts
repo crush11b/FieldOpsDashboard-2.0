@@ -3,7 +3,6 @@ import http from 'node:http';
 import { describe, expect, it, vi } from 'vitest';
 import { createOperationsReadinessRouter } from '../operationsReadinessApi';
 import type { OperationsReadinessAssemblyOptions, OperationsReadinessAssemblyResult } from '../operationsReadinessAssembly';
-import type { MissionForecastRecord } from '../missionForecast';
 
 function appFor(result: OperationsReadinessAssemblyResult) {
   const app = express();
@@ -18,7 +17,7 @@ function appForAssembly(assembly: (briefId: string, options?: OperationsReadines
 }
 
 function offlineResult(): OperationsReadinessAssemblyResult { return { status: 'ok', summary: { plan: { activationReference: 'K8ABC/POTA' }, evaluatedAtUtc: '2026-08-25T12:00:00.000Z', findings: [{ id: 'plan-retained', status: 'ready', message: 'Plan retained' }, { id: 'current-location', status: 'ready', message: 'GPS ready' }, { id: 'clock-synchronization', status: 'ready', message: 'Clock synchronized' }, { id: 'mission-window', status: 'ready', message: 'Window retained' }, { id: 'weather', status: 'unavailable', message: 'Network weather unavailable' }, { id: 'weather-alerts', status: 'unavailable', message: 'Network alerts unavailable' }, { id: 'propagation-evidence', status: 'attention', message: 'Propagation retained' }, { id: 'sota-dataset-state', status: 'ready', message: 'SOTA data retained' }] } as never, displayEvidence: {} as never, diagnostics: [{ code: 'weather_enrichment_unavailable', message: 'Network weather unavailable.' }] }; }
-function forecast(): MissionForecastRecord { return { schemaVersion: 1, briefId: 'brief-1', activation: { program: 'POTA', reference: 'K8ABC/POTA' }, plannedSite: { latitude: 40, longitude: -80, gridSquare: null, provenance: 'operator' }, missionWindow: { start: '2026-08-25T13:00:00.000Z', end: '2026-08-25T15:00:00.000Z' }, provider: { id: 'open-meteo-mission-forecast', name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-25T12:00:00.000Z', periods: [], status: 'live', sourceUrl: 'https://example.test', limitations: [], diagnostics: [], updatedAtUtc: '2026-08-25T12:00:00.000Z' }; }
+function forecast(): any { return { schemaVersion: 1, briefId: 'brief-1', activation: { program: 'POTA', reference: 'K8ABC/POTA' }, plannedSite: { latitude: 40, longitude: -80, gridSquare: null, provenance: 'operator' }, missionWindow: { start: '2026-08-25T13:00:00.000Z', end: '2026-08-25T15:00:00.000Z' }, provider: { id: 'open-meteo-mission-forecast', name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-25T12:00:00.000Z', periods: [], status: 'live', sourceUrl: 'https://example.test', limitations: [], diagnostics: [], updatedAtUtc: '2026-08-25T12:00:00.000Z' }; }
 
 async function request(result: OperationsReadinessAssemblyResult, path: string) {
   const server = http.createServer(appFor(result));

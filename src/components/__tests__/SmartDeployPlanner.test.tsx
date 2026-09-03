@@ -280,9 +280,30 @@ describe('SmartDeploy brief rendering', () => {
     render(<SmartDeployBriefView brief={v2Brief} />);
     await waitFor(() => expect(screen.getByText(/Compact operating periods \/ UTC/)).toBeTruthy());
     expect(screen.getByText(/Afternoon \(UTC\)/)).toBeTruthy();
-    expect(screen.getByText(/partial coverage/)).toBeTruthy();
+    expect(screen.getAllByText(/partial coverage/).length).toBeGreaterThan(0);
     fireEvent.click(screen.getByText('Underlying hourly evidence / UTC'));
-    expect(screen.getByText(/provider Open-Meteo/)).toBeTruthy();
+    expect(screen.getAllByText(/provider Open-Meteo/).length).toBeGreaterThan(0);
+  });
+
+  it('keeps retained evidence visible and marks an explicit failed refresh distinctly', async () => {
+    const forecast = { schemaVersion: 2, briefId: v2Brief.briefId, provider: { name: 'Open-Meteo' }, retrievedAtUtc: '2026-08-18T11:00:00.000Z', updatedAtUtc: '2026-08-18T11:00:00.000Z', missionWindow: v2Brief.missionWindow, freshness: 'retained', coverageStatus: 'complete', presentation: { mode: 'hourly' }, periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', condition: 'Clear Sky', temperatureF: 70, precipitationProbability: 0, windSpeedMph: 2, windDirection: 'N', windGustMph: 4 }], hourly: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', condition: 'Clear Sky', temperatureF: 70, precipitationProbability: 0, windSpeedMph: 2, windDirection: 'N', windGustMph: 4 }] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => { if (String(input).includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: false, json: async () => ({ message: 'Provider unavailable.' }) }; if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) }; if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) }; return { ok: true, json: async () => ({ activations: [] }) }; }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Hourly evidence \/ UTC/)).toBeTruthy());
+    expect(screen.getByText(/Clear Sky, 70°F/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'REFRESH MISSION FORECAST' }));
+    await waitFor(() => expect(screen.getByText(/Status: FAILED\./)).toBeTruthy());
+    expect(screen.getByText('Refresh failed; prior retained evidence is preserved.')).toBeTruthy();
+    expect(screen.getByText(/Clear Sky, 70°F/)).toBeTruthy();
+  });
+
+  it('shows an explicit unavailable state when refresh fails without retained evidence', async () => {
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => { if (String(input).includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: false, json: async () => ({ message: 'Provider unavailable.' }) }; if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) }; if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) }; return { ok: true, json: async () => ({ activations: [] }) }; }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Mission forecast unavailable\./)).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'REFRESH MISSION FORECAST' }));
+    await waitFor(() => expect(screen.getByText(/Status: UNAVAILABLE\./)).toBeTruthy());
+    expect(screen.queryByText('Refresh failed; prior retained evidence is preserved.')).toBeNull();
   });
 
   it('switches between exclusive PLAN, PREPARE, OPERATE, and REVIEW views', async () => {

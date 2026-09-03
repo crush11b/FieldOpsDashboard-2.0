@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { MISSION_FORECAST_HOURLY_PRESENTATION_MAX_HOURS, retrieveMissionForecast } from '../missionForecast';
+import { MISSION_FORECAST_HOURLY_PRESENTATION_MAX_HOURS, deriveMissionForecastPeriods, retrieveMissionForecast } from '../missionForecast';
 import type { SmartDeployBriefV2 } from '../smartDeployBrief';
 
 function brief(overrides: Record<string, unknown> = {}): SmartDeployBriefV2 {
@@ -22,7 +22,7 @@ describe('mission forecast adapter', () => {
   it('keeps short missions hourly and preserves provider evidence', async () => {
     const result = await retrieveMissionForecast(brief(), { fetcher: vi.fn(async () => providerResponse()) as typeof fetch, now: new Date('2026-08-19T11:00:00.000Z') });
     expect(result.record?.presentation).toMatchObject({ mode: 'hourly', hourlyThresholdHours: MISSION_FORECAST_HOURLY_PRESENTATION_MAX_HOURS, boundaryStrategy: 'utc_fixed_six_hour_periods' });
-    expect(result.record?.hourly).toHaveLength(2);
+    expect(result.record?.hourly).toHaveLength(1);
     expect(result.record?.hourly[0]).toMatchObject({ startsAtUtc: '2026-08-19T12:00:00.000Z', missionApplicable: true });
     expect(result.record?.operatingPeriods[0].hourlyObservationIndexes).toEqual([0]);
   });
@@ -30,7 +30,7 @@ describe('mission forecast adapter', () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => { expect(String(input)).toContain('latitude=40&longitude=-75'); return providerResponse(); });
     const result = await retrieveMissionForecast(brief(), { fetcher: fetcher as typeof fetch, now: new Date('2026-08-19T11:00:00.000Z') });
     expect(result.status).toBe('live');
-    expect(result.record?.periods).toHaveLength(2);
+    expect(result.record?.periods).toHaveLength(1);
     expect(result.record?.periods[0].precipitationProbability).toBe(0);
     expect(result.record?.periods[0].windSpeedMph).toBe(4);
   });
@@ -52,7 +52,35 @@ describe('mission forecast adapter', () => {
   it('uses interval intersection and includes both deterministic boundaries', async () => {
     const fetcher = vi.fn(async () => providerResponse({ time: ['2026-08-19T11:30', '2026-08-19T14:00', '2026-08-19T15:00'], temperature_2m: [1, 2, 3], precipitation_probability: [0, 0, 0], wind_speed_10m: [0, 0, 0], wind_direction_10m: [0, 0, 0], wind_gusts_10m: [0, 0, 0], weather_code: [0, 0, 0] }));
     const result = await retrieveMissionForecast(brief(), { fetcher: fetcher as typeof fetch, now: new Date('2026-08-19T11:00:00.000Z') });
-    expect(result.record?.periods.map(period => period.startsAtUtc)).toEqual(['2026-08-19T11:30:00.000Z', '2026-08-19T14:00:00.000Z']);
+    expect(result.record?.periods.map(period => period.startsAtUtc)).toEqual(['2026-08-19T11:30:00.000Z']);
+  });
+
+  it('excludes a provider interval beginning exactly at mission end', async () => {
+    const result = await retrieveMissionForecast(brief(), { fetcher: vi.fn(async () => providerResponse({ time: ['2026-08-19T12:00', '2026-08-19T14:00'], temperature_2m: [1, 2], precipitation_probability: [0, 0], wind_speed_10m: [1, 1], wind_direction_10m: [0, 0], weather_code: [0, 0] })) as typeof fetch });
+    expect(result.record?.hourly).toHaveLength(1);
+    expect(result.record?.hourly[0].missionApplicable).toBe(true);
+  });
+
+  it('uses canonical overlapping slots for non-hour-aligned mission boundaries', async () => {
+    const result = await retrieveMissionForecast(brief({ missionWindow: { start: '2026-08-19T12:30:00.000Z', midpoint: '2026-08-19T13:30:00.000Z', end: '2026-08-19T14:30:00.000Z' } }), { fetcher: vi.fn(async () => providerResponse({ time: ['2026-08-19T12:00', '2026-08-19T13:00', '2026-08-19T14:00'], temperature_2m: [1, 2, 3], precipitation_probability: [0, 0, 0], wind_speed_10m: [1, 2, 3], wind_direction_10m: [0, 0, 0], weather_code: [0, 0, 0] })) as typeof fetch });
+    expect(result.record?.operatingPeriods[0]).toMatchObject({ startsAtUtc: '2026-08-19T12:30:00.000Z', endsAtUtc: '2026-08-19T14:30:00.000Z', expectedHourlySlotCount: 3, observedHourlySlotCount: 3, missingHourlySlotCount: 0 });
+  });
+
+  it('counts clipped six-hour periods from canonical slots at a fractional end', async () => {
+    const result = await retrieveMissionForecast(brief({ missionWindow: { start: '2026-08-19T12:00:00.000Z', midpoint: '2026-08-19T13:00:00.000Z', end: '2026-08-19T14:30:00.000Z' } }), { fetcher: vi.fn(async () => providerResponse({ time: ['2026-08-19T12:00', '2026-08-19T13:00', '2026-08-19T14:00'], temperature_2m: [1, 2, 3], precipitation_probability: [0, 0, 0], wind_speed_10m: [1, 2, 3], wind_direction_10m: [0, 0, 0], weather_code: [0, 0, 0] })) as typeof fetch });
+    expect(result.record?.operatingPeriods[0].expectedHourlySlotCount).toBe(3);
+  });
+
+  it('rejects duplicate provider timestamps instead of double-counting observations', async () => {
+    const result = await retrieveMissionForecast(brief(), { fetcher: vi.fn(async () => providerResponse({ time: ['2026-08-19T12:00', '2026-08-19T12:00'], temperature_2m: [1, 2], precipitation_probability: [0, 0], wind_speed_10m: [1, 2], wind_direction_10m: [0, 0], weather_code: [0, 0] })) as typeof fetch });
+    expect(result.status).toBe('provider_unusable');
+    expect(result.record).toBeNull();
+  });
+
+  it('derives clipped periods with the supplied record freshness', () => {
+    const hourly = [{ startsAtUtc: '2026-08-19T12:00:00.000Z', endsAtUtc: '2026-08-19T13:00:00.000Z', missionApplicable: true, temperatureF: 1, precipitationProbability: 0, windSpeedMph: 1, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }];
+    const periods = deriveMissionForecastPeriods({ missionWindow: { start: '2026-08-19T12:30:00.000Z', end: '2026-08-19T13:30:00.000Z' }, hourly, provider: { id: 'open-meteo-mission-forecast', name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-19T11:00:00.000Z', limitations: [], freshness: 'retained' });
+    expect(periods[0].freshness).toBe('retained');
   });
 
   it('rejects malformed or mismatched provider arrays and reports horizon explicitly', async () => {
