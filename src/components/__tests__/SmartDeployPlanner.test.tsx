@@ -274,6 +274,17 @@ describe('SmartDeploy planner', () => {
 });
 
 describe('SmartDeploy brief rendering', () => {
+  it('presents retained multi-day forecast periods compactly and discloses hourly evidence', async () => {
+    const forecast = { schemaVersion: 2, briefId: v2Brief.briefId, provider: { name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-18T11:00:00.000Z', updatedAtUtc: '2026-08-18T11:00:00.000Z', missionWindow: v2Brief.missionWindow, freshness: 'retained', coverageStatus: 'partial', presentation: { mode: 'aggregated', hourlyThresholdHours: 12 }, operatingPeriods: [{ periodId: 'utc-2026-08-18T12', label: 'Afternoon (UTC)', startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T18:00:00.000Z', timezoneLabel: 'UTC', expectedHourlySlotCount: 6, observedHourlySlotCount: 5, missingHourlySlotCount: 1, coverageStatus: 'partial', temperatureMinF: 70, temperatureMaxF: 75, precipitationProbabilityMax: 40, sustainedWindMinMph: 2, sustainedWindMaxMph: 9, significantCondition: 'Cloudy', provider: 'Open-Meteo', retrievedAtUtc: '2026-08-18T11:00:00.000Z', freshness: 'retained', limitations: ['1 hourly slot is missing'], hourlyObservationIndexes: [0], hourlyObservationTimestampsUtc: ['2026-08-18T12:00:00.000Z'] }], periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', missionApplicable: true, temperatureF: 70, precipitationProbability: 20, windSpeedMph: 2, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }], hourly: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', missionApplicable: true, temperatureF: 70, precipitationProbability: 20, windSpeedMph: 2, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }], limitations: ['1 hourly slot is missing'] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => { if (String(input) === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) }; if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) }; if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) }; return { ok: false, json: async () => ({ message: 'Unavailable' }) }; }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Compact operating periods \/ UTC/)).toBeTruthy());
+    expect(screen.getByText(/Afternoon \(UTC\)/)).toBeTruthy();
+    expect(screen.getByText(/partial coverage/)).toBeTruthy();
+    fireEvent.click(screen.getByText('Underlying hourly evidence / UTC'));
+    expect(screen.getByText(/provider Open-Meteo/)).toBeTruthy();
+  });
+
   it('switches between exclusive PLAN, PREPARE, OPERATE, and REVIEW views', async () => {
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       if (String(input) === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };

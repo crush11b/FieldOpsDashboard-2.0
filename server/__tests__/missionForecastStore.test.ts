@@ -55,4 +55,17 @@ describe('mission forecast store', () => {
     expect(result.records).toEqual([]);
     expect(result.diagnostics[0].message).not.toContain(filePath);
   });
+
+  it('normalizes schema-v1 evidence on read without rewriting until an explicit save', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-forecast-store-migration-')); directories.push(directory);
+    const filePath = path.join(directory, 'mission-forecasts.json'); const legacy = record('legacy-brief');
+    fs.writeFileSync(filePath, JSON.stringify({ storeVersion: 1, records: [{ briefId: 'legacy-brief', record: legacy }] }));
+    const before = fs.readFileSync(filePath, 'utf8'); const restarted = new MissionForecastStore(filePath); const loaded = restarted.getByBriefId('legacy-brief');
+    expect(fs.readFileSync(filePath, 'utf8')).toBe(before);
+    expect(loaded).toMatchObject({ status: 'found', record: { schemaVersion: 2, freshness: 'retained', hourly: [{ startsAtUtc: legacy.periods[0].startsAtUtc }], operatingPeriods: expect.any(Array) } });
+    if (loaded.status === 'found') restarted.save(loaded.record);
+    expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).storeVersion).toBe(2);
+    const reloaded = new MissionForecastStore(filePath).getByBriefId('legacy-brief');
+    expect(reloaded).toMatchObject({ status: 'found', record: { schemaVersion: 2, freshness: 'retained' } });
+  });
 });
