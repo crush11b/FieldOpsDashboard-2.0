@@ -252,12 +252,33 @@ The slices and dependencies are:
 
 ### 2.8-02 - Duration-Aware Retained Mission Forecast
 
-- **Purpose:** Make retained forecast coverage and status honest across the seven-day mission interval.
-- **Implementation boundary:** Forecast retrieval, retained periods, coverage, freshness, horizon diagnostics, and explicit interval applicability.
-- **Acceptance gates:** Valid multi-day intervals retain usable coverage when the provider supports them; partial/horizon/unavailable results are explicit; refresh never silently replaces retained evidence; forecast periods identify retrieval time, source, coverage, and limitations.
+- **Purpose:** Make retained forecast coverage and status honest across the seven-day mission interval while presenting a useful amount of information for the mission duration.
+- **Implementation boundary:** Forecast retrieval, preservation of underlying hourly Open-Meteo evidence, duration-aware aggregated operating periods, coverage, freshness, horizon diagnostics, and explicit interval applicability. Aggregation belongs to 2.8-02 and is not pulled into 2.8-01.
+- **Underlying evidence:** The retained forecast record preserves the underlying hourly Open-Meteo evidence. Aggregated periods are a presentation/derived view over that evidence, not a replacement for it.
+- **Duration-aware presentation:** Short missions retain a useful hourly presentation. Longer or multi-day missions present understandable aggregated operating periods instead of dozens of hourly rows. Candidate labels include Morning, Midday, Afternoon, Evening, and Overnight. The exact UTC/local-boundary handling must be selected and documented during 2.8-02 design; implementation must not silently mix UTC evidence with unlabeled local periods.
+- **Aggregated period contract:** Each period exposes its covered start and end, temperature range rather than a misleading single temperature, maximum precipitation probability, sustained-wind range or representative range, maximum gust, significant or worst applicable condition, provider, retrieval time, freshness/retained status, and limitations. Each period must be traceable to its underlying hourly evidence.
+- **Aggregation constraints:** Aggregation must not invent precision, interpolate missing hours, hide partial coverage, or replace the retained hourly source evidence. Missing hours and incomplete coverage remain explicit. A deliberate refresh remains distinguishable from the previously retained forecast; no automatic or silent replacement of retained planning evidence is allowed.
+- **Acceptance gates:** The exact gates in the 2.8-02 section below.
 - **Excluded scope:** P.533 redesign, station observations, guidance, inventory, and control.
-- **Automated validation:** Provider fixtures for one-day, multi-day, partial, outside-horizon, malformed, stale, and retained-fallback cases; typecheck and focused API/store tests.
+- **Automated validation:** Provider fixtures and presentation tests for short hourly, Friday-through-Sunday compact aggregation, partial coverage, missing hours within a period, provider-unavailable with and without retained evidence, refresh distinction, labeling, and hourly-source preservation; typecheck and focused API/store tests.
 - **Hardware acceptance:** None unless the final integrated workflow requires a CF-20 offline/online retrieval check.
+
+#### 2.8-02 acceptance gates
+
+The future 2.8-02 implementation is accepted only when all of these are true:
+
+1. A short mission presents useful hourly forecast evidence without requiring aggregation to hide the underlying time resolution.
+2. A realistic Friday-through-Sunday mission presents compact, understandable aggregated operating periods rather than dozens of hourly rows.
+3. Aggregated periods use documented UTC or local boundaries; every period is labeled so UTC evidence is never silently presented as an unlabeled local period.
+4. Every aggregated period exposes covered start and end, temperature range, maximum precipitation probability, sustained-wind range or representative range, maximum gust, significant/worst applicable condition, provider, retrieval time, freshness/retained status, and limitations.
+5. Every aggregated value derives transparently from the underlying hourly evidence, with enough references or structured linkage to inspect that source evidence.
+6. Partial provider coverage remains visible at both hourly and aggregated-period presentation levels.
+7. Missing hours inside an otherwise covered period are visible; the implementation does not interpolate them, invent precision, or imply complete coverage.
+8. When the provider is unavailable but existing retained evidence is present, the retained record remains readable and visibly identified as retained/stale or otherwise applicable, and the failed refresh is distinguishable.
+9. When the provider is unavailable and no retained evidence exists, the forecast is explicitly unavailable with a bounded diagnostic and no fabricated period values.
+10. Source, retrieval time, freshness/retained status, and coverage are clearly labeled for both the retained hourly record and aggregated presentation.
+11. The complete underlying hourly Open-Meteo evidence remains preserved in the retained forecast record and is not replaced by aggregated periods.
+12. A deliberate refresh is visibly distinguishable from the previously retained forecast, and no automatic or silent replacement of retained planning evidence occurs.
 
 ### 2.8-03 - Station Signal Observation / MY SIGNAL
 
