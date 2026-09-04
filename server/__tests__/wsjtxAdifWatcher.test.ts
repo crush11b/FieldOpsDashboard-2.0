@@ -1,11 +1,11 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { WsjtxAdifWatcher } from '../wsjtxAdifWatcher';
 
 const directories: string[] = [];
-afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
+afterEach(() => { vi.restoreAllMocks(); for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 
 function setup(initial = '', createFile = true) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-adif-')); directories.push(directory);
@@ -93,6 +93,24 @@ describe('WSJT-X ADIF file watcher', () => {
     const files = setup(); fs.rmSync(files.filePath); const watcher = new WsjtxAdifWatcher({ filePath: files.filePath, onRecord: () => 'persisted' }); await watcher.pollNow();
     expect(watcher.getDiagnostics()).toMatchObject({ enabled: true, filePresent: false, state: 'waiting' });
     const unavailable = new WsjtxAdifWatcher({ filePath: null, onRecord: () => 'persisted' }); await unavailable.pollNow(); expect(unavailable.getDiagnostics()).toMatchObject({ enabled: false, state: 'unavailable', resolvedPath: null });
+  });
+
+  it.each(['EACCES', 'EPERM'])('does not establish a waiting checkpoint for %s and seeds EOF after access recovers', async code => {
+    const files = setup(record('HIST')); const stat = vi.spyOn(fs, 'statSync').mockImplementationOnce(() => { const error = Object.assign(new Error('access denied'), { code }); throw error; });
+    const accepted: string[] = []; const watcher = new WsjtxAdifWatcher({ ...files, onRecord: candidate => { accepted.push(candidate.callsign); return 'persisted'; } });
+    await watcher.pollNow();
+    expect(watcher.getDiagnostics()).toMatchObject({ state: 'waiting', checkpointOffset: null, baselineEstablished: false, lastFailureStage: 'observe' });
+    stat.mockRestore(); await watcher.pollNow();
+    expect(accepted).toEqual([]);
+    expect(watcher.getDiagnostics()).toMatchObject({ checkpointOffset: fs.statSync(files.filePath).size, baselineEstablished: true });
+  });
+
+  it('preserves an existing durable checkpoint across a transient observation failure', async () => {
+    const files = setup(); const initial = new WsjtxAdifWatcher({ ...files, onRecord: () => 'persisted' }); await initial.pollNow();
+    const expectedOffset = fs.statSync(files.filePath).size; const stat = vi.spyOn(fs, 'statSync').mockImplementationOnce(() => { const error = Object.assign(new Error('I/O failure'), { code: 'EIO' }); throw error; });
+    const watcher = new WsjtxAdifWatcher({ ...files, onRecord: () => 'persisted' }); await watcher.pollNow();
+    expect(watcher.getDiagnostics()).toMatchObject({ state: 'waiting', checkpointOffset: expectedOffset, baselineEstablished: true, lastFailureStage: 'observe' });
+    stat.mockRestore(); await watcher.pollNow(); expect(watcher.getDiagnostics().checkpointOffset).toBe(expectedOffset);
   });
 
   it('is start-idempotent and releases its polling timer on stop', () => {

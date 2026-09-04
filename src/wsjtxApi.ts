@@ -44,6 +44,7 @@ export interface WsjtxAdifFileDiagnostics {
   readonly lastFileObservationAtUtc: string | null;
   readonly lastCompletedRecordAtUtc: string | null;
   readonly recordsAccepted: number;
+  readonly recordsRejected: number;
   readonly parseImportFailures: number;
   readonly duplicatesSuppressed: number;
   readonly lastSuccessfulImportAtUtc: string | null;

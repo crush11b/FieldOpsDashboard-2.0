@@ -96,13 +96,14 @@ export class WsjtxAdifWatcher {
     } catch (error) {
       this.filePresent = false;
       this.state = 'waiting';
-      if (!this.checkpoint) {
+      const errorCode = error instanceof Error && 'code' in error ? error.code : undefined;
+      if (errorCode === 'ENOENT' && !this.checkpoint) {
         this.checkpoint = { version: CHECKPOINT_VERSION, offset: 0, fileId: null };
         this.readOffset = 0;
         this.persistCheckpoint();
       }
       this.lastFailureStage = 'observe';
-      this.lastFailureReason = error instanceof Error && 'code' in error && error.code === 'ENOENT' ? 'The WSJT-X ADIF log file is not present.' : 'The WSJT-X ADIF log file could not be observed.';
+      this.lastFailureReason = errorCode === 'ENOENT' ? 'The WSJT-X ADIF log file is not present.' : 'The WSJT-X ADIF log file could not be observed.';
       return;
     }
 
