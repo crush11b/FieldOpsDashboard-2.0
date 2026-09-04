@@ -158,7 +158,7 @@ async function startServer() {
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
   app.use(createFieldReadinessChecklistRouter({ briefStore: smartDeployBriefStore, store: fieldReadinessChecklistStore }));
   app.use(createMissionForecastRouter({ briefStore: smartDeployBriefStore, store: missionForecastStore }));
-  app.use(createActivationRouter({ briefStore: smartDeployBriefStore, store: activationStore, notesStore: activationNotesStore, onCompleted: activation => operationalIntelligenceStore.closeActivation(activation.activationId) }));
+  app.use(createActivationRouter({ briefStore: smartDeployBriefStore, store: activationStore, notesStore: activationNotesStore, onCompleted: activation => operationalIntelligenceStore.closeActivation(activation), onReconciled: activation => operationalIntelligenceStore.closeActivation(activation) }));
   app.use(createOperationalIntelligenceRouter({ store: operationalIntelligenceStore, activationStore, observedRf: observedRfService }));
   app.use(createQsoRouter({ activationStore, store: qsoStore }));
   app.use(createActivationReviewRouter({ activationStore, briefStore: smartDeployBriefStore, notesStore: activationNotesStore, forecastStore: missionForecastStore, spaceWeatherStore: spaceWeatherSnapshotStore, qsoStore }));

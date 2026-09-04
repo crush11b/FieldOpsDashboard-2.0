@@ -1,6 +1,6 @@
 # Version 2.8 - Operational Intelligence
 
-- Status: Architecture/planning contract; no V2.8 production implementation yet
+- Status: Architecture/planning contract with the 2.8-03 foundation implemented on its feature branch; later V2.8 slices remain planning-only
 - Baseline: Version 2.7.0 - Connected Operations
 - Initial slice: 2.8-01 Operational Intelligence Contract & Time Model
 - Supported deployment: single operator on one locally operated Windows field computer
@@ -291,9 +291,9 @@ The future 2.8-02 implementation is accepted only when all of these are true:
 
 #### 2.8-03 implementation evidence
 
-Implemented on `feature/2.8-03-station-signal-observation`. `OperationalIntelligenceStore` persists versioned TX Context segments and Station Signal Observations under the normal local application-data directory using atomic JSON replacement. Reads skip malformed entries with bounded diagnostics and never rewrite the store. Opening a new context closes the prior open segment for that Activation; completing an Activation closes any remaining open context through the Activation API completion hook.
+Implemented on `feature/2.8-03-station-signal-observation`. `OperationalIntelligenceStore` persists versioned TX Context segments and Station Signal Observations under the normal local application-data directory using atomic JSON replacement. Reads skip malformed entries with bounded diagnostics and never rewrite the store; invalid or unsupported stores reject mutations and are reported as unavailable by the API. Opening a new context closes the prior open segment for that Activation, and every Activation path that reconciles or completes an Activation closes remaining operational segments through the API callback boundary.
 
-The API provides Activation-scoped listing, server-generated TX Context replacement, and observation capture. Capture consumes the existing injected `ObservedRfService` snapshot and matches only compatible outbound PSKReporter reports from the configured operator callsign, context band/mode, and clipped observation interval. It retains counts, exposure rates, locator-center distance summaries, SNR summaries, source status, newest matching report, and limitations. Zero matches retain exactly `No matching reports observed` with zero receivers and a null newest-report timestamp. No receiver denominator, ratio, confidence, rating, contact probability, or transmission proof is produced.
+The API provides Activation-scoped listing, server-generated TX Context replacement, and observation capture. Capture consumes the existing injected `ObservedRfService` snapshot and matches only compatible outbound PSKReporter reports from the configured operator callsign, context band/mode, and exact positive intersection of the context, Activation, snapshot, and current-time intervals. It retains counts, exposure rates, locator-center distance summaries, SNR summaries, source status, newest matching report, and limitations. Zero matches retain exactly `No matching reports observed` with zero receivers, zero rates, a null newest-report timestamp, and no distance/SNR object. No receiver denominator, ratio, confidence, rating, contact probability, or transmission proof is produced. Lifecycle, callsign, source-status, missing-segment, closed-segment, interval, and persistence failures map to explicit API statuses.
 
 Focused contract/store/API tests pass. MY SIGNAL React UI, radio control, transmit proof, WSPR, spotting, hardware acceptance, and integrated review presentation remain pending later slices.
 
