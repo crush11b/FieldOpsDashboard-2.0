@@ -98,7 +98,7 @@ Describe 'FieldOps runtime readiness' {
             [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node C:\OtherApplication\server.cjs'; ProcessId = 704 },
             [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node C:\FieldOpsDashboard2\dist\server.cjs'; ProcessId = 705 }
         )
-        (Get-FieldOpsDashboardProcessCandidates -DashboardRoot 'C:\FieldOpsDashboard' -ProcessProvider { $processes }).Count | Should Be 1
+        @((Get-FieldOpsDashboardProcessCandidates -DashboardRoot 'C:\FieldOpsDashboard' -ProcessProvider { $processes })).Count | Should Be 1
     }
 
     It 'waits for HTTP after the Dashboard process appears' {
