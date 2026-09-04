@@ -20,6 +20,7 @@ export interface WsjtxAdifFileDiagnostics {
   readonly lastFileObservationAtUtc: string | null;
   readonly lastCompletedRecordAtUtc: string | null;
   readonly recordsAccepted: number;
+  readonly recordsRejected: number;
   readonly parseImportFailures: number;
   readonly duplicatesSuppressed: number;
   readonly lastSuccessfulImportAtUtc: string | null;
@@ -30,7 +31,7 @@ export interface WsjtxAdifFileDiagnostics {
 interface Checkpoint {
   readonly version: typeof CHECKPOINT_VERSION;
   readonly offset: number;
-  readonly fileId: string;
+  readonly fileId: string | null;
 }
 
 export interface WsjtxAdifWatcherOptions {
@@ -52,6 +53,7 @@ export class WsjtxAdifWatcher {
   private lastFileObservationAtUtc: string | null = null;
   private lastCompletedRecordAtUtc: string | null = null;
   private recordsAccepted = 0;
+  private recordsRejected = 0;
   private parseImportFailures = 0;
   private duplicatesSuppressed = 0;
   private lastSuccessfulImportAtUtc: string | null = null;
@@ -94,13 +96,31 @@ export class WsjtxAdifWatcher {
     } catch (error) {
       this.filePresent = false;
       this.state = 'waiting';
+      if (!this.checkpoint) {
+        this.checkpoint = { version: CHECKPOINT_VERSION, offset: 0, fileId: null };
+        this.readOffset = 0;
+        this.persistCheckpoint();
+      }
       this.lastFailureStage = 'observe';
       this.lastFailureReason = error instanceof Error && 'code' in error && error.code === 'ENOENT' ? 'The WSJT-X ADIF log file is not present.' : 'The WSJT-X ADIF log file could not be observed.';
       return;
     }
 
     const fileId = `${stat.dev}:${stat.ino}`;
-    if (!this.checkpoint || this.checkpoint.fileId !== fileId || stat.size < this.checkpoint.offset || stat.size < this.readOffset) {
+    if (!this.checkpoint) {
+      this.partial = '';
+      this.checkpoint = { version: CHECKPOINT_VERSION, offset: stat.size, fileId };
+      this.readOffset = stat.size;
+      this.state = 'active';
+      this.persistCheckpoint();
+      return;
+    }
+    if (this.checkpoint.fileId === null) {
+      this.partial = '';
+      this.checkpoint = { version: CHECKPOINT_VERSION, offset: 0, fileId };
+      this.readOffset = 0;
+      this.persistCheckpoint();
+    } else if (this.checkpoint.fileId !== fileId || stat.size < this.checkpoint.offset || stat.size < this.readOffset) {
       this.partial = '';
       this.checkpoint = { version: CHECKPOINT_VERSION, offset: stat.size, fileId };
       this.readOffset = stat.size;
@@ -140,6 +160,11 @@ export class WsjtxAdifWatcher {
         if (!candidate) throw new Error('The WSJT-X ADIF record omitted a required QSO field.');
         const result = this.options.onRecord(candidate);
         if (result === 'duplicate' || result === 'dedupe:duplicate') this.duplicatesSuppressed += 1;
+        else if (result === 'activation:zero_active' || result === 'activation:multiple_active') {
+          this.recordsRejected += 1;
+          this.lastFailureStage = 'activation';
+          this.lastFailureReason = result;
+        }
         else if (result !== 'persisted') { importBlocked = true; this.recordFailure('import', result); break; }
         else { this.recordsAccepted += 1; this.lastSuccessfulImportAtUtc = this.now(); }
       } catch (error) {
@@ -153,7 +178,7 @@ export class WsjtxAdifWatcher {
   }
 
   getDiagnostics(): WsjtxAdifFileDiagnostics {
-    return { enabled: Boolean(this.options.filePath), state: this.state, resolvedPath: this.options.filePath ?? null, filePresent: this.filePresent, checkpointPath: this.options.filePath ? this.checkpointFilePath() : null, checkpointOffset: this.checkpoint?.offset ?? null, baselineEstablished: this.checkpoint !== null, lastFileObservationAtUtc: this.lastFileObservationAtUtc, lastCompletedRecordAtUtc: this.lastCompletedRecordAtUtc, recordsAccepted: this.recordsAccepted, parseImportFailures: this.parseImportFailures, duplicatesSuppressed: this.duplicatesSuppressed, lastSuccessfulImportAtUtc: this.lastSuccessfulImportAtUtc, lastFailureStage: this.lastFailureStage, lastFailureReason: this.lastFailureReason };
+    return { enabled: Boolean(this.options.filePath), state: this.state, resolvedPath: this.options.filePath ?? null, filePresent: this.filePresent, checkpointPath: this.options.filePath ? this.checkpointFilePath() : null, checkpointOffset: this.checkpoint?.offset ?? null, baselineEstablished: this.checkpoint !== null, lastFileObservationAtUtc: this.lastFileObservationAtUtc, lastCompletedRecordAtUtc: this.lastCompletedRecordAtUtc, recordsAccepted: this.recordsAccepted, recordsRejected: this.recordsRejected, parseImportFailures: this.parseImportFailures, duplicatesSuppressed: this.duplicatesSuppressed, lastSuccessfulImportAtUtc: this.lastSuccessfulImportAtUtc, lastFailureStage: this.lastFailureStage, lastFailureReason: this.lastFailureReason };
   }
 
   private now(): string { return (this.options.now ?? (() => new Date()))().toISOString(); }
@@ -177,5 +202,5 @@ function toCandidate(record: ReturnType<typeof parseAdif>['records'][number]): W
   return { eventType: 12, qsoDateTimeUtc, callsign: callsign.toUpperCase(), band: optional(record.band)?.toLowerCase() ?? null, frequencyMHz, mode: mode.toUpperCase(), ...(optional(record.submode) ? { submode: optional(record.submode)!.toUpperCase() } : {}), ...(optional(record.rstSent) ? { rstSent: optional(record.rstSent) } : {}), ...(optional(record.rstReceived) ? { rstReceived: optional(record.rstReceived) } : {}), ...(optional(record.gridSquare) ? { gridSquare: optional(record.gridSquare) } : {}), ...(optional(record.operatorCallsign) ? { operatorCallsign: optional(record.operatorCallsign) } : {}), ...(optional(record.stationCallsign) ? { stationCallsign: optional(record.stationCallsign) } : {}), ...(optional(record.myGridSquare) ? { myGridSquare: optional(record.myGridSquare) } : {}), source: 'wsjtx', ingestionSource: 'adif_file' };
 }
 
-function isCheckpoint(value: unknown): value is Checkpoint { return typeof value === 'object' && value !== null && (value as any).version === CHECKPOINT_VERSION && Number.isInteger((value as any).offset) && (value as any).offset >= 0 && typeof (value as any).fileId === 'string'; }
+function isCheckpoint(value: unknown): value is Checkpoint { return typeof value === 'object' && value !== null && (value as any).version === CHECKPOINT_VERSION && Number.isInteger((value as any).offset) && (value as any).offset >= 0 && ((value as any).fileId === null || typeof (value as any).fileId === 'string'); }
 function textValue(value: unknown): string { return typeof value === 'string' ? value.trim() : ''; }

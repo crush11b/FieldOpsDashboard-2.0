@@ -7,9 +7,9 @@ import { WsjtxAdifWatcher } from '../wsjtxAdifWatcher';
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 
-function setup(initial = '') {
+function setup(initial = '', createFile = true) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-adif-')); directories.push(directory);
-  const filePath = path.join(directory, 'wsjtx_log.adi'); fs.writeFileSync(filePath, initial);
+  const filePath = path.join(directory, 'wsjtx_log.adi'); if (createFile) fs.writeFileSync(filePath, initial);
   const checkpointPath = path.join(directory, 'checkpoint.json');
   return { directory, filePath, checkpointPath };
 }
@@ -45,6 +45,14 @@ describe('WSJT-X ADIF file watcher', () => {
     expect(first).toEqual(['W1AW']); expect(resumed).toEqual([]);
   });
 
+  it('imports the first complete record in a file created after a restart while waiting', async () => {
+    const files = setup('', false); const first = new WsjtxAdifWatcher({ ...files, onRecord: () => 'persisted' });
+    await first.pollNow();
+    const accepted: string[] = []; const restarted = new WsjtxAdifWatcher({ ...files, onRecord: candidate => { accepted.push(candidate.callsign); return 'persisted'; } });
+    await restarted.pollNow(); fs.writeFileSync(files.filePath, record('N0CALL')); await restarted.pollNow(); await restarted.pollNow();
+    expect(accepted).toEqual(['N0CALL']);
+  });
+
   it('recovers a partial tail after restart without skipping it', async () => {
     const files = setup(); const first = new WsjtxAdifWatcher({ ...files, onRecord: () => 'persisted' }); await first.pollNow();
     const contact = record('N0CALL'); fs.appendFileSync(files.filePath, contact.slice(0, -5)); await first.pollNow();
@@ -53,11 +61,26 @@ describe('WSJT-X ADIF file watcher', () => {
     expect(resumed).toEqual(['N0CALL']);
   });
 
-  it('does not advance the checkpoint past a failed import, then retries safely', async () => {
-    const files = setup(); let failed = true; const accepted: string[] = []; const watcher = new WsjtxAdifWatcher({ ...files, onRecord: candidate => { if (failed) { failed = false; return 'activation:zero_active'; } accepted.push(candidate.callsign); return 'persisted'; } });
+  it('consumes a zero-active result and does not retry it after a later Activation starts', async () => {
+    const files = setup(); const accepted: string[] = []; const watcher = new WsjtxAdifWatcher({ ...files, onRecord: candidate => { accepted.push(candidate.callsign); return 'activation:zero_active'; } });
     await watcher.pollNow(); fs.appendFileSync(files.filePath, record('W1AW')); await watcher.pollNow();
-    expect(watcher.getDiagnostics().checkpointOffset).toBe(0);
-    await watcher.pollNow(); expect(accepted).toEqual(['W1AW']); expect(watcher.getDiagnostics().checkpointOffset).toBe(fs.statSync(files.filePath).size);
+    expect(watcher.getDiagnostics()).toMatchObject({ recordsAccepted: 0, recordsRejected: 1, checkpointOffset: fs.statSync(files.filePath).size });
+    await watcher.pollNow(); expect(accepted).toEqual(['W1AW']);
+  });
+
+  it('consumes multiple-active, retries persistence failures, and imports a later valid record', async () => {
+    const files = setup(); let mode: 'multiple' | 'persistence' | 'valid' = 'multiple'; const accepted: string[] = [];
+    const watcher = new WsjtxAdifWatcher({ ...files, onRecord: candidate => {
+      if (candidate.callsign === 'W1AW' && mode === 'multiple') return 'activation:multiple_active';
+      if (candidate.callsign === 'K1ABC' && mode === 'persistence') return 'persistence_failed';
+      accepted.push(candidate.callsign); return 'persisted';
+    } });
+    await watcher.pollNow(); fs.appendFileSync(files.filePath, record('W1AW')); await watcher.pollNow();
+    expect(watcher.getDiagnostics()).toMatchObject({ recordsRejected: 1, checkpointOffset: fs.statSync(files.filePath).size });
+    mode = 'persistence'; fs.appendFileSync(files.filePath, record('K1ABC')); await watcher.pollNow();
+    expect(watcher.getDiagnostics().checkpointOffset).toBe(fs.statSync(files.filePath).size - Buffer.byteLength(record('K1ABC')));
+    mode = 'valid'; await watcher.pollNow();
+    expect(accepted).toEqual(['K1ABC']);
   });
 
   it('continues after a malformed record and does not bulk-import after truncation or replacement', async () => {
