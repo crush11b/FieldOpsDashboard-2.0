@@ -289,6 +289,14 @@ The future 2.8-02 implementation is accepted only when all of these are true:
 - **Automated validation:** Parser/filter fixtures, mixed provenance tests, interval/freshness tests, retention tests, denominator regression tests, and API tests.
 - **Hardware acceptance:** Later CF-20 observation may verify live traffic and coexistence, but no hardware claim is required to define the contract.
 
+#### 2.8-03 implementation evidence
+
+Implemented on `feature/2.8-03-station-signal-observation`. `OperationalIntelligenceStore` persists versioned TX Context segments and Station Signal Observations under the normal local application-data directory using atomic JSON replacement. Reads skip malformed entries with bounded diagnostics and never rewrite the store. Opening a new context closes the prior open segment for that Activation; completing an Activation closes any remaining open context through the Activation API completion hook.
+
+The API provides Activation-scoped listing, server-generated TX Context replacement, and observation capture. Capture consumes the existing injected `ObservedRfService` snapshot and matches only compatible outbound PSKReporter reports from the configured operator callsign, context band/mode, and clipped observation interval. It retains counts, exposure rates, locator-center distance summaries, SNR summaries, source status, newest matching report, and limitations. Zero matches retain exactly `No matching reports observed` with zero receivers and a null newest-report timestamp. No receiver denominator, ratio, confidence, rating, contact probability, or transmission proof is produced.
+
+Focused contract/store/API tests pass. MY SIGNAL React UI, radio control, transmit proof, WSPR, spotting, hardware acceptance, and integrated review presentation remain pending later slices.
+
 ### 2.8-04 - Layered Propagation Picture
 
 - **Purpose:** Present modeled, environmental, general observed-RF, and station-specific evidence as separate layers.

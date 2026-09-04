@@ -5,7 +5,7 @@ import type { ActivationStore, ActivationStoreReadResult } from './activationSto
 import type { ActivationNotesStore } from './activationNotesStore';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
 
-export interface ActivationApiOptions { readonly store: ActivationStore; readonly briefStore: SmartDeployBriefStore; readonly notesStore: ActivationNotesStore; readonly logger?: Pick<Console, 'warn'>; readonly now?: () => Date; }
+export interface ActivationApiOptions { readonly store: ActivationStore; readonly briefStore: SmartDeployBriefStore; readonly notesStore: ActivationNotesStore; readonly logger?: Pick<Console, 'warn'>; readonly now?: () => Date; readonly onCompleted?: (activation: Activation) => void; }
 
 export function createActivationRouter(options: ActivationApiOptions): Router {
   const router = express.Router();
@@ -56,7 +56,7 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
         response.json({ kind: 'activation', status: 'updated', activation: activated.activation, diagnostics: [...existing.diagnostics, ...activated.diagnostics], ...(activated.reconciledActivationIds.length ? { reconciledActivationIds: activated.reconciledActivationIds } : {}) });
         return;
       }
-      const saved = options.store.save(updateActivationStatus(existing.activation, status, options.now)); response.json({ kind: 'activation', status: 'updated', activation: saved.activation, diagnostics: saved.diagnostics });
+      const saved = options.store.save(updateActivationStatus(existing.activation, status, options.now)); options.onCompleted?.(saved.activation); response.json({ kind: 'activation', status: 'updated', activation: saved.activation, diagnostics: saved.diagnostics });
     }
     catch { response.status(503).json(error('persistence_unavailable', 'The Activation could not be updated.', existing.diagnostics)); }
   });
