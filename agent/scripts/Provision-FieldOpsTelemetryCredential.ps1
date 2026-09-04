@@ -67,8 +67,13 @@ function Set-ProtectedAcl {
             $sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $none, $allow)) | Out-Null
     }
     foreach ($sid in $ReadSids) {
+        $readerRights = if ($IsDirectory) {
+            [Security.AccessControl.FileSystemRights]::ReadAndExecute
+        } else {
+            [Security.AccessControl.FileSystemRights]::Read
+        }
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-            $sid, [Security.AccessControl.FileSystemRights]::ReadAndExecute, $inheritance, $none, $allow)) | Out-Null
+            $sid, $readerRights, $inheritance, $none, $allow)) | Out-Null
     }
     Set-FieldOpsAcl -Path $Path -Acl $acl -IsDirectory $IsDirectory
 }
@@ -89,8 +94,30 @@ function Assert-ProtectedAcl {
         }
     }
     foreach ($sid in $AllowedSids) {
-        if (-not ($rules | Where-Object { $_.IdentityReference.Value -eq $sid })) {
+        $matchingRules = @($rules | Where-Object { $_.IdentityReference.Value -eq $sid })
+        if ($matchingRules.Count -ne 1) {
             throw "A required ACL entry is missing from protected telemetry credential material."
+        }
+
+        $rule = $matchingRules[0]
+        $requiredRights = if ($sid -in @('S-1-5-18', 'S-1-5-32-544')) {
+            [Security.AccessControl.FileSystemRights]::FullControl
+        } elseif ($IsDirectory) {
+            [Security.AccessControl.FileSystemRights]::ReadAndExecute
+        } else {
+            [Security.AccessControl.FileSystemRights]::Read
+        }
+        $filesystemSynchronization = [Security.AccessControl.FileSystemRights]::Synchronize
+        $allowedRights = $requiredRights -bor $filesystemSynchronization
+        if (($rule.FileSystemRights -band (-bnot $allowedRights)) -ne 0) {
+            throw "ACL entry '$sid' has unexpected rights on protected telemetry credential material."
+        }
+
+        if ($sid -notin @('S-1-5-18', 'S-1-5-32-544')) {
+            $forbiddenRights = Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $IsDirectory
+            if (($rule.FileSystemRights -band $forbiddenRights) -ne 0) {
+                throw "Reader ACL entry '$sid' has forbidden rights on protected telemetry credential material."
+            }
         }
     }
 }

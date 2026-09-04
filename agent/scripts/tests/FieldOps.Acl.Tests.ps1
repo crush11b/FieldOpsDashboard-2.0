@@ -1,6 +1,18 @@
 $modulePath = Join-Path $PSScriptRoot '..\FieldOps.Acl.psm1'
 Import-Module $modulePath -Force
 
+$provisionerPath = Join-Path $PSScriptRoot '..\Provision-FieldOpsTelemetryCredential.ps1'
+$provisionerTokens = $null
+$provisionerErrors = $null
+$provisionerAst = [Management.Automation.Language.Parser]::ParseFile($provisionerPath, [ref]$provisionerTokens, [ref]$provisionerErrors)
+foreach ($functionName in @('Set-ProtectedAcl', 'Assert-ProtectedAcl')) {
+    $functionAst = $provisionerAst.Find({ param($node)
+        $node -is [Management.Automation.Language.FunctionDefinitionAst] -and
+        $node.Name -eq $functionName
+    }, $true)
+    . ([scriptblock]::Create($functionAst.Extent.Text))
+}
+
 function New-TestAcl {
     param(
         [Parameter(Mandatory = $true)][bool]$IsDirectory,
@@ -74,14 +86,16 @@ Describe 'FieldOps shared filesystem ACL helpers' {
     It 'retrieves and applies a protected file ACL with read-only rights' {
         $path = Join-Path $script:testRoot 'credential.dat'
         [IO.File]::WriteAllText($path, 'test')
-        Set-FieldOpsAcl -Path $path -Acl (New-TestAcl -IsDirectory $false -ReadSid $script:readSid) -IsDirectory $false
+        Set-ProtectedAcl -Path $path -ReadSids @($script:readSid) -IsDirectory $false
         $acl = Get-FieldOpsAcl -Path $path -IsDirectory $false
         $acl.AreAccessRulesProtected | Should Be $true
         $rules = @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))
         $rules.Count | Should Be 3
         $readRule = Get-TestRule -Acl $acl -Sid $script:readSid
         ($readRule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::Read) | Should Be ([Security.AccessControl.FileSystemRights]::Read)
+        ($readRule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ExecuteFile) | Should Be 0
         ($readRule.FileSystemRights -band (Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $false)) | Should Be 0
+        { Assert-ProtectedAcl -Path $path -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $script:readSid) -IsDirectory $false } | Should Not Throw
     }
 
     It 'does not resolve or invoke shadowed PowerShell ACL cmdlets' {
@@ -121,6 +135,46 @@ Describe 'FieldOps shared filesystem ACL helpers' {
         . ([scriptblock]::Create($assertion.Extent.Text))
         $failedClosed = $false
         try { Assert-FieldOpsAcl -Path $path -IsDirectory $false } catch { $failedClosed = $true }
+        $failedClosed | Should Be $true
+    }
+
+    It 'rejects execute, write, full-control, unexpected, deny, and duplicate reader entries' {
+        $baseCases = @(
+            @{ Name = 'execute'; Rights = [Security.AccessControl.FileSystemRights]::ExecuteFile; Sid = $script:readSid; Type = [Security.AccessControl.AccessControlType]::Allow },
+            @{ Name = 'write'; Rights = [Security.AccessControl.FileSystemRights]::WriteData; Sid = $script:readSid; Type = [Security.AccessControl.AccessControlType]::Allow },
+            @{ Name = 'full control'; Rights = [Security.AccessControl.FileSystemRights]::FullControl; Sid = $script:readSid; Type = [Security.AccessControl.AccessControlType]::Allow },
+            @{ Name = 'unexpected SID'; Rights = [Security.AccessControl.FileSystemRights]::Read; Sid = ([Security.Principal.SecurityIdentifier]::new('S-1-5-19')); Type = [Security.AccessControl.AccessControlType]::Allow },
+            @{ Name = 'deny'; Rights = [Security.AccessControl.FileSystemRights]::Read; Sid = $script:readSid; Type = [Security.AccessControl.AccessControlType]::Deny }
+        )
+        foreach ($case in $baseCases) {
+            $path = Join-Path $script:testRoot ($case.Name.Replace(' ', '-') + '.dat')
+            [IO.File]::WriteAllText($path, 'test')
+            Set-ProtectedAcl -Path $path -ReadSids @($script:readSid) -IsDirectory $false
+            $acl = Get-FieldOpsAcl -Path $path -IsDirectory $false
+            $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
+                $case.Sid, $case.Rights, [Security.AccessControl.InheritanceFlags]::None,
+                [Security.AccessControl.PropagationFlags]::None, $case.Type)) | Out-Null
+            Set-FieldOpsAcl -Path $path -Acl $acl -IsDirectory $false
+            $failedClosed = $false
+            try { Assert-ProtectedAcl -Path $path -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $script:readSid) -IsDirectory $false } catch { $failedClosed = $true }
+            if (-not $failedClosed) { throw "Production ACL assertion accepted unsafe '$($case.Name)' entry." }
+        }
+
+        $duplicatePath = Join-Path $script:testRoot 'duplicate.dat'
+        [IO.File]::WriteAllText($duplicatePath, 'test')
+        Set-ProtectedAcl -Path $duplicatePath -ReadSids @($script:readSid) -IsDirectory $false
+        $duplicateAcl = Get-FieldOpsAcl -Path $duplicatePath -IsDirectory $false
+        $duplicateRules = @($duplicateAcl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))
+        $script:duplicateAcl = [pscustomobject]@{ AreAccessRulesProtected = $true }
+        $script:duplicateRules = @($duplicateRules) + @($duplicateRules | Where-Object { $_.IdentityReference.Value -eq $script:readSid.Value })
+        $script:duplicateAcl | Add-Member -MemberType ScriptMethod -Name GetAccessRules -Value {
+            param($IncludeExplicit, $IncludeInherited, $TargetType)
+            return $script:duplicateRules
+        }
+        function global:Get-FieldOpsAcl { return $script:duplicateAcl }
+        $failedClosed = $false
+        try { Assert-ProtectedAcl -Path $duplicatePath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $script:readSid) -IsDirectory $false } catch { $failedClosed = $true }
+        Remove-Item Function:\global:Get-FieldOpsAcl -ErrorAction SilentlyContinue
         $failedClosed | Should Be $true
     }
 
