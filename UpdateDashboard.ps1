@@ -108,6 +108,22 @@ function Assert-RequiredFiles {
     }
 }
 
+function Get-Sha256Hex {
+    param([Parameter(Mandatory = $true)][string]$Path)
+
+    $algorithm = [System.Security.Cryptography.SHA256]::Create()
+    $stream = $null
+    try {
+        $stream = [System.IO.File]::Open($Path, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::Read)
+        $hash = $algorithm.ComputeHash($stream)
+        return ([System.BitConverter]::ToString($hash).Replace('-', '').ToLowerInvariant())
+    }
+    finally {
+        if ($null -ne $stream) { $stream.Dispose() }
+        if ($null -ne $algorithm) { $algorithm.Dispose() }
+    }
+}
+
 function Assert-P533RuntimeArtifact {
     param(
         [Parameter(Mandatory = $true)][string]$PackageRoot,
@@ -136,7 +152,7 @@ function Assert-P533RuntimeArtifact {
         $filePath = Join-Path $runtimeRoot $fileName
         if (-not (Test-Path -LiteralPath $filePath -PathType Leaf)) { throw "P.533 runtime artifact is missing '$fileName'. Deployment was not activated." }
         $expectedHash = if ($fileName -eq 'p533.mjs') { $sourceManifest.p533MjsSha256 } elseif ($fileName -eq 'p533.wasm') { $sourceManifest.p533WasmSha256 } else { $provenance.installedFiles.$fileName }
-        if ([string]::IsNullOrWhiteSpace([string]$expectedHash) -or (Get-FileHash -LiteralPath $filePath -Algorithm SHA256).Hash.ToLowerInvariant() -ne ([string]$expectedHash).ToLowerInvariant()) {
+        if ([string]::IsNullOrWhiteSpace([string]$expectedHash) -or (Get-Sha256Hex -Path $filePath) -ne ([string]$expectedHash).ToLowerInvariant()) {
             throw "P.533 runtime artifact hash mismatch for '$fileName'. Deployment was not activated."
         }
     }

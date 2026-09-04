@@ -25,6 +25,8 @@ export interface ResolvedWsjtxConfiguration {
   readonly port: number;
   readonly multicastAddress?: string;
   readonly multicastInterface?: string;
+  readonly adifLogPath: string | null;
+  readonly adifCheckpointPath: string | null;
 }
 
 export type DashboardConfigFileResult =
@@ -87,12 +89,16 @@ export function resolveWsjtxConfiguration(
       : 'unicast';
   const portValue = Number.parseInt(environment.WSJTX_PORT || '', 10);
   const port = Number.isInteger(portValue) && portValue > 0 ? portValue : config.wsjtx.port;
-  if (mode === 'unicast') return { mode, host: environment.WSJTX_HOST?.trim() || config.wsjtx.host || WSJTX_DEFAULT_HOST, port };
+  const adifLogPath = environment.WSJTX_ADIF_LOG_PATH?.trim() || (environment.LOCALAPPDATA?.trim() ? path.join(environment.LOCALAPPDATA, 'WSJT-X', 'wsjtx_log.adi') : null);
+  const adifCheckpointPath = environment.WSJTX_ADIF_CHECKPOINT_PATH?.trim() || (adifLogPath ? `${adifLogPath}.fieldops-checkpoint.json` : null);
+  if (mode === 'unicast') return { mode, host: environment.WSJTX_HOST?.trim() || config.wsjtx.host || WSJTX_DEFAULT_HOST, port, adifLogPath, adifCheckpointPath };
   return {
     mode,
     port,
     multicastAddress: environment.WSJTX_MULTICAST_ADDRESS?.trim() || config.wsjtx.multicastAddress || WSJTX_DEFAULT_MULTICAST_ADDRESS,
     multicastInterface: environment.WSJTX_MULTICAST_INTERFACE?.trim() || config.wsjtx.multicastInterface || undefined,
+    adifLogPath,
+    adifCheckpointPath,
   };
 }
 
