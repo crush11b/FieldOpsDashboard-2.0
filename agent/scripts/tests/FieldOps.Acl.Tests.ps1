@@ -71,7 +71,7 @@ Describe 'FieldOps shared filesystem ACL helpers' {
     It 'retrieves and applies a protected directory ACL with exact rights' {
         $path = Join-Path $script:testRoot 'directory'
         New-Item -ItemType Directory -Path $path | Out-Null
-        Set-FieldOpsAcl -Path $path -Acl (New-TestAcl -IsDirectory $true -ReadSid $script:readSid) -IsDirectory $true
+        Set-ProtectedAcl -Path $path -ReadSids @($script:readSid) -IsDirectory $true
         $acl = Get-FieldOpsAcl -Path $path -IsDirectory $true
         $acl.AreAccessRulesProtected | Should Be $true
         $rules = @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))
@@ -81,6 +81,7 @@ Describe 'FieldOps shared filesystem ACL helpers' {
         $localRule = Get-TestRule -Acl $acl -Sid $script:readSid
         ($localRule.FileSystemRights -band [Security.AccessControl.FileSystemRights]::ReadAndExecute) | Should Be ([Security.AccessControl.FileSystemRights]::ReadAndExecute)
         ($localRule.FileSystemRights -band (Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $true)) | Should Be 0
+        { Assert-ProtectedAcl -Path $path -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $script:readSid) -IsDirectory $true } | Should Not Throw
     }
 
     It 'retrieves and applies a protected file ACL with read-only rights' {
@@ -176,6 +177,42 @@ Describe 'FieldOps shared filesystem ACL helpers' {
         try { Assert-ProtectedAcl -Path $duplicatePath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $script:readSid) -IsDirectory $false } catch { $failedClosed = $true }
         Remove-Item Function:\global:Get-FieldOpsAcl -ErrorAction SilentlyContinue
         $failedClosed | Should Be $true
+    }
+
+    It 'rejects missing required rights for administrative and reader entries' {
+        $cases = @(
+            @{ Name = 'system-missing'; Sid = 'S-1-5-18'; Rights = [Security.AccessControl.FileSystemRights]::FullControl -bxor [Security.AccessControl.FileSystemRights]::WriteData },
+            @{ Name = 'administrators-read'; Sid = 'S-1-5-32-544'; Rights = [Security.AccessControl.FileSystemRights]::Read },
+            @{ Name = 'directory-reader-read'; Sid = $script:readSid.Value; Rights = [Security.AccessControl.FileSystemRights]::Read },
+            @{ Name = 'file-reader-missing-read'; Sid = $script:readSid.Value; Rights = [Security.AccessControl.FileSystemRights]::ReadData -bxor [Security.AccessControl.FileSystemRights]::ReadAttributes }
+        )
+        foreach ($case in $cases) {
+            $script:missingRightsAcl = [pscustomobject]@{ AreAccessRulesProtected = $true }
+            $sid = [Security.Principal.SecurityIdentifier]::new($case.Sid)
+            $rule = [Security.AccessControl.FileSystemAccessRule]::new(
+                $sid, $case.Rights, [Security.AccessControl.InheritanceFlags]::None,
+                [Security.AccessControl.PropagationFlags]::None,
+                [Security.AccessControl.AccessControlType]::Allow)
+            $script:missingRightsRules = @($rule)
+            $script:missingRightsAcl | Add-Member -MemberType ScriptMethod -Name GetAccessRules -Value {
+                param($IncludeExplicit, $IncludeInherited, $TargetType)
+                return $script:missingRightsRules
+            }
+            function global:Get-FieldOpsAcl { return $script:missingRightsAcl }
+            $failedClosed = $false
+            try { Assert-ProtectedAcl -Path 'ignored' -AllowedSids @($case.Sid) -IsDirectory ($case.Name -eq 'directory-reader-read') } catch { $failedClosed = $true }
+            Remove-Item Function:\global:Get-FieldOpsAcl -ErrorAction SilentlyContinue
+            $failedClosed | Should Be $true
+        }
+    }
+
+    It 'asserts both credential directories immediately after applying their ACLs' {
+        $provisioner = Get-Content $provisionerPath -Raw
+        $receiverSet = $provisioner.IndexOf('Set-ProtectedAcl -Path $receiverDirectory', [StringComparison]::Ordinal)
+        $receiverAssert = $provisioner.IndexOf('Assert-ProtectedAcl -Path $receiverDirectory', [StringComparison]::Ordinal)
+        $agentSet = $provisioner.IndexOf('Set-ProtectedAcl -Path $agentDirectory', [StringComparison]::Ordinal)
+        $agentAssert = $provisioner.IndexOf('Assert-ProtectedAcl -Path $agentDirectory', [StringComparison]::Ordinal)
+        ($receiverSet -ge 0 -and $receiverAssert -gt $receiverSet -and $agentSet -ge 0 -and $agentAssert -gt $agentSet -and $receiverAssert -lt $agentSet) | Should Be $true
     }
 
     It 'contains no legacy ACL cmdlets in either deployment path' {

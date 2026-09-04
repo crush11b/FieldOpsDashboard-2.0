@@ -109,6 +109,9 @@ function Assert-ProtectedAcl {
         }
         $filesystemSynchronization = [Security.AccessControl.FileSystemRights]::Synchronize
         $allowedRights = $requiredRights -bor $filesystemSynchronization
+        if (($rule.FileSystemRights -band $requiredRights) -ne $requiredRights) {
+            throw "ACL entry '$sid' is missing required rights on protected telemetry credential material."
+        }
         if (($rule.FileSystemRights -band (-bnot $allowedRights)) -ne 0) {
             throw "ACL entry '$sid' has unexpected rights on protected telemetry credential material."
         }
@@ -200,7 +203,9 @@ $agentDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($AgentCredentialPat
 New-Item -ItemType Directory -Path $receiverDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $agentDirectory -Force | Out-Null
 Set-ProtectedAcl -Path $receiverDirectory -ReadSids @($dashboardSid) -IsDirectory $true
+Assert-ProtectedAcl -Path $receiverDirectory -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value) -IsDirectory $true
 Set-ProtectedAcl -Path $agentDirectory -ReadSids @($localServiceSid) -IsDirectory $true
+Assert-ProtectedAcl -Path $agentDirectory -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $localServiceSid.Value) -IsDirectory $true
 
 $transaction = [Guid]::NewGuid().ToString('N')
 $receiverTemp = Join-Path $receiverDirectory ".telemetry-credentials-$transaction.tmp"
