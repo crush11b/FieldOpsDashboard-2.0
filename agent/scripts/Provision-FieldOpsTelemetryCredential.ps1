@@ -11,6 +11,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
+$scriptPath = $MyInvocation.MyCommand.Path
+$scriptDirectory = if (-not [string]::IsNullOrWhiteSpace($scriptPath)) { Split-Path -Parent $scriptPath } else { $PSScriptRoot }
+if ([string]::IsNullOrWhiteSpace($scriptDirectory)) { throw 'Could not resolve the credential provisioning script directory.' }
+Import-Module (Join-Path $scriptDirectory 'FieldOps.Acl.psm1') -Force
 
 function ConvertTo-Base64Url {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
@@ -63,18 +67,24 @@ function Set-ProtectedAcl {
             $sid, [Security.AccessControl.FileSystemRights]::FullControl, $inheritance, $none, $allow)) | Out-Null
     }
     foreach ($sid in $ReadSids) {
+        $readerRights = if ($IsDirectory) {
+            [Security.AccessControl.FileSystemRights]::ReadAndExecute
+        } else {
+            [Security.AccessControl.FileSystemRights]::Read
+        }
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
-            $sid, [Security.AccessControl.FileSystemRights]::ReadAndExecute, $inheritance, $none, $allow)) | Out-Null
+            $sid, $readerRights, $inheritance, $none, $allow)) | Out-Null
     }
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    Set-FieldOpsAcl -Path $Path -Acl $acl -IsDirectory $IsDirectory
 }
 
 function Assert-ProtectedAcl {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string[]]$AllowedSids
+        [Parameter(Mandatory = $true)][string[]]$AllowedSids,
+        [Parameter(Mandatory = $true)][bool]$IsDirectory
     )
-    $acl = Get-Acl -LiteralPath $Path
+    $acl = Get-FieldOpsAcl -Path $Path -IsDirectory $IsDirectory
     if (-not $acl.AreAccessRulesProtected) { throw "ACL inheritance remains enabled on '$Path'." }
     $rules = @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))
     foreach ($rule in $rules) {
@@ -84,8 +94,33 @@ function Assert-ProtectedAcl {
         }
     }
     foreach ($sid in $AllowedSids) {
-        if (-not ($rules | Where-Object { $_.IdentityReference.Value -eq $sid })) {
+        $matchingRules = @($rules | Where-Object { $_.IdentityReference.Value -eq $sid })
+        if ($matchingRules.Count -ne 1) {
             throw "A required ACL entry is missing from protected telemetry credential material."
+        }
+
+        $rule = $matchingRules[0]
+        $requiredRights = if ($sid -in @('S-1-5-18', 'S-1-5-32-544')) {
+            [Security.AccessControl.FileSystemRights]::FullControl
+        } elseif ($IsDirectory) {
+            [Security.AccessControl.FileSystemRights]::ReadAndExecute
+        } else {
+            [Security.AccessControl.FileSystemRights]::Read
+        }
+        $filesystemSynchronization = [Security.AccessControl.FileSystemRights]::Synchronize
+        $allowedRights = $requiredRights -bor $filesystemSynchronization
+        if (($rule.FileSystemRights -band $requiredRights) -ne $requiredRights) {
+            throw "ACL entry '$sid' is missing required rights on protected telemetry credential material."
+        }
+        if (($rule.FileSystemRights -band (-bnot $allowedRights)) -ne 0) {
+            throw "ACL entry '$sid' has unexpected rights on protected telemetry credential material."
+        }
+
+        if ($sid -notin @('S-1-5-18', 'S-1-5-32-544')) {
+            $forbiddenRights = Get-FieldOpsForbiddenLocalServiceRights -IsDirectory $IsDirectory
+            if (($rule.FileSystemRights -band $forbiddenRights) -ne 0) {
+                throw "Reader ACL entry '$sid' has forbidden rights on protected telemetry credential material."
+            }
         }
     }
 }
@@ -168,7 +203,9 @@ $agentDirectory = Split-Path -Parent ([IO.Path]::GetFullPath($AgentCredentialPat
 New-Item -ItemType Directory -Path $receiverDirectory -Force | Out-Null
 New-Item -ItemType Directory -Path $agentDirectory -Force | Out-Null
 Set-ProtectedAcl -Path $receiverDirectory -ReadSids @($dashboardSid) -IsDirectory $true
+Assert-ProtectedAcl -Path $receiverDirectory -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value) -IsDirectory $true
 Set-ProtectedAcl -Path $agentDirectory -ReadSids @($localServiceSid) -IsDirectory $true
+Assert-ProtectedAcl -Path $agentDirectory -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $localServiceSid.Value) -IsDirectory $true
 
 $transaction = [Guid]::NewGuid().ToString('N')
 $receiverTemp = Join-Path $receiverDirectory ".telemetry-credentials-$transaction.tmp"
@@ -222,8 +259,8 @@ try {
         Move-Item -LiteralPath $receiverTemp -Destination $ReceiverCredentialPath
     }
     $receiverSwapped = $true
-    Assert-ProtectedAcl -Path $ReceiverCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value)
-    Assert-ProtectedAcl -Path $AgentCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-19')
+    Assert-ProtectedAcl -Path $ReceiverCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value) -IsDirectory $false
+    Assert-ProtectedAcl -Path $AgentCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-19') -IsDirectory $false
     Assert-CredentialPair -ReceiverPath $ReceiverCredentialPath -AgentPath $AgentCredentialPath -ExpectedAgentId $AgentId
     $committed = $true
 } catch {

@@ -126,7 +126,7 @@ Invoke-FieldOpsAgentInstallStage -InstallerPath '$($probePath.Replace("'", "''")
             $records = @(Get-Content -LiteralPath $outputPath | ForEach-Object { $_ | ConvertFrom-Json })
             $records.Count | Should Be 2
             $records[0].bound | Should Be $true
-            @($records[0].values) | Should Be @('Agent__Location__Recovery__Enabled=true', 'Agent__Location__Recovery__Provider=SierraEm7455B', 'Agent__Location__Recovery__ControlPort=COM7', 'Agent__Location__Recovery__ControlBaud=115200')
+            ((@($records[0].values)) -join '|') | Should Be 'DOTNET_ENVIRONMENT=Cf20|Agent__Location__Recovery__Enabled=true|Agent__Location__Recovery__Provider=SierraEm7455B|Agent__Location__Recovery__ControlPort=COM7|Agent__Location__Recovery__ControlBaud=115200'
             $records[1].bound | Should Be $false
             @($records[1].values).Count | Should Be 0
         } finally {
