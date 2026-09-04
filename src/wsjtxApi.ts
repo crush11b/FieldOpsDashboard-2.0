@@ -30,6 +30,25 @@ export interface WsjtxDiagnostics {
   readonly lastImportFailureStage: string | null;
   readonly lastImportFailureReason: string | null;
   readonly timing?: WsjtxTimingEvidence;
+  readonly adifFile?: WsjtxAdifFileDiagnostics;
+}
+
+export interface WsjtxAdifFileDiagnostics {
+  readonly enabled: boolean;
+  readonly state: 'stopped' | 'waiting' | 'active' | 'unavailable' | 'failed';
+  readonly resolvedPath: string | null;
+  readonly filePresent: boolean;
+  readonly checkpointPath: string | null;
+  readonly checkpointOffset: number | null;
+  readonly baselineEstablished: boolean;
+  readonly lastFileObservationAtUtc: string | null;
+  readonly lastCompletedRecordAtUtc: string | null;
+  readonly recordsAccepted: number;
+  readonly parseImportFailures: number;
+  readonly duplicatesSuppressed: number;
+  readonly lastSuccessfulImportAtUtc: string | null;
+  readonly lastFailureStage: string | null;
+  readonly lastFailureReason: string | null;
 }
 
 export interface WsjtxTimingEvidence {

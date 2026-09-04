@@ -45,19 +45,29 @@ describe('product-owned Dashboard configuration', () => {
   it('defaults production WSJT-X to multicast without selecting an interface', () => {
     const config = normalizeDashboardConfig({});
     expect(config.wsjtx).toMatchObject({ mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: '', port: 2237 });
-    expect(resolveWsjtxConfiguration(config, {})).toEqual({ mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: undefined, port: 2237 });
+    expect(resolveWsjtxConfiguration(config, {})).toEqual({ mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: undefined, port: 2237, adifLogPath: null, adifCheckpointPath: null });
   });
 
   it('gives explicit environment overrides precedence over persisted configuration', () => {
     const config = normalizeDashboardConfig({ wsjtx: { mode: 'multicast', multicastAddress: '239.255.0.1', multicastInterface: '10.0.0.2', host: '10.0.0.3', port: 2240 } });
-    expect(resolveWsjtxConfiguration(config, { WSJTX_MODE: 'unicast', WSJTX_HOST: '127.0.0.9', WSJTX_PORT: '2238' })).toEqual({ mode: 'unicast', host: '127.0.0.9', port: 2238 });
-    expect(resolveWsjtxConfiguration(config, { WSJTX_MULTICAST_ADDRESS: '239.255.0.9', WSJTX_MULTICAST_INTERFACE: '10.0.0.4', WSJTX_PORT: '2241' })).toEqual({ mode: 'multicast', multicastAddress: '239.255.0.9', multicastInterface: '10.0.0.4', port: 2241 });
+    expect(resolveWsjtxConfiguration(config, { WSJTX_MODE: 'unicast', WSJTX_HOST: '127.0.0.9', WSJTX_PORT: '2238' })).toEqual({ mode: 'unicast', host: '127.0.0.9', port: 2238, adifLogPath: null, adifCheckpointPath: null });
+    expect(resolveWsjtxConfiguration(config, { WSJTX_MULTICAST_ADDRESS: '239.255.0.9', WSJTX_MULTICAST_INTERFACE: '10.0.0.4', WSJTX_PORT: '2241' })).toEqual({ mode: 'multicast', multicastAddress: '239.255.0.9', multicastInterface: '10.0.0.4', port: 2241, adifLogPath: null, adifCheckpointPath: null });
   });
 
   it('preserves deliberate persisted unicast compatibility', () => {
     const config = normalizeDashboardConfig({ wsjtx: { mode: 'unicast', host: '127.0.0.8', port: 2239 } });
-    expect(resolveWsjtxConfiguration(config, {})).toEqual({ mode: 'unicast', host: '127.0.0.8', port: 2239 });
-    expect(resolveWsjtxConfiguration(normalizeDashboardConfig({}), { WSJTX_HOST: '127.0.0.7' })).toEqual({ mode: 'unicast', host: '127.0.0.7', port: 2237 });
+    expect(resolveWsjtxConfiguration(config, {})).toEqual({ mode: 'unicast', host: '127.0.0.8', port: 2239, adifLogPath: null, adifCheckpointPath: null });
+    expect(resolveWsjtxConfiguration(normalizeDashboardConfig({}), { WSJTX_HOST: '127.0.0.7' })).toEqual({ mode: 'unicast', host: '127.0.0.7', port: 2237, adifLogPath: null, adifCheckpointPath: null });
+  });
+
+  it('resolves an explicit ADIF path and checkpoint override', () => {
+    const config = normalizeDashboardConfig({});
+    expect(resolveWsjtxConfiguration(config, { WSJTX_ADIF_LOG_PATH: 'D:\\WSJT\\wsjtx_log.adi', WSJTX_ADIF_CHECKPOINT_PATH: 'D:\\FieldOps\\wsjtx.checkpoint.json' })).toMatchObject({ adifLogPath: 'D:\\WSJT\\wsjtx_log.adi', adifCheckpointPath: 'D:\\FieldOps\\wsjtx.checkpoint.json' });
+  });
+
+  it('resolves the Windows local-app-data default without scanning profiles', () => {
+    const config = normalizeDashboardConfig({});
+    expect(resolveWsjtxConfiguration(config, { LOCALAPPDATA: 'C:\\Users\\Operator\\AppData\\Local' })).toMatchObject({ adifLogPath: 'C:\\Users\\Operator\\AppData\\Local\\WSJT-X\\wsjtx_log.adi' });
   });
 
   it('round-trips valid station profiles and normalizes invalid fields independently', () => {

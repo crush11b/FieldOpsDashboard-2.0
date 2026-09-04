@@ -356,6 +356,12 @@ V2.7-05 may now begin. This acceptance does not mark the V2.7 release complete.
 - WSJT-X message type `12` (`Logged ADIF`) is now recognized for supported schemas and parsed through the existing ADIF utility into the same normalized candidate and Activation validation/persistence path as message type `5` (`QSO Logged`). Type-12 compatibility is implementation- and test-validated only; no type-12 hardware validation is claimed.
 - Diagnostics distinguish type-5 and type-12 accepted events, malformed events, duplicate suppression, and persisted imports. The separate .NET multicast proof remains diagnostic only and is not production architecture.
 
+### WSJT-X logged-QSO ADIF fallback - field evidence and bounded hotfix - 2026-09-04
+
+- Field validation confirmed that WSJT-X Status messages reliably reached multicast `239.255.0.0:2237`, and band/mode tracking worked after correcting WSJT-X's outgoing interface. The same session saved completed QSOs to the local `%LOCALAPPDATA%\\WSJT-X\\wsjtx_log.adi` file, while the primary stream emitted no type-5 or type-12 logged-QSO packet and the secondary logged-contact ADIF broadcast at `127.0.0.1:2238` emitted nothing to an active listener.
+- Existing UDP Status, type-5, and type-12 handling remains in place. The bounded fallback polls the resolved local ADIF file, establishes the current EOF as its first-run baseline, retains only incomplete tail bytes in memory, and persists a byte checkpoint only after complete records have been processed through the existing ADIF parser, Activation association, QSO normalization, persistence, and duplicate-suppression path.
+- File replacement, truncation, missing files, missing `LOCALAPPDATA`, malformed records, and failed imports remain nonfatal and diagnostic. This is a reliability hotfix for logged-QSO ingestion and does not widen V2.8-02 or claim a new WSJT-X protocol guarantee.
+
 ---
 
 ## 2.7-05 - Live Band Activity

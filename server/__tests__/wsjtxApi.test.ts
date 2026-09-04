@@ -31,5 +31,6 @@ describe('WSJT-X API timing', () => {
 
     expect(currentBody).toMatchObject({ state: { band: '40m', frequencyMHz: 7.074, mode: 'FT4' }, timing: { requestId: 1, requestReceivedAtUtc: expect.any(String), responseProducedAtUtc: expect.any(String) } });
     expect(diagnosticsBody.timing).toMatchObject({ lastCurrentRequestId: 1, lastCurrentRequestReceivedAtUtc: currentBody.timing.requestReceivedAtUtc, lastCurrentResponseProducedAtUtc: currentBody.timing.responseProducedAtUtc });
+    expect(diagnosticsBody.adifFile).toMatchObject({ enabled: false, state: 'unavailable', resolvedPath: null, filePresent: false });
   });
 });

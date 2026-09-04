@@ -3,6 +3,7 @@ import os from 'node:os';
 import type { CurrentStationState } from '../src/currentStationState';
 import { normalizeQsoCallsign } from './qso';
 import { parseAdif } from './qsoAdif';
+import type { WsjtxAdifFileDiagnostics, WsjtxAdifWatcher } from './wsjtxAdifWatcher';
 
 export const WSJTX_DEFAULT_HOST = '127.0.0.1';
 export const WSJTX_DEFAULT_PORT = 2237;
@@ -65,6 +66,7 @@ export interface WsjtxDiagnostics {
   readonly lastImportFailureStage: string | null;
   readonly lastImportFailureReason: string | null;
   readonly timing: WsjtxTimingEvidence;
+  readonly adifFile: WsjtxAdifFileDiagnostics;
 }
 
 export function parseWsjtxStatusPacket(packet: Uint8Array, now = () => new Date()): WsjtxObservation | null {
@@ -187,7 +189,7 @@ export class WsjtxListener {
   private lastCurrentRequestId: number | null = null;
   private lastCurrentRequestReceivedAtUtc: string | null = null;
   private lastCurrentResponseProducedAtUtc: string | null = null;
-  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void } = {}) {}
+  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void; readonly adifWatcher?: WsjtxAdifWatcher } = {}) {}
 
   start(): void {
     if (this.socket || this.recoveryTimer) return;
@@ -267,9 +269,9 @@ export class WsjtxListener {
   recordCurrentRequest(requestId: number, receivedAtUtc: string): void { this.lastCurrentRequestId = requestId; this.lastCurrentRequestReceivedAtUtc = receivedAtUtc; }
   recordCurrentResponse(producedAtUtc: string): void { this.lastCurrentResponseProducedAtUtc = producedAtUtc; }
 
-  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastInterfaces: [...this.joinedMulticastInterfaces], multicastJoined: this.joinedMulticastInterfaces.size > 0, lastSocketError: this.lastSocketError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, loggedQsoType5Accepted: this.loggedQsoType5Accepted, loggedQsoType5ParseFailures: this.loggedQsoType5ParseFailures, loggedAdifPacketsAccepted: this.loggedAdifPacketsAccepted, loggedAdifParseFailures: this.loggedAdifParseFailures, loggedQsoDuplicatesSuppressed: this.loggedQsoDuplicatesSuppressed, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc } }; }
+  getDiagnostics(): WsjtxDiagnostics { return { listenerMode: this.options.multicastAddress ? 'multicast' : 'unicast', listenerState: this.listenerState, multicastAddress: this.options.multicastAddress ?? null, multicastInterface: this.options.multicastInterface ?? null, multicastInterfaces: [...this.joinedMulticastInterfaces], multicastJoined: this.joinedMulticastInterfaces.size > 0, lastSocketError: this.lastSocketError, packetsReceived: this.packetsReceived, lastPacketReceivedAtUtc: this.lastPacketReceivedAtUtc, statusPacketsAccepted: this.statusPacketsAccepted, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, loggedQsoPacketsAccepted: this.loggedQsoPacketsAccepted, loggedQsoParseFailures: this.loggedQsoParseFailures, loggedQsoType5Accepted: this.loggedQsoType5Accepted, loggedQsoType5ParseFailures: this.loggedQsoType5ParseFailures, loggedAdifPacketsAccepted: this.loggedAdifPacketsAccepted, loggedAdifParseFailures: this.loggedAdifParseFailures, loggedQsoDuplicatesSuppressed: this.loggedQsoDuplicatesSuppressed, lastLoggedQsoAtUtc: this.lastLoggedQsoAtUtc, lastLoggedQsoResult: this.lastLoggedQsoResult, lastLoggedQsoCallsign: this.lastLoggedQsoCallsign, lastLoggedQsoBand: this.lastLoggedQsoBand, lastLoggedQsoMode: this.lastLoggedQsoMode, lastLoggedQsoFrequencyMHz: this.lastLoggedQsoFrequencyMHz, lastImportSuccessAtUtc: this.lastImportSuccessAtUtc, lastImportFailureStage: this.lastImportFailureStage, lastImportFailureReason: this.lastImportFailureReason, timing: { lastStatusPacketReceivedAtUtc: this.lastStatusPacketReceivedAtUtc, lastStatusParsedAtUtc: this.lastStatusParsedAtUtc, lastStatusStateUpdatedAtUtc: this.lastStatusStateUpdatedAtUtc, lastCurrentRequestId: this.lastCurrentRequestId, lastCurrentRequestReceivedAtUtc: this.lastCurrentRequestReceivedAtUtc, lastCurrentResponseProducedAtUtc: this.lastCurrentResponseProducedAtUtc }, adifFile: this.options.adifWatcher?.getDiagnostics() ?? { enabled: false, state: 'unavailable', resolvedPath: null, filePresent: false, checkpointPath: null, checkpointOffset: null, baselineEstablished: false, lastFileObservationAtUtc: null, lastCompletedRecordAtUtc: null, recordsAccepted: 0, parseImportFailures: 0, duplicatesSuppressed: 0, lastSuccessfulImportAtUtc: null, lastFailureStage: null, lastFailureReason: 'WSJT-X ADIF file watcher is not configured.' } }; }
 
-  stop(): void { this.listenerState = 'stopped'; this.recoveryAttempts = 0; if (this.recoveryTimer) clearTimeout(this.recoveryTimer); this.recoveryTimer = null; if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
+  stop(): void { this.options.adifWatcher?.stop(); this.listenerState = 'stopped'; this.recoveryAttempts = 0; if (this.recoveryTimer) clearTimeout(this.recoveryTimer); this.recoveryTimer = null; if (this.socket) this.leaveMulticast(this.socket); this.socket?.close(); this.socket = null; }
 
   private failSocket(socket: dgram.Socket, message: string): void {
     if (this.socket !== socket) return;
@@ -345,6 +347,7 @@ export interface WsjtxLoggedQsoCandidate {
   readonly stationCallsign?: string;
   readonly myGridSquare?: string;
   readonly source: 'wsjtx';
+  readonly ingestionSource?: 'udp' | 'adif_file';
 }
 
 function isLoggedQsoPacket(packet: Uint8Array): boolean {
