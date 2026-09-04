@@ -80,6 +80,16 @@ describe('WSJT-X QSO routing', () => {
     expect(stores.qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
   });
 
+  it('preserves ADIF-file provenance using the existing import source vocabulary', () => {
+    const stores = setup();
+    const router = new WsjtxQsoRouter(stores);
+    const result = router.route({ ...candidate, eventType: 12, ingestionSource: 'adif_file' });
+    expect(result.status).toBe('persisted');
+    expect((result as any).qso.source).toBe('adif_import');
+    expect(router.route(candidate).status).toBe('duplicate');
+    expect(stores.qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
+  });
+
   it('does not poison dedupe state when the first persistence attempt fails', () => {
     const stores = setup();
     let failed = true;

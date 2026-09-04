@@ -155,7 +155,7 @@ describe('ActivationFoundationPanel', () => {
 
   it('shows collapsed WSJT-X diagnostics and refreshes them while active', async () => {
     vi.useFakeTimers();
-    let diagnostics = { listenerMode: 'multicast', listenerState: 'active', multicastAddress: '239.255.0.0', multicastInterface: null, multicastInterfaces: ['127.0.0.1', '192.168.1.20'], multicastJoined: true, lastSocketError: null, packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null };
+    let diagnostics = { listenerMode: 'multicast', listenerState: 'active', multicastAddress: '239.255.0.0', multicastInterface: null, multicastInterfaces: ['127.0.0.1', '192.168.1.20'], multicastJoined: true, lastSocketError: null, packetsReceived: 4, lastPacketReceivedAtUtc: null, statusPacketsAccepted: 2, lastStatusParsedAtUtc: null, lastStatusStateUpdatedAtUtc: null, loggedQsoPacketsAccepted: 0, loggedQsoParseFailures: 0, lastLoggedQsoAtUtc: null, lastLoggedQsoResult: null, lastLoggedQsoCallsign: null, lastLoggedQsoBand: null, lastLoggedQsoMode: null, lastLoggedQsoFrequencyMHz: null, lastImportSuccessAtUtc: null, lastImportFailureStage: null, lastImportFailureReason: null, adifFile: { enabled: true, state: 'active', resolvedPath: 'C:\\Users\\Operator\\AppData\\Local\\WSJT-X\\wsjtx_log.adi', filePresent: true, checkpointPath: null, checkpointOffset: 123, baselineEstablished: true, lastFileObservationAtUtc: '2026-09-04T14:00:00.000Z', lastCompletedRecordAtUtc: '2026-09-04T14:00:01.000Z', recordsAccepted: 1, recordsRejected: 2, parseImportFailures: 0, duplicatesSuppressed: 1, lastSuccessfulImportAtUtc: '2026-09-04T14:00:01.000Z', lastFailureStage: null, lastFailureReason: null } };
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/wsjtx/diagnostics')
       ? { ok: true, json: async () => diagnostics }
       : { ok: true, json: async () => ({ status: 'unavailable', state: null, qsos: [] }) });
@@ -170,9 +170,13 @@ describe('ActivationFoundationPanel', () => {
     expect(screen.getByText('multicast')).toBeInTheDocument();
     expect(screen.getByText('239.255.0.0')).toBeInTheDocument();
     expect(screen.getByText('127.0.0.1, 192.168.1.20')).toBeInTheDocument();
-    expect(screen.getByText('Yes')).toBeInTheDocument();
+    expect(screen.getAllByText('Yes')).toHaveLength(2);
     expect(screen.getByText('persisted')).toBeInTheDocument();
     expect(screen.getByText('W1AW / 20m / FT8')).toBeInTheDocument();
+    expect(screen.getByText('WSJT-X ADIF FILE FALLBACK')).toBeInTheDocument();
+    expect(screen.getByText('C:\\Users\\Operator\\AppData\\Local\\WSJT-X\\wsjtx_log.adi')).toBeInTheDocument();
+    expect(screen.getByText('Records accepted').parentElement).toHaveTextContent('1');
+    expect(screen.getByText('Records rejected by Activation gate').parentElement).toHaveTextContent('2');
     expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/diagnostics', expect.objectContaining({ cache: 'no-store' }));
   });
 

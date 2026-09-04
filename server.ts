@@ -69,6 +69,7 @@ import { getDashboardRuntimeMode } from './server/runtimeMode';
 import { WsjtxListener } from './server/wsjtx';
 import { WsjtxQsoRouter } from './server/wsjtxQsoRouter';
 import { createWsjtxRouter } from './server/wsjtxApi';
+import { WsjtxAdifWatcher } from './server/wsjtxAdifWatcher';
 
 const execFileAsync = promisify(execFile);
 const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['scripts/p533-assets.mjs', '--verify-only'], { cwd: process.cwd() }); return { files: 27 }; };
@@ -134,14 +135,18 @@ async function startServer() {
   const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
   const dashboardConfig = dashboardConfigStore.read();
   const wsjtxConfiguration = resolveWsjtxConfiguration(dashboardConfig.kind === 'loaded' ? dashboardConfig.config : INITIAL_CONFIG);
+  const routeWsjtxQso = (candidate: Parameters<WsjtxQsoRouter['route']>[0]) => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; };
+  const wsjtxAdifWatcher = new WsjtxAdifWatcher({ filePath: wsjtxConfiguration.adifLogPath, checkpointPath: wsjtxConfiguration.adifCheckpointPath ?? undefined, onRecord: routeWsjtxQso });
   const wsjtxListener = new WsjtxListener({
     host: wsjtxConfiguration.host,
     port: wsjtxConfiguration.port,
     multicastAddress: wsjtxConfiguration.multicastAddress,
     multicastInterface: wsjtxConfiguration.multicastInterface,
-    onLoggedQso: candidate => { const result = wsjtxQsoRouter.route(candidate); return result.status === 'unavailable' ? `${result.reason === 'normalization_failed' ? 'normalization' : 'persistence'}:${result.reason}` : result.status === 'no_active' ? `activation:${result.reason}` : result.status === 'duplicate' ? 'dedupe:duplicate' : 'persisted'; },
+    onLoggedQso: routeWsjtxQso,
+    adifWatcher: wsjtxAdifWatcher,
   });
   wsjtxListener.start();
+  wsjtxAdifWatcher.start();
   app.use(createWsjtxRouter(wsjtxListener));
   const spaceWeatherSnapshotStore = new SpaceWeatherSnapshotStore(getDefaultSpaceWeatherSnapshotPath());
   app.use(createActivationNotesRouter({ briefStore: smartDeployBriefStore, store: activationNotesStore }));
@@ -1218,9 +1223,12 @@ Context provided: ${JSON.stringify(context || {})}`;
     app.use(createProductionStaticRouter(distPath));
   }
 
-  app.listen(PORT, "127.0.0.1", () => {
+  const httpServer = app.listen(PORT, "127.0.0.1", () => {
     console.log(`${PRODUCT_METADATA.productName} ${PRODUCT_METADATA.version} server running on http://localhost:${PORT}`);
   });
+  const shutdown = () => { wsjtxListener.stop(); httpServer.close(); };
+  process.once('SIGINT', shutdown);
+  process.once('SIGTERM', shutdown);
 }
 
 startServer().catch(err => {

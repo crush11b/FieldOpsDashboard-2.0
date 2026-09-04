@@ -42,7 +42,7 @@ export class WsjtxQsoRouter {
       operatorCallsign: candidate.operatorCallsign,
       stationCallsign: candidate.stationCallsign,
       myGridSquare: candidate.myGridSquare,
-      source: 'wsjtx' as const,
+      source: candidate.ingestionSource === 'adif_file' ? 'adif_import' as const : 'wsjtx' as const,
     };
     const identity = dedupeIdentity(input);
     const timestamp = Date.parse(candidate.qsoDateTimeUtc);
