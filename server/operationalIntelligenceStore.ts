@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { gridSquareToLatLon } from '../src/types';
 import type { Activation } from './activation';
-import { type ObservedRfSnapshot, type PskReceptionReport } from '../src/propagation/observedRf';
+import { normalizeLocator, type ObservedRfSnapshot, type PskReceptionReport } from '../src/propagation/observedRf';
 import { normalizeStationSignalObservation, normalizeTxContext, type StationSignalObservation, type TxContext } from './operationalIntelligence';
 
 export const OPERATIONAL_INTELLIGENCE_STORE_VERSION = 1 as const;
@@ -81,7 +81,7 @@ export class OperationalIntelligenceStore {
     if (!callsign || PLACEHOLDER_CALLSIGNS.has(callsign)) throw operationalError('invalid_callsign', 'A configured non-placeholder operator callsign is required.');
     const interval = deriveInterval(snapshot, context, activation, now);
     if (!interval) throw operationalError('non_overlapping_interval', 'The TX Context and observed-RF intervals do not overlap.');
-    const reports = snapshot.reports.filter(report => report.direction === 'outbound' && report.senderCallsign.trim().toUpperCase() === callsign && report.band === context.band && (report.mode === null || report.mode.trim().toUpperCase() === context.mode.toUpperCase()) && timestampWithin(report.observedAtUtc, interval.startsAtUtc, interval.endsAtUtc)).sort((left, right) => left.observedAtUtc.localeCompare(right.observedAtUtc) || left.reportId.localeCompare(right.reportId));
+    const reports = snapshot.reports.filter(report => report.direction === 'outbound' && report.senderCallsign.trim().toUpperCase() === callsign && report.band === context.band && typeof report.mode === 'string' && report.mode.trim().length > 0 && report.mode.trim().toUpperCase() === context.mode.toUpperCase() && timestampWithin(report.observedAtUtc, interval.startsAtUtc, interval.endsAtUtc)).sort((left, right) => left.observedAtUtc.localeCompare(right.observedAtUtc) || left.reportId.localeCompare(right.reportId));
     const durationMinutes = (interval.endsAtMs - interval.startsAtMs) / 60000;
     const matchingReportCount = reports.length;
     const receivers = new Set(reports.map(report => report.receiverCallsign));
@@ -94,11 +94,11 @@ export class OperationalIntelligenceStore {
 
   private id(prefix: string): string { return this.options.createId?.() ?? `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 10)}`; }
   private ensureWritable(result: OperationalIntelligenceReadResult): void { if (result.status === 'invalid' || result.status === 'ioError') throw operationalError('storage_unavailable', 'Operational intelligence storage is unavailable; no mutation was applied.'); }
-  private write(document: Document): void { fs.mkdirSync(path.dirname(this.filePath), { recursive: true }); const temporaryPath = `${this.filePath}.${process.pid}.${Date.now()}.tmp`; try { fs.writeFileSync(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }); try { fs.renameSync(temporaryPath, this.filePath); } catch (error) { if (!isNodeError(error) || (error.code !== 'EEXIST' && error.code !== 'EPERM')) throw error; fs.rmSync(this.filePath, { force: true }); fs.renameSync(temporaryPath, this.filePath); } } finally { try { fs.rmSync(temporaryPath, { force: true }); } catch {} } }
+  private write(document: Document): void { fs.mkdirSync(path.dirname(this.filePath), { recursive: true }); const temporaryPath = `${this.filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`; try { fs.writeFileSync(temporaryPath, `${JSON.stringify(document, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }); replaceFile(temporaryPath, this.filePath); } finally { try { fs.rmSync(temporaryPath, { force: true }); } catch {} } }
 }
 
 function buildDistance(reports: readonly PskReceptionReport[]): Pick<StationSignalObservation, 'distance'> {
-  const distances = reports.map(report => { const sender = report.senderLocator ? gridSquareToLatLon(report.senderLocator) : null; const receiver = report.receiverLocator ? gridSquareToLatLon(report.receiverLocator) : null; return sender && receiver ? haversineKm(sender.lat, sender.lon, receiver.lat, receiver.lon) : null; }).filter((value): value is number => value !== null).sort((a, b) => a - b);
+  const distances = reports.map(report => { const senderLocator = normalizeLocator(report.senderLocator); const receiverLocator = normalizeLocator(report.receiverLocator); const sender = senderLocator ? gridSquareToLatLon(senderLocator) : null; const receiver = receiverLocator ? gridSquareToLatLon(receiverLocator) : null; return sender && receiver ? haversineKm(sender.lat, sender.lon, receiver.lat, receiver.lon) : null; }).filter((value): value is number => value !== null).sort((a, b) => a - b);
   if (!distances.length) return {};
   return { distance: { derivation: 'maidenhead_locator_centers', approximate: true, locatedReportCount: distances.length, nearestKm: distances[0], medianKm: distances.length % 2 ? distances[Math.floor(distances.length / 2)] : (distances[distances.length / 2 - 1] + distances[distances.length / 2]) / 2, farthestKm: distances.at(-1)! } };
 }
@@ -115,5 +115,6 @@ function deriveInterval(snapshot: ObservedRfSnapshot, context: TxContext, activa
 function timestampWithin(value: string, startsAtUtc: string, endsAtUtc: string): boolean { const timestamp = Date.parse(value); return Number.isFinite(timestamp) && timestamp >= Date.parse(startsAtUtc) && timestamp <= Date.parse(endsAtUtc); }
 function operationalError(code: OperationalIntelligenceDiagnostic['code'] | 'invalid_lifecycle' | 'closed_segment' | 'non_overlapping_interval' | 'observed_rf_unavailable' | 'invalid_callsign' | 'storage_unavailable', message: string): Error & { readonly operationalCode: string } { return Object.assign(new Error(message), { operationalCode: code }); }
 function isNodeError(value: unknown): value is NodeJS.ErrnoException { return value instanceof Error && 'code' in value; }
+function replaceFile(temporaryPath: string, targetPath: string): void { try { fs.renameSync(temporaryPath, targetPath); return; } catch (error) { if (!isNodeError(error) || (error.code !== 'EEXIST' && error.code !== 'EPERM')) throw error; } const backupPath = `${targetPath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.bak`; fs.renameSync(targetPath, backupPath); try { fs.renameSync(temporaryPath, targetPath); } catch (error) { try { fs.renameSync(backupPath, targetPath); } catch {} throw error; } try { fs.rmSync(backupPath, { force: true }); } catch {} }
 function idOf(value: unknown): string | undefined { return isRecord(value) && typeof value.observationId === 'string' ? value.observationId : isRecord(value) && typeof value.segmentId === 'string' ? value.segmentId : undefined; }
 function isRecord(value: unknown): value is Record<string, any> { return typeof value === 'object' && value !== null && !Array.isArray(value); }
