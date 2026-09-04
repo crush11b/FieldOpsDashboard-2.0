@@ -11,6 +11,10 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Security
+$scriptPath = $MyInvocation.MyCommand.Path
+$scriptDirectory = if (-not [string]::IsNullOrWhiteSpace($scriptPath)) { Split-Path -Parent $scriptPath } else { $PSScriptRoot }
+if ([string]::IsNullOrWhiteSpace($scriptDirectory)) { throw 'Could not resolve the credential provisioning script directory.' }
+Import-Module (Join-Path $scriptDirectory 'FieldOps.Acl.psm1') -Force
 
 function ConvertTo-Base64Url {
     param([Parameter(Mandatory = $true)][byte[]]$Bytes)
@@ -66,15 +70,16 @@ function Set-ProtectedAcl {
         $acl.AddAccessRule([Security.AccessControl.FileSystemAccessRule]::new(
             $sid, [Security.AccessControl.FileSystemRights]::ReadAndExecute, $inheritance, $none, $allow)) | Out-Null
     }
-    Set-Acl -LiteralPath $Path -AclObject $acl
+    Set-FieldOpsAcl -Path $Path -Acl $acl -IsDirectory $IsDirectory
 }
 
 function Assert-ProtectedAcl {
     param(
         [Parameter(Mandatory = $true)][string]$Path,
-        [Parameter(Mandatory = $true)][string[]]$AllowedSids
+        [Parameter(Mandatory = $true)][string[]]$AllowedSids,
+        [Parameter(Mandatory = $true)][bool]$IsDirectory
     )
-    $acl = Get-Acl -LiteralPath $Path
+    $acl = Get-FieldOpsAcl -Path $Path -IsDirectory $IsDirectory
     if (-not $acl.AreAccessRulesProtected) { throw "ACL inheritance remains enabled on '$Path'." }
     $rules = @($acl.GetAccessRules($true, $false, [Security.Principal.SecurityIdentifier]))
     foreach ($rule in $rules) {
@@ -222,8 +227,8 @@ try {
         Move-Item -LiteralPath $receiverTemp -Destination $ReceiverCredentialPath
     }
     $receiverSwapped = $true
-    Assert-ProtectedAcl -Path $ReceiverCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value)
-    Assert-ProtectedAcl -Path $AgentCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-19')
+    Assert-ProtectedAcl -Path $ReceiverCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', $dashboardSid.Value) -IsDirectory $false
+    Assert-ProtectedAcl -Path $AgentCredentialPath -AllowedSids @('S-1-5-18', 'S-1-5-32-544', 'S-1-5-19') -IsDirectory $false
     Assert-CredentialPair -ReceiverPath $ReceiverCredentialPath -AgentPath $AgentCredentialPath -ExpectedAgentId $AgentId
     $committed = $true
 } catch {

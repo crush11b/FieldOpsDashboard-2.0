@@ -72,7 +72,7 @@ function Set-FieldOpsAcl {
 function Assert-FieldOpsAcl {
     param([Parameter(Mandatory = $true)][string]$Path, [Parameter(Mandatory = $true)][bool]$IsDirectory)
 
-    $acl = Get-Acl -LiteralPath $Path
+    $acl = Get-FieldOpsAcl -Path $Path -IsDirectory $IsDirectory
     if (-not $acl.AreAccessRulesProtected) {
         throw "ACL inheritance remains enabled on '$Path'."
     }
