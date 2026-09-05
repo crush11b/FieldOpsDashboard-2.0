@@ -321,6 +321,12 @@ The OPERATE presentation reads existing local APIs and the singleton observed-RF
 - **Automated validation:** Scenario tests for all seven required cases, deterministic repeatability tests, provenance/reference tests, and UI rendering tests.
 - **Hardware acceptance:** Field validation is deferred to 2.8-07.
 
+#### 2.8-05 implementation evidence
+
+Implemented on `feature/2.8-05-mission-aware-operating-guidance`. A pure deterministic assembler consumes the persisted Activation objective, actual QSO count, explicit deadline/basis/provenance, current TX Context, and the four separately attributable propagation layers. Its result discloses category, urgency, suggested context when supportable, reasons, evidence references, complete input values, limitations, and evaluation time.
+
+The OPERATE and REVIEW presentations show the same bounded guidance contract. Qualification urgency changes only from persisted progress and an explicit deadline; the planned mission window is not silently treated as an operating deadline. Exploration and DX objectives remain distinct, missing/stale online evidence degrades explicitly, zero MY SIGNAL reports preserve the exact non-failure meaning, and modeled/live disagreement retains both sources. No confidence score, universal best band, success prediction, automatic control, spotting, or external submission is introduced.
+
 ### 2.8-06 - WSPR Survey Experiment
 
 - **Purpose:** Investigate whether a bounded WSPR survey can add useful source-reported evidence without contaminating operator context.
