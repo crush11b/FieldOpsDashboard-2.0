@@ -2,9 +2,9 @@
 
 - Status: V2.8-01 through V2.8-05 are merged into `main`; V2.8-07 is the source-complete integration candidate pending CF-20 hardware acceptance
 - Baseline: Version 2.7.0 - Connected Operations
-- Initial slice: 2.8-01 Operational Intelligence Contract & Time Model
+- Current integration slice: 2.8-07 Integrated Operational Intelligence & CF-20 Field Validation
 - Supported deployment: single operator on one locally operated Windows field computer
-- Review gate: 2.8-01 implementation may begin only after independent ChatGPT review of this commit
+- Release gate: V2.8 publication requires independent review of the V2.8-07 integration candidate, successful CF-20 hardware acceptance, and a separate explicit release decision
 
 ## Governing question
 
