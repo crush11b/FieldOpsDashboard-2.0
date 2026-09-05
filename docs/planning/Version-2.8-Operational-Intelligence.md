@@ -306,6 +306,12 @@ Focused contract/store/API tests pass. The follow-on MY SIGNAL UI presents compa
 - **Automated validation:** Layer assembly fixtures for complete, partial, stale, unavailable, zero-match, and disagreement cases.
 - **Hardware acceptance:** None beyond the integrated field validation slice.
 
+#### 2.8-04 implementation evidence
+
+Implemented on `feature/2.8-04-layered-propagation-picture`. A deterministic client-domain assembler produces exactly four separately attributable layers: retained representative P.533 modeling, retained environmental evidence, general PSKReporter observed RF, and Activation/TX-Context-scoped MY SIGNAL observations. Each layer carries its own source, timing, applicability, freshness/state, summary, and limitations; missing and stale layers degrade independently.
+
+The OPERATE presentation reads existing local APIs and the singleton observed-RF snapshot without adding a provider connection. REVIEW uses retained review evidence and does not request live band activity. Explicit layer-difference statements identify a current TX band outside the representative modeled strongest-band set, general activity without matching station reports, and unequal freshness without treating those differences as contradictions or scores. No universal best-band score, confidence score, contact probability, recommendation, or guarantee is produced.
+
 ### 2.8-05 - Mission-Aware Operating Guidance
 
 - **Purpose:** Turn accepted layered evidence and Activation objective/progress/deadline inputs into explainable next-step guidance.
