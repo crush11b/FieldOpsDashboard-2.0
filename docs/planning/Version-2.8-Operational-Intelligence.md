@@ -12,6 +12,16 @@
 
 Operational Intelligence is a deterministic, evidence-grounded layer over the existing PLAN -> PREPARE -> OPERATE -> REVIEW workflow. It does not authorize FieldOps to control a radio, operate WSJT-X, invent provider evidence, or choose equipment for the operator.
 
+## 2.8-07 CF-20 operator-value correction findings - 2026-09-05
+
+The correction review found that PREPARE could start an Activation without collecting the operator's explicit objective, General activations had no usable objective default, and an optional local deadline had no visible UTC derivation. PREPARE now exposes normalized objective controls: POTA defaults to a 10-QSO qualification threshold, SOTA to 4 QSOs, and General to maximize contacts without a threshold. Positive threshold validation and provenance are retained in the Activation contract; a local ToughBook deadline is converted once to UTC before the start request and both local and derived UTC meaning remain visible.
+
+The review also found that readiness forecast times were rendered with the host timezone and that Activation Review omitted WSJT-X provenance from its source counts. Forecast display now uses the provider's named timezone for `Local` presentation while retaining UTC retrieval/evidence, and Review reports manual, WSJT-X, and ADIF import counts separately. These are presentation and provenance corrections; UTC calculations and persistence remain unchanged.
+
+CF-20 operator interpretation findings further showed that MY SIGNAL needed clearer context age, capture-result semantics, and a useful retained-history hierarchy. The current station-specific explanation now distinguishes bounded observed reception from forecast, transmission proof, and contact success; the newest retained observation is prominent and older observations remain preserved under a compact disclosure. A pure structured `WHAT THIS MEANS NOW` synthesis now states current station evidence, zero-match meaning, missing objectives, modeled alternatives, general-layer applicability, qualification progress/deadline, and layer disagreement without scores, probabilities, or transmission claims.
+
+This dated record documents the correction and its focused automated evidence. It does not mark V2.8-07, CF-20 hardware acceptance, or the V2.8 release gate complete; field validation and independent release review remain open.
+
 ## Release boundary
 
 The product progression is:

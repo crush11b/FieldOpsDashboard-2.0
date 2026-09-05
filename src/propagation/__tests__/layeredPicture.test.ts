@@ -40,4 +40,14 @@ describe('layered propagation picture', () => {
     expect(picture.layers.find(layer => layer.id === 'station_signal')?.applicability).toContain('20m / FT8 / TX Context segment-observed');
     expect(picture.relationships.some(item => item.startsWith('Current TX band'))).toBe(false);
   });
+
+  it('provides structured current meaning without blending the layers', () => {
+    const picture = assembleLayeredPropagationPicture({ modeled, modeledStatus: 'complete', modeledAtUtc: '2026-09-05T00:00:00.000Z', txContexts: [context as any], stationObservations: [zero], objective: { requiredQsoCount: 4, deadlineUtc: '2026-09-05T01:00:00.000Z' }, completedQsos: 1 });
+    expect(picture.whatThisMeansNow).toEqual(expect.arrayContaining([
+      expect.stringContaining('zero matching reports'),
+      expect.stringContaining('modeled alternative'),
+      expect.stringContaining('Qualification progress is 1/4'),
+    ]));
+    expect(picture.whatThisMeansNow.join(' ')).not.toContain('layers disagree');
+  });
 });
