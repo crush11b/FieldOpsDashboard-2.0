@@ -1,6 +1,6 @@
 # Version 2.8 - Operational Intelligence
 
-- Status: Architecture/planning contract with the 2.8-03 foundation implemented on its feature branch; later V2.8 slices remain planning-only
+- Status: V2.8-01 through V2.8-05 are merged into `main`; V2.8-07 is the source-complete integration candidate pending CF-20 hardware acceptance
 - Baseline: Version 2.7.0 - Connected Operations
 - Initial slice: 2.8-01 Operational Intelligence Contract & Time Model
 - Supported deployment: single operator on one locally operated Windows field computer
@@ -239,7 +239,7 @@ The slices and dependencies are:
 6. **2.8-06 - WSPR Survey Experiment with explicit go/no-go gate**
 7. **2.8-07 - Integrated Operational Intelligence & CF-20 Field Validation**
 
-2.8-01 precedes all semantic consumers. 2.8-03 precedes 2.8-04. 2.8-04 precedes 2.8-05. 2.8-06 is removable without blocking the release. 2.8-07 integrates accepted slices.
+2.8-01 precedes all semantic consumers. 2.8-03 precedes 2.8-04. 2.8-04 precedes 2.8-05. 2.8-01 through 2.8-05 are merged into `main`. 2.8-06 is removable without blocking the release and remains deferred/no-go for this release. 2.8-07 integrates accepted slices.
 
 ### 2.8-01 - Operational Intelligence Contract & Time Model
 
@@ -291,7 +291,7 @@ The future 2.8-02 implementation is accepted only when all of these are true:
 
 #### 2.8-03 implementation evidence
 
-Implemented on `feature/2.8-03-station-signal-observation`. `OperationalIntelligenceStore` persists versioned TX Context segments and Station Signal Observations under the normal local application-data directory using atomic JSON replacement. Reads skip malformed entries with bounded diagnostics and never rewrite the store; invalid or unsupported stores reject mutations and are reported as unavailable by the API. Opening a new context closes the prior open segment for that Activation, and every Activation path that reconciles or completes an Activation closes remaining operational segments through the API callback boundary.
+Implemented and merged into `main`. `OperationalIntelligenceStore` persists versioned TX Context segments and Station Signal Observations under the normal local application-data directory using atomic JSON replacement. Reads skip malformed entries with bounded diagnostics and never rewrite the store; invalid or unsupported stores reject mutations and are reported as unavailable by the API. Opening a new context closes the prior open segment for that Activation, and every Activation path that reconciles or completes an Activation closes remaining operational segments through the API callback boundary.
 
 The API provides Activation-scoped listing, server-generated TX Context replacement, and observation capture. Capture consumes the existing injected `ObservedRfService` snapshot and matches only compatible outbound PSKReporter reports from the configured operator callsign, context band/mode, and exact positive intersection of the context, Activation, snapshot, and current-time intervals. It retains counts, exposure rates, locator-center distance summaries, SNR summaries, source status, newest matching report, and limitations. Zero matches retain exactly `No matching reports observed` with zero receivers, zero rates, a null newest-report timestamp, and no distance/SNR object. No receiver denominator, ratio, confidence, rating, contact probability, or transmission proof is produced. Lifecycle, callsign, source-status, missing-segment, closed-segment, interval, and persistence failures map to explicit API statuses.
 
@@ -308,7 +308,7 @@ Focused contract/store/API tests pass. The follow-on MY SIGNAL UI presents compa
 
 #### 2.8-04 implementation evidence
 
-Implemented on `feature/2.8-04-layered-propagation-picture`. A deterministic client-domain assembler produces exactly four separately attributable layers: retained representative P.533 modeling, retained environmental evidence, general PSKReporter observed RF, and Activation/TX-Context-scoped MY SIGNAL observations. Each layer carries its own source, timing, applicability, freshness/state, summary, and limitations; missing and stale layers degrade independently.
+Implemented and merged into `main`. A deterministic client-domain assembler produces exactly four separately attributable layers: retained representative P.533 modeling, retained environmental evidence, general PSKReporter observed RF, and Activation/TX-Context-scoped MY SIGNAL observations. Each layer carries its own source, timing, applicability, freshness/state, summary, and limitations; missing and stale layers degrade independently.
 
 The OPERATE presentation reads existing local APIs and the singleton observed-RF snapshot without adding a provider connection. REVIEW uses retained review evidence and does not request live band activity. Explicit layer-difference statements identify a current TX band outside the representative modeled strongest-band set, general activity without matching station reports, and unequal freshness without treating those differences as contradictions or scores. No universal best-band score, confidence score, contact probability, recommendation, or guarantee is produced.
 
@@ -323,7 +323,7 @@ The OPERATE presentation reads existing local APIs and the singleton observed-RF
 
 #### 2.8-05 implementation evidence
 
-Implemented on `feature/2.8-05-mission-aware-operating-guidance`. A pure deterministic assembler consumes the persisted Activation objective, actual QSO count, explicit deadline/basis/provenance, current TX Context, and the four separately attributable propagation layers. Its result discloses category, urgency, suggested context when supportable, reasons, evidence references, complete input values, limitations, and evaluation time.
+Implemented and merged into `main`. A pure deterministic assembler consumes the persisted Activation objective, actual QSO count, explicit deadline/basis/provenance, current TX Context, and the four separately attributable propagation layers. Its result discloses category, urgency, suggested context when supportable, reasons, evidence references, complete input values, limitations, and evaluation time.
 
 The OPERATE and REVIEW presentations show the same bounded guidance contract. Qualification urgency changes only from persisted progress and an explicit deadline; the planned mission window is not silently treated as an operating deadline. Exploration and DX objectives remain distinct, missing/stale online evidence degrades explicitly, zero MY SIGNAL reports preserve the exact non-failure meaning, and modeled/live disagreement retains both sources. No confidence score, universal best band, success prediction, automatic control, spotting, or external submission is introduced.
 
@@ -376,9 +376,29 @@ The existing phase contract remains **PLAN -> PREPARE -> OPERATE -> REVIEW**. A 
 
 Each concept has one primary home. Other phases may show compact context, but must not duplicate or relabel evidence. Technical details remain available without making the normal field workflow an undifferentiated evidence dump.
 
+## V2.8-07 integration evidence and release status
+
+V2.8-01 through V2.8-05 are merged into `main`. V2.8-06 WSPR remains optional and deferred/no-go for this release; it is not a V2.8 release dependency. V2.8-07 is a source-complete integration candidate, not a hardware-accepted or published release.
+
+The V2.8-07 integration validation exercises the real Activation and operational-intelligence API boundaries through planned brief initialization, activation start, persisted objective/deadline, TX Context creation, zero-report observation capture, completion closure, and retained operational-intelligence retrieval. The complete automated suite, focused V2.8 contract/UI suite, TypeScript check, production build with P.533 verification, and `git diff --check` are release-candidate gates. The integrated workflow preserves PLAN -> PREPARE -> OPERATE -> REVIEW semantics, retained Review evidence, independent degradation, and offline/manual usefulness; it does not add provider, WSPR, CAT/PTT, spotting, submission, inventory, loadout, or enterprise behavior.
+
+Remaining CF-20 acceptance checklist:
+
+- Exercise a complete PLAN -> PREPARE -> OPERATE -> REVIEW activation on the supported Panasonic ToughBook CF-20.
+- Verify multi-day retained forecast presentation, UTC boundaries, partial/missing coverage, refresh failure, and offline retained readability.
+- Verify actual Activation start/end timestamps, persisted QSO progress, TX Context replacement, completion/reconciliation closure, and restart behavior.
+- Verify retained MY SIGNAL observations remain tied to the correct Activation and TX Context interval, including zero matching reports.
+- Verify modeled, environmental, general observed RF, and MY SIGNAL layers remain separately attributable during online, stale, partial, unavailable, and disagreement conditions.
+- Verify guidance exposes objective, progress, deadline provenance, reasons, references, evaluation time, and limitations without implying transmission or contact success.
+- Record hardware evidence and operator observations before any V2.8 release publication decision.
+
+### Pre-V3.0 App Library roadmap boundary
+
+The existing Dashboard **FIELD APPLICATIONS CATALOG** / App Library requires a dedicated review and improvement slice before V3.0. Detailed requirements will be derived from the operator-maintained application spreadsheet in a later planning task. V2.8-07 must not infer, design, import, or implement spreadsheet fields, and must not modify `AppLauncherGrid`, `AutoAppInstallerModal`, application data, launcher behavior, or installation behavior. This item is not a V2.8 release blocker unless this review discovers a regression in existing behavior.
+
 ## Document status and change control
 
-This document is the authoritative Version 2.8 planning contract and architecture boundary. The dated evidence below records the bounded 2.8-01 implementation only. It does not change package versions, release metadata, tags, releases, deployment artifacts, or hardware acceptance evidence.
+This document is the authoritative Version 2.8 planning contract and architecture boundary. The dated evidence below records merged implementation evidence through V2.8-07 integration. It does not claim CF-20 hardware acceptance or V2.8 release publication and does not change package versions, release metadata, tags, releases, or deployment artifacts.
 
 ### 2026-09-03 - 2.8-01 implementation evidence
 
