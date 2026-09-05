@@ -295,7 +295,7 @@ Implemented on `feature/2.8-03-station-signal-observation`. `OperationalIntellig
 
 The API provides Activation-scoped listing, server-generated TX Context replacement, and observation capture. Capture consumes the existing injected `ObservedRfService` snapshot and matches only compatible outbound PSKReporter reports from the configured operator callsign, context band/mode, and exact positive intersection of the context, Activation, snapshot, and current-time intervals. It retains counts, exposure rates, locator-center distance summaries, SNR summaries, source status, newest matching report, and limitations. Zero matches retain exactly `No matching reports observed` with zero receivers, zero rates, a null newest-report timestamp, and no distance/SNR object. No receiver denominator, ratio, confidence, rating, contact probability, or transmission proof is produced. Lifecycle, callsign, source-status, missing-segment, closed-segment, interval, and persistence failures map to explicit API statuses.
 
-Focused contract/store/API tests pass. MY SIGNAL React UI, radio control, transmit proof, WSPR, spotting, hardware acceptance, and integrated review presentation remain pending later slices.
+Focused contract/store/API tests pass. The follow-on MY SIGNAL UI presents compact TX Context controls during OPERATE, explicit capture from the singleton observed-RF source, exposure-normalized retained summaries, exact zero-report meaning, and read-only TX Context/observation history during REVIEW. Radio control, transmit proof, WSPR, spotting, hardware acceptance, and broader layered-evidence integration remain pending later slices.
 
 ### 2.8-04 - Layered Propagation Picture
 
