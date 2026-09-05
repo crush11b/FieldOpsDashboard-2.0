@@ -47,7 +47,7 @@ describe('layered propagation picture', () => {
       expect.stringContaining('zero matching reports'),
       expect.stringContaining('modeled alternative'),
       expect.stringContaining('Qualification progress is 1/4'),
-      expect.stringContaining('layers disagree'),
     ]));
+    expect(picture.whatThisMeansNow.join(' ')).not.toContain('layers disagree');
   });
 });

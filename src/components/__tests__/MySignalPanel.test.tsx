@@ -87,6 +87,15 @@ describe('MySignalPanel', () => {
     expect(await screen.findByText('Operational intelligence is temporarily unavailable.')).toBeInTheDocument();
     expect(screen.queryByText(/reports \/ /)).toBeNull();
   });
+
+  it('shows the newest retained observation once and keeps every older observation', async () => {
+    const observation = (id: string, endsAtUtc: string, matchingReportCount: number): StationSignalObservation => ({ observationId: id, activationId: activation.activationId, txContextSegmentId: context.segmentId, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: '2026-09-05T00:01:00.000Z', endsAtUtc, status: 'retained', matchingReportCount, uniqueReceiverCount: matchingReportCount, reportsPerMinute: matchingReportCount, uniqueReceiversPerMinute: matchingReportCount, newestMatchingReportAtUtc: matchingReportCount ? endsAtUtc : null, limitations: [] });
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' }], observations: [observation('old', '2026-09-05T00:03:00.000Z', 1), observation('new', '2026-09-05T00:09:00.000Z', 3), observation('middle', '2026-09-05T00:06:00.000Z', 2)], diagnostics: [] })));
+    render(<MySignalPanel activation={{ ...activation, status: 'completed', endedAtUtc: '2026-09-05T00:10:00.000Z' }} readOnly />);
+    await screen.findByText('3 reports / 3 receivers');
+    expect(screen.getAllByText(/^[123] reports? \/ [123] receivers?$/).map(element => element.textContent)).toEqual(['3 reports / 3 receivers', '2 reports / 2 receivers', '1 report / 1 receiver']);
+    expect(screen.getAllByText('3 reports / 3 receivers')).toHaveLength(1);
+  });
 });
 
 function response(payload: unknown, status = 200): Response {

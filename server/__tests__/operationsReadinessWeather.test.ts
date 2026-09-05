@@ -102,9 +102,9 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     expect(result.displayEvidence.alerts).toMatchObject({ status: 'live', active: [], retrievedAtUtc: NOW.toISOString() });
   });
 
-  it('formats hourly forecast using the explicit provider timezone and retains UTC', async () => {
+  it('requests and retains UTC so the browser can render operator-local time once', async () => {
     const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ timezone: 'America/New_York' }), now: NOW });
-    expect(result.displayEvidence.weather.data).toMatchObject({ timezone: 'America/New_York', hourlyForecast: [{ time: '8 AM', utcTime: '2026-08-20T12:00:00.000Z' }] });
+    expect(result.displayEvidence.weather.data).toMatchObject({ timezone: 'UTC', hourlyForecast: [{ time: '12 PM', utcTime: '2026-08-20T12:00:00.000Z' }] });
   });
 
   it('does not call providers when planned-site coordinates are missing', async () => {

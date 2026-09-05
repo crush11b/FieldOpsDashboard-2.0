@@ -113,7 +113,7 @@ export function synthesizeWhatThisMeansNow(input: WhatThisMeansNowInput): readon
   if (input.objective?.goal === 'explore_bands') means.push('Objective is band exploration: change only when the operator is ready to open a new TX Context and record the comparison.');
   if (input.objective?.goal === 'chase_dx' && input.modeledBands.length) means.push(`For DX reach, review ${input.modeledBands.join(' / ')} as modeled alternatives; this does not prove a usable path.`);
   if (input.objective?.goal === 'maximize_contacts' && input.liveBand?.reportCount > 0) means.push(`General observed RF reports ${input.liveBand.reportCount} report${input.liveBand.reportCount === 1 ? '' : 's'} on ${input.openContext?.band ?? 'the current band'}; this is not station-specific success.`);
-  if (input.layers.some(layer => layer.id !== 'station_signal' && layer.state !== 'unavailable') && input.layers.some(layer => layer.id === 'station_signal' && layer.state !== 'unavailable')) means.push('The evidence layers disagree or differ in applicability; keep modeled, general, and station-specific evidence separate.');
+  if (input.layers.some(layer => layer.state === 'not_applicable' || layer.state === 'partial' || layer.state === 'stale')) means.push('Some evidence layers differ in freshness or applicability; keep modeled, general, and station-specific evidence separate.');
   return means;
 }
 
