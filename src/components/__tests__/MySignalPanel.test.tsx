@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
@@ -72,7 +73,7 @@ describe('MySignalPanel', () => {
     const zero: StationSignalObservation = { observationId: 'zero', activationId: activation.activationId, txContextSegmentId: context.segmentId, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: '2026-09-05T00:01:00.000Z', endsAtUtc: '2026-09-05T00:06:00.000Z', status: 'retained', matchingReportCount: 0, uniqueReceiverCount: 0, reportsPerMinute: 0, uniqueReceiversPerMinute: 0, newestMatchingReportAtUtc: null, limitations: ['No matching reports observed'] };
     vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:07:00.000Z' }], observations: [zero], diagnostics: [] })));
     render(<MySignalPanel activation={{ ...activation, status: 'completed', endedAtUtc: '2026-09-05T00:07:00.000Z' }} readOnly />);
-    expect(await screen.findByText('No matching reports observed')).toBeInTheDocument();
+    expect((await screen.findAllByText('No matching reports observed')).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/0.00 reports\/min/)).toBeInTheDocument();
     expect(screen.queryByText(/Approx. distance/)).toBeNull();
     expect(screen.queryByText(/SNR:/)).toBeNull();
