@@ -5,7 +5,7 @@ param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
     [string]$OperatorAccount = '.\stick',
     [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
-    [string]$Branch = 'feature/2.7-connected-operations'
+    [string]$Branch = 'main'
 )
 
 $runAsScript = $MyInvocation.InvocationName -ne '.'
