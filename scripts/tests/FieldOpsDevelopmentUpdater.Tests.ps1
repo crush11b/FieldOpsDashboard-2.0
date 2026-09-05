@@ -9,8 +9,9 @@ Describe 'FieldOps CF-20 development updater' {
         $script:setup = Get-Content -LiteralPath $setupPath -Raw
     }
 
-    It 'uses the explicit development branch and GitHub HTTPS resolution' {
-        $script:launcher | Should Match "feature/2\.7-connected-operations"
+    It 'uses main as the default development source and GitHub HTTPS resolution' {
+        $script:launcher | Should Match '\[string\]\$Branch = ''main'''
+        $script:launcher | Should Not Match 'feature/2\.7-connected-operations'
         $script:launcher | Should Match 'api\.github\.com/repos/\$RepositoryName/commits/\$BranchName'
         $script:launcher | Should Match 'curl\.exe --fail --silent --show-error --location'
     }
@@ -59,9 +60,9 @@ Describe 'FieldOps CF-20 development updater' {
         $expectedUrl | Should Match "native-$revision/fieldops-native-win-x64\.zip$"
     }
 
-    It 'has no old revision or moving-branch fallback' {
+    It 'has no old revision or stale development-branch fallback' {
         $script:launcher | Should Not Match 'REVISION='
-        $script:launcher | Should Not Match 'Branch.*main'
+        $script:launcher | Should Not Match 'feature/2\.7-connected-operations'
         $script:launcher | Should Not Match 'latest downloaded updater|previous build|previous revision'
         $script:launcher | Should Match 'throw "Could not resolve development branch'
         $script:launcher | Should Match 'Assert-FullSha -Value \(\[string\]\$response\.sha\)'
