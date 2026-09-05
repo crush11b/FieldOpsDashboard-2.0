@@ -28,4 +28,14 @@ describe('LayeredPropagationPicture', () => {
     expect(await screen.findByText('Modeled propagation evidence is unavailable.')).toBeInTheDocument();
     expect(screen.getByText('Environmental evidence is unavailable.')).toBeInTheDocument();
   });
+
+  it('renders disclosed deterministic guidance inputs and limitations', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) })));
+    const guided = { ...activation, operatingObjective: { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default', deadlineUtc: '2026-09-05T00:30:00.000Z', deadlineBasis: 'program_rule', deadlineProvenance: 'program_default' } } as any;
+    render(<LayeredPropagationPicture activation={guided} qsoCount={6} evaluatedAtUtc="2026-09-05T00:00:00.000Z" readOnly retained={{}} />);
+    expect(await screen.findByRole('region', { name: 'Mission-aware operating guidance' })).toHaveTextContent('qualification / focused');
+    expect(screen.getByText(/Progress: 6\/10 QSOs/)).toBeInTheDocument();
+    expect(screen.getByText(/30 minutes to 2026-09-05T00:30:00.000Z \(program_rule \/ program_default\)/)).toBeInTheDocument();
+    expect(screen.getByText(/not a prediction, guarantee, command/)).toBeInTheDocument();
+  });
 });
