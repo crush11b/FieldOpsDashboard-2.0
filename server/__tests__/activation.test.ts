@@ -7,6 +7,8 @@ import { createActivation, normalizeActivation, updateActivationStatus } from '.
 import { ActivationStore } from '../activationStore';
 import { createActivationRouter } from '../activationApi';
 import { ActivationNotesStore } from '../activationNotesStore';
+import { createOperationalIntelligenceRouter } from '../operationalIntelligenceApi';
+import { OperationalIntelligenceStore } from '../operationalIntelligenceStore';
 
 const directories: string[] = [];
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
@@ -141,6 +143,42 @@ describe('Activation API', () => {
       const response = await fetch(`http://127.0.0.1:${address.port}/api/activations/from-brief`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId: 'brief-2', operatingObjective: { goal: 'balanced', label: 'Bad' } }) });
       const payload = await response.json() as any;
       expect(response.status).toBe(400); expect(payload.code).toBe('invalid_operating_objective'); expect(payload.message).not.toContain('brief');
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+});
+
+describe('V2.8 integrated Activation lifecycle', () => {
+  it('retains a TX Context observation through completion and closes the segment for Review', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-v28-integration-')); directories.push(directory);
+    let currentTime = new Date('2026-08-25T12:00:00.000Z');
+    const clock = () => currentTime;
+    const activation = new ActivationStore(path.join(directory, 'activations.json'), { now: clock, createId: () => 'activation-1' });
+    const notes = new ActivationNotesStore(path.join(directory, 'activation-notes.json'), { now: clock, createId: () => 'notes-1' });
+    const operational = new OperationalIntelligenceStore(path.join(directory, 'operational-intelligence.json'), { now: clock, createId: (() => { let id = 0; return () => `id-${++id}`; })(), operatorCallsign: () => 'K1ABC' });
+    const brief = { schemaVersion: 2, briefId: 'brief-1', activation: { program: 'General', reference: 'FIELD-1', displayName: 'Field test' }, plannedOperatingSite: { location: { coordinates: { lat: 10, lon: 20 }, gridSquare: 'JJ00' } }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' } } as any;
+    const observedRf = { getSnapshot: () => ({ status: 'live', observationWindow: { startsAt: '2026-08-25T11:45:00.000Z', endsAt: '2026-08-25T12:15:00.000Z' }, reports: [] }) } as any;
+    const app = express(); app.use(express.json());
+    app.use(createActivationRouter({ store: activation, notesStore: notes, briefStore: { get: () => ({ status: 'found', brief, diagnostics: [] }) } as any, now: clock, onCompleted: completed => operational.closeActivation(completed) }));
+    app.use(createOperationalIntelligenceRouter({ store: operational, activationStore: activation, observedRf }));
+    const server = await new Promise<ReturnType<typeof app.listen>>(resolve => { const listener = app.listen(0, () => resolve(listener)); });
+    try {
+      const address = server.address() as { port: number };
+      const request = (pathName: string, init?: RequestInit) => fetch(`http://127.0.0.1:${address.port}${pathName}`, init);
+      const created = await request('/api/activations/from-brief', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId: 'brief-1', operatingObjective: { goal: 'secure_activation', label: 'Qualify', requiredQsoCount: 2, thresholdProvenance: 'operator_entered', deadlineUtc: '2026-08-25T13:00:00Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' } }) });
+      expect(created.status).toBe(201);
+      expect((await request('/api/activations/activation-1/status', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'active' }) })).status).toBe(200);
+      const contextResponse = await request('/api/activations/activation-1/tx-context', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ radioSetupLabel: 'Portable rig', antennaLabel: 'EFHW', transmitPowerWatts: 10, band: '20m', mode: 'FT8', provenance: { radioSetup: 'operator_entered', antenna: 'operator_entered', transmitPowerWatts: 'operator_entered', band: 'operator_entered', mode: 'operator_entered' } }) });
+      expect(contextResponse.status).toBe(201);
+      const contextPayload = await contextResponse.json() as { context: { segmentId: string } };
+      currentTime = new Date('2026-08-25T12:15:00.000Z');
+      const observationResponse = await request(`/api/activations/activation-1/tx-context/${contextPayload.context.segmentId}/observations`, { method: 'POST' });
+      expect(observationResponse.status).toBe(201);
+      expect((await observationResponse.json()).observation).toMatchObject({ activationId: 'activation-1', txContextSegmentId: contextPayload.context.segmentId, matchingReportCount: 0, limitations: ['No matching reports observed'] });
+      expect((await request('/api/activations/activation-1/status', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) })).status).toBe(200);
+      const retained = await (await request('/api/activations/activation-1/operational-intelligence')).json() as { txContexts: Array<{ endedAtUtc?: string }>; observations: Array<{ activationId: string }> };
+      expect(retained.txContexts[0].endedAtUtc).toBe(currentTime.toISOString());
+      expect(retained.observations).toHaveLength(1);
+      expect(retained.observations[0].activationId).toBe('activation-1');
     } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
   });
 });
