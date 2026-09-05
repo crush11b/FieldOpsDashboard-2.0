@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import React from 'react';
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ActivationFoundationPanel, WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS, WSJTX_DIAGNOSTICS_REQUEST_TIMEOUT_MS, WSJTX_POLL_INTERVAL_MS } from '../ActivationFoundationPanel';
 
@@ -90,7 +90,7 @@ describe('ActivationFoundationPanel', () => {
     vi.stubGlobal('fetch', fetcher);
     const { rerender } = render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
     await waitFor(() => expect(screen.getByText('20m · SSB')).toBeTruthy());
-    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.260' } });
+    fireEvent.change(screen.getByLabelText('FREQUENCY MHz', { exact: true }), { target: { value: '14.260' } });
     expect(screen.getByText('14.26 MHz')).toBeTruthy();
     const nextActivation = { ...activeActivation, activationId: 'activation-next' };
     rerender(<ActivationFoundationPanel brief={brief} initialActivation={nextActivation} showReview={false} />);
@@ -105,11 +105,12 @@ describe('ActivationFoundationPanel', () => {
       : { ok: true, json: async () => ({ qsos: [] }) });
     vi.stubGlobal('fetch', fetcher);
     render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    const logger = within(screen.getByRole('region', { name: 'QSO logging' }));
     await waitFor(() => expect(screen.getByText('Source: WSJT-X · Live / fresh')).toBeTruthy());
     expect(screen.getByText('20m · FT8')).toBeTruthy();
-    expect(screen.getByLabelText('BAND')).toHaveValue('20m');
-    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('FT8'));
-    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
+    expect(logger.getByLabelText('BAND')).toHaveValue('20m');
+    await waitFor(() => expect(logger.getByLabelText('MODE')).toHaveValue('FT8'));
+    expect(logger.getByLabelText('FREQUENCY MHz')).toHaveValue(14.074);
     expect(fetcher).toHaveBeenCalledWith('/api/wsjtx/current', expect.objectContaining({ cache: 'no-store', signal: expect.any(AbortSignal) }));
   });
 
@@ -125,16 +126,17 @@ describe('ActivationFoundationPanel', () => {
     });
     vi.stubGlobal('fetch', fetcher);
     render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
-    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('SSB'));
-    await waitFor(() => expect(screen.getByLabelText('MODE')).toHaveValue('FT8'), { timeout: 2000 });
-    expect(screen.getByLabelText('BAND')).toHaveValue('40m');
-    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(7.074);
+    const logger = within(screen.getByRole('region', { name: 'QSO logging' }));
+    await waitFor(() => expect(logger.getByLabelText('MODE')).toHaveValue('SSB'));
+    await waitFor(() => expect(logger.getByLabelText('MODE')).toHaveValue('FT8'), { timeout: 2000 });
+    expect(logger.getByLabelText('BAND')).toHaveValue('40m');
+    expect(logger.getByLabelText('FREQUENCY MHz')).toHaveValue(7.074);
 
-    fireEvent.change(screen.getByLabelText('BAND'), { target: { value: '20m' } });
-    fireEvent.change(screen.getByLabelText('FREQUENCY MHz'), { target: { value: '14.075' } });
+    fireEvent.change(logger.getByLabelText('BAND'), { target: { value: '20m' } });
+    fireEvent.change(logger.getByLabelText('FREQUENCY MHz'), { target: { value: '14.075' } });
     await new Promise(resolve => setTimeout(resolve, 1100));
-    expect(screen.getByLabelText('BAND')).toHaveValue('20m');
-    expect(screen.getByLabelText('FREQUENCY MHz')).toHaveValue(14.075);
+    expect(logger.getByLabelText('BAND')).toHaveValue('20m');
+    expect(logger.getByLabelText('FREQUENCY MHz')).toHaveValue(14.075);
   });
 
   it('keeps stale WSJT-X visible instead of flapping to manual state', async () => {
