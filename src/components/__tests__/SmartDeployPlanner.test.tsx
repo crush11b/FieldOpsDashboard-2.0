@@ -366,9 +366,9 @@ describe('SmartDeploy brief rendering', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'QSO LOG' })).toBeTruthy());
     expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('ACTIVE ACTIVATION');
     expect(screen.getByRole('heading', { name: 'ACTIVATION NOTES' })).toBeTruthy();
-    expect(screen.getByRole('region', { name: 'Operate supporting context' })).toHaveTextContent('PLANNED / MODELED');
+    expect(screen.getByRole('region', { name: 'Layered propagation picture' })).toHaveTextContent('MODELED PROPAGATION');
     expect(screen.getByRole('region', { name: 'Live Band Activity' })).toHaveTextContent('Live Band Activity request failed');
-    expect(screen.getByLabelText('QSO logging').compareDocumentPosition(screen.getByRole('region', { name: 'Operate supporting context' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByLabelText('QSO logging').compareDocumentPosition(screen.getByRole('region', { name: 'Layered propagation picture' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('clears a stale ambiguity warning when PREPARE start returns the reconciled active Activation', async () => {
