@@ -13,6 +13,7 @@ export function createOperationalIntelligenceRouter(options: OperationalIntellig
   const router = express.Router();
   router.get('/api/activations/:activationId/operational-intelligence', (request, response) => {
     const activation = options.activationStore.get(request.params.activationId);
+    if (hasPersistenceError(activation.diagnostics)) { response.status(503).json(error('persistence_unavailable', 'Activations are temporarily unavailable.', activation.diagnostics)); return; }
     if (activation.status === 'notFound') { response.status(404).json(error('not_found', 'The Activation was not found.', activation.diagnostics)); return; }
     const result = options.store.list(request.params.activationId);
     if (result.status === 'invalid' || result.status === 'ioError') { response.status(503).json(error('persistence_unavailable', 'Operational intelligence is temporarily unavailable.', result.diagnostics)); return; }
@@ -37,9 +38,10 @@ export function createOperationalIntelligenceRouter(options: OperationalIntellig
 
 function getActivation(store: ActivationStore, activationId: string, response: express.Response) {
   const result = store.get(activationId);
-  if (result.status !== 'found') { response.status(hasIoError(result.diagnostics) ? 503 : 404).json(error(hasIoError(result.diagnostics) ? 'persistence_unavailable' : 'not_found', hasIoError(result.diagnostics) ? 'Activations are temporarily unavailable.' : 'The Activation was not found.', result.diagnostics)); return null; }
+  if (hasPersistenceError(result.diagnostics)) { response.status(503).json(error('persistence_unavailable', 'Activations are temporarily unavailable.', result.diagnostics)); return null; }
+  if (result.status !== 'found') { response.status(404).json(error('not_found', 'The Activation was not found.', result.diagnostics)); return null; }
   return result.activation;
 }
 function respondStoreError(response: express.Response, value: unknown, fallback: string): void { const code = value && typeof value === 'object' && 'operationalCode' in value ? String(value.operationalCode) : 'invalid_request'; const status = code === 'not_found' ? 404 : code === 'invalid_lifecycle' || code === 'closed_segment' || code === 'non_overlapping_interval' ? 409 : code === 'invalid_callsign' ? 422 : code === 'observed_rf_unavailable' || code === 'storage_unavailable' ? 503 : 422; response.status(status).json(error(code, value instanceof Error ? value.message : fallback)); }
-function hasIoError(diagnostics: readonly { readonly code: string }[]): boolean { return diagnostics.some(item => item.code === 'io_error'); }
+function hasPersistenceError(diagnostics: readonly { readonly code: string }[]): boolean { return diagnostics.some(item => ['io_error', 'corrupt', 'unsupported_store_version', 'invalid_activation'].includes(item.code)); }
 function error(code: string, message: string, diagnostics: readonly unknown[] = []) { return { kind: 'operational_intelligence_error', code, message, diagnostics }; }
