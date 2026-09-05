@@ -97,6 +97,7 @@ export interface GPSProvenance {
 
 export interface HourlyWeatherItem {
   time: string;
+  utcTime?: string;
   tempF: number;
   precipProb: number;
   windMph: number;
@@ -120,6 +121,7 @@ export interface WeatherData {
   visibilityMiles?: number;
   lastUpdated: string;
   cached: boolean;
+  timezone?: string;
   hourlyForecast?: HourlyWeatherItem[];
 }
 

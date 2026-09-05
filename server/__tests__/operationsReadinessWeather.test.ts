@@ -31,7 +31,7 @@ function brief(
   } as SmartDeployBriefV2;
 }
 
-function fetcher(options: { weatherOk?: boolean; alertsOk?: boolean; alertsEmpty?: boolean; urls?: string[] } = {}): typeof fetch {
+function fetcher(options: { weatherOk?: boolean; alertsOk?: boolean; alertsEmpty?: boolean; timezone?: string; urls?: string[] } = {}): typeof fetch {
   return async input => {
     const url = String(input);
     options.urls?.push(url);
@@ -39,6 +39,7 @@ function fetcher(options: { weatherOk?: boolean; alertsOk?: boolean; alertsEmpty
     if (url.includes('/points/')) return json({ properties: { relativeLocation: { properties: { city: 'Elkins', state: 'WV' } } } });
     return options.weatherOk === false ? new Response(null, { status: 503 }) : json({
       current: { temperature_2m: 41, relative_humidity_2m: 70, pressure_msl: 1012, wind_speed_10m: 12, wind_direction_10m: 270, wind_gusts_10m: 18, weather_code: 3, uv_index: 1 },
+      timezone: options.timezone,
       hourly: { time: ['2026-08-20T12:00:00Z'], temperature_2m: [42], weather_code: [2], precipitation_probability: [20], wind_speed_10m: [10] },
     });
   };
@@ -99,6 +100,11 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ alertsEmpty: true }), now: NOW });
     expect(result.alerts.status).toBe('live');
     expect(result.displayEvidence.alerts).toMatchObject({ status: 'live', active: [], retrievedAtUtc: NOW.toISOString() });
+  });
+
+  it('formats hourly forecast using the explicit provider timezone and retains UTC', async () => {
+    const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ timezone: 'America/New_York' }), now: NOW });
+    expect(result.displayEvidence.weather.data).toMatchObject({ timezone: 'America/New_York', hourlyForecast: [{ time: '8 AM', utcTime: '2026-08-20T12:00:00.000Z' }] });
   });
 
   it('does not call providers when planned-site coordinates are missing', async () => {

@@ -19,6 +19,7 @@ export interface LayeredPropagationPicture {
   readonly layers: readonly PropagationLayer[];
   readonly relationships: readonly string[];
   readonly limitation: string;
+  readonly whatThisMeansNow: readonly string[];
 }
 
 export interface LayeredPropagationInputs {
@@ -33,6 +34,8 @@ export interface LayeredPropagationInputs {
   readonly liveBandActivity?: any;
   readonly txContexts?: readonly TxContext[];
   readonly stationObservations?: readonly StationSignalObservation[];
+  readonly objective?: { readonly goal?: string; readonly requiredQsoCount?: number; readonly deadlineUtc?: string };
+  readonly completedQsos?: number;
 }
 
 export function assembleLayeredPropagationPicture(input: LayeredPropagationInputs): LayeredPropagationPicture {
@@ -92,7 +95,26 @@ export function assembleLayeredPropagationPicture(input: LayeredPropagationInput
   if (openContext && modeledBands.length && !modeledBands.includes(openContext.band)) relationships.push(`Current TX band ${openContext.band} differs from the representative strongest modeled band${modeledBands.length === 1 ? '' : 's'} (${modeledBands.join(' / ')}); this is context, not proof of a poor path.`);
   if (station?.matchingReportCount === 0 && liveBand?.reportCount > 0) relationships.push(`General ${openContext?.band ?? ''} activity is present, but no matching reports from this station were observed; general activity is not station success.`);
   if (station && station.status !== generalState(generalStatus) && generalStatus !== 'unavailable') relationships.push('General and station-specific observations have different freshness states and must be interpreted independently.');
-  return { kind: 'layered_propagation_picture', layers, relationships, limitation: 'These layers remain separate evidence. No universal best-band score, confidence score, contact probability, or guarantee is produced.' };
+  return { kind: 'layered_propagation_picture', layers, relationships, limitation: 'These layers remain separate evidence. No universal best-band score, confidence score, contact probability, or guarantee is produced.', whatThisMeansNow: synthesizeWhatThisMeansNow({ layers, openContext, modeledBands, liveBand, objective: input.objective, completedQsos: input.completedQsos ?? 0 }) };
+}
+
+export interface WhatThisMeansNowInput { readonly layers: readonly PropagationLayer[]; readonly openContext: TxContext | null; readonly modeledBands: readonly string[]; readonly liveBand: any; readonly objective?: LayeredPropagationInputs['objective']; readonly completedQsos: number; }
+
+export function synthesizeWhatThisMeansNow(input: WhatThisMeansNowInput): readonly string[] {
+  const station = input.layers.find(layer => layer.id === 'station_signal');
+  const general = input.layers.find(layer => layer.id === 'general_observed_rf');
+  const means: string[] = [];
+  if (station && station.state !== 'unavailable' && station.summary !== 'No matching reports observed.') means.push(`MY SIGNAL has ${station.summary.toLowerCase()} for ${station.applicability}; keep the current TX Context while this bounded evidence remains current.`);
+  if (station?.summary === 'No matching reports observed.') means.push('MY SIGNAL currently has zero matching reports in its bounded capture; this does not establish poor propagation or station failure.');
+  if (!input.objective) means.push('No explicit operating objective is retained; choose whether to hold the current context or change band with operator judgment.');
+  if (input.modeledBands.length && input.openContext && !input.modeledBands.includes(input.openContext.band)) means.push(`The modeled alternative is ${input.modeledBands.join(' / ')}; the current TX Context is ${input.openContext.band}.`);
+  if (general?.state === 'not_applicable' || general?.applicability === 'Unavailable') means.push('General observed RF is not applicable to this current station-specific question.');
+  if (input.objective?.requiredQsoCount !== undefined) means.push(`Qualification progress is ${input.completedQsos}/${input.objective.requiredQsoCount} QSOs${input.objective.deadlineUtc ? `; the operator-entered deadline is ${input.objective.deadlineUtc}` : '; no explicit operating deadline is retained'}.`);
+  if (input.objective?.goal === 'explore_bands') means.push('Objective is band exploration: change only when the operator is ready to open a new TX Context and record the comparison.');
+  if (input.objective?.goal === 'chase_dx' && input.modeledBands.length) means.push(`For DX reach, review ${input.modeledBands.join(' / ')} as modeled alternatives; this does not prove a usable path.`);
+  if (input.objective?.goal === 'maximize_contacts' && input.liveBand?.reportCount > 0) means.push(`General observed RF reports ${input.liveBand.reportCount} report${input.liveBand.reportCount === 1 ? '' : 's'} on ${input.openContext?.band ?? 'the current band'}; this is not station-specific success.`);
+  if (input.layers.some(layer => layer.id !== 'station_signal' && layer.state !== 'unavailable') && input.layers.some(layer => layer.id === 'station_signal' && layer.state !== 'unavailable')) means.push('The evidence layers disagree or differ in applicability; keep modeled, general, and station-specific evidence separate.');
+  return means;
 }
 
 function generalState(status: string): PropagationLayerState { return status === 'live' ? 'live' : status === 'stale' ? 'stale' : status === 'cached' || status === 'observed' || status === 'retained' ? 'retained' : status === 'notTemporallyApplicable' ? 'not_applicable' : 'unavailable'; }

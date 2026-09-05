@@ -145,7 +145,7 @@ async function fetchCurrentWeather(
 ): Promise<Omit<WeatherData, 'locationName'> | null> {
   try {
     const response = await fetcher(
-      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=12`,
+      `https://api.open-meteo.com/v1/forecast?latitude=${latitude}&longitude=${longitude}&current=temperature_2m,relative_humidity_2m,weather_code,surface_pressure,pressure_msl,wind_speed_10m,wind_direction_10m,wind_gusts_10m,uv_index&hourly=temperature_2m,weather_code,precipitation_probability,wind_speed_10m&temperature_unit=fahrenheit&wind_speed_unit=mph&forecast_hours=12&timezone=auto`,
       { headers: { 'User-Agent': getProductUserAgent('Open-Meteo') } },
     );
     if (!response.ok) return null;
@@ -184,14 +184,15 @@ async function fetchCurrentWeather(
       uvIndex: Math.round(uvIndex!),
       lastUpdated: now.toISOString(),
       cached: false,
-      hourlyForecast: parseHourlyForecast(body.hourly, now),
+      timezone: typeof body.timezone === 'string' ? body.timezone : 'UTC',
+      hourlyForecast: parseHourlyForecast(body.hourly, now, typeof body.timezone === 'string' ? body.timezone : 'UTC'),
     };
   } catch {
     return null;
   }
 }
 
-function parseHourlyForecast(hourly: Record<string, any> | undefined, now: Date) {
+function parseHourlyForecast(hourly: Record<string, any> | undefined, now: Date, timezone: string) {
   if (!hourly || !Array.isArray(hourly.time)) return [];
   const start = Math.max(0, hourly.time.findIndex((time: string) => Date.parse(time) >= now.getTime() - 3_600_000));
   return hourly.time.slice(start, start + 6).flatMap((time: string, offset: number) => {
@@ -203,7 +204,8 @@ function parseHourlyForecast(hourly: Record<string, any> | undefined, now: Date)
     const weatherCode = finiteNumber(hourly.weather_code?.[index]);
     if ([tempF, precipProb, windMph, weatherCode].some((value) => value === null)) return [];
     return [{
-      time: new Date(time).toLocaleTimeString([], { hour: 'numeric' }),
+      time: new Intl.DateTimeFormat('en-US', { timeZone: timezone, hour: 'numeric' }).format(new Date(time)),
+      utcTime: new Date(time).toISOString(),
       tempF: Math.round(tempF!),
       precipProb: Math.round(precipProb!),
       windMph: Math.round(windMph!),
