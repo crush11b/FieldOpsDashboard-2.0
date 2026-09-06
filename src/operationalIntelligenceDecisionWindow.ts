@@ -2,7 +2,7 @@ import type { StationSignalObservation, TxContext } from '../server/operationalI
 
 export const MY_SIGNAL_TIMING_POLICY = {
   initialProviderLatencyMs: 3 * 60_000,
-  minimumRefreshIntervalMs: 5 * 60_000,
+  minimumRefreshIntervalMs: 2 * 60_000,
   countdownTickMs: 1_000,
 } as const;
 
@@ -13,7 +13,8 @@ export type MySignalDecisionWindowState =
   | 'no_matching_reports'
   | 'evidence_available'
   | 'stale_evidence'
-  | 'provider_unavailable';
+  | 'provider_unavailable'
+  | 'capture_unavailable';
 
 export interface MySignalDecisionWindow {
   readonly state: MySignalDecisionWindowState;
@@ -34,16 +35,17 @@ export function deriveMySignalDecisionWindow(input: {
   readonly nowMs: number;
   readonly queryPending: boolean;
   readonly providerError: string | null;
+  readonly providerErrorCode?: string | null;
 }): MySignalDecisionWindow {
-  if (!input.openContext) return { state: 'missing_context', nextEligibleAtMs: null, lastCompletedAtMs: null, latestObservation: null };
   const contextObservations = input.observations
-    .filter(observation => observation.txContextSegmentId === input.openContext!.segmentId)
+    .filter(observation => !input.openContext || observation.txContextSegmentId === input.openContext.segmentId)
     .sort((left, right) => right.endsAtUtc.localeCompare(left.endsAtUtc) || right.observationId.localeCompare(left.observationId));
   const latestObservation = contextObservations[0] ?? null;
+  if (!input.openContext) return { state: 'missing_context', nextEligibleAtMs: null, lastCompletedAtMs: null, latestObservation };
   const lastCompletedAtMs = latestObservation ? Date.parse(latestObservation.endsAtUtc) : null;
   const nextEligibleAtMs = nextEligibleCaptureAt(input.openContext, lastCompletedAtMs);
   if (input.queryPending) return { state: 'query_pending', nextEligibleAtMs, lastCompletedAtMs, latestObservation };
-  if (input.providerError) return { state: 'provider_unavailable', nextEligibleAtMs, lastCompletedAtMs, latestObservation };
+  if (input.providerError) return { state: input.providerErrorCode === 'observed_rf_unavailable' ? 'provider_unavailable' : 'capture_unavailable', nextEligibleAtMs, lastCompletedAtMs, latestObservation };
   if (latestObservation?.status === 'stale') return { state: 'stale_evidence', nextEligibleAtMs, lastCompletedAtMs, latestObservation };
   if (latestObservation) return { state: latestObservation.matchingReportCount > 0 ? 'evidence_available' : 'no_matching_reports', nextEligibleAtMs, lastCompletedAtMs, latestObservation };
   return { state: 'awaiting_provider_latency', nextEligibleAtMs, lastCompletedAtMs, latestObservation };

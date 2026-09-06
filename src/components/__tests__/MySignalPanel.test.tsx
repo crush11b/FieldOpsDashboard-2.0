@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type { Activation } from '../../../server/activation';
 import type { StationSignalObservation, TxContext } from '../../../server/operationalIntelligence';
 import { MySignalPanel } from '../MySignalPanel';
@@ -11,7 +11,7 @@ const context: TxContext = { segmentId: 'segment/1', activationId: activation.ac
 
 const station = { band: '20m', mode: 'FT8', frequencyMHz: 14.074, source: 'wsjtx', observedAtUtc: '2026-09-05T00:01:00.000Z', freshness: 'fresh', status: 'available', limitation: 'WSJT-X application status; not direct-radio proof.' } as const;
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.unstubAllGlobals(); vi.useRealTimers(); });
 
 describe('MySignalPanel', () => {
   it('sets an Activation-owned TX Context with field-level WSJT-X provenance', async () => {
@@ -75,6 +75,7 @@ describe('MySignalPanel', () => {
     render(<MySignalPanel activation={{ ...activation, status: 'completed', endedAtUtc: '2026-09-05T00:07:00.000Z' }} readOnly />);
     expect((await screen.findAllByText('No matching reports observed')).length).toBeGreaterThanOrEqual(2);
     expect(screen.getByText(/0.00 reports\/min/)).toBeInTheDocument();
+    expect(screen.getByText(/Latest captured interval ended:/)).toBeInTheDocument();
     expect(screen.queryByText(/Approx. distance/)).toBeNull();
     expect(screen.queryByText(/SNR:/)).toBeNull();
     expect(screen.getByText('TX CONTEXT HISTORY (1)')).toBeInTheDocument();
@@ -96,7 +97,106 @@ describe('MySignalPanel', () => {
     expect(screen.getAllByText(/^[123] reports? \/ [123] receivers?$/).map(element => element.textContent)).toEqual(['3 reports / 3 receivers', '2 reports / 2 receivers', '1 report / 1 receiver']);
     expect(screen.getAllByText('3 reports / 3 receivers')).toHaveLength(1);
   });
+
+  it('waits three minutes, captures once, and refreshes once at the two-minute boundary', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(context.startedAtUtc));
+    const evidence = { ...minimalObservation('auto', 'live', 1), endsAtUtc: '2026-09-05T00:04:00.000Z' };
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST' ? response({ kind: 'station_signal_observation', status: 'captured', observation: evidence, diagnostics: [] }, 201) : response({ kind: 'operational_intelligence', txContexts: [context], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<MySignalPanel activation={activation} />);
+    await flush();
+    expect(screen.getByText('awaiting provider latency')).toBeInTheDocument();
+    expect(postCalls(fetcher)).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(postCalls(fetcher)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(postCalls(fetcher)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(60_000);
+    expect(postCalls(fetcher)).toHaveLength(2);
+  });
+
+  it('does not overlap an unresolved automatic capture and keeps manual capture gated', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(context.startedAtUtc));
+    let resolveCapture!: (value: Response) => void;
+    const pending = new Promise<Response>(resolve => { resolveCapture = resolve; });
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST' ? pending : response({ kind: 'operational_intelligence', txContexts: [context], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<MySignalPanel activation={activation} />);
+    await flush();
+    const button = screen.getByRole('button', { name: 'CAPTURE MY SIGNAL' });
+    expect(button).toBeDisabled();
+    await vi.advanceTimersByTimeAsync(3 * 60_000); await flush();
+    expect(postCalls(fetcher)).toHaveLength(1);
+    expect(screen.getByRole('button', { name: 'QUERY PENDING...' })).toBeDisabled();
+    await vi.advanceTimersByTimeAsync(4 * 60_000);
+    expect(postCalls(fetcher)).toHaveLength(1);
+    resolveCapture(response({ kind: 'station_signal_observation', status: 'captured', observation: minimalObservation('pending', 'live', 0), diagnostics: [] }, 201));
+    await vi.runAllTicks();
+  });
+
+  it('rate-limits a failed capture and retries after two minutes', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(context.startedAtUtc));
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST' ? response({ kind: 'operational_intelligence_error', code: 'transport_failure', message: 'Capture request failed.' }, 503) : response({ kind: 'operational_intelligence', txContexts: [context], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<MySignalPanel activation={activation} />);
+    await flush();
+    expect(screen.getByText('awaiting provider latency')).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    await flush();
+    expect(screen.getByText('Capture request failed.')).toBeInTheDocument();
+    expect(postCalls(fetcher)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(119_999);
+    expect(postCalls(fetcher)).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(postCalls(fetcher)).toHaveLength(2);
+  });
+
+  it('cancels the old context schedule when a replacement context is saved', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date(context.startedAtUtc));
+    const replacement = { ...context, segmentId: 'segment/2', startedAtUtc: '2026-09-05T00:03:00.000Z' };
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PUT' ? response({ kind: 'tx_context', status: 'opened', context: replacement }, 201) : init?.method === 'POST' ? response({ kind: 'station_signal_observation', status: 'captured', observation: minimalObservation('replacement', 'live', 1), diagnostics: [] }, 201) : response({ kind: 'operational_intelligence', txContexts: [context], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<MySignalPanel activation={activation} />);
+    await flush();
+    expect(screen.getByRole('button', { name: 'CHANGE TX CONTEXT' })).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(2 * 60_000);
+    fireEvent.click(screen.getByRole('button', { name: 'CHANGE TX CONTEXT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SET TX CONTEXT' }));
+    await flush();
+    expect(screen.getByText('TX Context saved. MY SIGNAL capture is ready.')).toBeInTheDocument();
+    await vi.advanceTimersByTimeAsync(1 * 60_000);
+    expect(postCalls(fetcher)).toHaveLength(0);
+    await vi.advanceTimersByTimeAsync(3 * 60_000);
+    expect(postCalls(fetcher)).toHaveLength(1);
+  });
+
+  it('does not schedule completed or read-only review captures and labels retained time as an interval end', async () => {
+    vi.useFakeTimers(); vi.setSystemTime(new Date('2026-09-05T01:00:00.000Z'));
+    const closed = { ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' };
+    const fetcher = vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [closed], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
+    await flush();
+    expect(screen.getAllByText('No TX Context is open; station-specific capture is not possible.')).toHaveLength(2);
+    expect(screen.queryByText(/Next eligible refresh/)).toBeNull();
+    expect(screen.queryByText(/upcoming|Waiting for PSKReporter/)).toBeNull();
+    expect(postCalls(fetcher)).toHaveLength(0);
+  });
+
+  it('shows explicit retained state and preserves compact zero runs and positive observations', async () => {
+    const zeroA = minimalObservation('1', 'retained', 0); const zeroB = minimalObservation('2', 'retained', 0); const positive = minimalObservation('3', 'retained', 2);
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' }], observations: [zeroA, positive, zeroB], diagnostics: [] })));
+    render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
+    expect(await screen.findByText(/2 consecutive zero-report captures/)).toBeInTheDocument();
+    expect(screen.getByText('2 reports / 2 receivers')).toBeInTheDocument();
+    fireEvent.click(screen.getByText(/2 consecutive zero-report captures/));
+    expect((await screen.findAllByText('No matching reports observed')).length).toBeGreaterThanOrEqual(2);
+  });
 });
+
+function postCalls(fetcher: ReturnType<typeof vi.fn>) { return fetcher.mock.calls.filter(([, init]) => init?.method === 'POST'); }
+function minimalObservation(id: string, status: StationSignalObservation['status'], matchingReportCount: number): StationSignalObservation { return { observationId: id, activationId: activation.activationId, txContextSegmentId: context.segmentId, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: context.startedAtUtc, endsAtUtc: '2026-09-05T00:05:00.000Z', status, matchingReportCount, uniqueReceiverCount: matchingReportCount, reportsPerMinute: matchingReportCount, uniqueReceiversPerMinute: matchingReportCount, newestMatchingReportAtUtc: matchingReportCount ? '2026-09-05T00:04:00.000Z' : null, limitations: [] }; }
+async function flush() { await act(async () => { await Promise.resolve(); }); }
 
 function response(payload: unknown, status = 200): Response {
   return { ok: status >= 200 && status < 300, status, json: async () => payload } as Response;

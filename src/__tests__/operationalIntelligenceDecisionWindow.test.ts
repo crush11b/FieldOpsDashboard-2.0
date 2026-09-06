@@ -18,8 +18,9 @@ describe('operational intelligence decision window', () => {
   it('uses the documented first eligibility and refresh floor', () => {
     const started = Date.parse(context.startedAtUtc);
     expect(MY_SIGNAL_TIMING_POLICY.initialProviderLatencyMs).toBe(3 * 60_000);
+    expect(MY_SIGNAL_TIMING_POLICY.minimumRefreshIntervalMs).toBe(2 * 60_000);
     expect(nextEligibleCaptureAt(context, null)).toBe(started + 3 * 60_000);
-    expect(nextEligibleCaptureAt(context, started + 3 * 60_000)).toBe(started + 8 * 60_000);
+    expect(nextEligibleCaptureAt(context, started + 3 * 60_000)).toBe(started + 5 * 60_000);
   });
 
   it('keeps an uncaptured context awaiting until the query starts', () => {
@@ -32,7 +33,8 @@ describe('operational intelligence decision window', () => {
     expect(deriveMySignalDecisionWindow(input({ observations: [observation('1', 'live', 2)] })).state).toBe('evidence_available');
     expect(deriveMySignalDecisionWindow(input({ observations: [observation('2', 'retained', 0)] })).state).toBe('no_matching_reports');
     expect(deriveMySignalDecisionWindow(input({ observations: [observation('3', 'stale', 2)] })).state).toBe('stale_evidence');
-    expect(deriveMySignalDecisionWindow(input({ providerError: 'provider down' })).state).toBe('provider_unavailable');
+    expect(deriveMySignalDecisionWindow(input({ providerError: 'provider down', providerErrorCode: 'observed_rf_unavailable' })).state).toBe('provider_unavailable');
+    expect(deriveMySignalDecisionWindow(input({ providerError: 'storage down', providerErrorCode: 'persistence_unavailable' })).state).toBe('capture_unavailable');
     expect(deriveMySignalDecisionWindow({ ...input(), openContext: null }).state).toBe('missing_context');
   });
 
