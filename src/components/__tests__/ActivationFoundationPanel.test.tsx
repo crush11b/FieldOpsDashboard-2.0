@@ -85,6 +85,22 @@ describe('ActivationFoundationPanel', () => {
     expect(emptyHeader).toHaveTextContent('Unavailable');
   });
 
+  it('displays retained objective context, progress, provenance, and deadline', () => {
+    const retained = { ...activeActivation, objectiveSelection: 'operator_entered', operatingObjective: { goal: 'secure_activation', label: 'Field objective', requiredQsoCount: 10, thresholdProvenance: 'operator_entered', deadlineUtc: '2026-08-26T13:00:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' } };
+    const { rerender } = render(<ActivationFoundationPanel brief={brief} initialActivation={retained} initialQsoCount={6} showReview={false} />);
+    expect(screen.getByText('Field objective / secure_activation')).toBeInTheDocument();
+    expect(screen.getByText('6 / 10 QSOs')).toBeInTheDocument();
+    expect(screen.getByText('operator_entered')).toBeInTheDocument();
+    expect(screen.getByText(/2026-08-26 13:00:00 UTC \/ operator_entered \/ operator_entered/)).toBeInTheDocument();
+
+    rerender(<ActivationFoundationPanel brief={brief} initialActivation={{ ...activeActivation, objectiveSelection: 'explicitly_absent', operatingObjective: undefined }} initialQsoCount={0} showReview={false} />);
+    expect(screen.getByText('No explicit objective')).toBeInTheDocument();
+    expect(screen.getByText('explicitly_absent')).toBeInTheDocument();
+
+    rerender(<ActivationFoundationPanel brief={brief} initialActivation={{ ...activeActivation, objectiveSelection: undefined, operatingObjective: { goal: 'secure_activation', label: 'Legacy objective' } }} initialQsoCount={0} showReview={false} />);
+    expect(screen.getByText('Unavailable (legacy record)')).toBeInTheDocument();
+  });
+
   it('reconstructs current station state for a new Activation without leaking the prior context', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/qsos') ? { ok: true, json: async () => ({ qsos: [] }) } : { ok: true, json: async () => ({}) });
     vi.stubGlobal('fetch', fetcher);

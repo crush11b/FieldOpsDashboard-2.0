@@ -4,6 +4,7 @@ import path from 'node:path';
 import express from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
 import { canonicalProgramObjective, createActivation, normalizeActivation, updateActivationStatus } from '../activation';
+import type { Activation } from '../activation';
 import { ActivationStore } from '../activationStore';
 import { createActivationRouter } from '../activationApi';
 import { ActivationNotesStore } from '../activationNotesStore';
@@ -145,6 +146,62 @@ describe('Activation model and store', () => {
 });
 
 describe('Activation API', () => {
+  it('validates objective PATCH requests against the existing Activation before persistence', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-objective-api-')); directories.push(directory);
+    let nextId = 0;
+    const activation = new ActivationStore(path.join(directory, 'activations.json'), { now, createId: () => `objective-${++nextId}` });
+    const notes = new ActivationNotesStore(path.join(directory, 'activation-notes.json'), { now, createId: () => `notes-${++nextId}` });
+    const app = express(); app.use(express.json()); app.use(createActivationRouter({ store: activation, notesStore: notes, briefStore: {} as any, now }));
+    const server = await new Promise<ReturnType<typeof app.listen>>(resolve => { const listener = app.listen(0, () => resolve(listener)); });
+    try {
+      const address = server.address() as { port: number };
+      const request = (pathName: string, body?: unknown, method = body === undefined ? 'GET' : 'POST') => fetch(`http://127.0.0.1:${address.port}${pathName}`, { method, headers: body === undefined ? undefined : { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
+      const create = async (body: unknown) => { const result = await request('/api/activations', body); expect(result.status).toBe(201); return (await result.json() as any).activation as Activation; };
+      const patch = async (activationId: string, body: unknown) => { const result = await request(`/api/activations/${activationId}/objective`, body, 'PATCH'); return { response: result, payload: await result.json() as any }; };
+      const pota = await create({ type: 'POTA' });
+      const potaDefault = await patch(pota.activationId, { objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') });
+      expect(potaDefault.response.status).toBe(200);
+      expect(activation.get(pota.activationId)).toMatchObject({ status: 'found', activation: { objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') } });
+      const sota = await create({ type: 'SOTA' });
+      const sotaDefault = await patch(sota.activationId, { objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('SOTA') });
+      expect(sotaDefault.response.status).toBe(200);
+      const absent = await patch(pota.activationId, { objectiveSelection: 'explicitly_absent' });
+      expect(absent.response.status).toBe(200);
+      expect(absent.payload.activation.operatingObjective).toBeUndefined();
+      expect(absent.payload.activation.objectiveSelection).toBe('explicitly_absent');
+      const altered = await patch(sota.activationId, { objectiveSelection: 'program_default', operatingObjective: { ...canonicalProgramObjective('SOTA')!, label: 'Altered' } });
+      expect(altered.response.status).toBe(400); expect(altered.payload.code).toBe('invalid_objective_selection');
+      const general = await create({ type: 'General' });
+      const generalDefault = await patch(general.activationId, { objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') });
+      expect(generalDefault.response.status).toBe(400); expect(generalDefault.payload.code).toBe('invalid_objective_selection');
+      const selectedWithoutObjective = await patch(general.activationId, { objectiveSelection: 'operator_entered' });
+      expect(selectedWithoutObjective.response.status).toBe(400);
+      const absentWithObjective = await patch(general.activationId, { objectiveSelection: 'explicitly_absent', operatingObjective: { goal: 'maximize_contacts', label: 'Contacts' } });
+      expect(absentWithObjective.response.status).toBe(400);
+      const completed = await create({ type: 'POTA', status: 'active' });
+      expect((await request(`/api/activations/${completed.activationId}/status`, { status: 'completed' }, 'PATCH')).status).toBe(200);
+      const locked = await patch(completed.activationId, { objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') });
+      expect(locked.response.status).toBe(409); expect(locked.payload.code).toBe('objective_locked');
+      const missing = await patch('missing-objective', { objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') });
+      expect(missing.response.status).toBe(404); expect(missing.payload.code).toBe('not_found');
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+
+  it('preserves a genuine Activation store read failure as persistence_unavailable', async () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-objective-api-io-')); directories.push(directory);
+    const activationPath = path.join(directory, 'activations.json'); fs.mkdirSync(activationPath);
+    const activation = new ActivationStore(activationPath, { now });
+    const notes = new ActivationNotesStore(path.join(directory, 'activation-notes.json'), { now });
+    const app = express(); app.use(express.json()); app.use(createActivationRouter({ store: activation, notesStore: notes, briefStore: {} as any, now }));
+    const server = await new Promise<ReturnType<typeof app.listen>>(resolve => { const listener = app.listen(0, () => resolve(listener)); });
+    try {
+      const address = server.address() as { port: number };
+      const response = await fetch(`http://127.0.0.1:${address.port}/api/activations/io-failure/objective`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objectiveSelection: 'explicitly_absent' }) });
+      const payload = await response.json() as any;
+      expect(response.status).toBe(503); expect(payload.code).toBe('persistence_unavailable');
+    } finally { await new Promise<void>(resolve => server.close(() => resolve())); }
+  });
+
   it('initializes once from a SmartDeploy brief and associates notes', async () => {
     const { activation, notes } = stores();
     const brief = { schemaVersion: 2, briefId: 'brief-1', activation: { program: 'POTA', reference: 'US-1', displayName: 'Test Park' }, plannedOperatingSite: { location: { coordinates: { lat: 10, lon: 20 }, gridSquare: 'FN20' } }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' } } as any;
