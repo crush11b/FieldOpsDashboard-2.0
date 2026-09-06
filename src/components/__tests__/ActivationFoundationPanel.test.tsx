@@ -305,7 +305,7 @@ describe('ActivationFoundationPanel', () => {
   });
 
   it('offers synchronization for degraded clock evidence and reports an accepted degraded result', async () => {
-    const degraded = { status: 'Degraded', error: 'VerificationDegraded', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: 0.7, currentOffsetSeconds: 0.6, attemptMessage: 'Windows time remains degraded.' };
+    const degraded = { status: 'Degraded', error: 'None', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: 0.7, currentOffsetSeconds: 0.6, attemptMessage: 'Windows time remains degraded.' };
     const result = { ...degraded, requestAccepted: true, correctionRequired: true, windowsSetAttempted: true, windowsSetAccepted: true, verificationPerformed: true, attemptCount: 1 };
     const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/clock/synchronize') ? { ok: true, json: async () => result } : { ok: true, json: async () => String(input).includes('/api/clock/status') ? degraded : { qsos: [] } });
     vi.stubGlobal('fetch', fetcher);
@@ -333,7 +333,7 @@ describe('ActivationFoundationPanel', () => {
   });
 
   it('publishes and displays an explicit error when synchronization throws', async () => {
-    const status = { status: 'Degraded', error: 'VerificationDegraded', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: 0.7, currentOffsetSeconds: 0.6, attemptMessage: 'Windows time remains degraded.' };
+    const status = { status: 'Degraded', error: 'None', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: 0.7, currentOffsetSeconds: 0.6, attemptMessage: 'Windows time remains degraded.' };
     const fetcher = vi.fn(async (input: RequestInfo | URL) => { if (String(input).includes('/api/clock/synchronize')) return { ok: false, json: async () => ({}) }; return { ok: true, json: async () => String(input).includes('/api/clock/status') ? status : { qsos: [] } }; });
     vi.stubGlobal('fetch', fetcher);
     render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
@@ -342,6 +342,19 @@ describe('ActivationFoundationPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' }));
     await waitFor(() => expect(screen.getAllByRole('status').some(element => element.textContent === 'Clock synchronization failed.')).toBe(true));
     expect(screen.getByText('REQUEST FAILED')).toBeInTheDocument();
+  });
+
+  it('classifies a native set rejection as SET REJECTED rather than REQUEST FAILED', async () => {
+    const status = { status: 'NotSynchronized', error: 'UnsafeOffset', gnssTime: { status: 'Available', timestampUtc: '2026-08-27T12:00:00.000Z', sentenceType: 'RMC' }, lastSuccessfulSynchronizationUtc: null, offsetBeforeSynchronizationSeconds: 1.4, currentOffsetSeconds: null, attemptMessage: 'Clock requires synchronization.' };
+    const result = { ...status, status: 'Error', error: 'NativeFailure', requestAccepted: true, correctionRequired: true, windowsSetAttempted: true, windowsSetAccepted: false, verificationPerformed: false, attemptCount: 1, attemptMessage: 'Windows rejected the clock set request.' };
+    const fetcher = vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/clock/synchronize') ? { ok: true, json: async () => result } : { ok: true, json: async () => String(input).includes('/api/clock/status') ? status : { qsos: [] } });
+    vi.stubGlobal('fetch', fetcher);
+    render(<ActivationFoundationPanel brief={brief} initialActivation={activeActivation} showReview={false} />);
+    await waitFor(() => expect(screen.getByText('NOTSYNCHRONIZED')).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Confirm Windows clock synchronization in Operate' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' }));
+    await waitFor(() => expect(screen.getByText('SET REJECTED')).toBeInTheDocument());
+    expect(screen.queryByText('REQUEST FAILED')).not.toBeInTheDocument();
   });
 
   it('shows read-only GNSS clock evidence diagnostics collapsed by default', async () => {
