@@ -14,6 +14,8 @@ export const ACTIVATION_TIMING_STATUSES = ['recorded', 'unknown_historical'] as 
 export type ActivationTimingStatus = typeof ACTIVATION_TIMING_STATUSES[number];
 export const ACTIVATION_GOALS = ['secure_activation', 'maximize_contacts', 'chase_dx', 'explore_bands'] as const;
 export type ActivationGoal = typeof ACTIVATION_GOALS[number];
+export const ACTIVATION_OBJECTIVE_SELECTIONS = ['program_default', 'operator_entered', 'explicitly_absent'] as const;
+export type ActivationObjectiveSelection = typeof ACTIVATION_OBJECTIVE_SELECTIONS[number];
 export const ACTIVATION_THRESHOLD_PROVENANCES = ['operator_entered', 'program_default'] as const;
 export type ActivationThresholdProvenance = typeof ACTIVATION_THRESHOLD_PROVENANCES[number];
 export const ACTIVATION_DEADLINE_BASES = ['operator_entered', 'mission_end', 'utc_rollover', 'program_rule'] as const;
@@ -46,17 +48,18 @@ export interface Activation {
   readonly actualTimingStatus?: ActivationTimingStatus;
   readonly actualTimingOrigin?: 'schema_v1';
   readonly operatingObjective?: ActivationOperatingObjective;
+  readonly objectiveSelection?: ActivationObjectiveSelection;
   readonly createdAtUtc: string;
   readonly updatedAtUtc: string;
   readonly briefId?: string;
   readonly notesCollectionId?: string;
 }
-export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; }
+export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly objectiveSelection?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; }
 
 export function createActivation(input: CreateActivationInput, options: { readonly now?: () => Date; readonly createId?: () => string } = {}): Activation {
   const now = utcNow(options.now);
   const status = input.status ?? 'planned';
-  const candidate = { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId: options.createId?.() ?? randomUUID(), type: input.type, reference: input.reference, title: input.title, plannedLocation: input.plannedLocation, missionWindow: input.missionWindow, status, actualTimingStatus: status === 'planned' ? undefined : 'recorded' as const, startedAtUtc: input.startedAtUtc ?? (status === 'planned' ? undefined : now), endedAtUtc: input.endedAtUtc ?? (status === 'completed' ? now : undefined), operatingObjective: input.operatingObjective, createdAtUtc: now, updatedAtUtc: now, briefId: input.briefId, notesCollectionId: input.notesCollectionId };
+  const candidate = { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId: options.createId?.() ?? randomUUID(), type: input.type, reference: input.reference, title: input.title, plannedLocation: input.plannedLocation, missionWindow: input.missionWindow, status, actualTimingStatus: status === 'planned' ? undefined : 'recorded' as const, startedAtUtc: input.startedAtUtc ?? (status === 'planned' ? undefined : now), endedAtUtc: input.endedAtUtc ?? (status === 'completed' ? now : undefined), operatingObjective: input.operatingObjective, objectiveSelection: input.objectiveSelection, createdAtUtc: now, updatedAtUtc: now, briefId: input.briefId, notesCollectionId: input.notesCollectionId };
   const normalized = normalizeActivationValue(candidate, false);
   if (!normalized.valid || !normalized.activation) throw new Error(`The activation value is invalid: ${normalized.issues.join(' ')}`);
   return normalized.activation;
@@ -106,6 +109,9 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   const endedAtUtc = optionalTimestamp(value.endedAtUtc, 'endedAtUtc', issues);
   const actualTimingStatus = value.actualTimingStatus === undefined ? undefined : enumValue(value.actualTimingStatus, ACTIVATION_TIMING_STATUSES, 'actualTimingStatus', issues);
   const operatingObjective = objective(value.operatingObjective, issues);
+  const objectiveSelection = enumValue(value.objectiveSelection, ACTIVATION_OBJECTIVE_SELECTIONS, 'objectiveSelection', issues);
+  if (objectiveSelection === 'explicitly_absent' && operatingObjective) issues.push('objectiveSelection explicitly_absent cannot have an operatingObjective.');
+  if (objectiveSelection && objectiveSelection !== 'explicitly_absent' && !operatingObjective) issues.push('objectiveSelection requires an operatingObjective.');
   if (status === 'planned' && (startedAtUtc || endedAtUtc)) issues.push('planned Activations cannot have actual operating timestamps.');
   if (status === 'planned' && actualTimingStatus) issues.push('planned Activations cannot have actual timing status.');
   if (status === 'active' && !startedAtUtc && !(allowHistorical && (value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION || actualTimingStatus === 'unknown_historical'))) issues.push('active Activations require startedAtUtc.');
@@ -121,7 +127,7 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   const unknown = migratedUnknown || actualTimingStatus === 'unknown_historical';
   if (status === 'completed' && unknown && !allowHistorical) issues.push('historical unknown timing is not valid for current input.');
   if (issues.length) return invalid(issues);
-  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}) }, issues: [] };
+  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), ...(objectiveSelection ? { objectiveSelection } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}) }, issues: [] };
 }
 
 function location(value: unknown, issues: string[]): ActivationLocation | undefined {

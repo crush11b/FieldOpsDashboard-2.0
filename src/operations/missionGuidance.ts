@@ -56,7 +56,7 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
   const references = new Set<PropagationLayerId>();
   let category: GuidanceCategory = 'maintain_context';
   let urgency: GuidanceUrgency = 'none';
-  let action = 'Continue operating with operator judgment; no explicit mission objective is available.';
+  let action = 'Return to PREPARE and select or enter an Activation objective to enable goal-based guidance.';
   let suggestedBand: string | undefined;
   let suggestedMode: string | undefined;
 
