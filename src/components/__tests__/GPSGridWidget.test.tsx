@@ -70,6 +70,10 @@ describe('GPS source guardrail presentation', () => {
     expect(render(provenance('connecting', 'gps_acquisition'), { lat: Number.NaN, lon: Number.NaN, gridSquare: '' }, { ...synchronizedClock(), status: 'Unknown', gnssTime: { status: 'Unavailable', timestampUtc: null, sentenceType: 'RMC' } })).toContain('GNSS TIME UNAVAILABLE');
   });
 
+  it('identifies degraded Windows clock timing separately from synchronization failure', () => {
+    expect(render(provenance('ok', 'serial_nmea'), {}, { ...synchronizedClock(), status: 'Degraded', currentOffsetSeconds: 0.5 })).toContain('GPS CLOCK DEGRADED');
+  });
+
   it('requires confirmation before invoking the existing synchronization workflow', async () => {
     const onSynchronizeClock = vi.fn().mockResolvedValue(undefined);
     renderDom(<GPSGridWidget gps={baseGps()} provenance={provenance('ok', 'serial_nmea')} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} clockEvidence={synchronizedClock()} onSynchronizeClock={onSynchronizeClock} />);
@@ -166,7 +170,7 @@ describe('GPS source guardrail presentation', () => {
 });
 
 function render(provenanceValue: GPSProvenance, overrides: Partial<GPSStatus> = {}, clockEvidence?: ClockSynchronizationEvidence, gnssDiagnostics?: GnssSerialDiagnostics) {
-  return renderToStaticMarkup(<GPSGridWidget gps={baseGps(overrides)} provenance={provenanceValue} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} clockEvidence={clockEvidence} onSynchronizeClock={async () => undefined} gnssDiagnostics={gnssDiagnostics} />);
+  return renderToStaticMarkup(<GPSGridWidget gps={baseGps(overrides)} provenance={provenanceValue} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} clockEvidence={clockEvidence} onSynchronizeClock={async () => synchronizedClock()} gnssDiagnostics={gnssDiagnostics} />);
 }
 
 function diagnostics(state: GnssSerialDiagnostics['state']): GnssSerialDiagnostics {

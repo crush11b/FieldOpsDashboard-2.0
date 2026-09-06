@@ -212,7 +212,7 @@ async function readClock(reader: (() => Promise<ClockSynchronizationEvidence>) |
   if (!reader) return undefined;
   try {
     const value = await reader();
-    const status = value.status === 'Synchronized' ? 'synchronized' : value.status === 'NotSynchronized' ? 'not_synchronized' : value.status === 'Unavailable' ? 'unavailable' : value.status === 'Error' ? 'error' : 'unknown';
+    const status = value.status === 'Synchronized' ? 'synchronized' : value.status === 'Degraded' ? 'degraded' : value.status === 'NotSynchronized' ? 'not_synchronized' : value.status === 'Unavailable' ? 'unavailable' : value.status === 'Error' ? 'error' : 'unknown';
     if (status === 'unavailable' || status === 'error') diagnostics.push({ code: 'location_telemetry_unavailable', message: value.attemptMessage ?? 'Clock synchronization evidence is unavailable.' });
     return { status, source: { id: 'local-clock-telemetry', type: 'local_telemetry_pipe', name: 'Local clock synchronization telemetry' }, ...(value.gnssTime.timestampUtc ? { observedAtUtc: value.gnssTime.timestampUtc } : {}), lastSuccessfulSynchronizationUtc: value.lastSuccessfulSynchronizationUtc, offsetBeforeSynchronizationSeconds: value.offsetBeforeSynchronizationSeconds, currentOffsetSeconds: value.currentOffsetSeconds, message: value.attemptMessage };
   } catch {

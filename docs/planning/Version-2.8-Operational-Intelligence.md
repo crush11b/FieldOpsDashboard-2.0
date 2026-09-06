@@ -494,17 +494,21 @@ Field failures and operator findings:
 
 ### Corrective slice 2.8-08A - Clock synchronization reliability
 
-The implementation investigation must trace the complete Dashboard -> backend -> Agent -> Windows synchronization path, including the clock status and synchronize routes, the existing location pipe operation, the Agent clock synchronizer, privilege handling, native `SetSystemTime`, and post-action verification. It must determine why repeated FieldOps synchronization did not correct the clock while Windows synchronization did.
+The implementation investigation traced the complete Dashboard -> backend -> Agent -> Windows synchronization path, including the clock status and synchronize routes, the existing location pipe operation, the Agent clock synchronizer, privilege handling, native `SetSystemTime`, and post-action verification. The confirmed failure mechanism was the former two-second no-op boundary: a trusted 1.4 to 2.0 second disagreement was classified as synchronized, so repeated FieldOps requests made zero `SetUtc` calls while Windows synchronization later corrected the clock.
 
 The operator result must never be concealed behind a successful button response. It must report, separately and truthfully:
 
 - request accepted;
-- Windows synchronization attempted;
+- whether correction was required;
+- whether Windows synchronization was attempted and accepted;
+- whether verification was performed;
 - measured disagreement before and after the action;
-- final success or failure; and
-- a bounded failure reason.
+- the final `Synchronized`, `Degraded`, or `VerificationFailed` outcome; and
+- a bounded failure reason where applicable.
 
-A successful result requires post-action evidence within the accepted WSJT-X timing tolerance. The corrective slice must not add continuous clock steering or silently change system time. Any system-time change remains an explicit operator action.
+Windows clock readiness is now classified by absolute disagreement: strictly less than 0.5 seconds is `Synchronized` and requires no correction; 0.5 through less than 1.0 second is `Degraded`, where digital decoding should remain possible but timing should be improved; and 1.0 second or greater is `NotSynchronized`, where digital decoding is not expected to work reliably. Confirmed synchronization attempts one correction from either degraded or not-synchronized state. Post-set verification preserves the same distinction, with 1.0 second or greater reported as `VerificationFailed`.
+
+GNSS trust remains independently governed by temporal coherence: the absolute difference between UTC delta and monotonic receipt interval must be at most 0.5 seconds. The corrective slice must not add continuous clock steering or silently change system time. Any system-time change remains an explicit operator action. Hardware acceptance on the CF-20 remains pending.
 
 ### Corrective slice 2.8-08B - Objective and deadline workflow usability
 

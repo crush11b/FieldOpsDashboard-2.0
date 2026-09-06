@@ -194,6 +194,7 @@ export default function App() {
   const [gps, setGps] = useState<GPSStatus>(initialGpsState.gps);
   const [gpsProvenance, setGpsProvenance] = useState<GPSProvenance>(initialGpsState.provenance);
   const [clockEvidence, setClockEvidence] = useState<ClockSynchronizationEvidence>();
+  const [lastExplicitClockEvidence, setLastExplicitClockEvidence] = useState<ClockSynchronizationEvidence>();
   const refreshClockEvidence = async () => {
     try { setClockEvidence(await getClockStatus()); } catch { setClockEvidence(undefined); }
   };
@@ -205,6 +206,8 @@ export default function App() {
   const handleSynchronizeClock = async () => {
     const result = await synchronizeClock(true);
     setClockEvidence(result);
+    setLastExplicitClockEvidence(result);
+    return result;
   };
   const operatingCoordinates = resolveGpsCoordinates(gps, gpsProvenance);
   const operatingLocation = resolveOperatingLocation(gps, gpsProvenance);
@@ -500,7 +503,7 @@ export default function App() {
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             onUpdateGPS={handleUpdateGPS}
-            clockEvidence={clockEvidence}
+            clockEvidence={lastExplicitClockEvidence ?? clockEvidence}
             onSynchronizeClock={handleSynchronizeClock}
             comPort={config.gpsComPort}
             baudRate={config.gpsBaudRate}
