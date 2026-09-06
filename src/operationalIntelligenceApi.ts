@@ -6,6 +6,20 @@ export interface OperationalIntelligenceResult {
   readonly diagnostics: readonly unknown[];
 }
 
+export type OperationalIntelligenceErrorCode = 'observed_rf_unavailable' | 'persistence_unavailable' | 'storage_unavailable' | 'invalid_lifecycle' | 'closed_segment' | 'non_overlapping_interval' | 'transport_failure' | 'unknown_failure' | string;
+
+export class OperationalIntelligenceRequestError extends Error {
+  readonly code: OperationalIntelligenceErrorCode;
+  readonly status: number | null;
+
+  constructor(message: string, code: OperationalIntelligenceErrorCode, status: number | null) {
+    super(message);
+    this.name = 'OperationalIntelligenceRequestError';
+    this.code = code;
+    this.status = status;
+  }
+}
+
 export type TxContextInput = Omit<TxContext, 'segmentId' | 'activationId' | 'startedAtUtc' | 'endedAtUtc'>;
 
 export async function getOperationalIntelligence(activationId: string, signal?: AbortSignal): Promise<OperationalIntelligenceResult> {
@@ -44,5 +58,5 @@ async function readJson(response: Response): Promise<any> {
 }
 
 function requestError(payload: any, fallback: string): Error {
-  return new Error(typeof payload?.message === 'string' ? payload.message : fallback);
+  return new OperationalIntelligenceRequestError(typeof payload?.message === 'string' ? payload.message : fallback, typeof payload?.code === 'string' ? payload.code : 'unknown_failure', null);
 }

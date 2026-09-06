@@ -2,9 +2,10 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import type { Activation } from '../../server/activation';
 import type { StationSignalObservation, TxContext } from '../../server/operationalIntelligence';
 import type { CurrentStationState } from '../currentStationState';
-import { captureStationSignalObservation, getOperationalIntelligence, openTxContext } from '../operationalIntelligenceApi';
+import { captureStationSignalObservation, getOperationalIntelligence, openTxContext, OperationalIntelligenceRequestError } from '../operationalIntelligenceApi';
 import { AMATEUR_BAND_OPTIONS, OPERATING_MODE_OPTIONS } from '../qsoOperatingVocabulary';
 import { PROPAGATION_GUIDANCE_BANDS, PROPAGATION_MODES } from '../propagation/domain';
+import { deriveMySignalDecisionWindow, formatDecisionWindowDuration, MY_SIGNAL_TIMING_POLICY, summarizeConsecutiveZeroObservations, type MySignalDecisionWindowState } from '../operationalIntelligenceDecisionWindow';
 
 interface Props {
   readonly activation: Activation;
@@ -34,22 +35,46 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
   const [form, setForm] = useState<FormState>(() => initialForm(stationState, plannedSetup));
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [queryPending, setQueryPending] = useState(false);
+  const [providerError, setProviderError] = useState<string | null>(null);
+  const [providerErrorCode, setProviderErrorCode] = useState<string | null>(null);
+  const [lastAttemptAtMs, setLastAttemptAtMs] = useState<number | null>(null);
+  const [lastCompletedAtMs, setLastCompletedAtMs] = useState<number | null>(null);
+  const [clockMs, setClockMs] = useState(() => Date.now());
   const [message, setMessage] = useState<string | null>(null);
   const [replacingContext, setReplacingContext] = useState(false);
   const formTouched = useRef(false);
   const stationSeeded = useRef(false);
+  const captureInFlight = useRef(false);
+  const captureRef = useRef<() => void>(() => undefined);
   const openContext = useMemo(() => contexts.find(context => context.endedAtUtc === undefined) ?? null, [contexts]);
   const orderedObservations = useMemo(() => [...observations].sort((left, right) => right.endsAtUtc.localeCompare(left.endsAtUtc) || right.observationId.localeCompare(left.observationId)), [observations]);
+  const decision = useMemo(() => deriveMySignalDecisionWindow({ openContext, observations: orderedObservations, nowMs: clockMs, queryPending, providerError, providerErrorCode }), [clockMs, openContext, orderedObservations, providerError, providerErrorCode, queryPending]);
+  const scheduleAtMs = openContext ? Math.max(decision.nextEligibleAtMs ?? 0, lastAttemptAtMs === null ? 0 : lastAttemptAtMs + MY_SIGNAL_TIMING_POLICY.minimumRefreshIntervalMs) : null;
+  const canCapture = !readOnly && activation.status === 'active' && Boolean(openContext) && !queryPending && scheduleAtMs !== null && clockMs >= scheduleAtMs;
 
   useEffect(() => {
     const controller = new AbortController();
-    formTouched.current = false; stationSeeded.current = false; setForm(initialForm(stationState, plannedSetup)); setReplacingContext(false); setContexts([]); setObservations([]); setLoading(true); setMessage(null);
+    formTouched.current = false; stationSeeded.current = false; setForm(initialForm(stationState, plannedSetup)); setReplacingContext(false); setContexts([]); setObservations([]); setLoading(true); setQueryPending(false); setProviderError(null); setProviderErrorCode(null); setLastAttemptAtMs(null); setLastCompletedAtMs(null); setMessage(null);
     void getOperationalIntelligence(activation.activationId, controller.signal)
       .then(result => { setContexts(result.txContexts); setObservations(result.observations); })
       .catch(error => { if (error?.name !== 'AbortError') setMessage(error instanceof Error ? error.message : 'MY SIGNAL evidence could not be loaded.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
   }, [activation.activationId]);
+
+  useEffect(() => {
+    if (readOnly || !openContext || activation.status !== 'active') return;
+    const timer = window.setInterval(() => setClockMs(Date.now()), MY_SIGNAL_TIMING_POLICY.countdownTickMs);
+    return () => window.clearInterval(timer);
+  }, [activation.status, openContext, readOnly]);
+
+  useEffect(() => {
+    if (readOnly || loading || !openContext || activation.status !== 'active' || queryPending || scheduleAtMs === null) return;
+    const delay = Math.max(0, scheduleAtMs - Date.now());
+    const timer = window.setTimeout(() => { if (Date.now() >= scheduleAtMs) captureRef.current(); }, delay);
+    return () => window.clearTimeout(timer);
+  }, [activation.status, loading, openContext, queryPending, readOnly, scheduleAtMs]);
 
   useEffect(() => {
     if (readOnly || openContext || !stationState || stationSeeded.current || formTouched.current) return;
@@ -60,7 +85,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
   const editForm = (changes: Partial<FormState>) => { formTouched.current = true; setForm(previous => ({ ...previous, ...changes })); };
 
   const saveContext = async (event: React.FormEvent) => {
-    event.preventDefault(); setBusy(true); setMessage(null);
+    event.preventDefault(); setBusy(true); setMessage(null); setProviderError(null); setProviderErrorCode(null);
     try {
       const stationBand = stationState?.source === 'wsjtx' && stationState.band === form.band;
       const stationMode = stationState?.source === 'wsjtx' && stationState.mode === form.mode;
@@ -71,6 +96,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
         provenance: { radioSetup: plannedSetup?.radioSetupLabel === form.radioSetupLabel.trim() ? 'operator_confirmed_plan' : 'operator_entered', antenna: plannedSetup?.antennaLabel === form.antennaLabel.trim() ? 'operator_confirmed_plan' : 'operator_entered', transmitPowerWatts: plannedSetup?.transmitPowerWatts === Number(form.transmitPowerWatts) ? 'operator_confirmed_plan' : 'operator_entered', band: stationBand ? 'wsjtx_application' : 'operator_entered', mode: stationMode ? 'wsjtx_application' : 'operator_entered', ...(form.frequencyMHz ? { frequencyMHz: stationFrequency ? 'wsjtx_application' : 'operator_entered' } : {}) },
       });
       setContexts(current => [context, ...current.map(item => item.endedAtUtc === undefined ? { ...item, endedAtUtc: context.startedAtUtc } : item)]);
+      setLastAttemptAtMs(null);
       setReplacingContext(false);
       setMessage('TX Context saved. MY SIGNAL capture is ready.');
     } catch (error) { setMessage(error instanceof Error ? error.message : 'The TX Context could not be saved.'); }
@@ -78,19 +104,24 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
   };
 
   const capture = async () => {
-    if (!openContext) return;
-    setBusy(true); setMessage(null);
+    if (!openContext || captureInFlight.current) return;
+    captureInFlight.current = true; setBusy(true); setQueryPending(true); setProviderError(null); setProviderErrorCode(null); setMessage(null); setLastAttemptAtMs(Date.now());
     try {
       const observation = await captureStationSignalObservation(activation.activationId, openContext.segmentId);
       setObservations(current => [observation, ...current]);
-      setMessage(observation.matchingReportCount === 0 ? 'No matching reports observed in this bounded capture interval.' : `Captured ${observation.matchingReportCount} matching report${observation.matchingReportCount === 1 ? '' : 's'} from ${observation.source === 'pskreporter' ? 'PSKReporter' : 'WSPR'} for the bounded interval.`);
-    } catch (error) { setMessage(error instanceof Error ? error.message : 'MY SIGNAL evidence could not be captured.'); }
-    finally { setBusy(false); }
+      setLastCompletedAtMs(Date.now());
+      setMessage(observation.matchingReportCount === 0 ? 'Capture completed with no matching reports in this bounded interval.' : `Captured ${observation.matchingReportCount} matching report${observation.matchingReportCount === 1 ? '' : 's'} from ${observation.source === 'pskreporter' ? 'PSKReporter' : 'WSPR'} for the bounded interval.`);
+    } catch (error) { const reason = error instanceof Error ? error.message : 'MY SIGNAL evidence could not be captured.'; const code = error instanceof OperationalIntelligenceRequestError ? error.code : 'transport_failure'; setProviderErrorCode(code); setProviderError(reason); setMessage(reason); }
+    finally { captureInFlight.current = false; setQueryPending(false); setBusy(false); }
   };
+  captureRef.current = () => { void capture(); };
 
-  return <section className="rounded-xl border border-violet-700/70 bg-violet-950/20 p-3 space-y-3" aria-label="MY SIGNAL">
-    <div><h3 className="font-black text-sm uppercase text-violet-300">MY SIGNAL</h3><p className="text-[10px] text-slate-400">Station-specific reception evidence from the selected source; it is not a forecast, contact guarantee, or proof of transmission.</p>{openContext ? <><p className="text-[10px] text-slate-500">Current TX Context age: {formatAge(openContext.startedAtUtc)}. Capture reports only the bounded interval returned by the source.</p><p className="text-[10px] text-amber-200">Reports can arrive after the RF event: allow about 2 minutes before interpreting a zero, and recheck after 2–5 minutes before changing context.</p></> : <p className="text-[10px] text-amber-200">Set a TX Context before capture; without one, no station-specific result can be attributed.</p>}</div>
-    {loading && <p role="status" className="text-[11px] text-slate-400">Loading MY SIGNAL evidence...</p>}
+  const state = decision.state;
+  const nextAt = scheduleAtMs === null ? null : new Date(scheduleAtMs).toISOString();
+  return <section className="rounded border border-violet-700/70 bg-violet-950/20 p-2 space-y-2" aria-label="MY SIGNAL">
+    <div><div className="flex flex-wrap items-center justify-between gap-2"><h3 className="font-black text-sm uppercase text-violet-300">MY SIGNAL</h3><span className="rounded border border-violet-700 px-2 py-1 text-[9px] font-black uppercase text-violet-200">{state.replaceAll('_', ' ')}</span></div><p className="text-[10px] text-slate-400">PSKReporter matches are outbound reception evidence. Distant reception does not prove that this station can hear or contact stations in that area.</p>{openContext ? <p className="text-[10px] text-slate-500">TX Context age: {formatAge(openContext.startedAtUtc)}. Reports can take several minutes to arrive; the first check is eligible after 3 minutes.</p> : <p className="text-[10px] text-amber-200">No TX Context is open; station-specific capture is not possible.</p>}</div>
+    {loading && <p role="status" className="text-[10px] text-slate-400">Loading retained MY SIGNAL data...</p>}
+    {!loading && <DecisionStatus state={state} nextAt={nextAt} sessionCompletedAtMs={lastCompletedAtMs} retainedIntervalEndAtUtc={decision.latestObservation?.endsAtUtc ?? null} nowMs={clockMs} />}
     {!loading && !readOnly && activation.status === 'active' && (!openContext || replacingContext) && <form onSubmit={saveContext} className="grid grid-cols-2 gap-2 sm:grid-cols-3">
       <Field label="RADIO / SETUP"><input required aria-label="MY SIGNAL RADIO / SETUP" value={form.radioSetupLabel} onChange={event => editForm({ radioSetupLabel: event.target.value })} className={inputClass} /></Field>
       <Field label="ANTENNA"><input required aria-label="MY SIGNAL ANTENNA" value={form.antennaLabel} onChange={event => editForm({ antennaLabel: event.target.value })} className={inputClass} /></Field>
@@ -100,18 +131,20 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
       <Field label="MY SIGNAL FREQUENCY MHz"><input min="0.1" step="0.0001" type="number" aria-label="MY SIGNAL FREQUENCY MHz" value={form.frequencyMHz} onChange={event => editForm({ frequencyMHz: event.target.value })} className={inputClass} /></Field>
       <div className="col-span-2 sm:col-span-3"><button disabled={busy} className="min-h-11 rounded border border-violet-600 px-3 py-2 text-[10px] font-black text-violet-200 disabled:opacity-50">{busy ? 'SAVING...' : 'SET TX CONTEXT'}</button></div>
     </form>}
-    {openContext && <div className="rounded border border-violet-800 bg-slate-950/60 p-2 space-y-2"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Datum label="CURRENT TX CONTEXT" value={`${openContext.band} / ${openContext.mode}`} /><Datum label="RADIO / ANTENNA" value={`${openContext.radioSetupLabel} / ${openContext.antennaLabel}`} /><Datum label="POWER" value={`${openContext.transmitPowerWatts} W`} /><Datum label="STARTED UTC" value={formatUtc(openContext.startedAtUtc)} /></div>{!readOnly && activation.status === 'active' && !replacingContext && <div className="flex flex-wrap gap-2"><button type="button" disabled={busy} onClick={() => void capture()} className="min-h-11 rounded border border-emerald-600 px-3 py-2 text-[10px] font-black text-emerald-200 disabled:opacity-50">{busy ? 'CAPTURING...' : 'CAPTURE MY SIGNAL'}</button><button type="button" disabled={busy} onClick={() => { formTouched.current = true; setForm({ radioSetupLabel: openContext.radioSetupLabel, antennaLabel: openContext.antennaLabel, transmitPowerWatts: String(openContext.transmitPowerWatts), band: openContext.band, mode: openContext.mode, frequencyMHz: openContext.frequencyMHz === undefined ? '' : String(openContext.frequencyMHz) }); setReplacingContext(true); }} className="min-h-11 rounded border border-slate-600 px-3 py-2 text-[10px] font-bold text-slate-300">CHANGE TX CONTEXT</button></div>}</div>}
+    {openContext && <div className="rounded border border-violet-800 bg-slate-950/60 p-2 space-y-2"><div className="grid grid-cols-2 gap-2 sm:grid-cols-4"><Datum label="CURRENT TX CONTEXT" value={`${openContext.band} / ${openContext.mode}`} /><Datum label="RADIO / ANTENNA" value={`${openContext.radioSetupLabel} / ${openContext.antennaLabel}`} /><Datum label="POWER" value={`${openContext.transmitPowerWatts} W`} /><Datum label="STARTED UTC" value={formatUtc(openContext.startedAtUtc)} /></div>{!readOnly && activation.status === 'active' && !replacingContext && <div className="flex flex-wrap gap-2"><button type="button" disabled={!canCapture} onClick={() => void capture()} className="min-h-11 rounded border border-emerald-600 px-3 py-2 text-[10px] font-black text-emerald-200 disabled:opacity-50">{queryPending ? 'QUERY PENDING...' : 'CAPTURE MY SIGNAL'}</button><button type="button" disabled={busy} onClick={() => { formTouched.current = true; setForm({ radioSetupLabel: openContext.radioSetupLabel, antennaLabel: openContext.antennaLabel, transmitPowerWatts: String(openContext.transmitPowerWatts), band: openContext.band, mode: openContext.mode, frequencyMHz: openContext.frequencyMHz === undefined ? '' : String(openContext.frequencyMHz) }); setReplacingContext(true); setLastAttemptAtMs(null); }} className="min-h-11 rounded border border-slate-600 px-3 py-2 text-[10px] font-bold text-slate-300">CHANGE TX CONTEXT</button></div>}</div>}
     {readOnly && contexts.length > 0 && <details><summary className="min-h-8 cursor-pointer py-2 text-[10px] font-black uppercase text-violet-300">TX CONTEXT HISTORY ({contexts.length})</summary><div className="space-y-1">{contexts.map(context => <p key={context.segmentId} className="text-[10px] text-slate-300">{context.band} / {context.mode} · {context.radioSetupLabel} / {context.antennaLabel} · {context.transmitPowerWatts} W · {formatUtc(context.startedAtUtc)} to {context.endedAtUtc ? formatUtc(context.endedAtUtc) : 'Open'}</p>)}</div></details>}
-    {!loading && readOnly && contexts.length === 0 && observations.length === 0 && <p className="text-[11px] text-slate-400">No retained MY SIGNAL evidence for this Activation.</p>}
-    {orderedObservations.length > 0 && <div className="space-y-2"><h4 className="text-[10px] font-black uppercase text-violet-300">RETAINED OBSERVATIONS</h4><Observation observation={orderedObservations[0]} />{orderedObservations.length > 1 && <details><summary className="cursor-pointer text-[10px] text-slate-400">Older observations ({orderedObservations.length - 1})</summary><div className="mt-2 space-y-2">{orderedObservations.slice(1).map(observation => <Observation key={observation.observationId} observation={observation} compact />)}</div></details>}</div>}
+    {!loading && readOnly && contexts.length === 0 && observations.length === 0 && <p className="text-[10px] text-slate-400">No retained TX Context or MY SIGNAL evidence exists for this Activation.</p>}
+    {orderedObservations.length > 0 && <RetainedObservations observations={orderedObservations} />}
     {message && <p role="status" className="text-[11px] text-amber-200">{message}</p>}
   </section>;
 };
 
+const DecisionStatus: React.FC<{ state: MySignalDecisionWindowState; nextAt: string | null; sessionCompletedAtMs: number | null; retainedIntervalEndAtUtc: string | null; nowMs: number }> = ({ state, nextAt, sessionCompletedAtMs, retainedIntervalEndAtUtc, nowMs }) => <div className="rounded border border-violet-900 bg-slate-950/50 px-2 py-1 text-[10px] text-slate-300"><p>{state === 'missing_context' ? 'No TX Context is open; station-specific capture is not possible.' : state === 'awaiting_provider_latency' ? `Waiting for PSKReporter provider latency. Next check in ${formatDecisionWindowDuration(Date.parse(nextAt!) - nowMs)}.` : state === 'query_pending' ? 'Checking the retained Observed RF snapshot now.' : state === 'no_matching_reports' ? 'No matching reports were returned by this mature bounded capture.' : state === 'evidence_available' ? 'Matching outbound reception evidence is available.' : state === 'stale_evidence' ? 'Retained matching evidence is stale.' : state === 'provider_unavailable' ? 'The Observed RF provider/source is unavailable; the bounded reason is shown below.' : 'The bounded capture is unavailable; the reason is shown below.'}</p>{sessionCompletedAtMs !== null && <p className="text-slate-500">Last completed capture: {formatUtc(new Date(sessionCompletedAtMs).toISOString())}.</p>}{sessionCompletedAtMs === null && retainedIntervalEndAtUtc !== null && <p className="text-slate-500">Latest captured interval ended: {formatUtc(retainedIntervalEndAtUtc)}.</p>}{nextAt && state !== 'missing_context' && state !== 'capture_unavailable' && state !== 'provider_unavailable' && <p className="text-slate-500">Next eligible refresh: {formatUtc(nextAt)}.</p>}</div>;
+const RetainedObservations: React.FC<{ observations: readonly StationSignalObservation[] }> = ({ observations }) => { const groups = summarizeConsecutiveZeroObservations(observations); return <div className="space-y-2"><h4 className="text-[10px] font-black uppercase text-violet-300">RETAINED OBSERVATIONS</h4>{groups.map((group, index) => group.kind === 'zero' && group.observations.length > 1 ? <details key={`zero-${index}`}><summary className="cursor-pointer text-[10px] text-slate-400">{group.observations.length} consecutive zero-report captures / {formatUtc(group.observations.at(-1)!.endsAtUtc)} to {formatUtc(group.observations[0].endsAtUtc)}</summary><div className="mt-2 space-y-2">{group.observations.map(observation => <Observation key={observation.observationId} observation={observation} compact />)}</div></details> : (group.observations.map(observation => <Observation key={observation.observationId} observation={observation} compact={index > 0} />)))}</div>; };
 const inputClass = 'mt-1 min-h-11 w-full rounded border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-100';
 const Field: React.FC<React.PropsWithChildren<{ label: string }>> = ({ label, children }) => <label className="text-[9px] font-bold uppercase text-slate-400">{label}{children}</label>;
 const Datum: React.FC<{ label: string; value: string }> = ({ label, value }) => <div><span className="block text-[9px] uppercase text-slate-500">{label}</span><span className="text-[11px] text-slate-200">{value}</span></div>;
-const Observation: React.FC<{ observation: StationSignalObservation; compact?: boolean }> = ({ observation, compact = false }) => <article className={`rounded border border-slate-700 bg-slate-950/60 p-2 ${compact ? 'text-[9px]' : 'space-y-1'}`}><div className="flex flex-wrap justify-between gap-2"><strong className="text-[11px] uppercase text-slate-100">{observation.matchingReportCount === 0 ? 'No matching reports observed' : `${countLabel(observation.matchingReportCount, 'report')} / ${countLabel(observation.uniqueReceiverCount, 'receiver')}`}</strong><span className="text-[9px] uppercase text-violet-300">{observation.status} / {observation.source === 'pskreporter' ? 'PSKReporter' : 'WSPR'}</span></div><p className="text-[10px] text-slate-400">{formatUtc(observation.startsAtUtc)} to {formatUtc(observation.endsAtUtc)}</p>{!compact && <><p className="text-[10px] text-slate-300">Exposure rate: {formatRate(observation.reportsPerMinute)} reports/min · {formatRate(observation.uniqueReceiversPerMinute)} unique receivers/min.</p>{observation.distance && <p className="text-[10px] text-slate-300">Approx. distance: {Math.round(observation.distance.nearestKm)}–{Math.round(observation.distance.farthestKm)} km; median {Math.round(observation.distance.medianKm)} km ({observation.distance.locatedReportCount} located).</p>}{observation.snr && <p className="text-[10px] text-slate-300">SNR: {observation.snr.minimumDb} to {observation.snr.maximumDb} dB; median {observation.snr.medianDb} dB.</p>}<ul className="list-disc pl-4 text-[9px] text-slate-500">{observation.limitations.map(item => <li key={item}>{item}</li>)}</ul></>}</article>;
+const Observation: React.FC<{ observation: StationSignalObservation; compact?: boolean }> = ({ observation, compact = false }) => <article className={`rounded border border-slate-700 bg-slate-950/60 p-2 ${compact ? 'text-[9px]' : 'space-y-1'}`}><div className="flex flex-wrap justify-between gap-2"><strong className="text-[11px] uppercase text-slate-100">{observation.matchingReportCount === 0 ? 'No matching reports observed' : `${countLabel(observation.matchingReportCount, 'report')} / ${countLabel(observation.uniqueReceiverCount, 'receiver')}`}</strong><span className="text-[9px] uppercase text-violet-300">{observation.status} / {observation.source === 'pskreporter' ? 'PSKReporter' : 'WSPR'}</span></div><p className="text-[10px] text-slate-400">{formatUtc(observation.startsAtUtc)} to {formatUtc(observation.endsAtUtc)}</p>{!compact && <><p className="text-[10px] text-slate-300">Exposure rate: {formatRate(observation.reportsPerMinute)} reports/min · {formatRate(observation.uniqueReceiversPerMinute)} unique receivers/min.</p>{observation.distance && <p className="text-[10px] text-slate-300">Approx. distance: {Math.round(observation.distance.nearestKm)}–{Math.round(observation.distance.farthestKm)} km; median {Math.round(observation.distance.medianKm)} km ({observation.distance.locatedReportCount} located).</p>}{observation.snr && <p className="text-[10px] text-slate-300">SNR: {observation.snr.minimumDb} to {observation.snr.maximumDb} dB; median {observation.snr.medianDb} dB.</p>}<p className="text-[10px] text-slate-500">PSKReporter matches are outbound reception evidence only; they do not prove a usable return path, transmission success, or contact probability.</p><ul className="list-disc pl-4 text-[9px] text-slate-500">{observation.limitations.map(item => <li key={item}>{item}</li>)}</ul></>}</article>;
 function countLabel(value: number, noun: string): string { return `${value} ${noun}${value === 1 ? '' : 's'}`; }
 function formatAge(value: string): string { const minutes = Math.max(0, Math.floor((Date.now() - Date.parse(value)) / 60_000)); return minutes < 1 ? 'less than 1 minute' : `${minutes} minute${minutes === 1 ? '' : 's'}`; }
 function formatUtc(value: string): string { const parsed = new Date(value); return Number.isNaN(parsed.getTime()) ? 'Unknown' : parsed.toISOString().replace('T', ' ').replace('.000Z', ' UTC'); }
