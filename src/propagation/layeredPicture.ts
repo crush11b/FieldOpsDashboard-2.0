@@ -1,5 +1,5 @@
 import type { StationSignalObservation, TxContext } from '../../server/operationalIntelligence';
-import type { QsoEvidence } from '../operations/qsoEvidence';
+import type { QsoEvidence } from '../../server/qsoEvidence';
 
 export type PropagationLayerState = 'live' | 'retained' | 'stale' | 'stale_evidence' | 'partial' | 'not_applicable' | 'unavailable' | 'missing_context' | 'awaiting_provider_latency' | 'query_pending' | 'no_matching_reports' | 'evidence_available' | 'provider_unavailable';
 export type PropagationLayerId = 'modeled' | 'environmental' | 'general_observed_rf' | 'station_signal';
@@ -108,16 +108,16 @@ export function synthesizeWhatThisMeansNow(input: WhatThisMeansNowInput): readon
   const station = input.layers.find(layer => layer.id === 'station_signal');
   const general = input.layers.find(layer => layer.id === 'general_observed_rf');
   const means: string[] = [];
-  if (station && station.state !== 'unavailable' && station.summary !== 'No matching reports observed.') means.push(`MY SIGNAL has ${station.summary.toLowerCase()} for ${station.applicability}; keep the current TX Context while this bounded evidence remains current.`);
+  if (station && station.state !== 'unavailable' && station.summary !== 'No matching reports observed.') means.push(`MY SIGNAL has ${station.summary.toLowerCase()} for ${station.applicability}; this is bounded station-specific outbound evidence.`);
   if (station?.summary === 'No matching reports observed.') means.push('MY SIGNAL currently has zero matching reports in its bounded capture; this does not establish poor propagation or station failure.');
-  if (!input.objective) means.push('No explicit operating objective is retained; choose whether to hold the current context or change band with operator judgment.');
+  if (!input.objective) means.push('No explicit operating objective is retained for this Activation.');
   if (input.modeledBands.length && input.openContext && !input.modeledBands.includes(input.openContext.band)) means.push(`The modeled alternative is ${input.modeledBands.join(' / ')}; the current TX Context is ${input.openContext.band}.`);
   if (general?.state === 'not_applicable' || general?.applicability === 'Unavailable') means.push('General observed RF is not applicable to this current station-specific question.');
   if (input.objective?.requiredQsoCount !== undefined) means.push(`Qualification progress is ${input.completedQsos}/${input.objective.requiredQsoCount} QSOs${input.objective.deadlineUtc ? `; the operator-entered deadline is ${input.objective.deadlineUtc}` : '; no explicit operating deadline is retained'}.`);
-  if (input.objective?.goal === 'explore_bands') means.push('Objective is band exploration: change only when the operator is ready to open a new TX Context and record the comparison.');
-  if (input.objective?.goal === 'chase_dx' && input.modeledBands.length) means.push(`For DX reach, review ${input.modeledBands.join(' / ')} as modeled alternatives; this does not prove a usable path.`);
+  if (input.objective?.goal === 'explore_bands') means.push('Objective is band exploration; each band comparison belongs to a recorded TX Context.');
+  if (input.objective?.goal === 'chase_dx' && input.modeledBands.length) means.push(`For DX reach, the modeled alternatives are ${input.modeledBands.join(' / ')}; this does not prove a usable path.`);
   if (input.objective?.goal === 'maximize_contacts' && input.liveBand?.reportCount > 0) means.push(`General observed RF reports ${input.liveBand.reportCount} report${input.liveBand.reportCount === 1 ? '' : 's'} on ${input.openContext?.band ?? 'the current band'}; this is not station-specific success.`);
-  if (input.layers.some(layer => layer.state === 'not_applicable' || layer.state === 'partial' || layer.state === 'stale')) means.push('Some evidence layers differ in freshness or applicability; keep modeled, general, and station-specific evidence separate.');
+  if (input.layers.some(layer => layer.state === 'not_applicable' || layer.state === 'partial' || layer.state === 'stale')) means.push('Some evidence layers differ in freshness or applicability; modeled, general, and station-specific evidence remain separate.');
   return means;
 }
 

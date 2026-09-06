@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aggregateQsoEvidence } from '../qsoEvidence';
+import { aggregateQsoEvidence } from '../../../server/qsoEvidence';
 import { MISSION_GUIDANCE_POLICY, assembleMissionGuidance } from '../missionGuidance';
 
 const activation = (goal?: string, extra: any = {}) => ({ activationId: 'a', type: 'General', status: 'active', updatedAtUtc: '2026-09-05T12:00:00.000Z', operatingObjective: goal ? { goal, label: goal, ...extra } : undefined } as any);
@@ -8,12 +8,21 @@ const qso = (id: string, band: string, at: string, mode = 'FT8') => ({ qsoId: id
 const evaluate = (active: any, qsos: any[], at = '2026-09-05T12:00:00.000Z', evidence = picture(), currentBand = '20m') => assembleMissionGuidance({ activation: active, qsoEvidence: aggregateQsoEvidence(qsos, currentBand, 'FT8'), evaluatedAtUtc: at, picture: evidence, modeledBands: ['15m'], currentBand, currentMode: 'FT8' });
 
 describe('mission-aware operating guidance', () => {
-  it('recommends staying on a productive band while exposing model disagreement', () => {
-    const result = evaluate(activation(), [qso('a', '20m', '2026-09-05T11:55:00.000Z'), ...Array.from({ length: 8 }, (_, i) => qso(`old-${i}`, '20m', `2026-09-05T11:4${i}:00.000Z`))]);
+  it('renders the exact field acceptance evidence without inventing an objective', () => {
+    const result = evaluate(activation(), [
+      ...Array.from({ length: 8 }, (_, i) => qso(`old-${i}`, '20m', `2026-09-05T11:4${i}:00.000Z`)),
+      qso('recent-20', '20m', '2026-09-05T11:55:00.000Z'),
+      qso('one-15', '15m', '2026-09-05T11:56:00.000Z'), qso('two-15', '15m', '2026-09-05T11:57:00.000Z'),
+    ], '2026-09-05T12:00:00.000Z', picture('49 matching reports from 49 unique receivers.', 'evidence_available', '15m'));
     expect(result.action).toContain('Remain on productive 20m');
-    expect(result.supportingEvidence.join(' ')).toContain('Actual Activation results');
-    expect(result.conflictingEvidence.join(' ')).toContain('15m');
+    expect(result.supportingEvidence.join(' ')).toContain('9 two-way QSOs on 20m');
+    expect(result.supportingEvidence.join(' ')).toContain('49 matching reports');
+    expect(result.conflictingEvidence).toEqual(['Retained modeled propagation favors 15m; actual current-band results are on 20m.']);
+    expect(result.evidenceReferences).toEqual(['activation_qso_results', 'modeled', 'station_signal']);
     expect(result.reconsiderWhen).toContain(`${MISSION_GUIDANCE_POLICY.progressStallMinutes} minutes`);
+    expect(result.inputs.goal).toBe('unspecified');
+    expect(result.inputs.deadlineUtc).toBeNull();
+    expect(result.action).not.toMatch(/best-band|score|guarantee|return path|contact probability/i);
   });
   it('reassesses a current band after the named progress stall', () => {
     const result = evaluate(activation('secure_activation', { requiredQsoCount: 10 }), [qso('a', '20m', '2026-09-05T11:49:00.000Z')]);
@@ -51,6 +60,15 @@ describe('mission-aware operating guidance', () => {
     const result = evaluate(activation('maximize_contacts'), [qso('a', '20m', '2026-09-05T11:59:00.000Z')]);
     expect(result.inputs.deadlineUtc).toBeNull();
     expect(result.reasons.join(' ')).toContain('not inferred from the planned mission window');
+  });
+  it('uses the current-context start as the no-QSO attempt boundary', () => {
+    const active = activation('maximize_contacts');
+    const base = { ...aggregateQsoEvidence([], '20m', 'FT8') };
+    const input = (at: string) => assembleMissionGuidance({ activation: active, qsoEvidence: base, evaluatedAtUtc: at, picture: picture('PSKReporter pending.', 'awaiting_provider_latency'), currentBand: '20m', currentMode: 'FT8', currentContextStartedAtUtc: '2026-09-05T11:50:00.000Z' });
+    expect(input('2026-09-05T11:59:59.000Z').action).toContain('Continue the bounded 20m attempt');
+    expect(input('2026-09-05T12:00:00.000Z').action).toContain('Reassess 20m now');
+    expect(input('2026-09-05T12:00:01.000Z').action).toContain('no two-way QSO');
+    expect(input('2026-09-05T12:00:01.000Z').action).not.toMatch(/failed|unusable|productive|workable/i);
   });
   it('is deterministic for identical retained inputs', () => {
     const active = activation('maximize_contacts');

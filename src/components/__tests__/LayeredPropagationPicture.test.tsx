@@ -3,7 +3,7 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { LayeredPropagationPicture } from '../LayeredPropagationPicture';
-import { aggregateQsoEvidence } from '../../operations/qsoEvidence';
+import { aggregateQsoEvidence } from '../../../server/qsoEvidence';
 
 const activation = { schemaVersion: 2, activationId: 'activation-1', type: 'General', status: 'completed', startedAtUtc: '2026-09-05T00:00:00.000Z', endedAtUtc: '2026-09-05T01:00:00.000Z', actualTimingStatus: 'recorded', createdAtUtc: '2026-09-05T00:00:00.000Z', updatedAtUtc: '2026-09-05T01:00:00.000Z' } as any;
 
@@ -39,5 +39,17 @@ describe('LayeredPropagationPicture', () => {
     expect(screen.getByText(/Progress: 6\/10 QSOs/)).toBeInTheDocument();
     expect(screen.getByText(/30 minutes to 2026-09-05T00:30:00.000Z \(program_rule \/ program_default\)/)).toBeInTheDocument();
     expect(screen.getByText(/Deterministic guidance from named inputs/)).toBeInTheDocument();
+  });
+
+  it('recomputes guidance for new QSO evidence without refetching unrelated evidence', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) }));
+    vi.stubGlobal('fetch', fetcher);
+    const first = aggregateQsoEvidence([{ qsoId: 'one', qsoDateTimeUtc: '2026-09-05T11:59:00.000Z', band: '20m', mode: 'FT8' } as any], '20m', 'FT8');
+    const second = aggregateQsoEvidence([{ qsoId: 'two', qsoDateTimeUtc: '2026-09-05T11:59:00.000Z', band: '40m', mode: 'FT8' } as any], '40m', 'FT8');
+    const { rerender } = render(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} readOnly qsoEvidence={first} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
+    expect(await screen.findByText(/Remain on productive 20m/)).toBeInTheDocument();
+    rerender(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} readOnly qsoEvidence={second} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
+    expect(await screen.findByText(/Remain on productive 40m/)).toBeInTheDocument();
+    expect(fetcher).toHaveBeenCalledTimes(1);
   });
 });

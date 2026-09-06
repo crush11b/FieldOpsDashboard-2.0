@@ -11,7 +11,7 @@ import { getClockStatus, synchronizeClock } from '../clockApi';
 import type { ClockSynchronizationEvidence } from '../../server/locationTelemetryPipe';
 import { MySignalPanel } from './MySignalPanel';
 import { LayeredPropagationPicture } from './LayeredPropagationPicture';
-import { aggregateQsoEvidence, type QsoEvidence } from '../operations/qsoEvidence';
+import { aggregateQsoEvidence, type QsoEvidence } from '../../server/qsoEvidence';
 
 export const WSJTX_POLL_INTERVAL_MS = 1000;
 export const WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS = 2000;
@@ -45,10 +45,10 @@ export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps>
   const [wsjtxState, setWsjtxState] = useState<CurrentStationState | null>(null);
   const [wsjtxFrontendTiming, setWsjtxFrontendTiming] = useState<WsjtxFrontendTiming>(EMPTY_WSJTX_FRONTEND_TIMING);
   const [clockEvidence, setClockEvidence] = useState<ClockSynchronizationEvidence | null>(null);
-  const [qsoCount, setQsoCount] = useState(initialQsoCount ?? 0);
   const [qsoEvidence, setQsoEvidence] = useState<QsoEvidence>(() => aggregateQsoEvidence([]));
+  const qsoCount = qsoEvidence.total;
   const mounted = useRef(false);
-  useEffect(() => { setActivation(initialActivation); setQsoCount(initialQsoCount ?? 0); if (mounted.current) { setStationState(null); setWsjtxState(null); } setClockEvidence(null); mounted.current = true; setMessage(null); setReviewOpen(false); }, [brief.briefId, initialActivation, initialQsoCount]);
+  useEffect(() => { setActivation(initialActivation); setQsoEvidence(aggregateQsoEvidence([])); if (mounted.current) { setStationState(null); setWsjtxState(null); } setClockEvidence(null); mounted.current = true; setMessage(null); setReviewOpen(false); }, [brief.briefId, initialActivation, initialQsoCount]);
   useEffect(() => {
     if (activation?.status !== 'active') { setWsjtxState(null); setWsjtxFrontendTiming(EMPTY_WSJTX_FRONTEND_TIMING); return; }
     let cancelled = false;
@@ -67,7 +67,7 @@ export const ActivationFoundationPanel: React.FC<ActivationFoundationPanelProps>
     return () => { cancelled = true; window.clearInterval(timer); };
   }, [activation?.status]);
   const publishActivation = (next: Activation | null) => { setActivation(next); setStationState(next?.status === 'active' ? stationState : null); onActivationChange?.(next); };
-  const updateStationState = useCallback((next?: CurrentStationState, nextQsoCount?: number) => { if (next) setStationState(next); if (nextQsoCount !== undefined) setQsoCount(nextQsoCount); }, []);
+  const updateStationState = useCallback((next?: CurrentStationState, _nextQsoCount?: number) => { if (next) setStationState(next); }, []);
   const start = async () => { if (onPrepare) { onPrepare(); return; } setBusy(true); setMessage(null); const result = await startActivationFromBrief(brief.briefId); if (result.kind !== 'activation') { setMessage(result.message); setBusy(false); return; } publishActivation(result.activation); setMessage(result.reconciledActivationIds?.length ? `Activation started. Previous active Activations were completed: ${result.reconciledActivationIds.join(', ')}.` : null); setBusy(false); };
   const changeStatus = async (status: Activation['status']) => { if (!activation) return; setBusy(true); setMessage(null); const result = await updateActivationStatus(activation.activationId, status); if (result.kind === 'activation') publishActivation(result.activation); else setMessage(result.message); setBusy(false); };
   const location = activation?.plannedLocation;

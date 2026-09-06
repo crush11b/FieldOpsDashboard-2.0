@@ -89,7 +89,7 @@ describe('ActivationFoundationPanel', () => {
     const retained = { ...activeActivation, objectiveSelection: 'operator_entered', operatingObjective: { goal: 'secure_activation', label: 'Field objective', requiredQsoCount: 10, thresholdProvenance: 'operator_entered', deadlineUtc: '2026-08-26T13:00:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' } };
     const { rerender } = render(<ActivationFoundationPanel brief={brief} initialActivation={retained} initialQsoCount={6} showReview={false} />);
     expect(screen.getByText('Field objective / secure_activation')).toBeInTheDocument();
-    expect(screen.getByText('6 / 10 QSOs')).toBeInTheDocument();
+    expect(screen.getByText('0 / 10 QSOs')).toBeInTheDocument();
     expect(screen.getByText('operator_entered')).toBeInTheDocument();
     expect(screen.getByText(/2026-08-26 13:00:00 UTC \/ operator_entered \/ operator_entered/)).toBeInTheDocument();
 

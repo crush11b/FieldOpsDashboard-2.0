@@ -9,8 +9,8 @@ import type { RetainedSpaceWeatherSnapshot } from './spaceWeatherSnapshot';
 import type { SpaceWeatherSnapshotStore } from './spaceWeatherSnapshotStore';
 import type { SmartDeployBrief, SmartDeployBriefV2 } from './smartDeployBrief';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
-import type { QsoEvidence } from '../src/operations/qsoEvidence';
-import { aggregateQsoEvidence } from '../src/operations/qsoEvidence';
+import type { QsoEvidence } from './qsoEvidence';
+import { aggregateQsoEvidence } from './qsoEvidence';
 
 export type ReviewEvidenceState = 'available' | 'retained' | 'current' | 'stale' | 'unavailable' | 'unknown' | 'unsupported' | 'error';
 export interface ActivationReview {
