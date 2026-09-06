@@ -56,6 +56,24 @@ export interface Activation {
 }
 export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly objectiveSelection?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; }
 
+export function canonicalProgramObjective(type: ActivationType): ActivationOperatingObjective | undefined {
+  if (type === 'POTA') return { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' };
+  if (type === 'SOTA') return { goal: 'secure_activation', label: 'Qualify SOTA', requiredQsoCount: 4, thresholdProvenance: 'program_default' };
+  return undefined;
+}
+
+export function validateObjectiveSelection(type: ActivationType, selection: ActivationObjectiveSelection | undefined, operatingObjective: ActivationOperatingObjective | undefined): readonly string[] {
+  if (selection === undefined) return [];
+  if (selection === 'explicitly_absent' && operatingObjective) return ['objectiveSelection explicitly_absent cannot have an operatingObjective.'];
+  if (selection !== 'explicitly_absent' && !operatingObjective) return ['objectiveSelection requires an operatingObjective.'];
+  if (selection === 'program_default') {
+    const canonical = canonicalProgramObjective(type);
+    if (!canonical) return ['objectiveSelection program_default is only valid for POTA or SOTA.'];
+    if (!operatingObjective || !sameObjective(operatingObjective, canonical)) return ['objectiveSelection program_default must exactly match the canonical program objective.'];
+  }
+  return [];
+}
+
 export function createActivation(input: CreateActivationInput, options: { readonly now?: () => Date; readonly createId?: () => string } = {}): Activation {
   const now = utcNow(options.now);
   const status = input.status ?? 'planned';
@@ -110,8 +128,7 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   const actualTimingStatus = value.actualTimingStatus === undefined ? undefined : enumValue(value.actualTimingStatus, ACTIVATION_TIMING_STATUSES, 'actualTimingStatus', issues);
   const operatingObjective = objective(value.operatingObjective, issues);
   const objectiveSelection = enumValue(value.objectiveSelection, ACTIVATION_OBJECTIVE_SELECTIONS, 'objectiveSelection', issues);
-  if (objectiveSelection === 'explicitly_absent' && operatingObjective) issues.push('objectiveSelection explicitly_absent cannot have an operatingObjective.');
-  if (objectiveSelection && objectiveSelection !== 'explicitly_absent' && !operatingObjective) issues.push('objectiveSelection requires an operatingObjective.');
+  if (type && objectiveSelection) issues.push(...validateObjectiveSelection(type, objectiveSelection, operatingObjective));
   if (status === 'planned' && (startedAtUtc || endedAtUtc)) issues.push('planned Activations cannot have actual operating timestamps.');
   if (status === 'planned' && actualTimingStatus) issues.push('planned Activations cannot have actual timing status.');
   if (status === 'active' && !startedAtUtc && !(allowHistorical && (value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION || actualTimingStatus === 'unknown_historical'))) issues.push('active Activations require startedAtUtc.');
@@ -170,6 +187,7 @@ function objective(value: unknown, issues: string[]): ActivationOperatingObjecti
   if (issues.some(issue => issue.startsWith('operatingObjective.'))) return undefined;
   return { goal: goal!, label: label!, ...(count === undefined ? {} : { requiredQsoCount: count, thresholdProvenance: threshold! }), ...(deadline === undefined ? {} : { deadlineUtc: deadline, deadlineBasis: basis!, deadlineProvenance: provenance! }) };
 }
+function sameObjective(left: ActivationOperatingObjective, right: ActivationOperatingObjective): boolean { return left.goal === right.goal && left.label === right.label && left.requiredQsoCount === right.requiredQsoCount && left.thresholdProvenance === right.thresholdProvenance && left.deadlineUtc === right.deadlineUtc && left.deadlineBasis === right.deadlineBasis && left.deadlineProvenance === right.deadlineProvenance; }
 function enumValue<T extends string>(value: unknown, values: readonly T[], field: string, issues: string[]): T | undefined { if (value === undefined) return undefined; if (typeof value === 'string' && values.includes(value as T)) return value as T; issues.push(`${field} is unsupported.`); return undefined; }
 function utcNow(now?: () => Date): string { const value = (now ?? (() => new Date()))(); if (!(value instanceof Date) || Number.isNaN(value.getTime())) throw new Error('The activation clock returned an invalid date.'); return value.toISOString(); }
 function finite(value: unknown): value is number { return typeof value === 'number' && Number.isFinite(value); }

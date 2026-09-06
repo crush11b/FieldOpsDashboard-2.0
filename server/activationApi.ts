@@ -1,6 +1,6 @@
 import express, { type Router } from 'express';
 import type { SmartDeployBrief } from './smartDeployBrief';
-import { ACTIVATION_OBJECTIVE_SELECTIONS, ACTIVATION_STATUSES, ACTIVATION_TYPES, updateActivationStatus, validateOperatingObjective, type Activation, type ActivationObjectiveSelection, type ActivationStatus } from './activation';
+import { ACTIVATION_OBJECTIVE_SELECTIONS, ACTIVATION_STATUSES, ACTIVATION_TYPES, updateActivationStatus, validateObjectiveSelection, validateOperatingObjective, type Activation, type ActivationObjectiveSelection, type ActivationOperatingObjective, type ActivationStatus, type ActivationType } from './activation';
 import type { ActivationStore, ActivationStoreReadResult } from './activationStore';
 import type { ActivationNotesStore } from './activationNotesStore';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
@@ -26,6 +26,11 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
     if (request.body?.objectiveSelection !== undefined && !(ACTIVATION_OBJECTIVE_SELECTIONS as readonly string[]).includes(request.body.objectiveSelection)) { response.status(400).json(error('invalid_objective_selection', `Objective selection must be one of: ${ACTIVATION_OBJECTIVE_SELECTIONS.join(', ')}.`)); return; }
     const briefResult = options.briefStore.get(briefId);
     if (briefResult.status === 'notFound') { response.status(hasIoError(briefResult.diagnostics) ? 503 : 404).json(error(hasIoError(briefResult.diagnostics) ? 'persistence_unavailable' : 'brief_not_found', hasIoError(briefResult.diagnostics) ? 'SmartDeploy briefs are temporarily unavailable.' : 'The SmartDeploy brief was not found.', briefResult.diagnostics)); return; }
+    const briefSource = sourceFromBrief(briefResult.brief);
+    if (request.body?.objectiveSelection !== undefined) {
+      const issues = validateObjectiveSelection(briefSource.type, request.body.objectiveSelection as ActivationObjectiveSelection, request.body.operatingObjective as ActivationOperatingObjective | undefined);
+      if (issues.length) { response.status(400).json(error('invalid_objective_selection', issues.join(' '))); return; }
+    }
     const existing = options.store.list().activations.find(item => item.briefId === briefId);
     if (existing) { response.json({ kind: 'activation', status: 'existing', activation: existing }); return; }
     try {
@@ -50,6 +55,10 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
   });
   router.post('/api/activations', (request, response) => {
     if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) { response.status(400).json(error('invalid_request', 'Activation data must be an object.')); return; }
+    if (request.body.objectiveSelection !== undefined && typeof request.body.type === 'string' && (ACTIVATION_TYPES as readonly string[]).includes(request.body.type)) {
+      const issues = validateObjectiveSelection(request.body.type as ActivationType, request.body.objectiveSelection as ActivationObjectiveSelection, request.body.operatingObjective as ActivationOperatingObjective | undefined);
+      if (issues.length) { response.status(400).json(error('invalid_objective_selection', issues.join(' '))); return; }
+    }
     try { const created = options.store.create(request.body); try { notifyReconciled(options, created.reconciledActivationIds); } catch { response.status(503).json(error('closure_unavailable', 'The Activation was saved, but a reconciled TX Context could not be closed.', created.diagnostics)); return; } response.status(201).json({ kind: 'activation', status: 'created', activation: created.activation, diagnostics: created.diagnostics }); }
     catch (creationError) { response.status(400).json(errorPayload('invalid_request', creationError instanceof Error ? creationError.message : 'The Activation request is invalid.')); }
   });

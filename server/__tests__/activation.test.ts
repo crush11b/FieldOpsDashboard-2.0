@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import express from 'express';
 import { afterEach, describe, expect, it } from 'vitest';
-import { createActivation, normalizeActivation, updateActivationStatus } from '../activation';
+import { canonicalProgramObjective, createActivation, normalizeActivation, updateActivationStatus } from '../activation';
 import { ActivationStore } from '../activationStore';
 import { createActivationRouter } from '../activationApi';
 import { ActivationNotesStore } from '../activationNotesStore';
@@ -16,6 +16,21 @@ const now = () => new Date('2026-08-25T12:00:00.000Z');
 function stores() { const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-activation-')); directories.push(directory); const activationPath = path.join(directory, 'activations.json'); return { activation: new ActivationStore(activationPath, { now, createId: () => 'activation-1' }), activationPath, notes: new ActivationNotesStore(path.join(directory, 'activation-notes.json'), { now, createId: () => 'notes-1' }) }; }
 
 describe('Activation model and store', () => {
+  it('enforces canonical POTA and SOTA program defaults without inferring deadlines', () => {
+    expect(canonicalProgramObjective('POTA')).toEqual({ goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' });
+    expect(canonicalProgramObjective('SOTA')).toEqual({ goal: 'secure_activation', label: 'Qualify SOTA', requiredQsoCount: 4, thresholdProvenance: 'program_default' });
+    expect(createActivation({ type: 'POTA', objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') }, { now, createId: () => 'default-pota' }).operatingObjective?.deadlineUtc).toBeUndefined();
+    expect(() => createActivation({ type: 'General', objectiveSelection: 'program_default', operatingObjective: canonicalProgramObjective('POTA') }, { now, createId: () => 'invalid-general' })).toThrow();
+    expect(() => createActivation({ type: 'POTA', objectiveSelection: 'program_default', operatingObjective: { ...canonicalProgramObjective('POTA')!, label: 'Altered' } }, { now, createId: () => 'invalid-default' })).toThrow();
+    expect(() => createActivation({ type: 'POTA', objectiveSelection: 'operator_entered' }, { now, createId: () => 'missing-objective' })).toThrow();
+    expect(() => createActivation({ type: 'POTA', objectiveSelection: 'explicitly_absent', operatingObjective: canonicalProgramObjective('POTA') }, { now, createId: () => 'invalid-absent' })).toThrow();
+  });
+  it('keeps legacy records readable without inventing objective provenance', () => {
+    const legacy = normalizeActivation({ schemaVersion: 2, activationId: 'legacy-objective', type: 'General', status: 'planned', createdAtUtc: '2026-08-25T10:00:00Z', updatedAtUtc: '2026-08-25T10:00:00Z', operatingObjective: { goal: 'maximize_contacts', label: 'Contacts' } });
+    expect(legacy.valid).toBe(true);
+    expect(legacy.activation?.objectiveSelection).toBeUndefined();
+    expect(legacy.activation?.operatingObjective?.label).toBe('Contacts');
+  });
   it('supports POTA, SOTA, and General with optional context', () => {
     expect(createActivation({ type: 'POTA', reference: 'us-1', plannedLocation: { latitude: 1, longitude: 2 }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' } }, { now, createId: () => 'pota-1' }).type).toBe('POTA');
     expect(createActivation({ type: 'SOTA' }, { now, createId: () => 'sota-1' }).reference).toBeUndefined();
@@ -30,6 +45,19 @@ describe('Activation model and store', () => {
     const loaded = new ActivationStore(activationPath).get('activation-1');
     expect(loaded.status).toBe('found');
     expect((loaded as any).activation.status).toBe('active');
+  });
+  it('persists objective decisions and preserves unrelated Activation fields on update', () => {
+    const { activation: store, activationPath } = stores();
+    const created = store.create({ type: 'POTA', briefId: 'brief-1', notesCollectionId: 'notes-1', plannedLocation: { latitude: 1, longitude: 2, gridSquare: 'FN20' }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' } }).activation;
+    const selected = store.updateObjective(created.activationId, canonicalProgramObjective('POTA'), 'program_default').activation;
+    expect(new ActivationStore(activationPath).get(created.activationId)).toMatchObject({ status: 'found', activation: { activationId: created.activationId, briefId: 'brief-1', notesCollectionId: 'notes-1', plannedLocation: created.plannedLocation, missionWindow: created.missionWindow, objectiveSelection: 'program_default' } });
+    expect(selected.activationId).toBe(created.activationId);
+    const absent = store.updateObjective(created.activationId, undefined, 'explicitly_absent').activation;
+    expect(new ActivationStore(activationPath).get(created.activationId)).toMatchObject({ status: 'found', activation: { objectiveSelection: 'explicitly_absent' } });
+    expect(absent.operatingObjective).toBeUndefined();
+    const completed = updateActivationStatus(absent, 'active', now);
+    store.save(updateActivationStatus(completed, 'completed', now));
+    expect(() => store.updateObjective(created.activationId, canonicalProgramObjective('POTA'), 'program_default')).toThrow(/completed/i);
   });
   it('completes an older active Activation when starting a planned one', () => {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-activation-lifecycle-')); directories.push(directory);

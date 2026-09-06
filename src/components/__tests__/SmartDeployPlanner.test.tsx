@@ -397,6 +397,7 @@ describe('SmartDeploy brief rendering', () => {
     await waitFor(() => expect(screen.getByText(/Reconciled 1 stale active Activation/)).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
     await waitFor(() => expect(screen.getByRole('button', { name: 'SAVE OBJECTIVE' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' }));
     fireEvent.click(screen.getByRole('button', { name: 'SAVE OBJECTIVE' }));
     await waitFor(() => expect(fetcher).toHaveBeenCalledWith(`/api/activations/${oldActiveActivations[0].activationId}/objective`, expect.objectContaining({ method: 'PATCH' })));
     expect(fetcher).not.toHaveBeenCalledWith('/api/activations/from-brief', expect.anything());
