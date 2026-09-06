@@ -16,7 +16,7 @@ interface GPSGridWidgetProps {
   baudRate?: number;
   onSelectComPort?: (port: string, baud: number) => void;
   clockEvidence?: ClockSynchronizationEvidence;
-  onSynchronizeClock?: () => Promise<void>;
+  onSynchronizeClock?: () => Promise<ClockSynchronizationEvidence>;
   gnssDiagnostics?: GnssSerialDiagnostics;
 }
 
@@ -125,6 +125,8 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const hasFreshGnssTime = clockEvidence?.gnssTime?.status === 'Available' && Boolean(clockEvidence.gnssTime.timestampUtc);
   const clockStatus = clockEvidence?.status === 'Synchronized'
     ? 'GPS SYNCHRONIZED'
+    : clockEvidence?.status === 'Degraded'
+      ? 'GPS CLOCK DEGRADED'
     : hasFreshGnssTime
       ? 'NOT GPS-SYNCHRONIZED'
       : 'GNSS TIME UNAVAILABLE';
@@ -482,10 +484,11 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
 
               <div className={`col-span-2 p-2 rounded border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
                 <span className="text-[10px] uppercase opacity-70 block">WINDOWS CLOCK</span>
-                <span className={`font-bold ${clockEvidence?.status === 'Synchronized' ? 'text-emerald-400' : 'text-amber-300'}`}>{clockStatus}</span>
+                <span className={`font-bold ${clockEvidence?.status === 'Synchronized' ? 'text-emerald-400' : clockEvidence?.status === 'Degraded' ? 'text-amber-300' : 'text-red-300'}`}>{clockStatus}</span>
                 <div className="mt-1 grid grid-cols-1 sm:grid-cols-3 gap-1 text-[10px] opacity-85">
                   <span>LAST GPS SYNC: {formatEvidenceTime(clockEvidence?.lastSuccessfulSynchronizationUtc)}</span>
                   <span>CALCULATED OFFSET: {typeof (clockEvidence?.currentOffsetSeconds ?? clockEvidence?.offsetBeforeSynchronizationSeconds) === 'number' ? `${(clockEvidence.currentOffsetSeconds ?? clockEvidence.offsetBeforeSynchronizationSeconds)!.toFixed(3)} s` : 'Not available'}</span>
+                  <span>LAST REQUEST: {clockEvidence?.windowsSetAttempted ? clockEvidence.windowsSetAccepted ? clockEvidence.verificationPerformed ? clockEvidence.status === 'Error' ? 'SET ACCEPTED / VERIFICATION FAILED' : clockEvidence.status === 'Degraded' ? 'SET ACCEPTED / DEGRADED' : 'SET ACCEPTED / VERIFIED' : 'SET ACCEPTED / NOT VERIFIED' : 'SET REJECTED' : clockEvidence?.requestAccepted ? clockEvidence.status === 'Synchronized' ? 'NO-OP / READY' : 'REQUEST ACCEPTED / NO SET' : 'NOT ACCEPTED'}</span>
                   <span>SOURCE: FieldOps Agent / COM6</span>
                 </div>
                 {onSynchronizeClock && <div className="mt-2 flex flex-wrap items-center gap-2">
