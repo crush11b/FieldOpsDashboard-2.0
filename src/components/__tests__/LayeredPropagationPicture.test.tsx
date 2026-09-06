@@ -3,6 +3,7 @@ import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, render, screen } from '@testing-library/react';
 import { LayeredPropagationPicture } from '../LayeredPropagationPicture';
+import { aggregateQsoEvidence } from '../../operations/qsoEvidence';
 
 const activation = { schemaVersion: 2, activationId: 'activation-1', type: 'General', status: 'completed', startedAtUtc: '2026-09-05T00:00:00.000Z', endedAtUtc: '2026-09-05T01:00:00.000Z', actualTimingStatus: 'recorded', createdAtUtc: '2026-09-05T00:00:00.000Z', updatedAtUtc: '2026-09-05T01:00:00.000Z' } as any;
 
@@ -32,10 +33,11 @@ describe('LayeredPropagationPicture', () => {
   it('renders disclosed deterministic guidance inputs and limitations', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) })));
     const guided = { ...activation, operatingObjective: { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default', deadlineUtc: '2026-09-05T00:30:00.000Z', deadlineBasis: 'program_rule', deadlineProvenance: 'program_default' } } as any;
-    render(<LayeredPropagationPicture activation={guided} qsoCount={6} evaluatedAtUtc="2026-09-05T00:00:00.000Z" readOnly retained={{}} />);
+    const qsoEvidence = aggregateQsoEvidence(Array.from({ length: 6 }, (_, index) => ({ qsoId: `qso-${index}`, qsoDateTimeUtc: `2026-09-04T23:0${index}:00.000Z`, band: '20m', mode: 'FT8' } as any)), '20m', 'FT8');
+    render(<LayeredPropagationPicture activation={guided} qsoEvidence={qsoEvidence} evaluatedAtUtc="2026-09-05T00:00:00.000Z" readOnly retained={{}} />);
     expect(await screen.findByRole('region', { name: 'Mission-aware operating guidance' })).toHaveTextContent('qualification / focused');
     expect(screen.getByText(/Progress: 6\/10 QSOs/)).toBeInTheDocument();
     expect(screen.getByText(/30 minutes to 2026-09-05T00:30:00.000Z \(program_rule \/ program_default\)/)).toBeInTheDocument();
-    expect(screen.getByText(/not a prediction, guarantee, command/)).toBeInTheDocument();
+    expect(screen.getByText(/Deterministic guidance from named inputs/)).toBeInTheDocument();
   });
 });

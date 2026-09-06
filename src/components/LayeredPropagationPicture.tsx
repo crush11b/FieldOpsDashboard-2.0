@@ -5,6 +5,8 @@ import { getOperationalIntelligence } from '../operationalIntelligenceApi';
 import { fetchLiveBandActivity } from '../liveBandActivityApi';
 import { assembleLayeredPropagationPicture, type LayeredPropagationInputs } from '../propagation/layeredPicture';
 import { assembleMissionGuidance } from '../operations/missionGuidance';
+import { aggregateQsoEvidence, withCurrentQsoContext, type QsoEvidence } from '../operations/qsoEvidence';
+import { listQsos } from '../qsoApi';
 
 interface Props {
   readonly activation: Activation;
@@ -12,28 +14,30 @@ interface Props {
   readonly retained?: Pick<LayeredPropagationInputs, 'modeled' | 'modeledStatus' | 'modeledAtUtc' | 'missionWindow' | 'destinationLabel' | 'forecast' | 'spaceWeather' | 'generalObserved'>;
   readonly readOnly?: boolean;
   readonly qsoCount?: number;
+  readonly qsoEvidence?: QsoEvidence;
   readonly evaluatedAtUtc?: string;
 }
 
-export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, retained, readOnly = false, qsoCount = 0, evaluatedAtUtc }) => {
+export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, retained, readOnly = false, qsoCount = 0, qsoEvidence, evaluatedAtUtc }) => {
   const [remote, setRemote] = useState<LayeredPropagationInputs>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     const controller = new AbortController(); setLoading(true); setRemote({});
-    const requests: Promise<Partial<LayeredPropagationInputs>>[] = [getOperationalIntelligence(activation.activationId, controller.signal).then(value => ({ txContexts: value.txContexts, stationObservations: value.observations }))];
+    const requests: Promise<Partial<LayeredPropagationInputs>>[] = [getOperationalIntelligence(activation.activationId, controller.signal).then(value => ({ txContexts: value.txContexts, stationObservations: value.observations })), ...(qsoEvidence || readOnly ? [] : [listQsos(activation.activationId).then(value => ({ qsoEvidence: aggregateQsoEvidence(value.qsos) }))])];
     if (brief && !retained?.forecast) requests.push(readRecord(`/api/mission-forecast/brief/${encodeURIComponent(brief.briefId)}`, controller.signal).then(forecast => ({ forecast })));
     if (brief && !retained?.spaceWeather) requests.push(readRecord(`/api/space-weather/brief/${encodeURIComponent(brief.briefId)}`, controller.signal).then(spaceWeather => ({ spaceWeather })));
     if (!readOnly) requests.push(fetchLiveBandActivity(controller.signal).then(liveBandActivity => ({ liveBandActivity })));
     void Promise.allSettled(requests).then(results => { if (controller.signal.aborted) return; setRemote(results.reduce<LayeredPropagationInputs>((combined, result) => result.status === 'fulfilled' ? { ...combined, ...result.value } : combined, {})); setLoading(false); });
     return () => controller.abort();
-  }, [activation.activationId, brief?.briefId, readOnly]);
+  }, [activation.activationId, brief?.briefId, qsoEvidence, readOnly]);
   const base = useMemo<LayeredPropagationInputs>(() => retained ?? (brief?.sections ? { modeled: brief.sections.propagation.evidence, modeledStatus: brief.sections.propagation.status, modeledAtUtc: brief.generatedAtUtc, missionWindow: { start: brief.missionWindow.start, end: brief.missionWindow.end }, destinationLabel: brief.propagationObjective.regionLabel, generalObserved: brief.sections.observedRf.evidence } : {}), [brief, retained]);
-  const picture = useMemo(() => assembleLayeredPropagationPicture({ ...base, ...remote, forecast: remote.forecast ?? base.forecast, spaceWeather: remote.spaceWeather ?? base.spaceWeather, objective: activation.operatingObjective, completedQsos: qsoCount }), [activation.operatingObjective, base, qsoCount, remote]);
+  const evidence = qsoEvidence ?? remote.qsoEvidence ?? aggregateQsoEvidence([]);
+  const picture = useMemo(() => assembleLayeredPropagationPicture({ ...base, ...remote, forecast: remote.forecast ?? base.forecast, spaceWeather: remote.spaceWeather ?? base.spaceWeather, objective: activation.operatingObjective, completedQsos: evidence.total }), [activation.operatingObjective, base, evidence, qsoCount, remote]);
   const guidance = useMemo(() => {
     const current = remote.txContexts?.find(context => context.endedAtUtc === undefined);
     const modeledBands = [...new Set((base.modeled?.summary?.strongestBandBySample ?? []).map((item: any) => item?.band).filter(Boolean))] as string[];
-    return assembleMissionGuidance({ activation, qsoCount, picture, evaluatedAtUtc: evaluatedAtUtc ?? activation.updatedAtUtc, modeledBands, currentBand: current?.band, currentMode: current?.mode });
-  }, [activation, base.modeled, evaluatedAtUtc, picture, qsoCount, remote.txContexts]);
+    return assembleMissionGuidance({ activation, qsoEvidence: current ? withCurrentQsoContext(evidence, current.band, current.mode) : evidence, picture, evaluatedAtUtc: evaluatedAtUtc ?? activation.updatedAtUtc, modeledBands, currentBand: current?.band, currentMode: current?.mode });
+  }, [activation, base.modeled, evaluatedAtUtc, evidence, picture, qsoCount, remote.txContexts]);
   return <section aria-label="Layered propagation picture" className="rounded-xl border border-indigo-700/70 bg-indigo-950/20 p-3 space-y-3">
     <div><h3 className="text-sm font-black uppercase text-indigo-300">LAYERED PROPAGATION PICTURE</h3><p className="text-[10px] text-slate-400">Four attributable evidence layers. Differences are shown without blending them into a score.</p></div>
     {loading && <p role="status" className="text-[10px] text-slate-400">Loading retained and local evidence...</p>}
@@ -46,11 +50,16 @@ export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, 
       <p className="text-[11px] font-bold text-slate-100">{guidance.action}</p>
       {(guidance.suggestedBand || guidance.suggestedMode) && <p className="text-[10px] text-emerald-100">Suggested context: {guidance.suggestedBand ?? 'Band not specified'} / {guidance.suggestedMode ?? 'Mode not specified'}</p>}
       <p className="text-[10px] text-slate-300">Goal: {guidance.inputs.goalLabel} · Progress: {guidance.inputs.completedQsos}{guidance.inputs.requiredQsos === null ? ' QSOs' : `/${guidance.inputs.requiredQsos} QSOs`}{guidance.inputs.deadlineUtc ? ` · ${guidance.inputs.minutesRemaining} minutes to ${guidance.inputs.deadlineUtc} (${guidance.inputs.deadlineBasis} / ${guidance.inputs.deadlineProvenance})` : ' · No explicit deadline'}</p>
+      <GuidanceList title="WHY" items={guidance.supportingEvidence.length ? guidance.supportingEvidence : guidance.reasons} />
+      {guidance.conflictingEvidence.length > 0 && <GuidanceList title="EVIDENCE THAT DISAGREES" items={guidance.conflictingEvidence} />}
+      <p className="text-[10px] text-slate-300"><strong className="uppercase text-emerald-200">RECONSIDER WHEN:</strong> {guidance.reconsiderWhen}</p>
       <ul className="list-disc pl-4 text-[10px] text-slate-300">{guidance.reasons.map(reason => <li key={reason}>{reason}</li>)}</ul>
       <p className="text-[9px] text-slate-500">Evidence references: {guidance.evidenceReferences.join(', ') || 'none'} · Evaluated {guidance.evaluatedAtUtc}</p>
       <ul className="list-disc pl-4 text-[9px] text-slate-500">{guidance.limitations.map(item => <li key={item}>{item}</li>)}</ul>
     </section>
   </section>;
 };
+
+const GuidanceList: React.FC<{ title: string; items: readonly string[] }> = ({ title, items }) => <div><h5 className="text-[9px] font-black uppercase text-emerald-200">{title}</h5><ul className="list-disc pl-4 text-[10px] text-slate-300">{(items.length ? items : ['No supporting evidence is currently available.']).map(item => <li key={item}>{item}</li>)}</ul></div>;
 
 async function readRecord(url: string, signal: AbortSignal): Promise<any | null> { const response = await fetch(url, { cache: 'no-store', signal }); if (!response.ok) throw new Error('Retained evidence is unavailable.'); const payload = await response.json(); return payload?.record ?? null; }

@@ -1,4 +1,5 @@
 import type { StationSignalObservation, TxContext } from '../../server/operationalIntelligence';
+import type { QsoEvidence } from '../operations/qsoEvidence';
 
 export type PropagationLayerState = 'live' | 'retained' | 'stale' | 'stale_evidence' | 'partial' | 'not_applicable' | 'unavailable' | 'missing_context' | 'awaiting_provider_latency' | 'query_pending' | 'no_matching_reports' | 'evidence_available' | 'provider_unavailable';
 export type PropagationLayerId = 'modeled' | 'environmental' | 'general_observed_rf' | 'station_signal';
@@ -36,6 +37,7 @@ export interface LayeredPropagationInputs {
   readonly stationObservations?: readonly StationSignalObservation[];
   readonly objective?: { readonly goal?: string; readonly requiredQsoCount?: number; readonly deadlineUtc?: string };
   readonly completedQsos?: number;
+  readonly qsoEvidence?: QsoEvidence;
 }
 
 export function assembleLayeredPropagationPicture(input: LayeredPropagationInputs): LayeredPropagationPicture {
@@ -95,7 +97,9 @@ export function assembleLayeredPropagationPicture(input: LayeredPropagationInput
   if (openContext && modeledBands.length && !modeledBands.includes(openContext.band)) relationships.push(`Current TX band ${openContext.band} differs from the representative strongest modeled band${modeledBands.length === 1 ? '' : 's'} (${modeledBands.join(' / ')}); this is context, not proof of a poor path.`);
   if (station?.matchingReportCount === 0 && liveBand?.reportCount > 0) relationships.push(`General ${openContext?.band ?? ''} activity is present, but no matching reports from this station were observed; general activity is not station success.`);
   if (station && station.status !== generalState(generalStatus) && generalStatus !== 'unavailable') relationships.push('General and station-specific observations have different freshness states and must be interpreted independently.');
-  return { kind: 'layered_propagation_picture', layers, relationships, limitation: 'These layers remain separate evidence. No universal best-band score, confidence score, contact probability, or guarantee is produced.', whatThisMeansNow: synthesizeWhatThisMeansNow({ layers, openContext, modeledBands, liveBand, objective: input.objective, completedQsos: input.completedQsos ?? 0 }) };
+  if (input.qsoEvidence?.currentBand && input.qsoEvidence.currentBandQsoCount > 0) relationships.push(`Retained two-way Activation results provide direct evidence on ${input.qsoEvidence.currentBand}; this carries more operational weight than a modeled alternative for the current decision.`);
+  if (input.qsoEvidence?.currentBand && input.qsoEvidence.currentBandMode && input.qsoEvidence.currentBandModeQsoCount > 0) relationships.push(`The current ${input.qsoEvidence.currentBand} / ${input.qsoEvidence.currentBandMode} context has ${input.qsoEvidence.currentBandModeQsoCount} retained two-way result${input.qsoEvidence.currentBandModeQsoCount === 1 ? '' : 's'}.`);
+  return { kind: 'layered_propagation_picture', layers, relationships, limitation: 'These layers remain separate evidence. No universal best-band score, confidence score, contact probability, or guarantee is produced.', whatThisMeansNow: synthesizeWhatThisMeansNow({ layers, openContext, modeledBands, liveBand, objective: input.objective, completedQsos: input.qsoEvidence?.total ?? input.completedQsos ?? 0 }) };
 }
 
 export interface WhatThisMeansNowInput { readonly layers: readonly PropagationLayer[]; readonly openContext: TxContext | null; readonly modeledBands: readonly string[]; readonly liveBand: any; readonly objective?: LayeredPropagationInputs['objective']; readonly completedQsos: number; }
