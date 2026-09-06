@@ -319,7 +319,9 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getByText('OPERATIONS READINESS')).toBeTruthy();
     expect(screen.queryByText('SMARTDEPLOY PLAN')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'operate' }));
-    expect(screen.getByText('START ACTIVATION')).toBeTruthy();
+    expect(screen.getByText('Complete Objective and Deadline in PREPARE before starting the Activation.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'OPEN PREPARE' })).toBeTruthy();
+    expect(screen.queryByText('START ACTIVATION')).toBeNull();
     expect(screen.queryByText('OPERATIONS READINESS')).toBeNull();
     fireEvent.click(screen.getByRole('button', { name: 'review' }));
     expect(screen.getByText('OPEN OPERATE')).toBeTruthy();
@@ -371,7 +373,7 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getByLabelText('QSO logging').compareDocumentPosition(screen.getByRole('region', { name: 'Layered propagation picture' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('clears a stale ambiguity warning when PREPARE start returns the reconciled active Activation', async () => {
+  it('updates an existing active objective-less Activation through the persisted objective path', async () => {
     const plannedActivation = { activationId: 'activation-new', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'planned', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow } as any;
     const oldActiveActivations = [
       { ...plannedActivation, activationId: 'activation-old-1', reference: 'OLD-1', status: 'active' },
@@ -383,20 +385,23 @@ describe('SmartDeploy brief rendering', () => {
       const path = String(input);
       if (path === '/api/activations') return { ok: true, json: async () => ({ activations: oldActiveActivations }) };
       if (path === `/api/operations-readiness/${v2Brief.briefId}`) return { ok: true, json: async () => readiness };
-      if (path === '/api/activations/from-brief') return { ok: true, json: async () => ({ kind: 'activation', activation: plannedActivation }) };
-      if (path === `/api/activations/${plannedActivation.activationId}/status`) return { ok: true, json: async () => ({ kind: 'activation', status: 'updated', activation: activeActivation, reconciledActivationIds: oldActiveActivations.map(item => item.activationId) }) };
+      if (path === '/api/activations/reconcile') return { ok: true, json: async () => ({ kind: 'activation', status: 'reconciled', activation: oldActiveActivations[0], reconciledActivationIds: [oldActiveActivations[1].activationId] }) };
+      if (path === `/api/activations/${oldActiveActivations[0].activationId}/objective`) return { ok: true, json: async () => ({ kind: 'activation', status: 'updated', activation: { ...oldActiveActivations[0], operatingObjective: { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' }, objectiveSelection: 'program_default' } }) };
       if (path.includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
       return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
     });
     vi.stubGlobal('fetch', fetcher);
     render(<SmartDeployBriefView brief={v2Brief} />);
     await waitFor(() => expect(screen.getByText('AMBIGUOUS ACTIVE ACTIVATION STATE')).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'KEEP OLD-1 ACTIVE' }));
+    await waitFor(() => expect(screen.getByText(/Reconciled 1 stale active Activation/)).toBeTruthy());
     fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
-    await waitFor(() => expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy());
-    fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
-    await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-29 12:00:00 UTC')).toBeTruthy());
-    expect(screen.queryByText('AMBIGUOUS ACTIVE ACTIVATION STATE')).toBeNull();
-    expect(fetcher).toHaveBeenCalledWith(`/api/activations/${plannedActivation.activationId}/status`, expect.objectContaining({ method: 'PATCH' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'SAVE OBJECTIVE' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE OBJECTIVE' }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith(`/api/activations/${oldActiveActivations[0].activationId}/objective`, expect.objectContaining({ method: 'PATCH' })));
+    expect(fetcher).not.toHaveBeenCalledWith('/api/activations/from-brief', expect.anything());
+    expect(fetcher).not.toHaveBeenCalledWith(`/api/activations/${plannedActivation.activationId}/status`, expect.anything());
   });
 
   it('renders partial samples, modeled mode limitation, and temporal RF status', () => {

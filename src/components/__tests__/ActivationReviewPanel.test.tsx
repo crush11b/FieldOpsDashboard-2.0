@@ -26,6 +26,20 @@ describe('ActivationReviewPanel', () => {
     expect(note.tagName).toBe('SPAN');
     expect(note.previousElementSibling?.textContent).toBe('2026-08-26 23:08:34.065Z');
   });
+
+  it.each([
+    ['program_default', { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' }],
+    ['operator_entered', { goal: 'maximize_contacts', label: 'Field objective' }],
+    ['explicitly_absent', undefined],
+    [undefined, { goal: 'secure_activation', label: 'Legacy objective' }],
+  ])('renders %s objective provenance in completed review', async (selection, operatingObjective) => {
+    const completedActivation = { ...activation, status: 'completed', objectiveSelection: selection, operatingObjective };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...review, activation: completedActivation }) }));
+    render(<ActivationReviewPanel activation={completedActivation} />);
+    expect(await screen.findByText('ACTIVATION REVIEW')).toBeTruthy();
+    expect(screen.getByText(selection || 'Unavailable (legacy record)')).toBeInTheDocument();
+    expect(screen.getByText(operatingObjective ? `${operatingObjective.label} / ${operatingObjective.goal}` : 'No explicit objective')).toBeInTheDocument();
+  });
 });
 
 afterEach(() => vi.restoreAllMocks());

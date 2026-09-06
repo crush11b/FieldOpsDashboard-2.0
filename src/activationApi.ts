@@ -1,21 +1,25 @@
-import type { Activation, ActivationOperatingObjective, ActivationStatus } from '../server/activation';
+import type { Activation, ActivationObjectiveSelection, ActivationOperatingObjective, ActivationStatus } from '../server/activation';
 
 export type ActivationApiResult = { readonly kind: 'activation'; readonly status?: 'created' | 'existing' | 'updated' | 'reconciled'; readonly activation: Activation; readonly diagnostics?: readonly unknown[]; readonly reconciledActivationIds?: readonly string[] } | { readonly kind: 'activation_error'; readonly code: string; readonly message: string };
 
-export async function openActivationFromBrief(briefId: string, operatingObjective?: ActivationOperatingObjective): Promise<ActivationApiResult> {
-  const response = await fetch('/api/activations/from-brief', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId, ...(operatingObjective ? { operatingObjective } : {}) }) });
+export async function openActivationFromBrief(briefId: string, operatingObjective?: ActivationOperatingObjective, objectiveSelection?: ActivationObjectiveSelection): Promise<ActivationApiResult> {
+  const response = await fetch('/api/activations/from-brief', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId, ...(operatingObjective ? { operatingObjective } : {}), ...(objectiveSelection ? { objectiveSelection } : {}) }) });
   return readResult(response, 'The Activation could not be opened.');
 }
 export async function updateActivationStatus(activationId: string, status: ActivationStatus): Promise<ActivationApiResult> {
   const response = await fetch(`/api/activations/${encodeURIComponent(activationId)}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status }) });
   return readResult(response, 'The Activation status could not be updated.');
 }
+export async function updateActivationObjective(activationId: string, operatingObjective: ActivationOperatingObjective | undefined, objectiveSelection: ActivationObjectiveSelection): Promise<ActivationApiResult> {
+  const response = await fetch(`/api/activations/${encodeURIComponent(activationId)}/objective`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objectiveSelection, ...(operatingObjective ? { operatingObjective } : {}) }) });
+  return readResult(response, 'The Activation objective could not be updated.');
+}
 export async function reconcileActiveActivation(keepActivationId: string): Promise<ActivationApiResult> {
   const response = await fetch('/api/activations/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keepActivationId }) });
   return readResult(response, 'The active Activations could not be reconciled.');
 }
-export async function startActivationFromBrief(briefId: string, operatingObjective?: ActivationOperatingObjective): Promise<ActivationApiResult> {
-  const opened = await openActivationFromBrief(briefId, operatingObjective);
+export async function startActivationFromBrief(briefId: string, operatingObjective?: ActivationOperatingObjective, objectiveSelection?: ActivationObjectiveSelection): Promise<ActivationApiResult> {
+  const opened = await openActivationFromBrief(briefId, operatingObjective, objectiveSelection);
   if (opened.kind !== 'activation') return opened;
   return updateActivationStatus(opened.activation.activationId, 'active');
 }

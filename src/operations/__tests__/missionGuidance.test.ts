@@ -6,6 +6,12 @@ const activation = (goal: string, extra: any = {}) => ({ schemaVersion: 2, activ
 const evaluate = (active: any, qsoCount: number, at = '2026-09-05T12:00:00.000Z', evidence = picture()) => assembleMissionGuidance({ activation: active, qsoCount, evaluatedAtUtc: at, picture: evidence, modeledBands: ['20m'], currentBand: '40m', currentMode: 'FT8' });
 
 describe('mission-aware operating guidance', () => {
+  it('directs an Activation without an objective back to PREPARE', () => {
+    const result = evaluate({ ...activation('maximize_contacts'), operatingObjective: undefined }, 0);
+    expect(result.action).toContain('Return to PREPARE and select or enter an Activation objective');
+    expect(result.inputs.goal).toBe('unspecified');
+  });
+
   it('uses reach-oriented evidence for chase DX with ample time', () => { const result = evaluate(activation('chase_dx', { deadlineUtc: '2026-09-05T14:00:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' }), 2); expect(result).toMatchObject({ category: 'reach', urgency: 'routine', suggestedBand: '20m' }); expect(result.evidenceReferences).toEqual(['modeled', 'general_observed_rf', 'station_signal']); });
   it('preserves exploration after an activation is secured', () => { const result = evaluate(activation('explore_bands', { requiredQsoCount: 10, thresholdProvenance: 'program_default' }), 12); expect(result.category).toBe('exploration'); expect(result.action).toContain('band exploration'); expect(result.inputs.remainingQsos).toBe(0); expect(result.reasons).toContain('The recorded QSO threshold is already met; exploration remains the explicit objective.'); });
   it('shows 6/10 and thirty-minute qualification inputs', () => { const result = evaluate(activation('secure_activation', { requiredQsoCount: 10, thresholdProvenance: 'program_default', deadlineUtc: '2026-09-05T12:30:00.000Z', deadlineBasis: 'program_rule', deadlineProvenance: 'program_default' }), 6); expect(result).toMatchObject({ category: 'qualification', urgency: 'focused', inputs: { completedQsos: 6, requiredQsos: 10, remainingQsos: 4, minutesRemaining: 30, deadlineBasis: 'program_rule' } }); });

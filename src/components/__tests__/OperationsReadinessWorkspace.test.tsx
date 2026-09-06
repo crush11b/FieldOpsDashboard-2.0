@@ -52,6 +52,60 @@ const response = (weatherStatus: 'not_requested' | 'live' | 'unavailable' = 'not
 afterEach(() => vi.unstubAllGlobals());
 
 describe('OperationsReadinessWorkspace', () => {
+  it('shows proposed POTA defaults, keeps General without a default action, and preserves legacy provenance', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    const onSaveObjective = vi.fn(async () => undefined);
+    const first = render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} onSaveObjective={onSaveObjective} />);
+    await waitFor(() => expect(screen.getByText(/PROPOSED PROGRAM DEFAULT: starting or saving/)).toBeTruthy());
+    expect(screen.getByText('Selection provenance: Proposed program default.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy();
+    first.unmount();
+    const { unmount } = render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'General' } } as SmartDeployBriefV2} onSaveObjective={onSaveObjective} />);
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' })).toBeNull());
+    unmount();
+    const legacy = { ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2;
+    render(<OperationsReadinessWorkspace brief={legacy} initialActivation={{ activationId: 'legacy-1', type: 'POTA', status: 'active', operatingObjective: { goal: 'secure_activation', label: 'Legacy objective' } } as any} onSaveObjective={onSaveObjective} />);
+    await waitFor(() => expect(screen.getByText(/Selection provenance: Objective selection provenance unavailable for legacy record\./)).toBeTruthy());
+    expect(screen.getByRole('button', { name: 'SAVE OBJECTIVE' })).toBeDisabled();
+  });
+
+  it('initializes and immediately displays a retained deadline in local and UTC forms', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    const activation = { activationId: 'active-1', type: 'POTA', status: 'active', objectiveSelection: 'operator_entered', operatingObjective: { goal: 'secure_activation', label: 'Field objective', deadlineUtc: '2026-08-21T12:30:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' } } as any;
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} initialActivation={activation} onSaveObjective={vi.fn(async () => undefined)} />);
+    const expectedLocal = new Date('2026-08-21T12:30:00.000Z');
+    const expectedLocalValue = `${expectedLocal.getFullYear()}-${String(expectedLocal.getMonth() + 1).padStart(2, '0')}-${String(expectedLocal.getDate()).padStart(2, '0')}T${String(expectedLocal.getHours()).padStart(2, '0')}:${String(expectedLocal.getMinutes()).padStart(2, '0')}`;
+    await waitFor(() => expect(screen.getByLabelText('Activation objective deadline local')).toHaveValue(expectedLocalValue));
+    expect(screen.getByText(/UTC 2026-08-21T12:30:00.000Z/)).toBeTruthy();
+    expect(screen.queryByText('derived when validated')).toBeNull();
+  });
+
+  it('submits edited objective fields as operator-entered', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    const onStartActivation = vi.fn(async (_objective: unknown, _selection: unknown) => undefined);
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} onStartActivation={onStartActivation} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy());
+    fireEvent.change(screen.getByLabelText('Activation objective goal'), { target: { value: 'chase_dx' } });
+    fireEvent.change(screen.getByLabelText('Activation objective label'), { target: { value: 'DX objective' } });
+    fireEvent.change(screen.getByLabelText('Activation objective threshold'), { target: { value: '7' } });
+    fireEvent.change(screen.getByLabelText('Activation objective deadline local'), { target: { value: '2026-08-21T12:30' } });
+    fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
+    await waitFor(() => expect(onStartActivation).toHaveBeenCalledWith(expect.objectContaining({ goal: 'chase_dx', label: 'DX objective', requiredQsoCount: 7, deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' }), 'operator_entered'));
+  });
+
+  it('accepts the proposed default without inferring a deadline', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    const onStartActivation = vi.fn(async (_objective: unknown, _selection: unknown) => undefined);
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} onStartActivation={onStartActivation} />);
+    await waitFor(() => expect(screen.getByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' })).toBeTruthy());
+    fireEvent.click(screen.getByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' }));
+    fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
+    await waitFor(() => expect(onStartActivation).toHaveBeenCalledWith(expect.objectContaining({ goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' }), 'program_default'));
+    const submitted = onStartActivation.mock.calls[0]?.[0] as unknown as Record<string, unknown>;
+    expect(submitted).not.toHaveProperty('deadlineUtc');
+  });
+
   it('loads local readiness by brief and only requests live weather explicitly', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       expect(String(input)).toBe('/api/operations-readiness/brief-readiness');
