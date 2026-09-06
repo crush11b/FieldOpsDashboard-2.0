@@ -29,7 +29,7 @@ describe('layered propagation picture', () => {
     const newer = { ...zero, observationId: 'newer', endsAtUtc: '2026-09-05T00:08:00.000Z', status: 'stale' as const, matchingReportCount: 2, uniqueReceiverCount: 2, limitations: ['Retained observation.'] };
     const picture = assembleLayeredPropagationPicture({ txContexts: [context as any], stationObservations: [older, newer] });
     const layer = picture.layers.find(item => item.id === 'station_signal');
-    expect(layer).toMatchObject({ state: 'stale', summary: '2 matching reports from 2 unique receivers.' });
+    expect(layer).toMatchObject({ state: 'stale_evidence', summary: '2 matching reports from 2 unique receivers.' });
     expect(layer?.timing).toContain('00:08:00.000Z');
   });
 
