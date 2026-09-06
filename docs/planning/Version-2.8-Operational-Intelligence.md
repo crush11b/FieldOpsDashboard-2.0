@@ -419,6 +419,176 @@ This document is the authoritative Version 2.8 planning contract and architectur
 - TX Context uses exactly `operator_entered`, `operator_confirmed_plan`, and `wsjtx_application` with complete field-specific provenance. Station Signal Observation distinguishes PSKReporter observed reception from WSPR source-reported power and rejects synthetic denominator/confidence fields. No provider, persistence, MY SIGNAL UI, recommendation rule, WSPR access, inventory/loadout, CAT/PTT, or release work is included.
 - Validation evidence: focused correction tests pass (67 tests); TypeScript check passes; production build passes; full automated suite passes (94 files, 971 tests); `git diff --check` passes.
 
+## 2.8-08 - Operational Field-Value Closure - 2026-09-05
+
+### Authority and purpose
+
+This section records the authoritative CF-20 field acceptance result from 2026-09-05 and defines bounded corrective slices before V2.9 begins. It supersedes any implication that source-complete integration is equivalent to field acceptance. V2.8-08 is planning and acceptance-contract work; it authorizes no production implementation, test change, provider implementation, deployment, release, or V2.9 work.
+
+### CF-20 field acceptance record
+
+The representative Activation was:
+
+- POTA `US-9935` - Virginia Bird & Wildlife
+- Grid `FM18cc`
+- Planned mission window: `2026-09-05 17:00 UTC` through `2026-09-05 19:00 UTC`
+- Completed at approximately `2026-09-05 19:08 UTC`
+- Power: `7.5 W`
+- Modes: FT8 and FT4
+- Retained QSOs: 11 total; 10 inside the planned mission window and 1 outside it
+- Band results: 9 on 20m and 2 on 15m
+- Mode results: 9 FT8 and 2 FT4
+- Unique callsigns: 10
+- Provenance: 0 manual entries, 1 direct WSJT-X automatic import, and 10 WSJT-X ADIF-file fallback imports
+
+What worked:
+
+- PLAN -> PREPARE -> OPERATE -> REVIEW completed.
+- All eleven QSOs were automatically retained with provenance.
+- TX Context history was retained.
+- Station-specific PSKReporter observations were retained.
+- The latest 20m/FT8 MY SIGNAL result contained 49 reports from 49 receivers; an earlier observation contained 72 reports from 72 receivers.
+- Forecast, space weather, modeled propagation, general observed RF, and MY SIGNAL remained separately attributable.
+- Older MY SIGNAL observations were collapsed in REVIEW.
+
+Field failures and operator findings:
+
+1. FieldOps clock disagreement remained approximately -1.4 to -2.0 seconds.
+2. Repeated FieldOps synchronization attempts did not correct the disagreement.
+3. Windows clock synchronization corrected it to approximately -0.4 seconds.
+4. Five minutes into OPERATE, MY SIGNAL still displayed no useful data even though PSKReporter later showed 72 reports.
+5. MY SIGNAL occupied substantial OPERATE space while providing no decision value during the relevant decision window.
+6. Current POTA activity showed approximately 14 activations on 20m and 1 on 15m.
+7. Retained modeled propagation favored 15m.
+8. The operator rationally chose 20m because actual current POTA activity favored it.
+9. Actual Activation results were 9 QSOs on 20m and 2 on 15m.
+10. PSKReporter showed the station reaching the western United States and western Europe, but the operator could not hear workable return traffic.
+11. FieldOps did not explain that outbound reception evidence does not demonstrate a usable return path.
+12. FT4 was initially not working.
+13. The radio/audio application repeatedly reported `Error in Sound Output` and disconnected.
+14. Disconnecting the tuner and replacing the USB-C connection with another USB-C cable plus a USB-A adapter appeared to correct the audio problem.
+15. Item 14 is external station-stack evidence unless repository evidence demonstrates FieldOps ownership.
+16. OPERATE guidance displayed statements such as `Continue operating with operator judgment`, `No explicit mission objective is available`, and `Use operator discretion`.
+17. The operator found no useful OPERATE guidance beyond automatic QSO logging.
+18. Objective selection was not successfully used during the real workflow; field discoverability or workflow placement failed even if a control exists.
+19. Layered Propagation did not combine modeled 15m preference, current POTA activity, actual 20m QSO success, and station-specific reception evidence.
+20. REVIEW incorrectly reported 20m and 15m as unplanned bands although PLAN stated `Not explicitly planned`.
+21. REVIEW used ambiguous `OUTSIDE WINDOW` wording instead of `OUTSIDE PLANNED WINDOW`.
+22. Completed read-only REVIEW instructed the operator to `Set a TX Context before capture`.
+23. Environment presentation contained doubled punctuation: `assured..`.
+24. REVIEW mixed ISO `Z` and human-readable `UTC` timestamp formats.
+25. `ADIF import` was ambiguous because the contacts came from the automatic WSJT-X ADIF-file fallback, not a manually initiated import.
+
+### Acceptance classification
+
+- V2.8 data/persistence foundation: **PASS**.
+- WSJT-X/ADIF automatic QSO capture: **PASS and operationally valuable**.
+- Activation lifecycle and retained REVIEW assembly: **PASS with presentation defects**.
+- Clock synchronization: **FAIL**.
+- MY SIGNAL decision-window usefulness: **FAIL**.
+- Layered evidence synthesis: **FAIL**.
+- Next-Step Guidance operator value: **FAIL**.
+- Objective workflow field usability: **FAIL**.
+- Overall V2.8 Operational Intelligence field acceptance: **NOT COMPLETE**.
+- V2.9 implementation must not begin until V2.8-08 is closed or an explicit waiver is recorded.
+
+### Corrective slice 2.8-08A - Clock synchronization reliability
+
+The implementation investigation must trace the complete Dashboard -> backend -> Agent -> Windows synchronization path, including the clock status and synchronize routes, the existing location pipe operation, the Agent clock synchronizer, privilege handling, native `SetSystemTime`, and post-action verification. It must determine why repeated FieldOps synchronization did not correct the clock while Windows synchronization did.
+
+The operator result must never be concealed behind a successful button response. It must report, separately and truthfully:
+
+- request accepted;
+- Windows synchronization attempted;
+- measured disagreement before and after the action;
+- final success or failure; and
+- a bounded failure reason.
+
+A successful result requires post-action evidence within the accepted WSJT-X timing tolerance. The corrective slice must not add continuous clock steering or silently change system time. Any system-time change remains an explicit operator action.
+
+### Corrective slice 2.8-08B - Objective and deadline workflow usability
+
+Objective must be unmistakably available in PREPARE, while preserving the operator's ability to edit or decline it. POTA and SOTA defaults may be deterministic only where existing retained mission facts support them; the implementation must never fabricate an objective. The workflow must visibly distinguish an objective that is explicitly entered, accepted from a proposed program default, or absent. Deadline provenance must be equally visible.
+
+The selected or absent objective and deadline must survive into OPERATE and REVIEW. When no objective exists, guidance must state the concrete action that restores useful guidance, such as selecting or entering an objective, rather than ending with generic discretion language.
+
+### Corrective slice 2.8-08C - MY SIGNAL decision-window behavior
+
+The implementation must investigate actual capture and polling timing and distinguish all of these states:
+
+- awaiting expected provider latency;
+- query pending;
+- no matching reports returned;
+- evidence available;
+- stale evidence;
+- provider unavailable; and
+- capture not possible because TX Context is missing.
+
+MY SIGNAL must show the last query or capture time and, where applicable, the next eligible refresh. It must explain that PSKReporter reports may take several minutes to arrive and must not call a pending observation `No matching reports observed`. The pending and empty states must be compact enough that a large empty panel does not dominate OPERATE.
+
+The contract must define when an observation automatically refreshes or is captured, while preserving manual control and provider-rate safeguards. It must explain that distant reception is outbound reception evidence, not proof of a usable return path. Completed REVIEW must not instruct the operator to create a TX Context for capture. Repeated zero-report retained clutter must be reduced without deleting evidence.
+
+### Corrective slice 2.8-08D - POTA activity evidence feasibility and contract
+
+The existing POTA implementation is a read-only individual-park target resolver (`GET /api/pota-target`) with caching, provenance, and target normalization. Repository tracing found no supported POTA spot, activity, or band-activity source. The existing target API therefore cannot support the field-observed activity counts and must not be presented as such.
+
+The decision for V2.8-08 is **no-go for POTA activity implementation**. Before any future activity work, a bounded provider and terms/data-contract feasibility review must establish a supported source, permitted use, retrieval behavior, freshness, rate limits, fields, and limitations. If approved in a later slice, active spots will be treated as current operating activity only and will preserve source, retrieval time, band, mode/frequency where available, freshness, and limitations. They will not be treated as propagation proof, blended with PSKReporter or modeled propagation, or used to claim hunters, contacts, or band usability.
+
+POTA activity is therefore explicitly deferred beyond V2.8-08 pending that go/no-go review. No provider implementation, spot polling, spotting, spot submission, or activation submission is authorized in this planning branch.
+
+### Corrective slice 2.8-08E - Actionable evidence synthesis and guidance
+
+Guidance must evaluate named evidence separately: retained modeled propagation; environment and space weather; general observed RF; station-specific MY SIGNAL; actual Activation QSO results by band and mode; objective progress and deadline when present; and current POTA activity only if 08D later approves a source.
+
+The synthesis must identify agreement, disagreement, missing or stale inputs, and the distinction between outbound reception and demonstrated two-way QSO results. When directly relevant, actual current Activation results take priority over weaker planning evidence. When justified, it must recommend one concrete action and state why, what evidence supports it, what evidence disagrees, and what condition would cause reconsideration. It may abstain only when evidence is genuinely insufficient.
+
+For this field result, useful guidance would have explained that 20m produced 9 of 11 retained QSOs and current station-specific reception showed 49 receivers, while the retained model favored 15m and only 2 contacts were completed there; it would then state the condition for reconsidering 15m if 20m progress stalls or current evidence changes. This is a usefulness contract, not a mandatory exact string.
+
+The slice prohibits unexplained scores, universal best-band claims, contact guarantees, transmission-proof claims, invented objectives, POTA-as-propagation claims, outbound-PSKReporter-as-return-path claims, generic discretion language as the complete recommendation when actionable evidence exists, and automatic radio control, CAT, PTT, spotting, or submission.
+
+### Corrective slice 2.8-08F - REVIEW correctness and presentation cleanup
+
+Review must not produce an unplanned-band finding when no bands were explicitly planned. `OUTSIDE WINDOW` must be renamed `OUTSIDE PLANNED WINDOW`, while preserving the distinction between the planned mission window and actual Activation operating window. Post-completion read-only REVIEW must not instruct the operator to set a TX Context before capture.
+
+The review presentation must remove duplicated punctuation, use one consistent human-readable UTC format, and rename the automatic file-derived display wording from ambiguous `ADIF import` to wording such as `WSJT-X ADIF log`. The normalized internal provenance contract remains exact and unchanged, including distinct manual, direct WSJT-X, and ADIF-file fallback semantics and existing deduplication behavior.
+
+### Corrective slice 2.8-08G - CF-20 field reacceptance
+
+V2.8-08 requires one representative CF-20 validation proving all of the following:
+
+- explicit FieldOps clock synchronization succeeds or returns an honest, bounded failure;
+- Objective is found and retained without operator confusion;
+- MY SIGNAL shows a truthful pending state during provider latency;
+- useful station evidence appears without repeated manual guessing;
+- evidence synthesis compares modeled guidance with actual QSO performance;
+- guidance gives a concrete justified action or a specific reason it cannot;
+- no-band-plan missions produce no false unplanned-band findings;
+- automated WSJT-X/ADIF capture remains operational;
+- manual logging remains available;
+- REVIEW wording and timestamps are consistent; and
+- external USB/audio failures remain separately classified unless FieldOps ownership is proven.
+
+V2.8-08 closes only after hardware acceptance. Automated tests alone are insufficient. The field record must preserve operator observations, actual timings, source provenance, and bounded failure evidence before any V2.8 release decision.
+
+### Relationship to V2.9
+
+The previously prepared V2.9 Field Product Completion plan remains valid. The operator-maintained App Library spreadsheet and its seven authoritative categories remain preserved. V2.9-01 begins only after V2.8-08 closure or an explicit documented waiver. App Library work is not implemented, reinterpreted, or imported in this branch.
+
+### Exclusions for this planning slice
+
+This section authorizes none of the following:
+
+- production implementation or test changes;
+- POTA provider, spot, or activity implementation;
+- WSPR;
+- CAT/PTT or radio control;
+- USB/audio-driver remediation;
+- spotting or activation submission;
+- App Library changes;
+- V2.9 implementation;
+- equipment inventory or loadouts;
+- version bump, tag, release, deployment, PR creation, or merge.
+
 ### 2026-09-03 - 2.8-02 implementation evidence
 
 - Retained mission forecasts preserve complete hourly Open-Meteo evidence and add schema/store v2 derived operating periods. Schema/store v1 records created with the earlier inclusive mission-end filter are normalized in memory with non-overlapping exact-end rows excluded and a bounded diagnostic; records remain readable across restart without a read-time rewrite and are upgraded to v2 only by an explicit save.
