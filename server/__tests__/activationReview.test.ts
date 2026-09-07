@@ -35,4 +35,5 @@ describe('Activation Review assembly', () => {
     expect(review.findings).not.toContain('Planned 160m operation has no logged 160m contacts.');
     expect(review.findings).toContain('1 associated QSO falls outside the retained planned mission window.');
   });
+
 });

@@ -7,7 +7,7 @@ import type { Qso } from './qso';
 import type { QsoStore } from './qsoStore';
 import type { RetainedSpaceWeatherSnapshot } from './spaceWeatherSnapshot';
 import type { SpaceWeatherSnapshotStore } from './spaceWeatherSnapshotStore';
-import type { SmartDeployBrief, SmartDeployBriefV2 } from './smartDeployBrief';
+import type { SmartDeployBrief } from './smartDeployBrief';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
 import type { QsoEvidence } from './qsoEvidence';
 import { aggregateQsoEvidence } from './qsoEvidence';
@@ -65,8 +65,8 @@ export function assembleActivationReview(dependencies: ActivationReviewDependenc
   if (outsideWindowQsos.length) findings.push(`${outsideWindowQsos.length} associated QSO${outsideWindowQsos.length === 1 ? '' : 's'} fall${outsideWindowQsos.length === 1 ? 's' : ''} outside the retained planned mission window.`);
   const plannedBands = plan.bands;
   for (const band of plannedBands) if (!qsos.some(qso => qso.band === band)) findings.push(`Planned ${band} operation has no logged ${band} contacts.`);
-  for (const band of Object.keys(qsoEvidence.byBand)) if (!plannedBands.includes(band)) findings.push(`Logged contacts include unplanned band ${band}.`);
-  if (qsos.some(qso => qso.source === 'adif_import')) findings.push(`${qsos.filter(qso => qso.source === 'adif_import').length} of ${qsos.length} QSOs were imported from ADIF.`);
+  if (plannedBands.length > 0) for (const band of Object.keys(qsoEvidence.byBand)) if (!plannedBands.includes(band)) findings.push(`Logged contacts include unplanned band ${band}.`);
+  if (qsos.some(qso => qso.source === 'adif_import')) findings.push(`${qsos.filter(qso => qso.source === 'adif_import').length} of ${qsos.length} QSOs were logged from a WSJT-X ADIF log.`);
   if (noteResult?.status === 'found' && noteResult.collection.notes.length > 0) findings.push('Activation Notes are present.');
   return {
     kind: 'activation_review', reviewVersion: 1, reviewedAtUtc,
@@ -86,9 +86,8 @@ export function assembleActivationReview(dependencies: ActivationReviewDependenc
 
 function planFrom(activation: Activation, brief: SmartDeployBrief | null): ActivationReview['plan'] {
   if (!brief) return { state: 'unavailable', briefId: null, type: activation.type, reference: activation.reference ?? null, displayName: activation.title ?? null, plannedLocation: activation.plannedLocation ? { latitude: activation.plannedLocation.latitude, longitude: activation.plannedLocation.longitude, ...(activation.plannedLocation.gridSquare ? { gridSquare: activation.plannedLocation.gridSquare } : {}) } : null, missionWindow: activation.missionWindow ?? null, bands: [], modes: [], powerWatts: null, sequence: null, briefAssociation: 'unavailable' };
-  if (brief.schemaVersion === 2) return { state: 'retained', briefId: brief.briefId, type: brief.activation.program, reference: brief.activation.reference || null, displayName: brief.activation.displayName ?? null, plannedLocation: brief.plannedOperatingSite.location.coordinates ? { latitude: brief.plannedOperatingSite.location.coordinates.lat, longitude: brief.plannedOperatingSite.location.coordinates.lon, ...(brief.plannedOperatingSite.location.gridSquare ? { gridSquare: brief.plannedOperatingSite.location.gridSquare } : {}) } : null, missionWindow: { start: brief.missionWindow.start, end: brief.missionWindow.end }, bands: bandsFromBrief(brief), modes: [...brief.station.selectedModes], powerWatts: brief.station.transmitPowerWatts, sequence: brief.objective ?? null, briefAssociation: 'retained' };
+  if (brief.schemaVersion === 2) return { state: 'retained', briefId: brief.briefId, type: brief.activation.program, reference: brief.activation.reference || null, displayName: brief.activation.displayName ?? null, plannedLocation: brief.plannedOperatingSite.location.coordinates ? { latitude: brief.plannedOperatingSite.location.coordinates.lat, longitude: brief.plannedOperatingSite.location.coordinates.lon, ...(brief.plannedOperatingSite.location.gridSquare ? { gridSquare: brief.plannedOperatingSite.location.gridSquare } : {}) } : null, missionWindow: { start: brief.missionWindow.start, end: brief.missionWindow.end }, bands: [], modes: [...brief.station.selectedModes], powerWatts: brief.station.transmitPowerWatts, sequence: brief.objective ?? null, briefAssociation: 'retained' };
   return { state: 'retained', briefId: brief.briefId, type: brief.mission.activationTarget.program, reference: brief.mission.activationTarget.reference || null, displayName: brief.mission.activationTarget.displayName ?? null, plannedLocation: brief.mission.operatingLocation.coordinates ? { latitude: brief.mission.operatingLocation.coordinates.lat, longitude: brief.mission.operatingLocation.coordinates.lon, ...(brief.mission.operatingLocation.gridSquare ? { gridSquare: brief.mission.operatingLocation.gridSquare } : {}) } : null, missionWindow: brief.mission.missionWindow ? { start: brief.mission.missionWindow.start, end: brief.mission.missionWindow.end } : null, bands: [], modes: [...brief.mission.equipment.modes], powerWatts: brief.mission.equipment.transmitPowerWatts, sequence: brief.mission.objective ?? null, briefAssociation: 'retained' };
 }
-function bandsFromBrief(_brief: SmartDeployBriefV2): string[] { return []; }
 function propagationFrom(brief: SmartDeployBrief | null): ActivationReview['propagation'] { if (!brief) return { state: 'unavailable', modeled: null, observedRf: null, source: 'No retained SmartDeploy brief.' }; return { state: brief.sections.propagation.status === 'unavailable' ? 'unavailable' : 'retained', modeled: brief.sections.propagation.evidence, observedRf: brief.sections.observedRf.evidence, source: 'Retained SmartDeploy brief; modeled propagation is not observed RF.' }; }
 function isWithinWindow(timestamp: string, start: string, end: string): boolean { const value = Date.parse(timestamp); return Number.isFinite(value) && value >= Date.parse(start) && value <= Date.parse(end); }

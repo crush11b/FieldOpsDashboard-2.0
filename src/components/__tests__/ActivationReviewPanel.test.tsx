@@ -24,7 +24,48 @@ describe('ActivationReviewPanel', () => {
     const note = (await screen.findAllByText('Test Note')).find(element => element.tagName === 'SPAN');
     expect(note).toBeTruthy();
     expect(note.tagName).toBe('SPAN');
-    expect(note.previousElementSibling?.textContent).toBe('2026-08-26 23:08:34.065Z');
+    expect(note.previousElementSibling?.textContent).toBe('2026-08-26 23:08:34 UTC');
+  });
+
+  it('keeps planned and actual timing distinct and uses truthful QSO source labels', async () => {
+    const completedActivation = { ...activation, status: 'completed', startedAtUtc: '2026-08-25T12:01:02.000Z', endedAtUtc: '2026-08-25T12:59:03.000Z' };
+    const completedReview = { ...review, activation: completedActivation, plan: { ...review.plan, missionWindow: { start: '2026-08-25T12:00:00.000Z', end: '2026-08-25T13:00:00.000Z' } }, results: { ...review.results, total: 3, inWindowTotal: 3, outsideWindowTotal: 0, qsos: [
+      { qsoId: 'manual', qsoDateTimeUtc: '2026-08-25T12:10:00.000Z', callsign: 'W1AW', band: '20m', mode: 'SSB', source: 'manual' },
+      { qsoId: 'direct', qsoDateTimeUtc: '2026-08-25T12:20:00.000Z', callsign: 'K1ABC', band: '20m', mode: 'FT8', source: 'wsjtx' },
+      { qsoId: 'fallback', qsoDateTimeUtc: '2026-08-25T12:30:00.000Z', callsign: 'N0CALL', band: '15m', mode: 'FT8', source: 'adif_import' },
+    ] } };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => completedReview }));
+    render(<ActivationReviewPanel activation={completedActivation} />);
+    await screen.findByText('MISSION WINDOW');
+    const panel = screen.getByRole('region', { name: 'Activation Review' });
+    expect(panel).toHaveTextContent('MISSION WINDOW');
+    expect(panel).toHaveTextContent('ACTUAL ACTIVATION WINDOW');
+    expect(panel).toHaveTextContent('OUTSIDE PLANNED WINDOW');
+    expect(panel).toHaveTextContent('WSJT-X automatic import');
+    expect(panel).toHaveTextContent('WSJT-X ADIF log');
+    expect(panel).not.toHaveTextContent('ADIF import');
+    expect(panel).toHaveTextContent('2026-08-25 12:10:00 UTC');
+    expect(panel).not.toHaveTextContent('2026-08-25T12:10:00.000Z');
+  });
+
+  it('does not offer TX Context creation in completed review when retained MY SIGNAL evidence is absent', async () => {
+    const completedActivation = { ...activation, status: 'completed' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...review, activation: completedActivation }) }));
+    render(<ActivationReviewPanel activation={completedActivation} />);
+    const panel = await screen.findByRole('region', { name: 'Activation Review' });
+    expect(panel).not.toHaveTextContent('SET TX CONTEXT');
+  });
+
+  it('renders one historical unavailable statement and retrospective guidance in completed review', async () => {
+    const completedActivation = { ...activation, status: 'completed' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...review, activation: completedActivation }) }));
+    render(<ActivationReviewPanel activation={completedActivation} />);
+    const panel = await screen.findByRole('region', { name: 'Activation Review' });
+    await screen.findByText('No retained TX Context or MY SIGNAL evidence exists for this Activation.');
+    const text = panel.textContent || '';
+    expect(text.match(/No retained TX Context or MY SIGNAL evidence exists for this Activation\./g)).toHaveLength(1);
+    expect(text).toContain('No retrospective operating recommendation is available because retained station-context evidence is unavailable.');
+    expect(text).not.toMatch(/\b(log|set|create|capture|refresh)\b/i);
   });
 
   it.each([

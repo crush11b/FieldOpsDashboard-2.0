@@ -193,7 +193,7 @@ describe('MySignalPanel', () => {
     vi.stubGlobal('fetch', fetcher);
     render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
     await flush();
-    expect(screen.getAllByText('No TX Context is open; station-specific capture is not possible.')).toHaveLength(2);
+    expect(screen.queryByText('No TX Context is open; station-specific capture is not possible.')).toBeNull();
     expect(screen.queryByText(/Next eligible refresh/)).toBeNull();
     expect(screen.queryByText(/upcoming|Waiting for PSKReporter/)).toBeNull();
     expect(postCalls(fetcher)).toHaveLength(0);
