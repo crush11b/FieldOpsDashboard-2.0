@@ -5,9 +5,21 @@ import { QsoLoggerPanel } from '../QsoLoggerPanel';
 
 const activation = { schemaVersion: 1, activationId: 'activation-1', type: 'General', status: 'active', createdAtUtc: '2026-08-25T12:00:00.000Z', updatedAtUtc: '2026-08-25T12:00:00.000Z' } as any;
 const qso = { schemaVersion: 1, qsoId: 'qso-1', activationId: 'activation-1', qsoDateTimeUtc: '2026-08-25T12:00:00.000Z', callsign: 'W1AW', band: '20m', mode: 'SSB', source: 'manual', createdAtUtc: '2026-08-25T12:00:00.000Z', updatedAtUtc: '2026-08-25T12:00:00.000Z' };
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('QsoLoggerPanel', () => {
+  it('republishes current band and mode with a polling refresh', async () => {
+    vi.useFakeTimers();
+    const evidenceChanges: any[] = [];
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ kind: 'qsos', qsos: [qso] }), { status: 200 }));
+    render(<QsoLoggerPanel activation={activation} onQsoEvidenceChange={evidence => evidenceChanges.push(evidence)} />);
+    await act(async () => { await Promise.resolve(); });
+    fireEvent.change(screen.getByLabelText('BAND'), { target: { value: '40m' } });
+    fireEvent.change(screen.getByLabelText('MODE'), { target: { value: 'FT8' } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(2000); });
+    const latest = evidenceChanges.at(-1);
+    expect(latest).toMatchObject({ currentBand: '40m', currentBandMode: 'FT8', byBand: { '20m': 1 }, currentBandQsoCount: 0 });
+  });
   it('logs a contact and clears the callsign for the next contact', async () => {
     const fetchMock = vi.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => { if (!init) return new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }); return new Response(JSON.stringify({ kind: 'qso', status: 'created', qso }), { status: 201 }); });
     render(<QsoLoggerPanel activation={activation} />);

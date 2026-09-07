@@ -1,23 +1,77 @@
 import { describe, expect, it } from 'vitest';
-import { assembleMissionGuidance } from '../missionGuidance';
+import { aggregateQsoEvidence } from '../../../server/qsoEvidence';
+import { MISSION_GUIDANCE_POLICY, assembleMissionGuidance } from '../missionGuidance';
 
-const picture = (station = '2 matching reports from 2 unique receivers.', state: any = 'live', relationships: string[] = []) => ({ kind: 'layered_propagation_picture', layers: [{ id: 'modeled', label: 'MODELED PROPAGATION', state: 'retained', source: 'P.533', timing: 'retained', applicability: 'mission', summary: 'Representative strongest bands: 20m.', limitations: [] }, { id: 'environmental', label: 'ENVIRONMENT', state: 'retained', source: 'Open-Meteo', timing: 'retained', applicability: 'mission', summary: 'Retained.', limitations: [] }, { id: 'general_observed_rf', label: 'GENERAL OBSERVED RF', state, source: 'PSKReporter', timing: 'recent', applicability: 'regional', summary: '20 reports.', limitations: [] }, { id: 'station_signal', label: 'MY SIGNAL', state, source: 'PSKReporter', timing: 'recent', applicability: 'TX', summary: station, limitations: [] }], relationships, limitation: 'Separate evidence.' } as any);
-const activation = (goal: string, extra: any = {}) => ({ schemaVersion: 2, activationId: 'a', type: 'POTA', status: 'active', startedAtUtc: '2026-09-05T12:00:00.000Z', actualTimingStatus: 'recorded', createdAtUtc: '2026-09-05T12:00:00.000Z', updatedAtUtc: '2026-09-05T12:00:00.000Z', operatingObjective: { goal, label: goal, ...extra } } as any);
-const evaluate = (active: any, qsoCount: number, at = '2026-09-05T12:00:00.000Z', evidence = picture()) => assembleMissionGuidance({ activation: active, qsoCount, evaluatedAtUtc: at, picture: evidence, modeledBands: ['20m'], currentBand: '40m', currentMode: 'FT8' });
+const activation = (goal?: string, extra: any = {}) => ({ activationId: 'a', type: 'General', status: 'active', updatedAtUtc: '2026-09-05T12:00:00.000Z', operatingObjective: goal ? { goal, label: goal, ...extra } : undefined } as any);
+const picture = (station = '2 matching reports from 2 unique receivers.', stationState: any = 'evidence_available', modeled = '20m') => ({ kind: 'layered_propagation_picture', layers: [{ id: 'modeled', state: modeled ? 'retained' : 'unavailable', summary: modeled ? `Representative strongest bands: ${modeled}.` : 'Unavailable.' }, { id: 'environmental', state: 'retained', summary: 'Retained.' }, { id: 'general_observed_rf', state: 'live', summary: '49 recent reports.' }, { id: 'station_signal', state: stationState, summary: station }], relationships: [], limitation: 'Separate evidence.' } as any);
+const qso = (id: string, band: string, at: string, mode = 'FT8') => ({ qsoId: id, qsoDateTimeUtc: at, band, mode, source: 'manual' } as any);
+const evaluate = (active: any, qsos: any[], at = '2026-09-05T12:00:00.000Z', evidence = picture(), currentBand = '20m') => assembleMissionGuidance({ activation: active, qsoEvidence: aggregateQsoEvidence(qsos, currentBand, 'FT8'), evaluatedAtUtc: at, picture: evidence, modeledBands: ['15m'], currentBand, currentMode: 'FT8' });
 
 describe('mission-aware operating guidance', () => {
-  it('directs an Activation without an objective back to PREPARE', () => {
-    const result = evaluate({ ...activation('maximize_contacts'), operatingObjective: undefined }, 0);
-    expect(result.action).toContain('Return to PREPARE and select or enter an Activation objective');
+  it('renders the exact field acceptance evidence without inventing an objective', () => {
+    const result = evaluate(activation(), [
+      ...Array.from({ length: 8 }, (_, i) => qso(`old-${i}`, '20m', `2026-09-05T11:4${i}:00.000Z`)),
+      qso('recent-20', '20m', '2026-09-05T11:55:00.000Z'),
+      qso('one-15', '15m', '2026-09-05T11:56:00.000Z'), qso('two-15', '15m', '2026-09-05T11:57:00.000Z'),
+    ], '2026-09-05T12:00:00.000Z', picture('49 matching reports from 49 unique receivers.', 'evidence_available', '15m'));
+    expect(result.action).toContain('Remain on productive 20m');
+    expect(result.supportingEvidence.join(' ')).toContain('9 two-way QSOs on 20m');
+    expect(result.supportingEvidence.join(' ')).toContain('49 matching reports');
+    expect(result.conflictingEvidence).toEqual(['Retained modeled propagation favors 15m; actual current-band results are on 20m.']);
+    expect(result.evidenceReferences).toEqual(['activation_qso_results', 'modeled', 'station_signal']);
+    expect(result.reconsiderWhen).toContain(`${MISSION_GUIDANCE_POLICY.progressStallMinutes} minutes`);
     expect(result.inputs.goal).toBe('unspecified');
+    expect(result.inputs.deadlineUtc).toBeNull();
+    expect(result.action).not.toMatch(/best-band|score|guarantee|return path|contact probability/i);
   });
-
-  it('uses reach-oriented evidence for chase DX with ample time', () => { const result = evaluate(activation('chase_dx', { deadlineUtc: '2026-09-05T14:00:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' }), 2); expect(result).toMatchObject({ category: 'reach', urgency: 'routine', suggestedBand: '20m' }); expect(result.evidenceReferences).toEqual(['modeled', 'general_observed_rf', 'station_signal']); });
-  it('preserves exploration after an activation is secured', () => { const result = evaluate(activation('explore_bands', { requiredQsoCount: 10, thresholdProvenance: 'program_default' }), 12); expect(result.category).toBe('exploration'); expect(result.action).toContain('band exploration'); expect(result.inputs.remainingQsos).toBe(0); expect(result.reasons).toContain('The recorded QSO threshold is already met; exploration remains the explicit objective.'); });
-  it('shows 6/10 and thirty-minute qualification inputs', () => { const result = evaluate(activation('secure_activation', { requiredQsoCount: 10, thresholdProvenance: 'program_default', deadlineUtc: '2026-09-05T12:30:00.000Z', deadlineBasis: 'program_rule', deadlineProvenance: 'program_default' }), 6); expect(result).toMatchObject({ category: 'qualification', urgency: 'focused', inputs: { completedQsos: 6, requiredQsos: 10, remainingQsos: 4, minutesRemaining: 30, deadlineBasis: 'program_rule' } }); });
-  it('changes urgency for 8/10 with ten minutes without guaranteeing completion', () => { const result = evaluate(activation('secure_activation', { requiredQsoCount: 10, thresholdProvenance: 'program_default', deadlineUtc: '2026-09-05T12:10:00.000Z', deadlineBasis: 'utc_rollover', deadlineProvenance: 'derived' }), 8); expect(result.urgency).toBe('urgent'); expect(result.inputs.remainingQsos).toBe(2); expect(result.limitations.join(' ')).toContain('not a prediction, guarantee'); });
-  it('retains planning context when online evidence is stale', () => { const result = evaluate(activation('maximize_contacts'), 3, undefined, picture('Retained observation.', 'stale')); expect(result.reasons.join(' ')).toContain('Online evidence is degraded'); expect(result.evidenceReferences).toContain('modeled'); });
-  it('preserves exact zero-report meaning without a failure score', () => { const result = evaluate(activation('secure_activation', { requiredQsoCount: 10, thresholdProvenance: 'program_default' }), 3, undefined, picture('No matching reports observed.')); expect(result.reasons).toContain('No matching reports observed. This is not a finding of bad propagation or station failure.'); expect(JSON.stringify(result)).not.toContain('score'); });
-  it('exposes P.533/live disagreement without replacing either source', () => { const result = evaluate(activation('chase_dx'), 1, undefined, picture('Observed.', 'live', ['Current TX band differs from model.'])); expect(result.reasons.join(' ')).toContain('neither modeled nor observed evidence replaces the other'); expect(result.evidenceReferences).toContain('modeled'); expect(result.evidenceReferences).toContain('general_observed_rf'); });
-  it('is byte-for-byte deterministic for identical inputs', () => { const active = activation('maximize_contacts'); expect(evaluate(active, 4)).toEqual(evaluate(active, 4)); });
+  it('reassesses a current band after the named progress stall', () => {
+    const result = evaluate(activation('secure_activation', { requiredQsoCount: 10 }), [qso('a', '20m', '2026-09-05T11:49:00.000Z')]);
+    expect(result.action).toContain('Reassess 20m now');
+    expect(result.reasons.join(' ')).toContain('10 minutes');
+  });
+  it('lets actual QSOs outrank a modeled alternative when qualification is incomplete', () => {
+    const result = evaluate(activation('secure_activation', { requiredQsoCount: 10 }), [qso('a', '20m', '2026-09-05T11:59:00.000Z')]);
+    expect(result.suggestedBand).toBe('20m');
+    expect(result.inputs.remainingQsos).toBe(9);
+  });
+  it('marks qualification complete and preserves the retained log', () => {
+    const result = evaluate(activation('secure_activation', { requiredQsoCount: 2 }), [qso('a', '20m', '2026-09-05T11:58:00.000Z'), qso('b', '15m', '2026-09-05T11:59:00.000Z')]);
+    expect(result.urgency).toBe('complete');
+    expect(result.action).toContain('preserve the log');
+  });
+  it('treats positive MY SIGNAL as outbound evidence only', () => {
+    const result = evaluate(activation('secure_activation', { requiredQsoCount: 10 }), [], '2026-09-05T12:00:00.000Z', picture());
+    expect(result.supportingEvidence.join(' ')).toContain('MY SIGNAL');
+    expect(result.limitations.join(' ')).toContain('return path');
+  });
+  it('distinguishes mature zero, pending, stale, and unavailable station evidence', () => {
+    for (const [state, summary] of [['no_matching_reports', 'No matching reports observed.'], ['awaiting_provider_latency', 'PSKReporter pending.'], ['stale_evidence', '2 matching reports from 2 unique receivers.'], ['unavailable', 'Unavailable.']] as const) {
+      const result = evaluate(activation(), [], '2026-09-05T12:00:00.000Z', picture(summary, state));
+      expect(result.inputs.qsoEvidence.total).toBe(0);
+      expect(JSON.stringify(result)).not.toContain('contact probability');
+    }
+  });
+  it('abstains without an objective or current-band result', () => {
+    const result = evaluate(activation(), [], '2026-09-05T12:00:00.000Z', picture(), '40m');
+    expect(result.action).toContain('Log a two-way QSO');
+    expect(result.missingLimitations.join(' ')).toContain('No explicit objective');
+  });
+  it('does not infer urgency from the mission window', () => {
+    const result = evaluate(activation('maximize_contacts'), [qso('a', '20m', '2026-09-05T11:59:00.000Z')]);
+    expect(result.inputs.deadlineUtc).toBeNull();
+    expect(result.reasons.join(' ')).toContain('not inferred from the planned mission window');
+  });
+  it('uses the current-context start as the no-QSO attempt boundary', () => {
+    const active = activation('maximize_contacts');
+    const base = { ...aggregateQsoEvidence([], '20m', 'FT8') };
+    const input = (at: string) => assembleMissionGuidance({ activation: active, qsoEvidence: base, evaluatedAtUtc: at, picture: picture('PSKReporter pending.', 'awaiting_provider_latency'), currentBand: '20m', currentMode: 'FT8', currentContextStartedAtUtc: '2026-09-05T11:50:00.000Z' });
+    expect(input('2026-09-05T11:59:59.000Z').action).toContain('Continue the bounded 20m attempt');
+    expect(input('2026-09-05T12:00:00.000Z').action).toContain('Reassess 20m now');
+    expect(input('2026-09-05T12:00:01.000Z').action).toContain('no two-way QSO');
+    expect(input('2026-09-05T12:00:01.000Z').action).not.toMatch(/failed|unusable|productive|workable/i);
+  });
+  it('is deterministic for identical retained inputs', () => {
+    const active = activation('maximize_contacts');
+    expect(evaluate(active, [qso('a', '20m', '2026-09-05T11:59:00.000Z')])).toEqual(evaluate(active, [qso('a', '20m', '2026-09-05T11:59:00.000Z')]));
+  });
 });
