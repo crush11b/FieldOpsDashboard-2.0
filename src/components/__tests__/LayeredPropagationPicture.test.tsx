@@ -106,7 +106,7 @@ describe('LayeredPropagationPicture', () => {
     const { rerender } = render(<LayeredPropagationPicture activation={activation} readOnly retrospective evaluatedAtUtc="2026-09-08T01:00:00.000Z" operationalIntelligence={{ txContexts: [context], observations: [observation] }} qsoEvidence={qsoEvidence} retained={{ modeled: { summary: { strongestBandBySample: [{ band: '15m' }] } }, modeledStatus: 'retained' }} />);
     const guidance = await screen.findByRole('region', { name: 'Mission-aware operating guidance' });
     expect(guidance).toHaveTextContent('END-OF-ACTIVATION ASSESSMENT');
-    expect(guidance).toHaveTextContent('20m produced 9 of 11 QSOs; MY SIGNAL retained 49 matching receivers on 20m/FT8; the retained model favored 15m, while 15m produced 2 QSOs.');
+    expect(guidance).toHaveTextContent('20m produced 9 of 11 QSOs; MY SIGNAL retained 49 matching reports from 49 unique receivers on 20m/FT8; the retained model favored 15m, while 15m produced 2 QSOs.');
     expect(guidance).toHaveTextContent('Evaluated 2026-09-05 01:00:00 UTC');
     expect(guidance).toHaveTextContent('WHAT WOULD HAVE TRIGGERED REASSESSMENT');
     expect(guidance.textContent).not.toMatch(/\b(reassess|remain on|change band|wait|capture|set a TX Context)\b/i);

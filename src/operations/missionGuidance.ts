@@ -63,8 +63,10 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
   const minutesSinceAttempt = attemptAnchor ? Math.floor((Date.parse(evaluatedAtUtc) - Date.parse(attemptAnchor)) / 60_000) : null;
   const stalled = Boolean(currentBand && minutesSinceAttempt !== null && minutesSinceAttempt >= MISSION_GUIDANCE_POLICY.progressStallMinutes);
   const station = input.picture.layers.find(layer => layer.id === 'station_signal');
-  const stationMatch = station?.summary.match(/^(\d+) matching reports/);
-  const stationPositive = station?.state === 'evidence_available' && Number(stationMatch?.[1] ?? 0) > 0;
+  const stationMatch = station?.summary.match(/^(\d+) matching reports from (\d+) unique receivers/);
+  const stationReportCount = Number(stationMatch?.[1] ?? 0);
+  const stationReceiverCount = Number(stationMatch?.[2] ?? 0);
+  const stationPositive = station?.state === 'evidence_available' && stationReportCount > 0;
   const stationZero = station?.state === 'no_matching_reports';
   const stationLimited = !station || ['stale_evidence', 'awaiting_provider_latency', 'query_pending', 'provider_unavailable', 'unavailable'].includes(station.state);
   const modeledBand = input.modeledBands?.find(Boolean);
@@ -111,7 +113,7 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
       } else action = `Reassess ${currentBand} now; retain the log and compare the next bounded evidence before changing.`;
     }
   }
-  if (stationPositive) { supportingEvidence.push(`Current MY SIGNAL shows ${stationMatch?.[1]} matching reports from station-specific outbound reception evidence.`); references.add('station_signal'); }
+  if (stationPositive) { supportingEvidence.push(`Current MY SIGNAL shows ${stationReportCount} matching reports from ${stationReceiverCount} unique receivers in station-specific outbound reception evidence.`); references.add('station_signal'); }
   else if (stationZero) { supportingEvidence.push('MY SIGNAL mature-zero reports no matching reception in its bounded observation; this does not establish propagation failure.'); reasons.push('Mature-zero MY SIGNAL is combined with other evidence and is not treated as proof of an unusable band.'); references.add('station_signal'); }
   else if (stationLimited) { missingLimitations.push(`MY SIGNAL is ${station?.state ?? 'unavailable'}; station-specific evidence is limited until the next applicable result.`); references.add('station_signal'); if (station?.state === 'awaiting_provider_latency' || station?.state === 'query_pending') reasons.push('Next expected evidence event: the bounded MY SIGNAL provider result for the current TX Context.'); }
   if (input.picture.layers.some(layer => layer.id === 'general_observed_rf' && ['stale', 'unavailable', 'not_applicable'].includes(layer.state))) { missingLimitations.push('General observed RF is stale, unavailable, or not applicable to the current context.'); references.add('general_observed_rf'); }
@@ -131,7 +133,7 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
     const primaryBand = currentBand ?? bandResults[0]?.[0] ?? null;
     const primaryCount = primaryBand ? qsoEvidence.byBand[primaryBand] ?? 0 : 0;
     const modeledSummary = modeledBand ? `the retained model favored ${modeledBand}` : 'the retained model did not identify a favored band';
-    const stationSummary = stationPositive && stationMatch?.[1] ? `MY SIGNAL retained ${stationMatch[1]} matching receivers${primaryBand && currentMode ? ` on ${primaryBand}/${currentMode}` : ''}` : 'MY SIGNAL retained no positive matching-receiver evidence';
+    const stationSummary = stationPositive && stationMatch ? `MY SIGNAL retained ${stationReportCount} matching reports from ${stationReceiverCount} unique receivers${primaryBand && currentMode ? ` on ${primaryBand}/${currentMode}` : ''}` : 'MY SIGNAL retained no positive matching-receiver evidence';
     const comparison = primaryBand && primaryCount > 0 ? `${primaryBand} produced ${primaryCount} of ${qsoEvidence.total} QSOs; ${stationSummary}; ${modeledSummary}${modeledBand && modeledBand !== primaryBand ? `, while ${modeledBand} produced ${qsoEvidence.byBand[modeledBand] ?? 0} QSOs` : ''}.` : `${stationSummary}; ${modeledSummary}.`;
     return { ...common, urgency: 'complete' as const, action: `At activation end, ${comparison} This is a retrospective comparison, not a command to resume operating.`, reasons: ['This assessment is bounded by the retained Activation completion time and retained evidence.', 'The assessment describes the completed activation and does not direct future operation.'], reconsiderWhen: 'Reassessment would have been triggered only during the completed activation by the retained progress or evidence boundary.' };
   }

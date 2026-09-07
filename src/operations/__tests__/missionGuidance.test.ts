@@ -74,4 +74,11 @@ describe('mission-aware operating guidance', () => {
     const active = activation('maximize_contacts');
     expect(evaluate(active, [qso('a', '20m', '2026-09-05T11:59:00.000Z')])).toEqual(evaluate(active, [qso('a', '20m', '2026-09-05T11:59:00.000Z')]));
   });
+  it('preserves distinct retrospective report and receiver counts', () => {
+    const completed = { ...activation(), status: 'completed', endedAtUtc: '2026-09-05T12:00:00.000Z' };
+    const result = assembleMissionGuidance({ activation: completed, qsoEvidence: aggregateQsoEvidence([qso('one', '20m', '2026-09-05T11:50:00.000Z')], '20m', 'FT8'), evaluatedAtUtc: '2026-09-07T12:00:00.000Z', retrospective: true, picture: picture('72 matching reports from 70 unique receivers.', 'evidence_available', '15m'), modeledBands: ['15m'], currentBand: '20m', currentMode: 'FT8' });
+    expect(result.action).toContain('MY SIGNAL retained 72 matching reports from 70 unique receivers on 20m/FT8');
+    expect(result.action).not.toContain('72 matching receivers');
+    expect(result.evaluatedAtUtc).toBe('2026-09-05T12:00:00.000Z');
+  });
 });
