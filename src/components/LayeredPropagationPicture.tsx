@@ -42,7 +42,7 @@ export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, 
     const current = contexts.find(context => context.endedAtUtc === undefined) ?? [...contexts].sort((left, right) => right.startedAtUtc.localeCompare(left.startedAtUtc) || right.segmentId.localeCompare(left.segmentId))[0];
     const modeledBands = [...new Set((base.modeled?.summary?.strongestBandBySample ?? []).map((item: any) => item?.band).filter(Boolean))] as string[];
     const assembled = assembleMissionGuidance({ activation, qsoEvidence: current ? withCurrentQsoContext(evidence, current.band, current.mode) : evidence, picture, evaluatedAtUtc: evaluatedAtUtc ?? activation.updatedAtUtc, modeledBands, currentBand: current?.band, currentMode: current?.mode, currentContextStartedAtUtc: current?.startedAtUtc });
-    return historicalOperationalEvidenceUnavailable ? { ...assembled, action: 'No retained TX Context or MY SIGNAL evidence exists for this Activation.' } : assembled;
+    return historicalOperationalEvidenceUnavailable ? { ...assembled, action: 'No retrospective operating recommendation is available because retained station-context evidence is unavailable.' } : assembled;
   }, [activation, base.modeled, currentRemote, evaluatedAtUtc, evidence, historicalOperationalEvidenceUnavailable, picture]);
   return <section aria-label="Layered propagation picture" className="rounded-xl border border-indigo-700/70 bg-indigo-950/20 p-3 space-y-3">
     <div><h3 className="text-sm font-black uppercase text-indigo-300">LAYERED PROPAGATION PICTURE</h3><p className="text-[10px] text-slate-400">Four attributable evidence layers. Differences are shown without blending them into a score.</p></div>

@@ -9,5 +9,7 @@ export function formatUtcText(value: string): string {
 }
 
 export function ensureTerminalPeriod(value: string): string {
-  return `${value.replace(/[.!?]+$/, '')}.`;
+  const terminal = value.match(/[.!?]+$/)?.[0];
+  if (!terminal) return `${value}.`;
+  return `${value.slice(0, -terminal.length)}${terminal[0]}`;
 }

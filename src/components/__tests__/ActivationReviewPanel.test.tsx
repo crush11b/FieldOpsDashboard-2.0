@@ -56,6 +56,18 @@ describe('ActivationReviewPanel', () => {
     expect(panel).not.toHaveTextContent('SET TX CONTEXT');
   });
 
+  it('renders one historical unavailable statement and retrospective guidance in completed review', async () => {
+    const completedActivation = { ...activation, status: 'completed' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...review, activation: completedActivation }) }));
+    render(<ActivationReviewPanel activation={completedActivation} />);
+    const panel = await screen.findByRole('region', { name: 'Activation Review' });
+    await screen.findByText('No retained TX Context or MY SIGNAL evidence exists for this Activation.');
+    const text = panel.textContent || '';
+    expect(text.match(/No retained TX Context or MY SIGNAL evidence exists for this Activation\./g)).toHaveLength(1);
+    expect(text).toContain('No retrospective operating recommendation is available because retained station-context evidence is unavailable.');
+    expect(text).not.toMatch(/\b(log|set|create|capture|refresh)\b/i);
+  });
+
   it.each([
     ['program_default', { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' }],
     ['operator_entered', { goal: 'maximize_contacts', label: 'Field objective' }],
