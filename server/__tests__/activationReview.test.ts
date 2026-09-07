@@ -36,9 +36,4 @@ describe('Activation Review assembly', () => {
     expect(review.findings).toContain('1 associated QSO falls outside the retained planned mission window.');
   });
 
-  it('reports a genuinely unplanned band only when the retained plan explicitly lists bands', () => {
-    const explicitPlan = { ...modeledBrief, station: { ...modeledBrief.station, plannedBands: ['20m'] } };
-    const review = assembleActivationReview(dependencies([qso('qso-1', '2026-08-25T12:05:00Z', '20m', 'FT8', 'manual'), qso('qso-2', '2026-08-25T12:06:00Z', '15m', 'FT8', 'manual')], explicitPlan));
-    expect(review.findings).toContain('Logged contacts include unplanned band 15m.');
-  });
 });

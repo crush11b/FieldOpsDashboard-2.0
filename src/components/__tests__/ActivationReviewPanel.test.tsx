@@ -36,7 +36,8 @@ describe('ActivationReviewPanel', () => {
     ] } };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => completedReview }));
     render(<ActivationReviewPanel activation={completedActivation} />);
-    const panel = await screen.findByRole('region', { name: 'Activation Review' });
+    await screen.findByText('MISSION WINDOW');
+    const panel = screen.getByRole('region', { name: 'Activation Review' });
     expect(panel).toHaveTextContent('MISSION WINDOW');
     expect(panel).toHaveTextContent('ACTUAL ACTIVATION WINDOW');
     expect(panel).toHaveTextContent('OUTSIDE PLANNED WINDOW');

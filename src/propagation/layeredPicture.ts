@@ -1,5 +1,6 @@
 import type { StationSignalObservation, TxContext } from '../../server/operationalIntelligence';
 import type { QsoEvidence } from '../../server/qsoEvidence';
+import { ensureTerminalPeriod } from '../utils/formatUtc';
 
 export type PropagationLayerState = 'live' | 'retained' | 'stale' | 'stale_evidence' | 'partial' | 'not_applicable' | 'unavailable' | 'missing_context' | 'awaiting_provider_latency' | 'query_pending' | 'no_matching_reports' | 'evidence_available' | 'provider_unavailable';
 export type PropagationLayerId = 'modeled' | 'environmental' | 'general_observed_rf' | 'station_signal';
@@ -74,7 +75,7 @@ export function assembleLayeredPropagationPicture(input: LayeredPropagationInput
       source: [forecastAvailable ? input.forecast.provider?.name || 'Open-Meteo' : null, spaceAvailable ? input.spaceWeather.source?.name || 'NOAA SWPC' : null].filter(Boolean).join(' / ') || 'No retained environmental source',
       timing: newest([input.forecast?.retrievedAtUtc, input.spaceWeather?.retrievedAtUtc]) ?? 'Unavailable',
       applicability: input.missionWindow ? `Retained evidence associated with mission ${input.missionWindow.start} to ${input.missionWindow.end}` : 'Mission applicability unavailable',
-      summary: forecastAvailable || spaceAvailable ? `${forecastAvailable ? 'Mission forecast retained' : 'Mission forecast unavailable'}; ${spaceAvailable ? input.spaceWeather.interpretation?.plainLanguageEffect || 'space weather retained' : 'space weather unavailable'}.` : 'Environmental evidence is unavailable.',
+      summary: forecastAvailable || spaceAvailable ? `${forecastAvailable ? 'Mission forecast retained' : 'Mission forecast unavailable'}; ${spaceAvailable ? ensureTerminalPeriod(input.spaceWeather.interpretation?.plainLanguageEffect || 'space weather retained') : 'space weather unavailable.'}` : 'Environmental evidence is unavailable.',
       limitations: [...(!forecastAvailable ? ['Mission forecast is unavailable.'] : []), ...(!spaceAvailable ? ['Space-weather evidence is unavailable.'] : []), 'Environmental conditions inform interpretation but do not prove path usability.'],
     },
     {

@@ -37,7 +37,7 @@ describe('LayeredPropagationPicture', () => {
     render(<LayeredPropagationPicture activation={guided} qsoEvidence={qsoEvidence} evaluatedAtUtc="2026-09-05T00:00:00.000Z" readOnly retained={{}} />);
     expect(await screen.findByRole('region', { name: 'Mission-aware operating guidance' })).toHaveTextContent('qualification / focused');
     expect(screen.getByText(/Progress: 6\/10 QSOs/)).toBeInTheDocument();
-    expect(screen.getByText(/30 minutes to 2026-09-05T00:30:00.000Z \(program_rule \/ program_default\)/)).toBeInTheDocument();
+    expect(screen.getByText(/30 minutes to 2026-09-05 00:30:00 UTC \(program_rule \/ program_default\)/)).toBeInTheDocument();
     expect(screen.getByText(/Deterministic guidance from named inputs/)).toBeInTheDocument();
   });
 
@@ -46,11 +46,11 @@ describe('LayeredPropagationPicture', () => {
     vi.stubGlobal('fetch', fetcher);
     const first = aggregateQsoEvidence([{ qsoId: 'one', qsoDateTimeUtc: '2026-09-05T11:59:00.000Z', band: '20m', mode: 'FT8' } as any], '20m', 'FT8');
     const second = aggregateQsoEvidence([{ qsoId: 'two', qsoDateTimeUtc: '2026-09-05T11:59:00.000Z', band: '40m', mode: 'FT8' } as any], '40m', 'FT8');
-    const { rerender } = render(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} readOnly qsoEvidence={first} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
+    const { rerender } = render(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} qsoEvidence={first} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
     expect(await screen.findByText(/Remain on productive 20m/)).toBeInTheDocument();
-    rerender(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} readOnly qsoEvidence={second} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
+    rerender(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} qsoEvidence={second} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
     expect(await screen.findByText(/Remain on productive 40m/)).toBeInTheDocument();
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
   it('updates MY SIGNAL guidance from an owner snapshot without remounting or provider refetches', async () => {
