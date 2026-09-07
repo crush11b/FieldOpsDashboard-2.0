@@ -41,6 +41,7 @@ export interface MissionGuidanceInput {
   readonly qsoEvidence?: QsoEvidence;
   readonly picture: LayeredPropagationPicture;
   readonly evaluatedAtUtc: string;
+  readonly retrospective?: boolean;
   readonly modeledBands?: readonly string[];
   readonly currentBand?: string;
   readonly currentMode?: string;
@@ -48,7 +49,7 @@ export interface MissionGuidanceInput {
 }
 
 export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGuidance {
-  const evaluatedAtUtc = requireUtc(input.evaluatedAtUtc);
+  const evaluatedAtUtc = requireUtc(input.retrospective && input.activation.endedAtUtc ? input.activation.endedAtUtc : input.evaluatedAtUtc);
   const qsoEvidence = input.qsoEvidence ?? aggregateQsoEvidence([], input.currentBand, input.currentMode);
   const objective = input.activation.operatingObjective;
   const required = objective?.requiredQsoCount ?? null;
@@ -62,8 +63,10 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
   const minutesSinceAttempt = attemptAnchor ? Math.floor((Date.parse(evaluatedAtUtc) - Date.parse(attemptAnchor)) / 60_000) : null;
   const stalled = Boolean(currentBand && minutesSinceAttempt !== null && minutesSinceAttempt >= MISSION_GUIDANCE_POLICY.progressStallMinutes);
   const station = input.picture.layers.find(layer => layer.id === 'station_signal');
-  const stationMatch = station?.summary.match(/^(\d+) matching reports/);
-  const stationPositive = station?.state === 'evidence_available' && Number(stationMatch?.[1] ?? 0) > 0;
+  const stationMatch = station?.summary.match(/^(\d+) matching reports from (\d+) unique receivers/);
+  const stationReportCount = Number(stationMatch?.[1] ?? 0);
+  const stationReceiverCount = Number(stationMatch?.[2] ?? 0);
+  const stationPositive = station?.state === 'evidence_available' && stationReportCount > 0;
   const stationZero = station?.state === 'no_matching_reports';
   const stationLimited = !station || ['stale_evidence', 'awaiting_provider_latency', 'query_pending', 'provider_unavailable', 'unavailable'].includes(station.state);
   const modeledBand = input.modeledBands?.find(Boolean);
@@ -110,7 +113,7 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
       } else action = `Reassess ${currentBand} now; retain the log and compare the next bounded evidence before changing.`;
     }
   }
-  if (stationPositive) { supportingEvidence.push(`Current MY SIGNAL shows ${stationMatch?.[1]} matching reports from station-specific outbound reception evidence.`); references.add('station_signal'); }
+  if (stationPositive) { supportingEvidence.push(`Current MY SIGNAL shows ${stationReportCount} matching reports from ${stationReceiverCount} unique receivers in station-specific outbound reception evidence.`); references.add('station_signal'); }
   else if (stationZero) { supportingEvidence.push('MY SIGNAL mature-zero reports no matching reception in its bounded observation; this does not establish propagation failure.'); reasons.push('Mature-zero MY SIGNAL is combined with other evidence and is not treated as proof of an unusable band.'); references.add('station_signal'); }
   else if (stationLimited) { missingLimitations.push(`MY SIGNAL is ${station?.state ?? 'unavailable'}; station-specific evidence is limited until the next applicable result.`); references.add('station_signal'); if (station?.state === 'awaiting_provider_latency' || station?.state === 'query_pending') reasons.push('Next expected evidence event: the bounded MY SIGNAL provider result for the current TX Context.'); }
   if (input.picture.layers.some(layer => layer.id === 'general_observed_rf' && ['stale', 'unavailable', 'not_applicable'].includes(layer.state))) { missingLimitations.push('General observed RF is stale, unavailable, or not applicable to the current context.'); references.add('general_observed_rf'); }
@@ -124,7 +127,17 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
   if (!objective && qsoEvidence.currentBandQsoCount === 0) missingLimitations.push('No explicit objective or current-band QSO result is retained, so no band can be justified.');
   if (currentBand && qsoEvidence.currentBandQsoCount === 0 && input.currentContextStartedAtUtc) action = stalled ? `Reassess ${currentBand} now; this bounded attempt has produced no two-way QSO, but that does not establish propagation failure.` : `Continue the bounded ${currentBand} attempt until ${MISSION_GUIDANCE_POLICY.progressStallMinutes} minutes have elapsed or new evidence arrives; no two-way QSO is recorded yet.`;
   const reconsiderWhen = stalled ? `Reconsider now: no new ${currentBand ?? 'current-band'} QSO has been recorded for ${MISSION_GUIDANCE_POLICY.progressStallMinutes} minutes. Reconsider sooner if current evidence changes or becomes stale.` : `Reconsider after ${MISSION_GUIDANCE_POLICY.progressStallMinutes} minutes without a new current-band QSO, or sooner if MY SIGNAL/general evidence changes or becomes stale.`;
-  return { kind: 'mission_aware_operating_guidance', category, urgency, action, ...(suggestedBand ? { suggestedBand } : {}), ...(suggestedMode ? { suggestedMode } : {}), supportingEvidence, conflictingEvidence: [...new Set(conflictingEvidence)], reasons, missingLimitations, reconsiderWhen, evidenceReferences: [...references], inputs: { goal: objective?.goal ?? 'unspecified', goalLabel: objective?.label ?? 'No explicit objective', completedQsos: qsoEvidence.total, requiredQsos: required, remainingQsos: remaining, deadlineUtc, deadlineBasis: objective?.deadlineBasis ?? null, deadlineProvenance: objective?.deadlineProvenance ?? null, minutesRemaining, qsoEvidence }, limitations: ['Deterministic guidance from named inputs; not a prediction, guarantee, score, command, or automatic radio control.', 'Outbound reception evidence does not prove a usable return path or contact success.', 'Operator safety, access, band conditions, and legal requirements remain controlling.'], evaluatedAtUtc };
+  const common = { kind: 'mission_aware_operating_guidance' as const, category, supportingEvidence, conflictingEvidence: [...new Set(conflictingEvidence)], missingLimitations, evidenceReferences: [...references], inputs: { goal: (objective?.goal ?? 'unspecified') as MissionGuidance['inputs']['goal'], goalLabel: objective?.label ?? 'No explicit objective', completedQsos: qsoEvidence.total, requiredQsos: required, remainingQsos: remaining, deadlineUtc, deadlineBasis: objective?.deadlineBasis ?? null, deadlineProvenance: objective?.deadlineProvenance ?? null, minutesRemaining, qsoEvidence }, limitations: ['Deterministic guidance from named inputs; not a prediction, guarantee, score, command, or automatic radio control.', 'Outbound reception evidence does not prove a usable return path or contact success.', 'Operator safety, access, band conditions, and legal requirements remain controlling.'], evaluatedAtUtc };
+  if (input.retrospective) {
+    const bandResults = Object.entries(qsoEvidence.byBand).sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]));
+    const primaryBand = currentBand ?? bandResults[0]?.[0] ?? null;
+    const primaryCount = primaryBand ? qsoEvidence.byBand[primaryBand] ?? 0 : 0;
+    const modeledSummary = modeledBand ? `the retained model favored ${modeledBand}` : 'the retained model did not identify a favored band';
+    const stationSummary = stationPositive && stationMatch ? `MY SIGNAL retained ${stationReportCount} matching reports from ${stationReceiverCount} unique receivers${primaryBand && currentMode ? ` on ${primaryBand}/${currentMode}` : ''}` : 'MY SIGNAL retained no positive matching-receiver evidence';
+    const comparison = primaryBand && primaryCount > 0 ? `${primaryBand} produced ${primaryCount} of ${qsoEvidence.total} QSOs; ${stationSummary}; ${modeledSummary}${modeledBand && modeledBand !== primaryBand ? `, while ${modeledBand} produced ${qsoEvidence.byBand[modeledBand] ?? 0} QSOs` : ''}.` : `${stationSummary}; ${modeledSummary}.`;
+    return { ...common, urgency: 'complete' as const, action: `At activation end, ${comparison} This is a retrospective comparison, not a command to resume operating.`, reasons: ['This assessment is bounded by the retained Activation completion time and retained evidence.', 'The assessment describes the completed activation and does not direct future operation.'], reconsiderWhen: 'Reassessment would have been triggered only during the completed activation by the retained progress or evidence boundary.' };
+  }
+  return { ...common, urgency, action, ...(suggestedBand ? { suggestedBand } : {}), ...(suggestedMode ? { suggestedMode } : {}), reasons, reconsiderWhen };
 }
 
 function requireUtc(value: string): string { const parsed = Date.parse(value); if (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(parsed)) throw new Error('evaluatedAtUtc must be a valid UTC timestamp.'); return new Date(parsed).toISOString(); }

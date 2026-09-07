@@ -15,12 +15,13 @@ interface Props {
   readonly brief?: SmartDeployBriefV2;
   readonly retained?: Pick<LayeredPropagationInputs, 'modeled' | 'modeledStatus' | 'modeledAtUtc' | 'missionWindow' | 'destinationLabel' | 'forecast' | 'spaceWeather' | 'generalObserved'>;
   readonly readOnly?: boolean;
+  readonly retrospective?: boolean;
   readonly qsoEvidence?: QsoEvidence;
   readonly evaluatedAtUtc?: string;
   readonly operationalIntelligence?: OperationalIntelligenceResult | null;
 }
 
-export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, retained, readOnly = false, qsoEvidence, evaluatedAtUtc, operationalIntelligence }) => {
+export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, retained, readOnly = false, retrospective = false, qsoEvidence, evaluatedAtUtc, operationalIntelligence }) => {
   const [remote, setRemote] = useState<LayeredPropagationInputs>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -36,14 +37,14 @@ export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, 
   const evidence = qsoEvidence ?? remote.qsoEvidence ?? aggregateQsoEvidence([]);
   const currentRemote = operationalIntelligence ? { ...remote, txContexts: operationalIntelligence.txContexts, stationObservations: operationalIntelligence.observations } : remote;
   const historicalOperationalEvidenceUnavailable = readOnly && !(currentRemote.txContexts?.length || currentRemote.stationObservations?.length);
-  const picture = useMemo(() => assembleLayeredPropagationPicture({ ...base, ...currentRemote, forecast: currentRemote.forecast ?? base.forecast, spaceWeather: currentRemote.spaceWeather ?? base.spaceWeather, objective: activation.operatingObjective, completedQsos: evidence.total, qsoEvidence: evidence }), [activation.operatingObjective, base, currentRemote, evidence]);
+  const picture = useMemo(() => assembleLayeredPropagationPicture({ ...base, ...currentRemote, forecast: currentRemote.forecast ?? base.forecast, spaceWeather: currentRemote.spaceWeather ?? base.spaceWeather, objective: activation.operatingObjective, completedQsos: evidence.total, qsoEvidence: evidence, retrospective }), [activation.operatingObjective, base, currentRemote, evidence, retrospective]);
   const guidance = useMemo(() => {
     const contexts = currentRemote.txContexts ?? [];
     const current = contexts.find(context => context.endedAtUtc === undefined) ?? [...contexts].sort((left, right) => right.startedAtUtc.localeCompare(left.startedAtUtc) || right.segmentId.localeCompare(left.segmentId))[0];
     const modeledBands = [...new Set((base.modeled?.summary?.strongestBandBySample ?? []).map((item: any) => item?.band).filter(Boolean))] as string[];
-    const assembled = assembleMissionGuidance({ activation, qsoEvidence: current ? withCurrentQsoContext(evidence, current.band, current.mode) : evidence, picture, evaluatedAtUtc: evaluatedAtUtc ?? activation.updatedAtUtc, modeledBands, currentBand: current?.band, currentMode: current?.mode, currentContextStartedAtUtc: current?.startedAtUtc });
+    const assembled = assembleMissionGuidance({ activation, qsoEvidence: current ? withCurrentQsoContext(evidence, current.band, current.mode) : evidence, picture, evaluatedAtUtc: evaluatedAtUtc ?? activation.updatedAtUtc, retrospective, modeledBands, currentBand: current?.band, currentMode: current?.mode, currentContextStartedAtUtc: current?.startedAtUtc });
     return historicalOperationalEvidenceUnavailable ? { ...assembled, action: 'No retrospective operating recommendation is available because retained station-context evidence is unavailable.' } : assembled;
-  }, [activation, base.modeled, currentRemote, evaluatedAtUtc, evidence, historicalOperationalEvidenceUnavailable, picture]);
+  }, [activation, base.modeled, currentRemote, evaluatedAtUtc, evidence, historicalOperationalEvidenceUnavailable, picture, retrospective]);
   return <section aria-label="Layered propagation picture" className="rounded-xl border border-indigo-700/70 bg-indigo-950/20 p-3 space-y-3">
     <div><h3 className="text-sm font-black uppercase text-indigo-300">LAYERED PROPAGATION PICTURE</h3><p className="text-[10px] text-slate-400">Four attributable evidence layers. Differences are shown without blending them into a score.</p></div>
     {loading && <p role="status" className="text-[10px] text-slate-400">Loading retained and local evidence...</p>}
@@ -52,14 +53,14 @@ export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, 
     {picture.relationships.length > 0 && <div><h4 className="text-[10px] font-black uppercase text-amber-300">LAYER DIFFERENCES</h4><ul className="list-disc pl-4 text-[10px] text-amber-100">{picture.relationships.map(item => <li key={item}>{formatUtcText(item)}</li>)}</ul></div>}
     <p className="text-[9px] text-slate-500">{picture.limitation}</p>
     <section aria-label="Mission-aware operating guidance" className="rounded border border-emerald-700/70 bg-emerald-950/20 p-2 space-y-2">
-      <div className="flex flex-wrap justify-between gap-2"><h4 className="text-[10px] font-black uppercase text-emerald-300">NEXT-STEP GUIDANCE</h4><span className="text-[9px] font-black uppercase text-emerald-200">{guidance.category.replace('_', ' ')} / {guidance.urgency}</span></div>
+      <div className="flex flex-wrap justify-between gap-2"><h4 className="text-[10px] font-black uppercase text-emerald-300">{retrospective ? 'END-OF-ACTIVATION ASSESSMENT' : 'NEXT-STEP GUIDANCE'}</h4><span className="text-[9px] font-black uppercase text-emerald-200">{guidance.category.replace('_', ' ')} / {guidance.urgency}</span></div>
       <p className="text-[11px] font-bold text-slate-100">{formatUtcText(guidance.action)}</p>
       {(guidance.suggestedBand || guidance.suggestedMode) && <p className="text-[10px] text-emerald-100">Suggested context: {guidance.suggestedBand ?? 'Band not specified'} / {guidance.suggestedMode ?? 'Mode not specified'}</p>}
       <p className="text-[10px] text-slate-300">Goal: {guidance.inputs.goalLabel} · Progress: {guidance.inputs.completedQsos}{guidance.inputs.requiredQsos === null ? ' QSOs' : `/${guidance.inputs.requiredQsos} QSOs`}{guidance.inputs.deadlineUtc ? ` · ${guidance.inputs.minutesRemaining} minutes to ${formatUtcText(guidance.inputs.deadlineUtc)} (${guidance.inputs.deadlineBasis} / ${guidance.inputs.deadlineProvenance})` : ' · No explicit deadline'}</p>
       <GuidanceList title="WHY" items={(guidance.supportingEvidence.length ? guidance.supportingEvidence : guidance.reasons).map(formatUtcText)} />
       {guidance.conflictingEvidence.length > 0 && <GuidanceList title="EVIDENCE THAT DISAGREES" items={guidance.conflictingEvidence.map(formatUtcText)} />}
       {guidance.missingLimitations.length > 0 && <GuidanceList title="MISSING OR LIMITED EVIDENCE" items={guidance.missingLimitations.map(formatUtcText)} />}
-      <p className="text-[10px] text-slate-300"><strong className="uppercase text-emerald-200">RECONSIDER WHEN:</strong> {formatUtcText(guidance.reconsiderWhen)}</p>
+      <p className="text-[10px] text-slate-300"><strong className="uppercase text-emerald-200">{retrospective ? 'WHAT WOULD HAVE TRIGGERED REASSESSMENT' : 'RECONSIDER WHEN'}:</strong> {formatUtcText(guidance.reconsiderWhen)}</p>
       <ul className="list-disc pl-4 text-[10px] text-slate-300">{guidance.reasons.map(reason => <li key={reason}>{formatUtcText(reason)}</li>)}</ul>
       <p className="text-[9px] text-slate-500">Evidence references: {guidance.evidenceReferences.join(', ') || 'none'} · Evaluated {formatUtcText(guidance.evaluatedAtUtc)}</p>
       <ul className="list-disc pl-4 text-[9px] text-slate-500">{guidance.limitations.map(item => <li key={item}>{formatUtcText(item)}</li>)}</ul>
