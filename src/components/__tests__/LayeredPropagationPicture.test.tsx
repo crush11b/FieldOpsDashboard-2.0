@@ -88,4 +88,38 @@ describe('LayeredPropagationPicture', () => {
     expect(guidance).toHaveTextContent('station_signal');
     expect(guidance).toHaveTextContent('modeled');
   });
+
+  it('renders retrospective station relationships without embedded terminal punctuation', async () => {
+    const context = { segmentId: 'segment-retro', activationId: activation.activationId, startedAtUtc: '2026-09-05T00:01:00.000Z', endedAtUtc: '2026-09-05T00:10:00.000Z', band: '20m', mode: 'FT8', radioSetupLabel: 'IC-705', antennaLabel: 'EFHW', transmitPowerWatts: 10, provenance: {} } as any;
+    const observation = { ...minimalObservation('retro', 'retained', 49), txContextSegmentId: context.segmentId, uniqueReceiverCount: 49 } as any;
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) })));
+    render(<LayeredPropagationPicture activation={activation} readOnly retrospective operationalIntelligence={{ txContexts: [context], observations: [observation] }} retained={{}} />);
+    expect(await screen.findByText('MY SIGNAL has 49 matching reports from 49 unique receivers for 20m / FT8 / TX Context segment-retro; this is bounded station-specific outbound evidence.')).toBeInTheDocument();
+    expect(screen.queryByText(/reports\. for|reports\.\.|evidence\.\./)).toBeNull();
+  });
+
+  it('uses completion time for stable retrospective assessment and reports the retained scenario', async () => {
+    const context = { segmentId: 'segment-retro-scenario', activationId: activation.activationId, startedAtUtc: '2026-09-05T00:01:00.000Z', endedAtUtc: '2026-09-05T01:00:00.000Z', band: '20m', mode: 'FT8', radioSetupLabel: 'IC-705', antennaLabel: 'EFHW', transmitPowerWatts: 10, provenance: {} } as any;
+    const observation = { ...minimalObservation('scenario', 'retained', 49), txContextSegmentId: context.segmentId, uniqueReceiverCount: 49 } as any;
+    const qsoEvidence = aggregateQsoEvidence([...Array.from({ length: 9 }, (_, index) => ({ qsoId: `20-${index}`, qsoDateTimeUtc: `2026-09-05T00:${String(index).padStart(2, '0')}:00.000Z`, band: '20m', mode: 'FT8' } as any)), ...Array.from({ length: 2 }, (_, index) => ({ qsoId: `15-${index}`, qsoDateTimeUtc: `2026-09-05T00:${String(index + 20).padStart(2, '0')}:00.000Z`, band: '15m', mode: 'FT8' } as any))], '20m', 'FT8');
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) })));
+    const { rerender } = render(<LayeredPropagationPicture activation={activation} readOnly retrospective evaluatedAtUtc="2026-09-08T01:00:00.000Z" operationalIntelligence={{ txContexts: [context], observations: [observation] }} qsoEvidence={qsoEvidence} retained={{ modeled: { summary: { strongestBandBySample: [{ band: '15m' }] } }, modeledStatus: 'retained' }} />);
+    const guidance = await screen.findByRole('region', { name: 'Mission-aware operating guidance' });
+    expect(guidance).toHaveTextContent('END-OF-ACTIVATION ASSESSMENT');
+    expect(guidance).toHaveTextContent('20m produced 9 of 11 QSOs; MY SIGNAL retained 49 matching receivers on 20m/FT8; the retained model favored 15m, while 15m produced 2 QSOs.');
+    expect(guidance).toHaveTextContent('Evaluated 2026-09-05 01:00:00 UTC');
+    expect(guidance).toHaveTextContent('WHAT WOULD HAVE TRIGGERED REASSESSMENT');
+    expect(guidance.textContent).not.toMatch(/\b(reassess|remain on|change band|wait|capture|set a TX Context)\b/i);
+    const first = guidance.textContent;
+    rerender(<LayeredPropagationPicture activation={activation} readOnly retrospective evaluatedAtUtc="2026-09-20T01:00:00.000Z" operationalIntelligence={{ txContexts: [context], observations: [observation] }} qsoEvidence={qsoEvidence} retained={{ modeled: { summary: { strongestBandBySample: [{ band: '15m' }] } }, modeledStatus: 'retained' }} />);
+    expect((await screen.findByRole('region', { name: 'Mission-aware operating guidance' })).textContent).toBe(first);
+  });
+
+  it('renders unavailable station evidence when completed review has neither contexts nor observations', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) })));
+    render(<LayeredPropagationPicture activation={activation} readOnly retrospective retained={{}} />);
+    expect(await screen.findByText('Station-specific evidence is unavailable in this retained review.')).toBeInTheDocument();
+  });
 });
+
+function minimalObservation(id: string, status: string, matchingReportCount: number) { return { observationId: id, activationId: activation.activationId, txContextSegmentId: 'segment-retro', source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: '2026-09-05T00:01:00.000Z', endsAtUtc: '2026-09-05T00:05:00.000Z', status, matchingReportCount, uniqueReceiverCount: matchingReportCount, reportsPerMinute: matchingReportCount, uniqueReceiversPerMinute: matchingReportCount, newestMatchingReportAtUtc: '2026-09-05T00:04:00.000Z', limitations: [] }; }

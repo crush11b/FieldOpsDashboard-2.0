@@ -39,6 +39,7 @@ export interface LayeredPropagationInputs {
   readonly objective?: { readonly goal?: string; readonly requiredQsoCount?: number; readonly deadlineUtc?: string };
   readonly completedQsos?: number;
   readonly qsoEvidence?: QsoEvidence;
+  readonly retrospective?: boolean;
 }
 
 export function assembleLayeredPropagationPicture(input: LayeredPropagationInputs): LayeredPropagationPicture {
@@ -87,11 +88,11 @@ export function assembleLayeredPropagationPicture(input: LayeredPropagationInput
       limitations: [liveGeneral?.limitation ?? retainedGeneral?.limitation ?? 'General observed RF is not evidence that this station was received.'],
     },
     {
-      id: 'station_signal', label: 'MY SIGNAL', state: stationSignalState(openContext, station),
+      id: 'station_signal', label: 'MY SIGNAL', state: stationSignalState(openContext, station, input.retrospective),
       source: station ? `Retained station-specific ${station.source === 'wspr' ? 'WSPR' : 'PSKReporter'} observation` : openContext ? 'PSKReporter provider latency window' : 'No applicable TX Context',
       timing: station ? `${station.startsAtUtc} to ${station.endsAtUtc}` : 'Unavailable',
       applicability: station && stationContext ? `${stationContext.band} / ${stationContext.mode} / TX Context ${station.txContextSegmentId}` : station ? `TX Context ${station.txContextSegmentId}; segment details unavailable` : 'No applicable TX Context observation',
-      summary: station ? station.matchingReportCount === 0 ? 'No matching reports observed.' : `${station.matchingReportCount} matching reports from ${station.uniqueReceiverCount} unique receivers.` : openContext ? 'PSKReporter reports may take several minutes to arrive; the next bounded capture is scheduled by the decision window.' : 'No TX Context is open; station-specific capture is not possible.',
+      summary: station ? station.matchingReportCount === 0 ? 'No matching reports observed.' : `${station.matchingReportCount} matching reports from ${station.uniqueReceiverCount} unique receivers.` : openContext ? input.retrospective ? 'Retained TX Context exists; no MY SIGNAL observation was captured.' : 'PSKReporter reports may take several minutes to arrive; the next bounded capture is scheduled by the decision window.' : 'No TX Context is open; station-specific capture is not possible.',
       limitations: station?.limitations ?? ['Outbound reception evidence does not prove a usable return path or contact success.'],
     },
   ];
@@ -111,7 +112,7 @@ export function synthesizeWhatThisMeansNow(input: WhatThisMeansNowInput): readon
   const station = input.layers.find(layer => layer.id === 'station_signal');
   const general = input.layers.find(layer => layer.id === 'general_observed_rf');
   const means: string[] = [];
-  if (station && station.state !== 'unavailable' && station.summary !== 'No matching reports observed.') means.push(`MY SIGNAL has ${station.summary.toLowerCase()} for ${station.applicability}; this is bounded station-specific outbound evidence.`);
+  if (station && station.state !== 'unavailable' && station.summary !== 'No matching reports observed.') means.push(`MY SIGNAL has ${station.summary.toLowerCase().replace(/[.!?]+$/, '')} for ${station.applicability}; this is bounded station-specific outbound evidence.`);
   if (station?.summary === 'No matching reports observed.') means.push('MY SIGNAL currently has zero matching reports in its bounded capture; this does not establish poor propagation or station failure.');
   if (!input.objective) means.push('No explicit operating objective is retained for this Activation.');
   if (input.modeledBands.length && input.openContext && !input.modeledBands.includes(input.openContext.band)) means.push(`The modeled alternative is ${input.modeledBands.join(' / ')}; the current TX Context is ${input.openContext.band}.`);
@@ -125,7 +126,7 @@ export function synthesizeWhatThisMeansNow(input: WhatThisMeansNowInput): readon
 }
 
 function generalState(status: string): PropagationLayerState { return status === 'live' ? 'live' : status === 'stale' ? 'stale' : status === 'cached' || status === 'observed' || status === 'retained' ? 'retained' : status === 'notTemporallyApplicable' ? 'not_applicable' : 'unavailable'; }
-function stationSignalState(context: TxContext | null, observation: StationSignalObservation | null): PropagationLayerState { if (!context) return 'unavailable'; if (!observation) return 'awaiting_provider_latency'; if (observation.status === 'stale') return 'stale_evidence'; return observation.matchingReportCount > 0 ? 'evidence_available' : 'no_matching_reports'; }
+function stationSignalState(context: TxContext | null, observation: StationSignalObservation | null, retrospective = false): PropagationLayerState { if (observation?.status === 'stale') return 'stale_evidence'; if (observation) return observation.matchingReportCount > 0 ? 'evidence_available' : 'no_matching_reports'; if (retrospective && context) return 'retained'; if (!context) return 'unavailable'; return 'awaiting_provider_latency'; }
 function newestObservation(values: readonly StationSignalObservation[]): StationSignalObservation | null { return [...values].sort((left, right) => right.endsAtUtc.localeCompare(left.endsAtUtc) || right.observationId.localeCompare(left.observationId))[0] ?? null; }
 function newest(values: readonly (string | undefined)[]): string | null { return values.filter((value): value is string => Boolean(value)).sort().at(-1) ?? null; }
 function unique(values: readonly string[]): string[] { return [...new Set(values)]; }

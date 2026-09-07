@@ -199,6 +199,14 @@ describe('MySignalPanel', () => {
     expect(postCalls(fetcher)).toHaveLength(0);
   });
 
+  it('distinguishes retained closed context from unavailable station evidence', async () => {
+    const closed = { ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' };
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [closed], observations: [], diagnostics: [] })));
+    render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
+    expect(await screen.findByText('Retained TX Context history is available; no MY SIGNAL observations were captured.')).toBeInTheDocument();
+    expect(screen.queryByText('No retained TX Context or MY SIGNAL evidence exists for this Activation.')).toBeNull();
+  });
+
   it('shows explicit retained state and preserves compact zero runs and positive observations', async () => {
     const zeroA = minimalObservation('1', 'retained', 0); const zeroB = minimalObservation('2', 'retained', 0); const positive = minimalObservation('3', 'retained', 2);
     vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' }], observations: [zeroA, positive, zeroB], diagnostics: [] })));
