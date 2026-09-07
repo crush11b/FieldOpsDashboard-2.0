@@ -41,7 +41,9 @@ export interface LayeredPropagationInputs {
 }
 
 export function assembleLayeredPropagationPicture(input: LayeredPropagationInputs): LayeredPropagationPicture {
-  const openContext = input.txContexts?.find(context => context.endedAtUtc === undefined) ?? null;
+  const openContext = input.txContexts?.find(context => context.endedAtUtc === undefined)
+    ?? [...(input.txContexts ?? [])].sort((left, right) => right.startedAtUtc.localeCompare(left.startedAtUtc) || right.segmentId.localeCompare(left.segmentId))[0]
+    ?? null;
   const station = newestObservation(input.stationObservations ?? []);
   const stationContext = station ? input.txContexts?.find(context => context.segmentId === station.txContextSegmentId) ?? null : null;
   const liveBand = openContext && Array.isArray(input.liveBandActivity?.bands)

@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { cleanup, render, screen } from '@testing-library/react';
+import { act, cleanup, render, screen, waitFor } from '@testing-library/react';
 import { LayeredPropagationPicture } from '../LayeredPropagationPicture';
 import { aggregateQsoEvidence } from '../../../server/qsoEvidence';
 
@@ -51,5 +51,41 @@ describe('LayeredPropagationPicture', () => {
     rerender(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} readOnly qsoEvidence={second} evaluatedAtUtc="2026-09-05T12:00:00.000Z" retained={{}} />);
     expect(await screen.findByText(/Remain on productive 40m/)).toBeInTheDocument();
     expect(fetcher).toHaveBeenCalledTimes(1);
+  });
+
+  it('updates MY SIGNAL guidance from an owner snapshot without remounting or provider refetches', async () => {
+    const fetcher = vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) }));
+    vi.stubGlobal('fetch', fetcher);
+    const snapshot = { txContexts: [{ ...activation, segmentId: 'segment-1', startedAtUtc: '2026-09-05T11:00:00.000Z', endedAtUtc: undefined, band: '20m', mode: 'FT8', radioSetupLabel: 'IC-705', antennaLabel: 'EFHW', transmitPowerWatts: 10, provenance: {} } as any], observations: [{ observationId: 'observation-49', activationId: activation.activationId, txContextSegmentId: 'segment-1', source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: '2026-09-05T11:03:00.000Z', endsAtUtc: '2026-09-05T11:04:00.000Z', status: 'live', matchingReportCount: 49, uniqueReceiverCount: 49, newestMatchingReportAtUtc: '2026-09-05T11:04:00.000Z', limitations: [] } as any] };
+    const emptyEvidence = aggregateQsoEvidence([]);
+    const { rerender } = render(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} operationalIntelligence={{ txContexts: snapshot.txContexts, observations: [] }} qsoEvidence={emptyEvidence} readOnly retained={{}} />);
+    expect(await screen.findByText(/PSKReporter reports may take several minutes/)).toBeInTheDocument();
+    await waitFor(() => expect(fetcher).toHaveBeenCalled());
+    rerender(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} operationalIntelligence={snapshot} retained={{}} />);
+    expect(await screen.findByText('49 matching reports from 49 unique receivers.')).toBeInTheDocument();
+    const fetchCalls = fetcher.mock.calls as unknown as Array<[unknown]>;
+    const unrelatedFetchCount = fetchCalls.filter(([url]) => /mission-forecast|space-weather|live-band-activity/.test(String(url))).length;
+    rerender(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} operationalIntelligence={snapshot} qsoEvidence={emptyEvidence} readOnly retained={{}} />);
+    expect(fetchCalls.filter(([url]) => /mission-forecast|space-weather|live-band-activity/.test(String(url))).length).toBe(unrelatedFetchCount);
+  });
+
+  it('renders the 20m field scenario with attributable evidence and one model disagreement', async () => {
+    const context = { segmentId: 'segment-field', activationId: activation.activationId, startedAtUtc: '2026-09-05T11:00:00.000Z', band: '20m', mode: 'FT8', radioSetupLabel: 'IC-705', antennaLabel: 'EFHW', transmitPowerWatts: 10, provenance: {} } as any;
+    const qsoEvidence = aggregateQsoEvidence([
+      ...Array.from({ length: 9 }, (_, index) => ({ qsoId: `20m-${index}`, qsoDateTimeUtc: `2026-09-05T11:${String(index).padStart(2, '0')}:00.000Z`, band: '20m', mode: 'FT8' } as any)),
+      ...Array.from({ length: 2 }, (_, index) => ({ qsoId: `15m-${index}`, qsoDateTimeUtc: `2026-09-05T10:${String(index).padStart(2, '0')}:00.000Z`, band: '15m', mode: 'FT8' } as any)),
+    ], '20m', 'FT8');
+    const snapshot = { txContexts: [context], observations: [{ observationId: 'observation-field', activationId: activation.activationId, txContextSegmentId: context.segmentId, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: '2026-09-05T11:03:00.000Z', endsAtUtc: '2026-09-05T11:07:00.000Z', status: 'live', matchingReportCount: 49, uniqueReceiverCount: 49, newestMatchingReportAtUtc: '2026-09-05T11:07:00.000Z', limitations: [] } as any] };
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => ({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] }) })));
+    render(<LayeredPropagationPicture activation={{ ...activation, operatingObjective: undefined }} qsoEvidence={qsoEvidence} operationalIntelligence={snapshot} retained={{ modeled: { summary: { strongestBandBySample: [{ band: '15m' }] } }, modeledStatus: 'complete' }} />);
+    const guidance = await screen.findByRole('region', { name: 'Mission-aware operating guidance' });
+    expect(guidance).toHaveTextContent('Remain on productive 20m');
+    expect(guidance).toHaveTextContent('Progress: 11 QSOs');
+    expect(guidance).toHaveTextContent('Current MY SIGNAL shows 49 matching reports');
+    expect(guidance).toHaveTextContent('Retained modeled propagation favors 15m');
+    expect(guidance.textContent?.match(/Retained modeled propagation favors 15m/g)).toHaveLength(1);
+    expect(guidance).toHaveTextContent('activation_qso_results');
+    expect(guidance).toHaveTextContent('station_signal');
+    expect(guidance).toHaveTextContent('modeled');
   });
 });

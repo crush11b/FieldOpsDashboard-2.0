@@ -7,6 +7,7 @@ import { assembleLayeredPropagationPicture, type LayeredPropagationInputs } from
 import { assembleMissionGuidance } from '../operations/missionGuidance';
 import { aggregateQsoEvidence, withCurrentQsoContext, type QsoEvidence } from '../../server/qsoEvidence';
 import { listQsos } from '../qsoApi';
+import type { OperationalIntelligenceResult } from '../operationalIntelligenceApi';
 
 interface Props {
   readonly activation: Activation;
@@ -15,9 +16,10 @@ interface Props {
   readonly readOnly?: boolean;
   readonly qsoEvidence?: QsoEvidence;
   readonly evaluatedAtUtc?: string;
+  readonly operationalIntelligence?: OperationalIntelligenceResult | null;
 }
 
-export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, retained, readOnly = false, qsoEvidence, evaluatedAtUtc }) => {
+export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, retained, readOnly = false, qsoEvidence, evaluatedAtUtc, operationalIntelligence }) => {
   const [remote, setRemote] = useState<LayeredPropagationInputs>({});
   const [loading, setLoading] = useState(true);
   useEffect(() => {
@@ -31,12 +33,14 @@ export const LayeredPropagationPicture: React.FC<Props> = ({ activation, brief, 
   }, [activation.activationId, brief?.briefId, readOnly]);
   const base = useMemo<LayeredPropagationInputs>(() => retained ?? (brief?.sections ? { modeled: brief.sections.propagation.evidence, modeledStatus: brief.sections.propagation.status, modeledAtUtc: brief.generatedAtUtc, missionWindow: { start: brief.missionWindow.start, end: brief.missionWindow.end }, destinationLabel: brief.propagationObjective.regionLabel, generalObserved: brief.sections.observedRf.evidence } : {}), [brief, retained]);
   const evidence = qsoEvidence ?? remote.qsoEvidence ?? aggregateQsoEvidence([]);
-  const picture = useMemo(() => assembleLayeredPropagationPicture({ ...base, ...remote, forecast: remote.forecast ?? base.forecast, spaceWeather: remote.spaceWeather ?? base.spaceWeather, objective: activation.operatingObjective, completedQsos: evidence.total, qsoEvidence: evidence }), [activation.operatingObjective, base, evidence, remote]);
+  const currentRemote = operationalIntelligence ? { ...remote, txContexts: operationalIntelligence.txContexts, stationObservations: operationalIntelligence.observations } : remote;
+  const picture = useMemo(() => assembleLayeredPropagationPicture({ ...base, ...currentRemote, forecast: currentRemote.forecast ?? base.forecast, spaceWeather: currentRemote.spaceWeather ?? base.spaceWeather, objective: activation.operatingObjective, completedQsos: evidence.total, qsoEvidence: evidence }), [activation.operatingObjective, base, currentRemote, evidence]);
   const guidance = useMemo(() => {
-    const current = remote.txContexts?.find(context => context.endedAtUtc === undefined);
+    const contexts = currentRemote.txContexts ?? [];
+    const current = contexts.find(context => context.endedAtUtc === undefined) ?? [...contexts].sort((left, right) => right.startedAtUtc.localeCompare(left.startedAtUtc) || right.segmentId.localeCompare(left.segmentId))[0];
     const modeledBands = [...new Set((base.modeled?.summary?.strongestBandBySample ?? []).map((item: any) => item?.band).filter(Boolean))] as string[];
     return assembleMissionGuidance({ activation, qsoEvidence: current ? withCurrentQsoContext(evidence, current.band, current.mode) : evidence, picture, evaluatedAtUtc: evaluatedAtUtc ?? activation.updatedAtUtc, modeledBands, currentBand: current?.band, currentMode: current?.mode, currentContextStartedAtUtc: current?.startedAtUtc });
-  }, [activation, base.modeled, evaluatedAtUtc, evidence, picture, remote.txContexts]);
+  }, [activation, base.modeled, currentRemote, evaluatedAtUtc, evidence, picture]);
   return <section aria-label="Layered propagation picture" className="rounded-xl border border-indigo-700/70 bg-indigo-950/20 p-3 space-y-3">
     <div><h3 className="text-sm font-black uppercase text-indigo-300">LAYERED PROPAGATION PICTURE</h3><p className="text-[10px] text-slate-400">Four attributable evidence layers. Differences are shown without blending them into a score.</p></div>
     {loading && <p role="status" className="text-[10px] text-slate-400">Loading retained and local evidence...</p>}

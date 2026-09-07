@@ -12,6 +12,7 @@ interface Props {
   readonly stationState?: CurrentStationState | null;
   readonly readOnly?: boolean;
   readonly plannedSetup?: { readonly radioSetupLabel: string; readonly antennaLabel: string; readonly transmitPowerWatts: number };
+  readonly onOperationalIntelligenceChange?: (snapshot: { readonly txContexts: readonly TxContext[]; readonly observations: readonly StationSignalObservation[] }) => void;
 }
 
 interface FormState {
@@ -29,7 +30,7 @@ const initialForm = (station?: CurrentStationState | null, planned?: Props['plan
   frequencyMHz: station?.frequencyMHz === null || station?.frequencyMHz === undefined ? '' : String(station.frequencyMHz),
 });
 
-export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null, readOnly = false, plannedSetup }) => {
+export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null, readOnly = false, plannedSetup, onOperationalIntelligenceChange }) => {
   const [contexts, setContexts] = useState<readonly TxContext[]>([]);
   const [observations, setObservations] = useState<readonly StationSignalObservation[]>([]);
   const [form, setForm] = useState<FormState>(() => initialForm(stationState, plannedSetup));
@@ -57,7 +58,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
     const controller = new AbortController();
     formTouched.current = false; stationSeeded.current = false; setForm(initialForm(stationState, plannedSetup)); setReplacingContext(false); setContexts([]); setObservations([]); setLoading(true); setQueryPending(false); setProviderError(null); setProviderErrorCode(null); setLastAttemptAtMs(null); setLastCompletedAtMs(null); setMessage(null);
     void getOperationalIntelligence(activation.activationId, controller.signal)
-      .then(result => { setContexts(result.txContexts); setObservations(result.observations); })
+      .then(result => { setContexts(result.txContexts); setObservations(result.observations); onOperationalIntelligenceChange?.(result); })
       .catch(error => { if (error?.name !== 'AbortError') setMessage(error instanceof Error ? error.message : 'MY SIGNAL evidence could not be loaded.'); })
       .finally(() => { if (!controller.signal.aborted) setLoading(false); });
     return () => controller.abort();
@@ -95,7 +96,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
         band: form.band as TxContext['band'], mode: form.mode as TxContext['mode'], ...(form.frequencyMHz ? { frequencyMHz: Number(form.frequencyMHz) } : {}),
         provenance: { radioSetup: plannedSetup?.radioSetupLabel === form.radioSetupLabel.trim() ? 'operator_confirmed_plan' : 'operator_entered', antenna: plannedSetup?.antennaLabel === form.antennaLabel.trim() ? 'operator_confirmed_plan' : 'operator_entered', transmitPowerWatts: plannedSetup?.transmitPowerWatts === Number(form.transmitPowerWatts) ? 'operator_confirmed_plan' : 'operator_entered', band: stationBand ? 'wsjtx_application' : 'operator_entered', mode: stationMode ? 'wsjtx_application' : 'operator_entered', ...(form.frequencyMHz ? { frequencyMHz: stationFrequency ? 'wsjtx_application' : 'operator_entered' } : {}) },
       });
-      setContexts(current => [context, ...current.map(item => item.endedAtUtc === undefined ? { ...item, endedAtUtc: context.startedAtUtc } : item)]);
+      setContexts(current => { const next = [context, ...current.map(item => item.endedAtUtc === undefined ? { ...item, endedAtUtc: context.startedAtUtc } : item)]; onOperationalIntelligenceChange?.({ txContexts: next, observations }); return next; });
       setLastAttemptAtMs(null);
       setReplacingContext(false);
       setMessage('TX Context saved. MY SIGNAL capture is ready.');
@@ -108,7 +109,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
     captureInFlight.current = true; setBusy(true); setQueryPending(true); setProviderError(null); setProviderErrorCode(null); setMessage(null); setLastAttemptAtMs(Date.now());
     try {
       const observation = await captureStationSignalObservation(activation.activationId, openContext.segmentId);
-      setObservations(current => [observation, ...current]);
+      setObservations(current => { const next = [observation, ...current]; onOperationalIntelligenceChange?.({ txContexts: contexts, observations: next }); return next; });
       setLastCompletedAtMs(Date.now());
       setMessage(observation.matchingReportCount === 0 ? 'Capture completed with no matching reports in this bounded interval.' : `Captured ${observation.matchingReportCount} matching report${observation.matchingReportCount === 1 ? '' : 's'} from ${observation.source === 'pskreporter' ? 'PSKReporter' : 'WSPR'} for the bounded interval.`);
     } catch (error) { const reason = error instanceof Error ? error.message : 'MY SIGNAL evidence could not be captured.'; const code = error instanceof OperationalIntelligenceRequestError ? error.code : 'transport_failure'; setProviderErrorCode(code); setProviderError(reason); setMessage(reason); }

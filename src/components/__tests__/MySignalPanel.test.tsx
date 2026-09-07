@@ -69,6 +69,22 @@ describe('MySignalPanel', () => {
     expect(fetcher).toHaveBeenCalledWith('/api/activations/activation%2F1/tx-context/segment%2F1/observations', { method: 'POST' });
   });
 
+  it('publishes the initial and automatically captured snapshots to its owner', async () => {
+    const evidence = { ...minimalObservation('handoff', 'live', 49), uniqueReceiverCount: 49 };
+    const onOperationalIntelligenceChange = vi.fn();
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'POST'
+      ? response({ kind: 'station_signal_observation', status: 'captured', observation: evidence, diagnostics: [] }, 201)
+      : response({ kind: 'operational_intelligence', txContexts: [context], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<MySignalPanel activation={activation} onOperationalIntelligenceChange={onOperationalIntelligenceChange} />);
+    await screen.findByRole('button', { name: 'CAPTURE MY SIGNAL' });
+    expect(onOperationalIntelligenceChange).toHaveBeenLastCalledWith(expect.objectContaining({ txContexts: [context], observations: [] }));
+    fireEvent.click(screen.getByRole('button', { name: 'CAPTURE MY SIGNAL' }));
+    await screen.findByText('49 reports / 49 receivers');
+    expect(onOperationalIntelligenceChange).toHaveBeenLastCalledWith(expect.objectContaining({ txContexts: [context], observations: [evidence] }));
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'GET' || !init?.method)).toHaveLength(1);
+  });
+
   it('shows exact zero-report meaning without distance or SNR claims', async () => {
     const zero: StationSignalObservation = { observationId: 'zero', activationId: activation.activationId, txContextSegmentId: context.segmentId, source: 'pskreporter', sourceSemantics: 'observed_digital_reception_report', startsAtUtc: '2026-09-05T00:01:00.000Z', endsAtUtc: '2026-09-05T00:06:00.000Z', status: 'retained', matchingReportCount: 0, uniqueReceiverCount: 0, reportsPerMinute: 0, uniqueReceiversPerMinute: 0, newestMatchingReportAtUtc: null, limitations: ['No matching reports observed'] };
     vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:07:00.000Z' }], observations: [zero], diagnostics: [] })));

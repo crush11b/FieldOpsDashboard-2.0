@@ -41,6 +41,17 @@ describe('layered propagation picture', () => {
     expect(picture.relationships.some(item => item.startsWith('Current TX band'))).toBe(false);
   });
 
+  it('uses the latest closed context and preserves deterministic operate-review synthesis', () => {
+    const earlier = { ...context, segmentId: 'segment-earlier', startedAtUtc: '2026-09-05T00:00:00.000Z', endedAtUtc: '2026-09-05T00:03:00.000Z', band: '40m' as const };
+    const latest = { ...context, segmentId: 'segment-latest', startedAtUtc: '2026-09-05T00:04:00.000Z', endedAtUtc: '2026-09-05T00:09:00.000Z', band: '20m' as const };
+    const input = { modeled, modeledStatus: 'complete', txContexts: [latest as any, earlier as any], stationObservations: [{ ...zero, txContextSegmentId: latest.segmentId }], objective: { requiredQsoCount: 4 } };
+    const operate = assembleLayeredPropagationPicture({ ...input, txContexts: [{ ...latest, endedAtUtc: undefined } as any, earlier as any] });
+    const review = assembleLayeredPropagationPicture(input);
+    expect(review.layers.find(layer => layer.id === 'station_signal')?.applicability).toContain('20m / FT8 / TX Context segment-latest');
+    expect(review.whatThisMeansNow).toEqual(operate.whatThisMeansNow);
+    expect(review.relationships).toEqual(operate.relationships);
+  });
+
   it('provides structured current meaning without blending the layers', () => {
     const picture = assembleLayeredPropagationPicture({ modeled, modeledStatus: 'complete', modeledAtUtc: '2026-09-05T00:00:00.000Z', txContexts: [context as any], stationObservations: [zero], objective: { requiredQsoCount: 4, deadlineUtc: '2026-09-05T01:00:00.000Z' }, completedQsos: 1 });
     expect(picture.whatThisMeansNow).toEqual(expect.arrayContaining([
