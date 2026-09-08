@@ -70,6 +70,13 @@ describe('OperationsReadinessWorkspace', () => {
     expect(screen.getByRole('button', { name: 'SAVE OBJECTIVE' })).toBeDisabled();
   });
 
+  it('uses a program-neutral PREPARE heading for POTA', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} />);
+    await waitFor(() => expect(screen.getByText('POTA PREPARE')).toBeInTheDocument());
+    expect(screen.queryByText('SUMMIT READINESS')).toBeNull();
+  });
+
   it('initializes and immediately displays a retained deadline in local and UTC forms', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
     const activation = { activationId: 'active-1', type: 'POTA', status: 'active', objectiveSelection: 'operator_entered', operatingObjective: { goal: 'secure_activation', label: 'Field objective', deadlineUtc: '2026-08-21T12:30:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' } } as any;

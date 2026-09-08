@@ -100,6 +100,12 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
   }, [openContext, readOnly, stationState]);
 
   const editForm = (changes: Partial<FormState>) => { formTouched.current = true; setForm(previous => ({ ...previous, ...changes })); };
+  const editOperatingField = (field: 'band' | 'mode', value: string) => {
+    const next = { ...form, [field]: value };
+    const previousDefault = getConventionalFrequencyMHz(form.band, form.mode);
+    const nextDefault = getConventionalFrequencyMHz(next.band, next.mode);
+    editForm({ ...next, frequencyMHz: !form.frequencyMHz || Number(form.frequencyMHz) === previousDefault ? String(nextDefault ?? '') : form.frequencyMHz });
+  };
 
   const saveContext = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setMessage(null); setProviderError(null); setProviderErrorCode(null);
@@ -143,8 +149,8 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
       <Field label="RADIO / SETUP"><input required aria-label="MY SIGNAL RADIO / SETUP" value={form.radioSetupLabel} onChange={event => editForm({ radioSetupLabel: event.target.value })} className={inputClass} /></Field>
       <Field label="ANTENNA"><input required aria-label="MY SIGNAL ANTENNA" value={form.antennaLabel} onChange={event => editForm({ antennaLabel: event.target.value })} className={inputClass} /></Field>
       <Field label="POWER W"><input required min="0.1" step="0.1" type="number" aria-label="MY SIGNAL POWER W" value={form.transmitPowerWatts} onChange={event => editForm({ transmitPowerWatts: event.target.value })} className={inputClass} /></Field>
-      <Field label="MY SIGNAL BAND"><select aria-label="MY SIGNAL BAND" value={form.band} onChange={event => editForm({ band: event.target.value })} className={inputClass}>{AMATEUR_BAND_OPTIONS.filter(option => (PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-      <Field label="MODE"><select aria-label="MY SIGNAL MODE" value={form.mode} onChange={event => editForm({ mode: event.target.value })} className={inputClass}>{OPERATING_MODE_OPTIONS.filter(option => (PROPAGATION_MODES as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+      <Field label="MY SIGNAL BAND"><select aria-label="MY SIGNAL BAND" value={form.band} onChange={event => editOperatingField('band', event.target.value)} className={inputClass}>{AMATEUR_BAND_OPTIONS.filter(option => (PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+      <Field label="MODE"><select aria-label="MY SIGNAL MODE" value={form.mode} onChange={event => editOperatingField('mode', event.target.value)} className={inputClass}>{OPERATING_MODE_OPTIONS.filter(option => (PROPAGATION_MODES as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
       <Field label="MY SIGNAL FREQUENCY MHz"><input min="0.1" step="0.0001" type="number" aria-label="MY SIGNAL FREQUENCY MHz" value={form.frequencyMHz} onChange={event => editForm({ frequencyMHz: event.target.value })} className={inputClass} /></Field>
       <div className="col-span-2 sm:col-span-3"><button disabled={busy} className="min-h-11 rounded border border-violet-600 px-3 py-2 text-[10px] font-black text-violet-200 disabled:opacity-50">{busy ? 'SAVING...' : 'SET TX CONTEXT'}</button></div>
     </form>}

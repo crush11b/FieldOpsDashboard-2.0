@@ -35,6 +35,22 @@ describe('MySignalPanel', () => {
     expect(JSON.parse(String(put?.[1]?.body))).toMatchObject({ band: '20m', mode: 'FT8', frequencyMHz: 14.074, provenance: { band: 'wsjtx_application', mode: 'wsjtx_application', frequencyMHz: 'wsjtx_application' } });
   });
 
+  it('populates the canonical FT8 frequency when selecting a known band', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] })));
+    render(<MySignalPanel activation={activation} stationState={{ ...station, band: '40m', mode: 'SSB', frequencyMHz: null } as any} />);
+    await screen.findByRole('button', { name: 'SET TX CONTEXT' });
+    fireEvent.change(screen.getByLabelText('MY SIGNAL MODE'), { target: { value: 'FT8' } });
+    expect(screen.getByLabelText('MY SIGNAL FREQUENCY MHz')).toHaveValue(7.074);
+  });
+
+  it('populates the canonical FT4 frequency when selecting a known band', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] })));
+    render(<MySignalPanel activation={activation} stationState={{ ...station, band: '40m', mode: 'SSB', frequencyMHz: null } as any} />);
+    await screen.findByRole('button', { name: 'SET TX CONTEXT' });
+    fireEvent.change(screen.getByLabelText('MY SIGNAL MODE'), { target: { value: 'FT4' } });
+    expect(screen.getByLabelText('MY SIGNAL FREQUENCY MHz')).toHaveValue(7.0475);
+  });
+
   it('marks operator-edited station fields as operator-entered', async () => {
     const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => !init?.method
       ? response({ kind: 'operational_intelligence', txContexts: [], observations: [], diagnostics: [] })
@@ -184,6 +200,24 @@ describe('MySignalPanel', () => {
     expect(postCalls(fetcher)).toHaveLength(0);
     await vi.advanceTimersByTimeAsync(3 * 60_000);
     expect(postCalls(fetcher)).toHaveLength(1);
+  });
+
+  it('prompts for and saves a replacement context after a WSJT-X station change', async () => {
+    const replacement = { ...context, segmentId: 'segment/2', band: '40m', mode: 'FT4', frequencyMHz: 7.0475, startedAtUtc: '2026-09-05T00:03:00.000Z' };
+    const fetcher = vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === 'PUT' ? response({ kind: 'tx_context', status: 'opened', context: replacement }, 201) : response({ kind: 'operational_intelligence', txContexts: [context], observations: [], diagnostics: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    const { rerender } = render(<MySignalPanel activation={activation} stationState={station as any} />);
+    await screen.findByRole('button', { name: 'CHANGE TX CONTEXT' });
+    rerender(<MySignalPanel activation={activation} stationState={{ ...station, band: '40m', mode: 'FT4', frequencyMHz: 7.0475 } as any} />);
+    expect(await screen.findByText('WSJT-X station context changed. Review and save a replacement TX Context.')).toBeInTheDocument();
+    expect(screen.getByLabelText('MY SIGNAL BAND')).toHaveValue('40m');
+    expect(screen.getByLabelText('MY SIGNAL MODE')).toHaveValue('FT4');
+    expect(screen.getByLabelText('MY SIGNAL FREQUENCY MHz')).toHaveValue(7.0475);
+    fireEvent.change(screen.getByLabelText('MY SIGNAL RADIO / SETUP'), { target: { value: 'IC-705' } });
+    fireEvent.change(screen.getByLabelText('MY SIGNAL ANTENNA'), { target: { value: 'EFHW' } });
+    fireEvent.change(screen.getByLabelText('MY SIGNAL POWER W'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'SET TX CONTEXT' }));
+    await waitFor(() => expect(fetcher.mock.calls.some(([, request]) => request?.method === 'PUT' && JSON.parse(String(request.body)).band === '40m' && JSON.parse(String(request.body)).mode === 'FT4' && JSON.parse(String(request.body)).frequencyMHz === 7.0475)).toBe(true));
   });
 
   it('does not schedule completed or read-only review captures and labels retained time as an interval end', async () => {
