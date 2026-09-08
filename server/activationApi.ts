@@ -32,7 +32,19 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
       if (issues.length) { response.status(400).json(error('invalid_objective_selection', issues.join(' '))); return; }
     }
     const existing = options.store.list().activations.find(item => item.briefId === briefId);
-    if (existing) { response.json({ kind: 'activation', status: 'existing', activation: existing }); return; }
+    if (existing) {
+      const requestedSelection = request.body?.objectiveSelection as ActivationObjectiveSelection | undefined;
+      const requestedObjective = request.body?.operatingObjective as ActivationOperatingObjective | undefined;
+      if (requestedSelection !== undefined && existing.status !== 'completed' && (requestedSelection !== existing.objectiveSelection || JSON.stringify(requestedObjective) !== JSON.stringify(existing.operatingObjective))) {
+        try {
+          const updated = options.store.updateObjective(existing.activationId, requestedObjective, requestedSelection);
+          response.json({ kind: 'activation', status: 'existing', activation: updated.activation, diagnostics: updated.diagnostics });
+          return;
+        } catch { response.status(503).json(error('persistence_unavailable', 'The existing Activation objective could not be updated.')); return; }
+      }
+      response.json({ kind: 'activation', status: 'existing', activation: existing });
+      return;
+    }
     try {
       const source = sourceFromBrief(briefResult.brief);
       let notesCollectionId: string | undefined;

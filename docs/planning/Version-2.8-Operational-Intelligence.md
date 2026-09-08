@@ -1,5 +1,11 @@
 # Version 2.8 - Operational Intelligence
 
+## 2.8-08G CF-20 field reacceptance result - 2026-09-07
+
+The 2026-09-07 CF-20 reacceptance did not pass the 2.8-08G closure gate. Persistence and mixed logging passed, and MY SIGNAL cadence passed. Objective provenance, clock behavior and access, TX Context usability, live guidance usefulness, and completed-state presentation failed. The run also showed that retained TX Context observations were not presented truthfully as concise per-context review summaries, completion-time modeled selection was stale, and completed PREPARE remained mutable.
+
+Source corrections and focused regression tests remain required. A shorter reacceptance is still required after the corrections; this result does not authorize release, deployment, or closure of the V2.8 field gate.
+
 - Status: V2.8-01 through V2.8-05 are merged into `main`; V2.8-07 is the source-complete integration candidate pending CF-20 hardware acceptance
 - Baseline: Version 2.7.0 - Connected Operations
 - Current integration slice: 2.8-07 Integrated Operational Intelligence & CF-20 Field Validation
