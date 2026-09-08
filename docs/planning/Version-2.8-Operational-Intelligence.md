@@ -4,9 +4,43 @@
 
 The 2026-09-07 CF-20 reacceptance did not pass the 2.8-08G closure gate. Persistence and mixed logging passed, and MY SIGNAL cadence passed. Objective provenance, clock behavior and access, TX Context usability, live guidance usefulness, and completed-state presentation failed. The run also showed that retained TX Context observations were not presented truthfully as concise per-context review summaries, completion-time modeled selection was stale, and completed PREPARE remained mutable.
 
-Source corrections and focused regression tests remain required. A shorter reacceptance is still required after the corrections; this result does not authorize release, deployment, or closure of the V2.8 field gate.
+At the time of this 2026-09-07 record, source corrections and focused regression tests remained required, and a shorter reacceptance was still required; the result did not authorize release, deployment, or closure of the V2.8 field gate. The authoritative 2026-09-08 reacceptance and final disposition above supersede those pending conditions.
 
-- Status: V2.8-01 through V2.8-05 are merged into `main`; V2.8-07 is the source-complete integration candidate pending CF-20 hardware acceptance
+## 2.8-08G CF-20 abbreviated reacceptance and final disposition - 2026-09-08
+
+The authoritative abbreviated CF-20 reacceptance passed after the recorded 2026-09-07 failures were corrected. The earlier failed acceptance remains preserved above as historical evidence.
+
+### Deployment identity
+
+- Main revision: `ab35f07f9f17c4b23e1d340ec907b5e11421886d`
+- Source revision matched.
+- Native revision matched.
+- Dashboard running.
+
+### Accepted evidence
+
+- GPS was initially unavailable, then recovered with an updated fix.
+- Explicit synchronization corrected the Windows clock offset from `0.609 seconds` to `0.003 seconds`.
+- The canonical POTA objective retained Program default provenance.
+- TX Context transitioned from `20m/FT8` to `17m/FT8`.
+- Completion-time modeled evidence correctly favored `17m`.
+- Completed REVIEW used retained MY SIGNAL evidence.
+- Activation lifecycle and objective result were separated truthfully: `Activation complete; Objective not met; Progress 0/10 QSOs.`
+- Overlapping capture history used latest-capture summaries rather than misleading summed distinct-report counts.
+- Detailed retained captures remained inspectable.
+- Completed REVIEW was read-only and performed no live-provider fetch.
+
+### Final disposition
+
+- V2.8-08G hardware reacceptance: **PASSED**
+- V2.8 operational field acceptance: **PASSED**
+- V2.8 status: **CLOSED**
+- V2.9 implementation gate: **CLEARED**
+- SmartFrequency/POTA-SOTA activity integration remains planned work and was not added to V2.8.
+
+This closeout records field acceptance and administrative disposition. It authorizes no deployment or release action beyond artifacts already separately validated, and it does not begin V2.9 implementation.
+
+- Status: V2.8-01 through V2.8-05 are merged into `main`; V2.8-08G hardware reacceptance and V2.8 operational field acceptance are closed
 - Baseline: Version 2.7.0 - Connected Operations
 - Current integration slice: 2.8-07 Integrated Operational Intelligence & CF-20 Field Validation
 - Supported deployment: single operator on one locally operated Windows field computer
@@ -495,8 +529,8 @@ Field failures and operator findings:
 - Layered evidence synthesis: **FAIL**.
 - Next-Step Guidance operator value: **FAIL**.
 - Objective workflow field usability: **FAIL**.
-- Overall V2.8 Operational Intelligence field acceptance: **NOT COMPLETE**.
-- V2.9 implementation must not begin until V2.8-08 is closed or an explicit waiver is recorded.
+- At the time of this 2026-09-05 record, overall V2.8 Operational Intelligence field acceptance was **NOT COMPLETE**; this historical finding was superseded by the authoritative 2026-09-08 reacceptance above.
+- At the time of this 2026-09-05 record, V2.9 implementation remained blocked pending V2.8-08 closure; the 2026-09-08 final disposition above records that the V2.9 implementation gate is now **CLEARED**.
 
 ### Corrective slice 2.8-08A - Clock synchronization reliability
 
@@ -582,7 +616,7 @@ V2.8-08 closes only after hardware acceptance. Automated tests alone are insuffi
 
 ### Relationship to V2.9
 
-The previously prepared V2.9 Field Product Completion plan remains valid. The operator-maintained App Library spreadsheet and its seven authoritative categories remain preserved. V2.9-01 begins only after V2.8-08 closure or an explicit documented waiver. App Library work is not implemented, reinterpreted, or imported in this branch.
+The previously prepared V2.9 Field Product Completion plan remains valid, and the V2.9 implementation gate is cleared by the 2026-09-08 CF-20 reacceptance. The operator-maintained App Library spreadsheet and its seven authoritative categories remain preserved. V2.9 implementation is outside this closeout and is not started here. App Library work is not implemented, reinterpreted, or imported in this branch.
 
 ### Exclusions for this planning slice
 
