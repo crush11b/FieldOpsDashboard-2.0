@@ -7,6 +7,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.8.0] - Release closure
+
+Version 2.8.0 completes Operational Intelligence for the supported single-operator ToughBook deployment. Successful CF-20 field acceptance was completed on 2026-09-08.
+
+### Added
+- **Integrated field lifecycle**: PLAN -> PREPARE -> OPERATE -> REVIEW now carries mission context through operation and retained review.
+- **Mission-aware guidance**: Evidence-driven operating guidance uses explicit objectives, deadlines, progress, and bounded reconsideration conditions.
+- **Layered evidence**: Modeled, environmental, general observed-RF, and station-specific MY SIGNAL evidence remain attributable and separate.
+- **Clock synchronization**: Explicit GNSS-backed Windows clock synchronization reports bounded correction and verification results.
+- **QSO evidence retention**: Automatic and manual WSJT-X/QSO evidence remains retained with source provenance.
+- **MY SIGNAL decision window**: Provider latency, pending capture, mature zero, available evidence, stale evidence, and unavailable states remain explicit.
+- **Completed Review**: Retrospective Activation Review is truthful, read-only, and compressed while retaining detailed evidence for inspection.
+
+### Validation
+- V2.8-08G CF-20 hardware reacceptance passed on 2026-09-08.
+- V2.8 operational field acceptance passed and V2.8 was closed after successful explicit clock synchronization, objective retention, TX Context transition, modeled evidence review, and retained MY SIGNAL validation.
+
+### Deferred
+- POTA/SOTA activity and SmartFrequency groundwork remain future work.
+- App Library and launcher management are V2.9 work.
+- No radio control, automatic spotting, or external log submission was added.
+
+---
+
 ## [2.7.0] - Release closure
 
 Version 2.7.0 completes Connected Operations for the supported single-operator ToughBook deployment.

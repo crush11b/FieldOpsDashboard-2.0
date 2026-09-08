@@ -7,6 +7,6 @@
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ],
-  "version": "2.7.0",
-  "releaseName": "Connected Operations"
+  "version": "2.8.0",
+  "releaseName": "Operational Intelligence"
 }
