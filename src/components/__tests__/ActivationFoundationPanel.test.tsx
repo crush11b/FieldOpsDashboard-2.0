@@ -90,12 +90,12 @@ describe('ActivationFoundationPanel', () => {
     const { rerender } = render(<ActivationFoundationPanel brief={brief} initialActivation={retained} initialQsoCount={6} showReview={false} />);
     expect(screen.getByText('Field objective / secure_activation')).toBeInTheDocument();
     expect(screen.getByText('0 / 10 QSOs')).toBeInTheDocument();
-    expect(screen.getByText('operator_entered')).toBeInTheDocument();
-    expect(screen.getByText(/2026-08-26 13:00:00 UTC \/ operator_entered \/ operator_entered/)).toBeInTheDocument();
+    expect(screen.getByText('Operator entered')).toBeInTheDocument();
+    expect(screen.getByText(/2026-08-26 13:00:00 UTC \/ operator-entered deadline \/ operator-entered/)).toBeInTheDocument();
 
     rerender(<ActivationFoundationPanel brief={brief} initialActivation={{ ...activeActivation, objectiveSelection: 'explicitly_absent', operatingObjective: undefined }} initialQsoCount={0} showReview={false} />);
     expect(screen.getByText('No explicit objective')).toBeInTheDocument();
-    expect(screen.getByText('explicitly_absent')).toBeInTheDocument();
+    expect(screen.getByText('Explicitly absent')).toBeInTheDocument();
 
     rerender(<ActivationFoundationPanel brief={brief} initialActivation={{ ...activeActivation, objectiveSelection: undefined, operatingObjective: { goal: 'secure_activation', label: 'Legacy objective' } }} initialQsoCount={0} showReview={false} />);
     expect(screen.getByText('Unavailable (legacy record)')).toBeInTheDocument();

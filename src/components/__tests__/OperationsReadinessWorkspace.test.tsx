@@ -81,6 +81,17 @@ describe('OperationsReadinessWorkspace', () => {
     expect(screen.queryByText('derived when validated')).toBeNull();
   });
 
+  it('renders completed PREPARE as historical and exposes no mutation controls', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    const completedActivation = { activationId: 'completed-1', type: 'POTA', status: 'completed', endedAtUtc: '2026-08-21T13:00:00.000Z' } as any;
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} initialActivation={completedActivation} onStartActivation={vi.fn()} onSaveObjective={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Completed Activation\. This PREPARE record is historical and read-only/)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'START ACTIVATION' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SAVE OBJECTIVE' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'LOAD LIVE WEATHER FOR PLANNED SITE' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' })).toBeNull();
+  });
+
   it('submits edited objective fields as operator-entered', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
     const onStartActivation = vi.fn(async (_objective: unknown, _selection: unknown) => undefined);

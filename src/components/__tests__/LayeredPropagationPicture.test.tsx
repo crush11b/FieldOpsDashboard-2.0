@@ -37,7 +37,7 @@ describe('LayeredPropagationPicture', () => {
     render(<LayeredPropagationPicture activation={guided} qsoEvidence={qsoEvidence} evaluatedAtUtc="2026-09-05T00:00:00.000Z" readOnly retained={{}} />);
     expect(await screen.findByRole('region', { name: 'Mission-aware operating guidance' })).toHaveTextContent('qualification / focused');
     expect(screen.getByText(/Progress: 6\/10 QSOs/)).toBeInTheDocument();
-    expect(screen.getByText(/30 minutes to 2026-09-05 00:30:00 UTC \(program_rule \/ program_default\)/)).toBeInTheDocument();
+    expect(screen.getByText(/30 minutes to 2026-09-05 00:30:00 UTC \(program rule \/ program default\)/)).toBeInTheDocument();
     expect(screen.getByText(/Deterministic guidance from named inputs/)).toBeInTheDocument();
   });
 

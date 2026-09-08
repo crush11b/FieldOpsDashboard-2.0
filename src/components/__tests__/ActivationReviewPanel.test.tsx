@@ -78,7 +78,7 @@ describe('ActivationReviewPanel', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: true, json: async () => ({ ...review, activation: completedActivation }) }));
     render(<ActivationReviewPanel activation={completedActivation} />);
     expect(await screen.findByText('ACTIVATION REVIEW')).toBeTruthy();
-    expect(screen.getByText(selection || 'Unavailable (legacy record)')).toBeInTheDocument();
+    expect(screen.getByText(selection === 'program_default' ? 'Program default' : selection === 'operator_entered' ? 'Operator entered' : selection === 'explicitly_absent' ? 'Explicitly absent' : 'Unavailable (legacy record)')).toBeInTheDocument();
     expect(screen.getByText(operatingObjective ? `${operatingObjective.label} / ${operatingObjective.goal}` : 'No explicit objective')).toBeInTheDocument();
   });
 });
