@@ -70,6 +70,13 @@ describe('OperationsReadinessWorkspace', () => {
     expect(screen.getByRole('button', { name: 'SAVE OBJECTIVE' })).toBeDisabled();
   });
 
+  it('uses a program-neutral PREPARE heading for POTA', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} />);
+    await waitFor(() => expect(screen.getByText('POTA PREPARE')).toBeInTheDocument());
+    expect(screen.queryByText('SUMMIT READINESS')).toBeNull();
+  });
+
   it('initializes and immediately displays a retained deadline in local and UTC forms', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
     const activation = { activationId: 'active-1', type: 'POTA', status: 'active', objectiveSelection: 'operator_entered', operatingObjective: { goal: 'secure_activation', label: 'Field objective', deadlineUtc: '2026-08-21T12:30:00.000Z', deadlineBasis: 'operator_entered', deadlineProvenance: 'operator_entered' } } as any;
@@ -79,6 +86,17 @@ describe('OperationsReadinessWorkspace', () => {
     await waitFor(() => expect(screen.getByLabelText('Activation objective deadline local')).toHaveValue(expectedLocalValue));
     expect(screen.getByText(/UTC 2026-08-21T12:30:00.000Z/)).toBeTruthy();
     expect(screen.queryByText('derived when validated')).toBeNull();
+  });
+
+  it('renders completed PREPARE as historical and exposes no mutation controls', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
+    const completedActivation = { activationId: 'completed-1', type: 'POTA', status: 'completed', endedAtUtc: '2026-08-21T13:00:00.000Z' } as any;
+    render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} initialActivation={completedActivation} onStartActivation={vi.fn()} onSaveObjective={vi.fn()} />);
+    await waitFor(() => expect(screen.getByText(/Completed Activation\. This PREPARE record is historical and read-only/)).toBeInTheDocument());
+    expect(screen.queryByRole('button', { name: 'START ACTIVATION' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SAVE OBJECTIVE' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'LOAD LIVE WEATHER FOR PLANNED SITE' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'SYNCHRONIZE WINDOWS TIME' })).toBeNull();
   });
 
   it('submits edited objective fields as operator-entered', async () => {

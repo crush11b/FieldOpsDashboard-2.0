@@ -64,7 +64,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     </>}
     {phase === 'prepare' && <>
       <OperationsReadinessWorkspace brief={brief} initialActivation={activation} onStartActivation={async (objective, selection) => { const result = await startActivationFromBrief(brief.briefId, objective, selection); if (result.kind !== 'activation') throw new Error(result.message); setActivation(result.activation); setActiveActivations([result.activation]); setPhase('operate'); }} onSaveObjective={activation ? async (objective, selection) => { const updated = await updateActivationObjective(activation.activationId, objective, selection); if (updated.kind !== 'activation') throw new Error(updated.message); if (activation.status === 'planned') { const started = await startActivationFromBrief(brief.briefId, objective, selection); if (started.kind !== 'activation') throw new Error(started.message); setActivation(started.activation); setActiveActivations([started.activation]); setPhase('operate'); } else setActivation(updated.activation); } : undefined} />
-      <FieldReadinessChecklistPanel brief={brief} />
+      <FieldReadinessChecklistPanel brief={brief} readOnly={activation?.status === 'completed'} />
       <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3"><Detail label="BRIEF" value={brief.briefId} /><Detail label="PLAN SOURCE" value={readableLocationSource(brief.plannedOperatingSite.source)} /></div></details>
     </>}
     {phase === 'operate' && <>

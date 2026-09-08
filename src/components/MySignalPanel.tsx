@@ -3,7 +3,7 @@ import type { Activation } from '../../server/activation';
 import type { StationSignalObservation, TxContext } from '../../server/operationalIntelligence';
 import type { CurrentStationState } from '../currentStationState';
 import { captureStationSignalObservation, getOperationalIntelligence, openTxContext, OperationalIntelligenceRequestError } from '../operationalIntelligenceApi';
-import { AMATEUR_BAND_OPTIONS, OPERATING_MODE_OPTIONS } from '../qsoOperatingVocabulary';
+import { AMATEUR_BAND_OPTIONS, getConventionalFrequencyMHz, OPERATING_MODE_OPTIONS } from '../qsoOperatingVocabulary';
 import { PROPAGATION_GUIDANCE_BANDS, PROPAGATION_MODES } from '../propagation/domain';
 import { formatUtc } from '../utils/formatUtc';
 import { deriveMySignalDecisionWindow, formatDecisionWindowDuration, MY_SIGNAL_TIMING_POLICY, summarizeConsecutiveZeroObservations, type MySignalDecisionWindowState } from '../operationalIntelligenceDecisionWindow';
@@ -28,7 +28,7 @@ interface FormState {
 const initialForm = (station?: CurrentStationState | null, planned?: Props['plannedSetup']): FormState => ({
   radioSetupLabel: planned?.radioSetupLabel || '', antennaLabel: planned?.antennaLabel || '', transmitPowerWatts: planned ? String(planned.transmitPowerWatts) : '',
   band: (PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(station?.band || '') ? station!.band : '20m', mode: (PROPAGATION_MODES as readonly string[]).includes(station?.mode || '') ? station!.mode : 'FT8',
-  frequencyMHz: station?.frequencyMHz === null || station?.frequencyMHz === undefined ? '' : String(station.frequencyMHz),
+  frequencyMHz: station?.frequencyMHz === null || station?.frequencyMHz === undefined ? String(getConventionalFrequencyMHz((PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(station?.band || '') ? station!.band : '20m', (PROPAGATION_MODES as readonly string[]).includes(station?.mode || '') ? station!.mode : 'FT8') ?? '') : String(station.frequencyMHz),
 });
 
 export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null, readOnly = false, plannedSetup, onOperationalIntelligenceChange }) => {
@@ -47,6 +47,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
   const [replacingContext, setReplacingContext] = useState(false);
   const formTouched = useRef(false);
   const stationSeeded = useRef(false);
+  const previousWsjtxContext = useRef<string | null>(null);
   const captureInFlight = useRef(false);
   const captureRef = useRef<() => void>(() => undefined);
   const openContext = useMemo(() => contexts.find(context => context.endedAtUtc === undefined) ?? null, [contexts]);
@@ -58,6 +59,7 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
   useEffect(() => {
     const controller = new AbortController();
     formTouched.current = false; stationSeeded.current = false; setForm(initialForm(stationState, plannedSetup)); setReplacingContext(false); setContexts([]); setObservations([]); setLoading(true); setQueryPending(false); setProviderError(null); setProviderErrorCode(null); setLastAttemptAtMs(null); setLastCompletedAtMs(null); setMessage(null);
+    previousWsjtxContext.current = null;
     void getOperationalIntelligence(activation.activationId, controller.signal)
       .then(result => { setContexts(result.txContexts); setObservations(result.observations); onOperationalIntelligenceChange?.(result); })
       .catch(error => { if (error?.name !== 'AbortError') setMessage(error instanceof Error ? error.message : 'MY SIGNAL evidence could not be loaded.'); })
@@ -84,7 +86,26 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
     stationSeeded.current = true;
   }, [openContext, readOnly, stationState]);
 
+  useEffect(() => {
+    if (readOnly || !openContext || stationState?.source !== 'wsjtx') return;
+    const key = `${stationState.band}/${stationState.mode}/${stationState.frequencyMHz ?? ''}`;
+    const changed = previousWsjtxContext.current !== null && previousWsjtxContext.current !== key;
+    previousWsjtxContext.current = key;
+    if (!changed || (stationState.band === openContext.band && stationState.mode === openContext.mode && stationState.frequencyMHz === openContext.frequencyMHz)) return;
+    formTouched.current = true;
+    setForm(previous => ({ ...previous, band: stationState.band, mode: stationState.mode, frequencyMHz: stationState.frequencyMHz === null ? String(getConventionalFrequencyMHz(stationState.band, stationState.mode) ?? '') : String(stationState.frequencyMHz) }));
+    setReplacingContext(true);
+    setLastAttemptAtMs(null);
+    setMessage('WSJT-X station context changed. Review and save a replacement TX Context.');
+  }, [openContext, readOnly, stationState]);
+
   const editForm = (changes: Partial<FormState>) => { formTouched.current = true; setForm(previous => ({ ...previous, ...changes })); };
+  const editOperatingField = (field: 'band' | 'mode', value: string) => {
+    const next = { ...form, [field]: value };
+    const previousDefault = getConventionalFrequencyMHz(form.band, form.mode);
+    const nextDefault = getConventionalFrequencyMHz(next.band, next.mode);
+    editForm({ ...next, frequencyMHz: !form.frequencyMHz || Number(form.frequencyMHz) === previousDefault ? String(nextDefault ?? '') : form.frequencyMHz });
+  };
 
   const saveContext = async (event: React.FormEvent) => {
     event.preventDefault(); setBusy(true); setMessage(null); setProviderError(null); setProviderErrorCode(null);
@@ -128,8 +149,8 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
       <Field label="RADIO / SETUP"><input required aria-label="MY SIGNAL RADIO / SETUP" value={form.radioSetupLabel} onChange={event => editForm({ radioSetupLabel: event.target.value })} className={inputClass} /></Field>
       <Field label="ANTENNA"><input required aria-label="MY SIGNAL ANTENNA" value={form.antennaLabel} onChange={event => editForm({ antennaLabel: event.target.value })} className={inputClass} /></Field>
       <Field label="POWER W"><input required min="0.1" step="0.1" type="number" aria-label="MY SIGNAL POWER W" value={form.transmitPowerWatts} onChange={event => editForm({ transmitPowerWatts: event.target.value })} className={inputClass} /></Field>
-      <Field label="MY SIGNAL BAND"><select aria-label="MY SIGNAL BAND" value={form.band} onChange={event => editForm({ band: event.target.value })} className={inputClass}>{AMATEUR_BAND_OPTIONS.filter(option => (PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
-      <Field label="MODE"><select aria-label="MY SIGNAL MODE" value={form.mode} onChange={event => editForm({ mode: event.target.value })} className={inputClass}>{OPERATING_MODE_OPTIONS.filter(option => (PROPAGATION_MODES as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+      <Field label="MY SIGNAL BAND"><select aria-label="MY SIGNAL BAND" value={form.band} onChange={event => editOperatingField('band', event.target.value)} className={inputClass}>{AMATEUR_BAND_OPTIONS.filter(option => (PROPAGATION_GUIDANCE_BANDS as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
+      <Field label="MODE"><select aria-label="MY SIGNAL MODE" value={form.mode} onChange={event => editOperatingField('mode', event.target.value)} className={inputClass}>{OPERATING_MODE_OPTIONS.filter(option => (PROPAGATION_MODES as readonly string[]).includes(option.value)).map(option => <option key={option.value} value={option.value}>{option.label}</option>)}</select></Field>
       <Field label="MY SIGNAL FREQUENCY MHz"><input min="0.1" step="0.0001" type="number" aria-label="MY SIGNAL FREQUENCY MHz" value={form.frequencyMHz} onChange={event => editForm({ frequencyMHz: event.target.value })} className={inputClass} /></Field>
       <div className="col-span-2 sm:col-span-3"><button disabled={busy} className="min-h-11 rounded border border-violet-600 px-3 py-2 text-[10px] font-black text-violet-200 disabled:opacity-50">{busy ? 'SAVING...' : 'SET TX CONTEXT'}</button></div>
     </form>}
@@ -137,13 +158,21 @@ export const MySignalPanel: React.FC<Props> = ({ activation, stationState = null
     {readOnly && contexts.length > 0 && <details><summary className="min-h-8 cursor-pointer py-2 text-[10px] font-black uppercase text-violet-300">TX CONTEXT HISTORY ({contexts.length})</summary><div className="space-y-1">{contexts.map(context => <p key={context.segmentId} className="text-[10px] text-slate-300">{context.band} / {context.mode} · {context.radioSetupLabel} / {context.antennaLabel} · {context.transmitPowerWatts} W · {formatUtc(context.startedAtUtc)} to {context.endedAtUtc ? formatUtc(context.endedAtUtc) : 'Open'}</p>)}</div></details>}
     {!loading && readOnly && contexts.length === 0 && observations.length === 0 && <p className="text-[10px] text-slate-400">No retained TX Context or MY SIGNAL evidence exists for this Activation.</p>}
     {!loading && readOnly && contexts.length > 0 && observations.length === 0 && <p className="text-[10px] text-slate-400">Retained TX Context history is available; no MY SIGNAL observations were captured.</p>}
-    {orderedObservations.length > 0 && <RetainedObservations observations={orderedObservations} />}
+    {orderedObservations.length > 0 && <RetainedObservations observations={orderedObservations} compact={readOnly} />}
     {message && <p role="status" className="text-[11px] text-amber-200">{message}</p>}
   </section>;
 };
 
 const DecisionStatus: React.FC<{ state: MySignalDecisionWindowState; nextAt: string | null; sessionCompletedAtMs: number | null; retainedIntervalEndAtUtc: string | null; nowMs: number; suppressMissingContext?: boolean }> = ({ state, nextAt, sessionCompletedAtMs, retainedIntervalEndAtUtc, nowMs, suppressMissingContext = false }) => <div className="rounded border border-violet-900 bg-slate-950/50 px-2 py-1 text-[10px] text-slate-300">{!(suppressMissingContext && state === 'missing_context') && <p>{state === 'missing_context' ? 'No TX Context is open; station-specific capture is not possible.' : state === 'awaiting_provider_latency' ? `Waiting for PSKReporter provider latency. Next check in ${formatDecisionWindowDuration(Date.parse(nextAt!) - nowMs)}.` : state === 'query_pending' ? 'Checking the retained Observed RF snapshot now.' : state === 'no_matching_reports' ? 'No matching reports were returned by this mature bounded capture.' : state === 'evidence_available' ? 'Matching outbound reception evidence is available.' : state === 'stale_evidence' ? 'Retained matching evidence is stale.' : state === 'provider_unavailable' ? 'The Observed RF provider/source is unavailable; the bounded reason is shown below.' : 'The bounded capture is unavailable; the reason is shown below.'}</p>}{sessionCompletedAtMs !== null && <p className="text-slate-500">Last completed capture: {formatUtc(new Date(sessionCompletedAtMs).toISOString())}.</p>}{sessionCompletedAtMs === null && retainedIntervalEndAtUtc !== null && <p className="text-slate-500">Latest captured interval ended: {formatUtc(retainedIntervalEndAtUtc)}.</p>}{nextAt && state !== 'missing_context' && state !== 'capture_unavailable' && state !== 'provider_unavailable' && <p className="text-slate-500">Next eligible refresh: {formatUtc(nextAt)}.</p>}</div>;
-const RetainedObservations: React.FC<{ observations: readonly StationSignalObservation[] }> = ({ observations }) => { const groups = summarizeConsecutiveZeroObservations(observations); return <div className="space-y-2"><h4 className="text-[10px] font-black uppercase text-violet-300">RETAINED OBSERVATIONS</h4>{groups.map((group, index) => group.kind === 'zero' && group.observations.length > 1 ? <details key={`zero-${index}`}><summary className="cursor-pointer text-[10px] text-slate-400">{group.observations.length} consecutive zero-report captures / {formatUtc(group.observations.at(-1)!.endsAtUtc)} to {formatUtc(group.observations[0].endsAtUtc)}</summary><div className="mt-2 space-y-2">{group.observations.map(observation => <Observation key={observation.observationId} observation={observation} compact />)}</div></details> : (group.observations.map(observation => <Observation key={observation.observationId} observation={observation} compact={index > 0} />)))}</div>; };
+const RetainedObservations: React.FC<{ observations: readonly StationSignalObservation[]; compact?: boolean }> = ({ observations, compact = false }) => {
+  if (compact) {
+    const byContext = new Map<string, StationSignalObservation[]>();
+    observations.forEach(observation => byContext.set(observation.txContextSegmentId, [...(byContext.get(observation.txContextSegmentId) ?? []), observation]));
+    return <div className="space-y-2"><h4 className="text-[10px] font-black uppercase text-violet-300">RETAINED OBSERVATIONS BY TX CONTEXT</h4>{[...byContext.entries()].map(([contextId, values]) => <article key={contextId} className="rounded border border-slate-700 bg-slate-950/60 p-2 text-[10px] text-slate-300"><strong>{contextId}: {values.length} bounded capture{values.length === 1 ? '' : 's'}</strong><p>{values.filter(value => value.matchingReportCount === 0).length > 1 ? `${values.filter(value => value.matchingReportCount === 0).length} consecutive zero-report captures / ` : ''}{countLabel(values.reduce((sum, value) => sum + value.matchingReportCount, 0), 'matching report')} across {countLabel(values.filter(value => value.matchingReportCount > 0).length, 'positive capture')} / {formatUtc(values.at(-1)!.endsAtUtc)} to {formatUtc(values[0].endsAtUtc)}</p><details><summary className="cursor-pointer text-slate-400">OPEN ALL RETAINED CAPTURES</summary><div className="mt-2 space-y-2">{values.map(observation => <Observation key={observation.observationId} observation={observation} />)}</div></details></article>)}</div>;
+  }
+  const groups = summarizeConsecutiveZeroObservations(observations);
+  return <div className="space-y-2"><h4 className="text-[10px] font-black uppercase text-violet-300">RETAINED OBSERVATIONS</h4>{groups.map((group, index) => group.kind === 'zero' && group.observations.length > 1 ? <details key={`zero-${index}`}><summary className="cursor-pointer text-[10px] text-slate-400">{group.observations.length} consecutive zero-report captures / {formatUtc(group.observations.at(-1)!.endsAtUtc)} to {formatUtc(group.observations[0].endsAtUtc)}</summary><div className="mt-2 space-y-2">{group.observations.map(observation => <Observation key={observation.observationId} observation={observation} compact />)}</div></details> : group.observations.map(observation => <Observation key={observation.observationId} observation={observation} compact={index > 0} />))}</div>;
+};
 const inputClass = 'mt-1 min-h-11 w-full rounded border border-slate-700 bg-slate-950 px-2 text-[11px] text-slate-100';
 const Field: React.FC<React.PropsWithChildren<{ label: string }>> = ({ label, children }) => <label className="text-[9px] font-bold uppercase text-slate-400">{label}{children}</label>;
 const Datum: React.FC<{ label: string; value: string }> = ({ label, value }) => <div><span className="block text-[9px] uppercase text-slate-500">{label}</span><span className="text-[11px] text-slate-200">{value}</span></div>;

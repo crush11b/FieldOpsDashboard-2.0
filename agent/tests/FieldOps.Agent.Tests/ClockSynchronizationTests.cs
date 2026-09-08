@@ -33,7 +33,7 @@ public sealed class ClockSynchronizationTests
     }
 
     [Fact]
-    public async Task ConfirmedSynchronizationDoesNothingWhenClockAlreadyAgrees()
+    public async Task ConfirmedSynchronizationSetsClockEvenWhenClockAlreadyAgrees()
     {
         var clock = new FakeClock(DateTimeOffset.Parse("2026-08-24T12:00:00Z"));
         var synchronizer = new GpsClockSynchronizer(new FakeLocation(CoherentWithReceipt(clock.UtcNow.AddSeconds(0.4))), clock);
@@ -42,11 +42,14 @@ public sealed class ClockSynchronizationTests
 
         Assert.Equal(ClockSynchronizationStatus.Synchronized, result.Status);
         Assert.InRange(result.OffsetBeforeSynchronizationSeconds!.Value, 0.39, 0.41);
-        Assert.InRange(result.CurrentOffsetSeconds!.Value, 0.39, 0.41);
-        Assert.Equal(0, result.AttemptCount);
-        Assert.Null(result.WindowsUtcAfterSet);
-        Assert.Contains("already agrees", result.AttemptMessage);
-        Assert.Null(clock.SetValue);
+        Assert.InRange(result.CurrentOffsetSeconds!.Value, -0.01, 0.01);
+        Assert.Equal(1, result.AttemptCount);
+        Assert.NotNull(result.WindowsUtcAfterSet);
+        Assert.True(result.WindowsSetAttempted);
+        Assert.True(result.WindowsSetAccepted);
+        Assert.True(result.VerificationPerformed);
+        Assert.Equal(1, clock.SetCount);
+        Assert.InRange((clock.SetValue!.Value - result.ProjectedTargetUtc!.Value).Duration().TotalMilliseconds, 0, 10);
     }
 
     [Fact]
