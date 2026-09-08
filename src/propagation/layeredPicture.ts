@@ -51,7 +51,8 @@ export function assembleLayeredPropagationPicture(input: LayeredPropagationInput
   const liveBand = openContext && Array.isArray(input.liveBandActivity?.bands)
     ? input.liveBandActivity.bands.find((item: any) => item?.band === openContext.band)
     : null;
-  const modeledBands = unique(input.modeled?.summary?.strongestBandBySample?.map((item: any) => item?.band).filter(Boolean) ?? []);
+  const modeledSamples = input.modeled?.summary?.strongestBandBySample ?? [];
+  const modeledBands = unique((input.retrospective && modeledSamples.length ? [modeledSamples.at(-1)?.band] : modeledSamples.map((item: any) => item?.band)).filter(Boolean));
   const modelAvailable = Boolean(input.modeled) && input.modeledStatus !== 'unavailable';
   const forecastAvailable = Boolean(input.forecast);
   const spaceAvailable = Boolean(input.spaceWeather);
