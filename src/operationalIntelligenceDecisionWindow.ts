@@ -8,6 +8,7 @@ export const MY_SIGNAL_TIMING_POLICY = {
 
 export type MySignalDecisionWindowState =
   | 'missing_context'
+  | 'retained_evidence'
   | 'awaiting_provider_latency'
   | 'query_pending'
   | 'no_matching_reports'

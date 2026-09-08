@@ -38,6 +38,11 @@ describe('operational intelligence decision window', () => {
     expect(deriveMySignalDecisionWindow({ ...input(), openContext: null }).state).toBe('missing_context');
   });
 
+  it('keeps the decision state honest when only retained observations remain', () => {
+    const retained = observation('1', 'retained', 2);
+    expect(deriveMySignalDecisionWindow({ ...input({ observations: [retained] }), openContext: null }).state).toBe('missing_context');
+  });
+
   it('groups only consecutive zero-report observations', () => {
     const groups = summarizeConsecutiveZeroObservations([observation('1', 'retained', 0), observation('2', 'retained', 0), observation('3', 'retained', 1), observation('4', 'retained', 0)]);
     expect(groups.map(group => [group.kind, group.observations.length])).toEqual([['zero', 2], ['positive', 1], ['zero', 1]]);
