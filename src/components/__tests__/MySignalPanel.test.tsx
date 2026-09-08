@@ -241,6 +241,33 @@ describe('MySignalPanel', () => {
     expect(screen.queryByText('No retained TX Context or MY SIGNAL evidence exists for this Activation.')).toBeNull();
   });
 
+  it('labels positive retained evidence without reporting a missing context', async () => {
+    const closed = { ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' };
+    const positive = minimalObservation('retained-positive', 'retained', 2);
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [closed], observations: [positive], diagnostics: [] })));
+    render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
+    expect(await screen.findByText('Retained MY SIGNAL evidence is available for this completed review.')).toBeInTheDocument();
+    expect(screen.queryByText('No TX Context is open; station-specific capture is not possible.')).toBeNull();
+  });
+
+  it('does not expose mutation controls when retained observations have no context record', async () => {
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [], observations: [minimalObservation('orphan', 'retained', 1)], diagnostics: [] })));
+    render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
+    expect(await screen.findByText('Retained MY SIGNAL evidence is available for this completed review.')).toBeInTheDocument();
+    expect(screen.queryByRole('button')).toBeNull();
+    expect(screen.queryByText(/No TX Context is open/)).toBeNull();
+  });
+
+  it('does not sum overlapping reports in the compact retained summary', async () => {
+    const first = { ...minimalObservation('first', 'retained', 8), uniqueReceiverCount: 4, endsAtUtc: '2026-09-05T00:06:00.000Z' };
+    const second = { ...minimalObservation('second', 'retained', 9), uniqueReceiverCount: 5, endsAtUtc: '2026-09-05T00:09:00.000Z' };
+    vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' }], observations: [first, second], diagnostics: [] })));
+    render(<MySignalPanel activation={{ ...activation, status: 'completed' }} readOnly />);
+    const panel = await screen.findByText(/latest capture: 9 reports from 5 receivers/);
+    expect(panel).toBeInTheDocument();
+    expect(panel).not.toHaveTextContent('17 matching reports');
+  });
+
   it('shows explicit retained state and preserves compact zero runs and positive observations', async () => {
     const zeroA = minimalObservation('1', 'retained', 0); const zeroB = minimalObservation('2', 'retained', 0); const positive = minimalObservation('3', 'retained', 2);
     vi.stubGlobal('fetch', vi.fn(async () => response({ kind: 'operational_intelligence', txContexts: [{ ...context, endedAtUtc: '2026-09-05T00:10:00.000Z' }], observations: [zeroA, positive, zeroB], diagnostics: [] })));

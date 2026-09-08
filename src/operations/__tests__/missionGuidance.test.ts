@@ -81,4 +81,29 @@ describe('mission-aware operating guidance', () => {
     expect(result.action).not.toContain('72 matching receivers');
     expect(result.evaluatedAtUtc).toBe('2026-09-05T12:00:00.000Z');
   });
+
+  it('separates completed lifecycle from an incomplete retrospective objective', () => {
+    const completed = { ...activation('secure_activation', { requiredQsoCount: 10 }), status: 'completed', endedAtUtc: '2026-09-05T12:00:00.000Z' };
+    const result = assembleMissionGuidance({ activation: completed, qsoEvidence: aggregateQsoEvidence([], '20m', 'FT8'), evaluatedAtUtc: '2026-09-07T12:00:00.000Z', retrospective: true, picture: picture(), currentBand: '20m', currentMode: 'FT8' });
+    expect(result.urgency).not.toBe('complete');
+    expect(result.action).toContain('Objective not met');
+    expect(result.action).toContain('Progress: 0/10 QSOs');
+    expect(result.action).not.toMatch(/change band|reassess/i);
+  });
+
+  it('marks only a threshold-met retrospective objective complete', () => {
+    const completed = { ...activation('secure_activation', { requiredQsoCount: 2 }), status: 'completed', endedAtUtc: '2026-09-05T12:00:00.000Z' };
+    const result = assembleMissionGuidance({ activation: completed, qsoEvidence: aggregateQsoEvidence([qso('a', '20m', '2026-09-05T11:58:00.000Z'), qso('b', '15m', '2026-09-05T11:59:00.000Z')], '20m', 'FT8'), evaluatedAtUtc: '2026-09-07T12:00:00.000Z', retrospective: true, picture: picture(), currentBand: '20m', currentMode: 'FT8' });
+    expect(result.urgency).toBe('complete');
+    expect(result.action).toContain('Objective met');
+    expect(result.action).toContain('Progress: 2/2 QSOs');
+  });
+
+  it('does not invent an objective in a completed retrospective', () => {
+    const completed = { ...activation(), status: 'completed', endedAtUtc: '2026-09-05T12:00:00.000Z' };
+    const result = assembleMissionGuidance({ activation: completed, qsoEvidence: aggregateQsoEvidence([], '20m', 'FT8'), evaluatedAtUtc: '2026-09-07T12:00:00.000Z', retrospective: true, picture: picture(), currentBand: '20m', currentMode: 'FT8' });
+    expect(result.action).toContain('No objective selected');
+    expect(result.action).toContain('Progress: 0 QSOs');
+    expect(result.action).not.toContain('Objective met');
+  });
 });
