@@ -113,9 +113,13 @@ export function assembleMissionGuidance(input: MissionGuidanceInput): MissionGui
       } else action = `Reassess ${currentBand} now; retain the log and compare the next bounded evidence before changing.`;
     }
   }
-  if (stationPositive) { supportingEvidence.push(`Current MY SIGNAL shows ${stationReportCount} matching reports from ${stationReceiverCount} unique receivers in station-specific outbound reception evidence.`); references.add('station_signal'); }
+  if (stationPositive) { supportingEvidence.push(`${input.retrospective ? 'Retained' : 'Current'} MY SIGNAL shows ${stationReportCount} matching reports from ${stationReceiverCount} unique receivers in station-specific outbound reception evidence.`); references.add('station_signal'); }
   else if (stationZero) { supportingEvidence.push('MY SIGNAL mature-zero reports no matching reception in its bounded observation; this does not establish propagation failure.'); reasons.push('Mature-zero MY SIGNAL is combined with other evidence and is not treated as proof of an unusable band.'); references.add('station_signal'); }
   else if (stationLimited) { missingLimitations.push(`MY SIGNAL is ${station?.state ?? 'unavailable'}; station-specific evidence is limited until the next applicable result.`); references.add('station_signal'); if (station?.state === 'awaiting_provider_latency' || station?.state === 'query_pending') reasons.push('Next expected evidence event: the bounded MY SIGNAL provider result for the current TX Context.'); }
+  if (stationPositive && stalled && remaining !== 0) {
+    action = currentBand ? `Reassess ${currentBand} now; positive MY SIGNAL is retained, but two-way progress has stalled. Keep the outbound evidence separate and test only a bounded alternative.` : 'Reassess now; positive MY SIGNAL is retained, but two-way progress has stalled. Keep the outbound evidence separate and use a bounded context.';
+    reasons.push('Positive outbound reception evidence does not establish a usable return path or replace a recorded two-way QSO.');
+  }
   if (input.picture.layers.some(layer => layer.id === 'general_observed_rf' && ['stale', 'unavailable', 'not_applicable'].includes(layer.state))) { missingLimitations.push('General observed RF is stale, unavailable, or not applicable to the current context.'); references.add('general_observed_rf'); }
   if (input.picture.layers.some(layer => layer.id === 'environmental' && ['partial', 'unavailable'].includes(layer.state))) { missingLimitations.push('Environment or space-weather evidence is partial or unavailable.'); references.add('environmental'); }
   if (input.picture.layers.some(layer => layer.id === 'modeled' && layer.state === 'unavailable')) { missingLimitations.push('Retained modeled propagation is unavailable.'); references.add('modeled'); }
