@@ -2,8 +2,8 @@
 
 > A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-[![Version 2.7.0](https://img.shields.io/badge/version-2.7.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.7.0)
-[![Status](https://img.shields.io/badge/status-2.7%20release%20closure-C47F00?style=for-the-badge)](#current-release)
+[![Version 2.8.0](https://img.shields.io/badge/version-2.8.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.8.0)
+[![Status](https://img.shields.io/badge/status-2.8%20release%20closure-C47F00?style=for-the-badge)](#current-release)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
 
 ## What it is
@@ -20,9 +20,9 @@ The project prioritizes practical single-operator field usefulness, trustworthy 
 
 ## Current release
 
-**Version 2.7.0 - Connected Operations release closure**
+**Version 2.8.0 - Operational Intelligence release closure**
 
-This release completes Connected Operations on top of the dependable Windows Local Agent and Tray baseline. It is designed for single-operator ToughBook use with local and offline operation, honest source and freshness states, retained activation evidence, and source-aware live operating context.
+This release completes Operational Intelligence on top of the dependable Windows Local Agent and Tray baseline. It is designed for single-operator ToughBook use with local and offline operation, honest source and freshness states, retained activation evidence, mission-aware guidance, and separate modeled, environmental, observed-RF, and station-specific evidence.
 
 Operations Assistant includes:
 
@@ -41,7 +41,7 @@ Operations Assistant includes:
 - **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [Version 2.7 changelog](CHANGELOG.md) and the [Version 2.7 activation plan](docs/planning/Version-2.7-Connected-Operations.md).
+See the [Version 2.8 changelog](CHANGELOG.md) and the [Version 2.8 operational-intelligence plan](docs/planning/Version-2.8-Operational-Intelligence.md). V2.9 planning is documented in the [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md); no V2.9 implementation is implied by that document.
 
 ## What works today
 
@@ -74,11 +74,11 @@ FieldOps uses explicit source, freshness, and status semantics throughout the da
 
 An unavailable Internet source does not make a modeled result a measurement, and a valid zero is not silently treated as missing.
 
-## Version 2.7 boundary
+## Version 2.8 boundary
 
-Version 2.7.0 is scoped to a trustworthy, locally operated Connected Operations workspace. Live providers still require connectivity, and modeled, observed, retained, manual, and WSJT-X application evidence remain distinct.
+Version 2.8.0 is scoped to a trustworthy, locally operated Operational Intelligence workspace. Live providers still require connectivity, and modeled, environmental, observed, retained, manual, station-specific, and WSJT-X application evidence remain distinct.
 
-Implemented in Version 2.7.0: read-only WSJT-X Current Station integration and WSJT-X logged-QSO ingestion. These capabilities observe and ingest WSJT-X evidence; FieldOps does not control WSJT-X or the radio.
+Implemented in Version 2.8.0: mission-aware guidance, explicit operational objectives, retained evidence review, GNSS-backed clock synchronization, and station-specific MY SIGNAL evidence. These capabilities remain evidence-grounded; FieldOps does not control WSJT-X or the radio.
 
 CAT/direct radio control, PTT/transmit control, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain deferred.
 
