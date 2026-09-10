@@ -28,14 +28,18 @@ internal sealed class LauncherPipeServer(
                 LaunchResponse response;
                 try
                 {
-                    var request = await NativeHealthMessageFraming.ReadAsync<LaunchRequest>(pipe, requestTimeout.Token);
+                    var request = await NativeHealthMessageFraming.ReadAsync<LaunchRequest>(pipe, LauncherProtocol.MaximumMessageBytes, requestTimeout.Token);
+                    if (!pipe.IsMessageComplete)
+                    {
+                        throw new InvalidDataException("The launch request contained trailing data.");
+                    }
                     response = await launcher.LaunchAsync(request, requestTimeout.Token);
                 }
                 catch (InvalidDataException)
                 {
                     response = new(LaunchResultCode.InvalidRequest, "The launch request was malformed.");
                 }
-                await NativeHealthMessageFraming.WriteAsync(pipe, response, requestTimeout.Token);
+                await NativeHealthMessageFraming.WriteAsync(pipe, response, LauncherProtocol.MaximumMessageBytes, requestTimeout.Token);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {

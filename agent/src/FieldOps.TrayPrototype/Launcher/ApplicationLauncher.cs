@@ -4,20 +4,22 @@ namespace FieldOps.TrayPrototype.Launcher;
 
 internal interface IApplicationExecutor
 {
-    void LaunchExecutable(string target);
+    void LaunchExecutable(string target, IReadOnlyList<string> arguments, string workingDirectory);
     void OpenUri(string target);
 }
 
 internal sealed class ProcessApplicationExecutor : IApplicationExecutor
 {
-    public void LaunchExecutable(string target)
+    public void LaunchExecutable(string target, IReadOnlyList<string> arguments, string workingDirectory)
     {
-        Start(new ProcessStartInfo
+        var startInfo = new ProcessStartInfo
         {
             FileName = target,
             UseShellExecute = false,
-            WorkingDirectory = Path.GetDirectoryName(target) ?? string.Empty,
-        });
+            WorkingDirectory = workingDirectory,
+        };
+        foreach (var argument in arguments) startInfo.ArgumentList.Add(argument);
+        Start(startInfo);
     }
 
     public void OpenUri(string target)
@@ -42,7 +44,22 @@ internal sealed class ApplicationLauncher(IApplicationExecutor executor)
 
     internal async Task<LaunchResponse> LaunchAsync(LaunchRequest? request, CancellationToken cancellationToken)
     {
-        if (request is null || string.IsNullOrWhiteSpace(request.Target))
+        if (request is null)
+        {
+            return Invalid("A launch target is required.");
+        }
+
+        if (request.ProtocolVersion == 0)
+        {
+            return Invalid("The launch request was malformed.");
+        }
+
+        if (request.ProtocolVersion != LauncherProtocol.Version)
+        {
+            return new(LaunchResultCode.ProtocolIncompatible, "The launcher protocol version is unsupported.");
+        }
+
+        if (string.IsNullOrWhiteSpace(request.Target))
         {
             return Invalid("A launch target is required.");
         }
@@ -56,8 +73,8 @@ internal sealed class ApplicationLauncher(IApplicationExecutor executor)
         {
             return request.LaunchType switch
             {
-                LaunchType.Executable => LaunchExecutable(request.Target),
-                LaunchType.Uri => OpenUri(request.Target),
+                LaunchType.Executable => LaunchExecutable(request),
+                LaunchType.Uri => OpenUri(request),
                 _ => Invalid("The launch type is unsupported."),
             };
         }
@@ -67,8 +84,9 @@ internal sealed class ApplicationLauncher(IApplicationExecutor executor)
         }
     }
 
-    private LaunchResponse LaunchExecutable(string target)
+    private LaunchResponse LaunchExecutable(LaunchRequest request)
     {
+        var target = request.Target;
         if (!IsAbsoluteWindowsExePath(target))
         {
             return Invalid("The executable target must be an absolute .exe path.");
@@ -81,17 +99,41 @@ internal sealed class ApplicationLauncher(IApplicationExecutor executor)
 
         try
         {
-            executor.LaunchExecutable(target);
+            var arguments = request.Arguments ?? [];
+            if (arguments.Length > LauncherProtocol.MaximumArguments || arguments.Any(argument => argument is null || argument.IndexOf('\0') >= 0))
+            {
+                return Invalid("The executable arguments are invalid.");
+            }
+            var argumentBytes = System.Text.Encoding.UTF8.GetByteCount(System.Text.Json.JsonSerializer.Serialize(arguments));
+            if (argumentBytes > LauncherProtocol.MaximumArgumentBytes)
+            {
+                return Invalid("The executable arguments exceed the allowed size.");
+            }
+            var workingDirectory = request.WorkingDirectory ?? Path.GetDirectoryName(target);
+            if (workingDirectory is null || !IsAbsoluteLocalDirectoryPath(workingDirectory))
+            {
+                return new(LaunchResultCode.InvalidWorkingDirectory, "The executable working directory is invalid.");
+            }
+            if (!Directory.Exists(workingDirectory))
+            {
+                return new(LaunchResultCode.InvalidWorkingDirectory, "The executable working directory was not found.");
+            }
+            executor.LaunchExecutable(target, arguments, workingDirectory);
             return new(LaunchResultCode.Launched, "The executable launch was accepted by Windows.");
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            return Failed("Executable", exception);
+            return Failed("Executable");
         }
     }
 
-    private LaunchResponse OpenUri(string target)
+    private LaunchResponse OpenUri(LaunchRequest request)
     {
+        var target = request.Target;
+        if (request.Arguments is not null || request.WorkingDirectory is not null)
+        {
+            return Invalid("Web launches cannot include native launch options.");
+        }
         if (!Uri.TryCreate(target, UriKind.Absolute, out var uri)
             || uri is null
             || string.IsNullOrWhiteSpace(uri.Host)
@@ -105,9 +147,9 @@ internal sealed class ApplicationLauncher(IApplicationExecutor executor)
             executor.OpenUri(target);
             return new(LaunchResultCode.UriOpened, "The URI was handed to the Windows browser association.");
         }
-        catch (Exception exception)
+        catch (Exception)
         {
-            return Failed("URI", exception);
+            return Failed("URI");
         }
     }
 
@@ -118,8 +160,16 @@ internal sealed class ApplicationLauncher(IApplicationExecutor executor)
         && Path.IsPathFullyQualified(target)
         && string.Equals(Path.GetExtension(target), ".exe", StringComparison.OrdinalIgnoreCase);
 
+    private static bool IsAbsoluteLocalDirectoryPath(string path) =>
+        path.Length > 0
+        && path.Length <= 4096
+        && path.IndexOf('\0') < 0
+        && !path.Contains('"')
+        && !path.StartsWith("\\\\", StringComparison.Ordinal)
+        && Path.IsPathFullyQualified(path);
+
     private static LaunchResponse Invalid(string detail) => new(LaunchResultCode.InvalidRequest, detail);
 
-    private static LaunchResponse Failed(string operation, Exception exception) =>
-        new(LaunchResultCode.LaunchFailed, $"{operation} launch failed: {exception.GetType().Name}.");
+    private static LaunchResponse Failed(string operation) =>
+        new(LaunchResultCode.LaunchFailed, $"{operation} launch failed.");
 }
