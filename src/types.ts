@@ -1,6 +1,7 @@
 import type { TelemetrySource, TelemetryStatus, TelemetryTimestamps } from './telemetry';
 import { parseCoordinates } from './location/coordinates';
 import type { StationProfile } from './propagation/domain';
+import type { AppCatalogConfig } from './appCatalog/domain';
 
 export type AppCategory = 
   | 'digital'
@@ -171,6 +172,7 @@ export interface DashboardConfig {
   callsign: string;
   potaParkRef: string;
   apps: AppLauncherItem[];
+  appCatalog: AppCatalogConfig;
   gpsComPort?: string;
   gpsBaudRate?: number;
   wsjtx: {

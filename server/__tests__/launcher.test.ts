@@ -14,6 +14,7 @@ import {
   createLauncherRouter,
 } from '../launcher';
 import type { AppLauncherItem } from '../../src/types';
+import { INITIAL_CONFIG } from '../../src/data/defaultConfig';
 
 const app = (overrides: Partial<AppLauncherItem> = {}): AppLauncherItem => ({
   id: 'radio-tool',
@@ -245,5 +246,45 @@ describe('Launcher route mapping', () => {
     await expect(unavailable.json()).resolves.toMatchObject({ status: 'LauncherUnavailable' });
     const incompatible = await post({ appId: 'radio-tool' }, { launch: async () => ({ Result: 7, Detail: 'unsupported' }) });
     await expect(incompatible.json()).resolves.toMatchObject({ status: 'ProtocolIncompatible' });
+  });
+
+  it('uses the persisted catalog target and rejects disabled records', async () => {
+    const editedRecord = { ...INITIAL_CONFIG.appCatalog.records[0], target: { kind: 'native' as const, executablePath: 'C:\\Edited\\target.exe' } };
+    const catalog = { ...INITIAL_CONFIG.appCatalog, records: [editedRecord] };
+    let received: any;
+    const response = await post({ appId: editedRecord.id }, { launch: async request => { received = request; return { Result: 1, Detail: 'ok' }; } }, [],);
+    expect(response.status).toBe(400);
+
+    const application = express();
+    application.use(express.json());
+    application.use(createLauncherRouter(() => ({ kind: 'ready', catalog }), { launch: async request => { received = request; return { Result: 1, Detail: 'ok' }; } }));
+    const server = await new Promise<ReturnType<typeof application.listen>>(resolve => {
+      const instance = application.listen(0, '127.0.0.1', () => resolve(instance));
+    });
+    try {
+      const address = server.address();
+      const port = typeof address === 'object' && address ? address.port : 0;
+      const editedResponse = await fetch(`http://127.0.0.1:${port}/api/apps/launch`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appId: editedRecord.id }) });
+      expect(editedResponse.status).toBe(200);
+      expect(received.Target).toBe('C:\\Edited\\target.exe');
+
+      const disabledCatalog = { ...catalog, records: [{ ...editedRecord, enabled: false }] };
+      const disabledApplication = express();
+      disabledApplication.use(express.json());
+      disabledApplication.use(createLauncherRouter(() => ({ kind: 'ready', catalog: disabledCatalog }), { launch: async () => ({ Result: 1, Detail: 'unexpected' }) }));
+      const disabledServer = await new Promise<ReturnType<typeof disabledApplication.listen>>(resolve => {
+        const instance = disabledApplication.listen(0, '127.0.0.1', () => resolve(instance));
+      });
+      try {
+        const disabledAddress = disabledServer.address();
+        const disabledPort = typeof disabledAddress === 'object' && disabledAddress ? disabledAddress.port : 0;
+        const disabledResponse = await fetch(`http://127.0.0.1:${disabledPort}/api/apps/launch`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ appId: editedRecord.id }) });
+        expect(disabledResponse.status).toBe(400);
+      } finally {
+        await new Promise<void>(resolve => disabledServer.close(() => resolve()));
+      }
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
   });
 });

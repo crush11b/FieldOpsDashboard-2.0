@@ -30,16 +30,17 @@ import {
   Sparkles,
   Zap
 } from 'lucide-react';
-import { AppCategory, AppLauncherItem, UIThemeMode } from '../types';
+import { UIThemeMode } from '../types';
+import { AppCatalogCategory, AppCatalogRecord, isCatalogTargetConfigured } from '../appCatalog/domain';
 import { playTacticalClick } from '../utils/audio';
 
 interface AppLauncherGridProps {
-  apps: AppLauncherItem[];
+  apps: AppCatalogRecord[];
   theme: UIThemeMode;
   audioEnabled: boolean;
   gridColumns: 2 | 3 | 4 | 6;
   onToggleFavorite: (appId: string) => void;
-  onEditApp: (app: AppLauncherItem) => void;
+  onEditApp: (app: AppCatalogRecord) => void;
   onAddNewApp: () => void;
   launchStates: Record<string, string | undefined>;
   onLaunchApp: (appId: string) => void;
@@ -81,18 +82,16 @@ const getAppIcon = (iconName: string, className = "w-5 h-5") => {
   }
 };
 
-const CATEGORIES: { id: AppCategory | 'all' | 'favorites'; label: string }[] = [
+const CATEGORIES: { id: AppCatalogCategory | 'all' | 'favorites'; label: string }[] = [
   { id: 'all', label: 'ALL APPS' },
   { id: 'favorites', label: '⭐ FAVORITES' },
-  { id: 'digital', label: 'DIGITAL MODES' },
-  { id: 'aprs', label: 'APRS' },
-  { id: 'satellite', label: 'SATELLITE OPS' },
-  { id: 'network_voice', label: 'NETWORK VOICE' },
-  { id: 'web_apps', label: 'WEB APPS' },
-  { id: 'logging', label: 'LOGGING & POTA' },
-  { id: 'mapping', label: 'MAPPING' },
-  { id: 'radio_control', label: 'RADIO CAT' },
-  { id: 'utilities', label: 'UTILITIES' },
+  { id: 'Digital Comms', label: 'DIGITAL COMMS' },
+  { id: 'APRS', label: 'APRS' },
+  { id: 'Satellite Ops', label: 'SATELLITE OPS' },
+  { id: 'Network Voice', label: 'NETWORK VOICE' },
+  { id: 'POTA/SOTA', label: 'POTA/SOTA' },
+  { id: 'Web Apps', label: 'WEB APPS' },
+  { id: 'Utilities', label: 'UTILITIES' },
 ];
 
 export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
@@ -149,12 +148,12 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
     const matchesSearch =
       app.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
       app.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      app.executablePath.toLowerCase().includes(searchQuery.toLowerCase());
+      (app.target.kind === 'native' ? app.target.executablePath : app.target.kind === 'web' ? app.target.url : '').toLowerCase().includes(searchQuery.toLowerCase());
 
     return matchesCategory && matchesSearch;
   });
 
-  const renderAppCard = (app: AppLauncherItem) => {
+  const renderAppCard = (app: AppCatalogRecord) => {
     const launchState = launchStates[app.id] ?? 'READY';
     const launching = launchState === 'LAUNCHING';
     return (
@@ -180,7 +179,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               <div>
                 <h4 className="font-black text-sm tracking-wide leading-tight text-zinc-100 line-clamp-1">{app.name}</h4>
                 <span className="text-[10px] uppercase font-bold text-zinc-400">
-                  {app.category.replace('_', ' ')}
+                  {app.category}
                 </span>
               </div>
             </div>
@@ -214,14 +213,18 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             {app.description}
           </p>
 
-          {/* Configured executable path; local verification requires the future launcher agent. */}
+          {/* Durable target state; runtime discovery remains read-only. */}
           <div className={`p-2 rounded-xl border text-[10px] truncate flex items-center justify-between ${
-            app.installed
+            isCatalogTargetConfigured(app.target)
               ? isNight ? 'border-red-950 bg-red-950/30 text-red-400' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
               : 'border-red-900/60 bg-red-950/30 text-red-300'
           }`}>
-            <span className="truncate pr-1 font-mono">{app.uri || app.executablePath}</span>
-            {app.installed ? (
+            <span className="truncate pr-1 font-mono">{app.target.kind === 'native' ? app.target.executablePath : app.target.kind === 'web' ? app.target.url : 'Unsupported target'}</span>
+            {!app.enabled ? (
+              <span className="flex items-center gap-1 text-amber-400" title="This catalog record is disabled">
+                DISABLED <XCircle className="w-3.5 h-3.5 shrink-0" />
+              </span>
+            ) : isCatalogTargetConfigured(app.target) ? (
               <span className="flex items-center gap-1 text-emerald-400" title="Configured only; runtime verification is unavailable">
                 CONFIGURED <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               </span>
@@ -237,7 +240,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
         <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">
           <button
             id={`btn-launch-${app.id}`}
-            disabled={launching}
+            disabled={launching || !app.enabled || !isCatalogTargetConfigured(app.target)}
             onClick={() => {
               playTacticalClick(audioEnabled);
               onLaunchApp(app.id);
@@ -246,19 +249,20 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             className={`flex-1 py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${launching ? 'border-zinc-700 bg-zinc-900 text-zinc-500 cursor-wait' : 'border-emerald-700 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'}`}
           >
             <Play className="w-3.5 h-3.5 fill-current" />
-            <span>{launching ? 'LAUNCHING...' : 'LAUNCH'}</span>
+            <span>{launching ? 'LAUNCHING...' : app.enabled && isCatalogTargetConfigured(app.target) ? 'LAUNCH' : 'UNAVAILABLE'}</span>
           </button>
 
           <button
             id={`btn-edit-${app.id}`}
+            disabled={!app.policy.editable}
             onClick={() => {
               playTacticalClick(audioEnabled);
               onEditApp(app);
             }}
-            className={`p-1.5 rounded-xl border transition-all active:scale-95 ${
+            className={`p-1.5 rounded-xl border transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${
               isNight ? 'border-red-950 bg-black text-red-400' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100'
             }`}
-            title="Edit App Settings & Paths"
+            title={app.policy.editable ? 'Edit App Settings & Paths' : 'This record is protected from editing'}
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
@@ -299,11 +303,11 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               <h3 className="font-black text-sm text-zinc-100 tracking-wider uppercase flex items-center gap-2">
                 <span>FIELD APPLICATIONS CATALOG</span>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
-                  {apps.length} CONFIGURED ENTRIES
+                  {apps.length} CATALOG ENTRIES
                 </span>
               </h3>
               <p className="text-[11px] text-zinc-400 font-mono">
-                Organize configured tools. Local application launching is not yet available.
+                Organize field tools. Native apps launch through the local FieldOps Tray; web apps open in the browser.
               </p>
             </div>
           </div>
@@ -385,7 +389,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
         {/* Filter Summary & View Toggle Footer */}
         <div className="flex flex-wrap items-center justify-between text-[11px] text-zinc-500 font-mono pt-1 gap-2">
-          <span>SHOWING {filteredApps.length} OF {apps.length} EXECUTABLES</span>
+          <span>SHOWING {filteredApps.length} OF {apps.length} CATALOG RECORDS</span>
           
           <div className="flex items-center gap-2">
             {accordionMode && selectedCategory === 'all' && (

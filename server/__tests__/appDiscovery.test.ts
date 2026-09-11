@@ -2,6 +2,7 @@ import express from 'express';
 import { describe, expect, it } from 'vitest';
 import { createAppDiscoveryRouter, statAppFileProbe, WINDOWS_CANDIDATE_PATHS } from '../appDiscovery';
 import type { AppLauncherItem } from '../../src/types';
+import { INITIAL_CONFIG } from '../../src/data/defaultConfig';
 
 const app = (overrides: Partial<AppLauncherItem> = {}): AppLauncherItem => ({
   id: 'radio-tool',
@@ -97,6 +98,21 @@ describe('App discovery route', () => {
     const first = await (await post({ ids: ['radio-tool'] }, [app()], { probe: () => 'file' })).json();
     const second = await (await post({ ids: ['radio-tool'] }, [app()], { probe: () => 'file' })).json();
     expect(first).toEqual(second);
+  });
+
+  it('reflects persisted catalog enabled state and rejects invalid persisted state', async () => {
+    const record = INITIAL_CONFIG.appCatalog.records.find(candidate => candidate.id === 'wsjtx');
+    if (!record) throw new Error('Expected persisted catalog record.');
+    const disabledResponse = await post({ ids: ['wsjtx'] }, [app()], {
+      catalogResolver: () => ({ kind: 'ready', catalog: { ...INITIAL_CONFIG.appCatalog, records: [{ ...record, enabled: false }] } }),
+    });
+    expect((await disabledResponse.json()).observations.wsjtx).toMatchObject({ enabled: 'no', available: 'no', evidenceSource: 'disabled_record' });
+
+    const invalidResponse = await post({ ids: ['wsjtx'] }, [app()], {
+      catalogResolver: () => ({ kind: 'unavailable', reason: 'The persisted configuration is invalid.' }),
+    });
+    expect(invalidResponse.status).toBe(503);
+    expect(await invalidResponse.json()).toMatchObject({ code: 'configuration_unavailable' });
   });
 });
 

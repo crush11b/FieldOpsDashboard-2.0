@@ -3,8 +3,10 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { INITIAL_CONFIG } from '../../src/data/defaultConfig';
+import { deleteCatalogRecord, setCatalogRecordEnabled } from '../../src/appCatalog/domain';
 import {
   DashboardConfigStore,
+  createDashboardConfigRouter,
   getDefaultDashboardConfigPath,
   isLoopbackRequest,
   normalizeDashboardConfig,
@@ -13,6 +15,17 @@ import {
 } from '../dashboardConfig';
 
 const temporaryDirectories: string[] = [];
+
+function invokePut(router: ReturnType<typeof createDashboardConfigRouter>, body: unknown): { statusCode: number; payload: unknown } {
+  let statusCode = 200;
+  let payload: unknown;
+  const response = {
+    status(code: number) { statusCode = code; return response; },
+    json(value: unknown) { payload = value; return response; },
+  };
+  router({ method: 'PUT', url: '/api/config', body, socket: { remoteAddress: '127.0.0.1' } } as any, response as any, () => undefined);
+  return { statusCode, payload };
+}
 
 afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
@@ -30,7 +43,9 @@ describe('product-owned Dashboard configuration', () => {
     expect(config.callsign).toBe('KQ4EVK');
     expect(config.theme).toBe(INITIAL_CONFIG.theme);
     expect(config).not.toHaveProperty('unknown');
-    expect(config.apps).toEqual(INITIAL_CONFIG.apps);
+    expect(config.apps.map(app => ({ id: app.id, favorite: app.favorite, installed: app.installed })))
+      .toEqual(INITIAL_CONFIG.apps.map(app => ({ id: app.id, favorite: app.favorite, installed: false })));
+    expect(config.appCatalog.records.map(record => record.id)).toEqual(INITIAL_CONFIG.appCatalog.records.map(record => record.id));
     expect(config.propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
   });
 
@@ -40,6 +55,20 @@ describe('product-owned Dashboard configuration', () => {
     expect(config.callsign).toBe('KQ4EVK');
     expect(config.theme).toBe('sunlight');
     expect(config.propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
+  });
+
+  it('preserves bounded legacy hotkeys while discarding runtime installed state', () => {
+    const config = normalizeDashboardConfig({ apps: [{ ...INITIAL_CONFIG.apps[0], hotkey: 'F9', installed: true }] });
+    const migrated = config.appCatalog.records.find(record => record.id === INITIAL_CONFIG.apps[0].id);
+
+    expect(migrated?.hotkey).toBe('F9');
+    expect(config.apps.find(app => app.id === INITIAL_CONFIG.apps[0].id)).toMatchObject({ hotkey: 'F9', installed: false });
+  });
+
+  it('rejects malformed legacy application input and non-object configuration bodies', () => {
+    expect(() => normalizeDashboardConfig({ apps: {} })).toThrow(/apps field must be an array/i);
+    expect(() => normalizeDashboardConfig(null)).toThrow(/JSON object/i);
+    expect(() => normalizeDashboardConfig({ appCatalog: { schemaVersion: 1, records: [{ ...INITIAL_CONFIG.appCatalog.records[0], name: '   ' }], deletedBuiltInIds: [] } })).toThrow();
   });
 
   it('defaults production WSJT-X to multicast without selecting an interface', () => {
@@ -109,6 +138,69 @@ describe('product-owned Dashboard configuration', () => {
     const replaced = new DashboardConfigStore(filePath).write({ callsign: 'W7FIELD' });
     expect(replaced.callsign).toBe('W7FIELD');
     expect(store.read()).toEqual({ kind: 'loaded', config: replaced });
+  });
+
+  it('persists catalog state and curated tombstones across store instances', () => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-config-'));
+    temporaryDirectories.push(directory);
+    const filePath = path.join(directory, 'dashboard-config.json');
+    const favoriteCatalog = setCatalogRecordEnabled(INITIAL_CONFIG.appCatalog, 'wsjtx', false);
+    const deletedCatalog = deleteCatalogRecord(favoriteCatalog, 'winlink');
+    const store = new DashboardConfigStore(filePath);
+
+    store.write({ appCatalog: deletedCatalog });
+    const restoredStore = new DashboardConfigStore(filePath);
+    const result = restoredStore.read();
+
+    expect(result.kind).toBe('loaded');
+    if (result.kind !== 'loaded') return;
+    expect(result.config.appCatalog.records.find(record => record.id === 'wsjtx')?.enabled).toBe(false);
+    expect(result.config.appCatalog.deletedBuiltInIds).toContain('winlink');
+    expect(result.config.appCatalog.records.some(record => record.id === 'winlink')).toBe(false);
+    expect(JSON.parse(fs.readFileSync(filePath, 'utf8')).appCatalog.records[0]).not.toHaveProperty('installed');
+  });
+
+  it('makes a valid catalog authoritative over conflicting legacy apps', () => {
+    const catalog = setCatalogRecordEnabled(INITIAL_CONFIG.appCatalog, 'wsjtx', false);
+    const config = normalizeDashboardConfig({
+      appCatalog: catalog,
+      apps: [{ ...INITIAL_CONFIG.apps[0], name: 'Conflicting legacy name', favorite: true }],
+    });
+
+    expect(config.appCatalog.records.find(record => record.id === 'wsjtx')?.enabled).toBe(false);
+    expect(config.apps.find(app => app.id === 'wsjtx')?.name).toBe('WSJT-X');
+  });
+
+  it('rejects duplicate catalog IDs instead of replacing persisted input', () => {
+    const duplicate = {
+      ...INITIAL_CONFIG.appCatalog,
+      records: [INITIAL_CONFIG.appCatalog.records[0], INITIAL_CONFIG.appCatalog.records[0]],
+    };
+
+    expect(() => normalizeDashboardConfig({ appCatalog: duplicate })).toThrow();
+  });
+
+  it('returns 422 for invalid catalog input and 500 for filesystem failures', () => {
+    const duplicate = {
+      ...INITIAL_CONFIG.appCatalog,
+      records: [INITIAL_CONFIG.appCatalog.records[0], INITIAL_CONFIG.appCatalog.records[0]],
+    };
+    const invalidResponse = invokePut(createDashboardConfigRouter({ write: (input: unknown) => normalizeDashboardConfig(input) } as any), { appCatalog: duplicate });
+    expect(invalidResponse.statusCode).toBe(422);
+    expect(invalidResponse.payload).toMatchObject({ code: 'invalid_dashboard_config' });
+
+    const failureResponse = invokePut(createDashboardConfigRouter({ write: () => { throw new Error('disk full'); } } as any), {});
+    expect(failureResponse.statusCode).toBe(500);
+  });
+
+  it('returns 422 when persisted target validation fails', () => {
+    const invalidTarget = {
+      ...INITIAL_CONFIG.appCatalog,
+      records: [{ ...INITIAL_CONFIG.appCatalog.records[0], target: { kind: 'web', url: 'https:///missing-host' } }],
+    };
+    const response = invokePut(createDashboardConfigRouter({ write: (input: unknown) => normalizeDashboardConfig(input) } as any), { appCatalog: invalidTarget });
+    expect(response.statusCode).toBe(422);
+    expect(response.payload).toMatchObject({ code: 'invalid_dashboard_config' });
   });
 
   it('reports corrupt files instead of treating them as trusted config', () => {

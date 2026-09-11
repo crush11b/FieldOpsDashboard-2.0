@@ -2,6 +2,8 @@ import * as net from 'node:net';
 import type { Request, Response, Router } from 'express';
 import express from 'express';
 import type { AppLauncherItem } from '../src/types';
+import { toCatalogRecord, type AppCatalogRecord } from '../src/appCatalog/domain';
+import type { DashboardCatalogRuntimeResult } from './dashboardConfig';
 
 export const LAUNCHER_PIPE = '\\\\.\\pipe\\FieldOps.Tray.Launcher.v2';
 export const LAUNCHER_PROTOCOL_VERSION = 2 as const;
@@ -23,7 +25,8 @@ export type LaunchApiStatus =
   | 'LauncherUnavailable'
   | 'LauncherProtocolError'
   | 'ProtocolIncompatible'
-  | 'InvalidWorkingDirectory';
+  | 'InvalidWorkingDirectory'
+  | 'ConfigurationError';
 
 export interface TrayLaunchRequest {
   ProtocolVersion: typeof LAUNCHER_PROTOCOL_VERSION;
@@ -142,11 +145,16 @@ export function parseConfiguredArguments(value: unknown): string[] | LaunchApiRe
 }
 
 export function resolveConfiguredLaunch(apps: readonly AppLauncherItem[], appId: unknown): TrayLaunchRequest | LaunchApiResponse {
+  const records = apps.map(app => toCatalogRecord(app)).filter((record): record is AppCatalogRecord => record !== null);
+  return resolveConfiguredCatalogLaunch(records, appId);
+}
+
+export function resolveConfiguredCatalogLaunch(records: readonly AppCatalogRecord[], appId: unknown): TrayLaunchRequest | LaunchApiResponse {
   if (typeof appId !== 'string' || appId.length === 0 || appId.length > 128) {
     return { status: 'InvalidRequest', detail: 'Application ID is required.' };
   }
 
-  const matches = apps.filter(app => app.id === appId);
+  const matches = records.filter(app => app.id === appId);
   if (matches.length !== 1) {
     return {
       status: 'InvalidRequest',
@@ -155,27 +163,37 @@ export function resolveConfiguredLaunch(apps: readonly AppLauncherItem[], appId:
   }
 
   const app = matches[0];
-  if (app.uri !== undefined) {
-    if (app.args !== undefined || app.workingDir !== undefined) {
+  if (!app.enabled) return { status: 'InvalidRequest', detail: 'The configured application is disabled.' };
+  if (app.target.kind === 'unsupported') return { status: 'InvalidRequest', detail: 'The configured application target is invalid.' };
+  const legacyApp: AppLauncherItem = {
+    id: app.id, name: app.name, category: 'utilities', iconName: app.iconName,
+    executablePath: app.target.kind === 'native' ? app.target.executablePath : '',
+    ...(app.target.kind === 'web' ? { uri: app.target.url } : {}),
+    ...(app.target.kind === 'native' && app.target.args ? { args: app.target.args } : {}),
+    ...(app.target.kind === 'native' && app.target.workingDir ? { workingDir: app.target.workingDir } : {}),
+    description: app.description, installed: false, favorite: app.favorite,
+  };
+  if (legacyApp.uri !== undefined) {
+    if (legacyApp.args !== undefined || legacyApp.workingDir !== undefined) {
       return { status: 'InvalidRequest', detail: 'Web launches cannot include native launch options.' };
     }
-    if (isPermittedHttpUri(app.uri)) {
-      return { ProtocolVersion: LAUNCHER_PROTOCOL_VERSION, LaunchType: 2, Target: app.uri };
+    if (isPermittedHttpUri(legacyApp.uri)) {
+      return { ProtocolVersion: LAUNCHER_PROTOCOL_VERSION, LaunchType: 2, Target: legacyApp.uri };
     }
     return { status: 'InvalidRequest', detail: 'The configured application URI is invalid.' };
   }
-  if (isAbsoluteLocalExePath(app.executablePath)) {
-    const argumentsList = parseConfiguredArguments(app.args);
+  if (isAbsoluteLocalExePath(legacyApp.executablePath)) {
+    const argumentsList = parseConfiguredArguments(legacyApp.args);
     if (!Array.isArray(argumentsList)) return argumentsList;
-    if (app.workingDir !== undefined && !isAbsoluteLocalDirectoryPath(app.workingDir)) {
+    if (legacyApp.workingDir !== undefined && !isAbsoluteLocalDirectoryPath(legacyApp.workingDir)) {
       return { status: 'InvalidWorkingDirectory', detail: 'The configured working directory is invalid.' };
     }
     const request: TrayLaunchRequest = {
       ProtocolVersion: LAUNCHER_PROTOCOL_VERSION,
       LaunchType: 1,
-      Target: app.executablePath,
+      Target: legacyApp.executablePath,
       ...(argumentsList.length > 0 ? { Arguments: argumentsList } : {}),
-      ...(app.workingDir !== undefined ? { WorkingDirectory: app.workingDir } : {}),
+      ...(legacyApp.workingDir !== undefined ? { WorkingDirectory: legacyApp.workingDir } : {}),
     };
     if (Buffer.byteLength(JSON.stringify(request), 'utf8') > LAUNCHER_MAX_FRAME) {
       return { status: 'InvalidRequest', detail: 'The configured launcher request exceeds the allowed size.' };
@@ -285,7 +303,7 @@ function mapTrayResponse(response: TrayLaunchResponse): LaunchApiResponse {
 }
 
 export function createLauncherRouter(
-  apps: readonly AppLauncherItem[],
+  appsOrResolver: readonly AppLauncherItem[] | (() => DashboardCatalogRuntimeResult),
   client: TrayLauncherClient,
 ): Router {
   const router = express.Router();
@@ -295,7 +313,12 @@ export function createLauncherRouter(
       return;
     }
 
-    const resolved = resolveConfiguredLaunch(apps, request.body?.appId);
+    const runtime = typeof appsOrResolver === 'function' ? appsOrResolver() : { kind: 'ready' as const, catalog: { schemaVersion: 1 as const, records: appsOrResolver.map(app => toCatalogRecord(app)).filter((record): record is AppCatalogRecord => record !== null), deletedBuiltInIds: [] } };
+    if (runtime.kind === 'unavailable') {
+      response.status(503).json({ status: 'ConfigurationError', detail: runtime.reason } satisfies LaunchApiResponse);
+      return;
+    }
+    const resolved = resolveConfiguredCatalogLaunch(runtime.catalog.records, request.body?.appId);
     if ('status' in resolved) {
       response.status(400).json(resolved);
       return;

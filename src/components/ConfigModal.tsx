@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { PRODUCT_METADATA } from '../productMetadata';
 import { X, Settings, Download, Upload, Plus, Trash2, Save, RefreshCw, Check, Code, Layers } from 'lucide-react';
-import { AppLauncherItem, DashboardConfig, UIThemeMode } from '../types';
+import { DashboardConfig, UIThemeMode } from '../types';
+import { addUserManagedRecord, AppCatalogRecord, deleteCatalogRecord, isAppCatalogConfig, isValidCatalogTarget, restoreBuiltInRecord, setCatalogRecordEnabled, updateCatalogRecord } from '../appCatalog/domain';
+import { INITIAL_CONFIG } from '../data/defaultConfig';
 import { playTacticalClick } from '../utils/audio';
 
 interface ConfigModalProps {
@@ -10,10 +12,48 @@ interface ConfigModalProps {
   audioEnabled: boolean;
   isOpen: boolean;
   onClose: () => void;
-  onSaveConfig: (updated: DashboardConfig) => void;
+  onSaveConfig: (updated: DashboardConfig) => Promise<DashboardConfig | null>;
   onResetToDefaults: () => void;
-  editingApp?: AppLauncherItem | null;
+  editingApp?: AppCatalogRecord | null;
+  initialTab?: 'general' | 'apps' | 'json_editor';
 }
+
+type CatalogForm = Partial<AppCatalogRecord> & {
+  targetKind: 'native' | 'web';
+  executablePath: string;
+  args: string;
+  workingDir: string;
+  url: string;
+};
+
+const emptyForm = (): CatalogForm => ({
+  id: `custom-${Date.now()}`,
+  name: '',
+  category: 'Digital Comms',
+  iconName: 'Radio',
+  description: '',
+  owner: 'user_managed',
+  targetKind: 'native',
+  executablePath: '',
+  args: '',
+  workingDir: '',
+  url: '',
+  capabilities: [],
+  dependencies: [],
+  enabled: true,
+  favorite: false,
+  hotkey: '',
+  policy: { editable: true, disableable: true, deletable: true, restorable: false },
+});
+
+const formFromRecord = (record: AppCatalogRecord): CatalogForm => ({
+  ...record,
+  targetKind: record.target.kind === 'web' ? 'web' : 'native',
+  executablePath: record.target.kind === 'native' ? record.target.executablePath : '',
+  args: record.target.kind === 'native' ? record.target.args || '' : '',
+  workingDir: record.target.kind === 'native' ? record.target.workingDir || '' : '',
+  url: record.target.kind === 'web' ? record.target.url : '',
+});
 
 export const ConfigModal: React.FC<ConfigModalProps> = ({
   config,
@@ -24,6 +64,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   onSaveConfig,
   onResetToDefaults,
   editingApp,
+  initialTab = 'general',
 }) => {
   const [activeTab, setActiveTab] = useState<'general' | 'apps' | 'json_editor'>('general');
   const [callsign, setCallsign] = useState(config.callsign);
@@ -31,57 +72,65 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   const [comPort, setComPort] = useState<string>(config.gpsComPort || 'COM6 (GPS Receiver)');
   const [isCustomPort, setIsCustomPort] = useState<boolean>(false);
   const [baudRate, setBaudRate] = useState<number>(config.gpsBaudRate || 9600);
-  const [appsList, setAppsList] = useState<AppLauncherItem[]>(config.apps);
-  const [jsonText, setJsonText] = useState(JSON.stringify(config.apps, null, 2));
+  const [appsList, setAppsList] = useState<AppCatalogRecord[]>([...config.appCatalog.records]);
+  const [catalogState, setCatalogState] = useState(config.appCatalog);
+  const [jsonText, setJsonText] = useState(JSON.stringify(config.appCatalog, null, 2));
   const [jsonError, setJsonError] = useState<string | null>(null);
 
   // New or Edit App Form state
-  const [formApp, setFormApp] = useState<Partial<AppLauncherItem>>(
-    editingApp || {
-      id: `custom-${Date.now()}`,
-      name: '',
-      category: 'digital',
-      iconName: 'Radio',
-      executablePath: '',
-      description: '',
-      installed: true,
-      favorite: false,
-      hotkey: '',
-      args: '',
-    }
-  );
+  const [formApp, setFormApp] = useState<CatalogForm>(editingApp ? formFromRecord(editingApp) : emptyForm());
+
+  useEffect(() => {
+    if (!isOpen) return;
+    setCatalogState(config.appCatalog);
+    setAppsList([...config.appCatalog.records]);
+    setJsonText(JSON.stringify(config.appCatalog, null, 2));
+    setJsonError(null);
+    setActiveTab(initialTab);
+    setFormApp(editingApp ? formFromRecord(editingApp) : emptyForm());
+    setCallsign(config.callsign);
+    setColumns(config.appGridColumns);
+    setComPort(config.gpsComPort || 'COM6 (GPS Receiver)');
+    setBaudRate(config.gpsBaudRate || 9600);
+  }, [isOpen, editingApp, initialTab]);
 
   if (!isOpen) return null;
 
   const isNight = theme === 'night_vision';
 
-  const handleSaveGeneral = () => {
+  const persistCatalog = async (catalog: DashboardConfig['appCatalog'], completeConfig?: DashboardConfig): Promise<boolean> => {
+    const saved = await onSaveConfig({ ...(completeConfig || config), appCatalog: catalog });
+    if (!saved) {
+      setJsonError('Catalog could not be saved. The previous catalog remains active.');
+      return false;
+    }
+    setCatalogState(saved.appCatalog);
+    setAppsList([...saved.appCatalog.records]);
+    setJsonText(JSON.stringify(saved.appCatalog, null, 2));
+    return true;
+  };
+
+  const handleSaveGeneral = async () => {
     playTacticalClick(audioEnabled);
-    onSaveConfig({
+    const saved = await onSaveConfig({
       ...config,
       callsign,
       appGridColumns: columns,
       gpsComPort: comPort,
       gpsBaudRate: baudRate,
-      apps: appsList,
+      appCatalog: config.appCatalog,
     });
-    onClose();
+    if (saved) onClose();
   };
 
-  const handleApplyJsonText = () => {
+  const handleApplyJsonText = async () => {
     playTacticalClick(audioEnabled);
     try {
       const parsed = JSON.parse(jsonText);
-      if (Array.isArray(parsed)) {
-        setAppsList(parsed);
-        onSaveConfig({
-          ...config,
-          apps: parsed,
-        });
-        setJsonError(null);
-        alert('JSON Config successfully updated and saved!');
+      if (isAppCatalogConfig(parsed)) {
+        if (await persistCatalog(parsed)) setJsonError(null);
       } else {
-        setJsonError('JSON must be an array of AppLauncherItems');
+        setJsonError('JSON must be an App Catalog object with records');
       }
     } catch (e: any) {
       setJsonError(`Invalid JSON format: ${e.message}`);
@@ -105,73 +154,80 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (event) => {
+    reader.onload = async (event) => {
       try {
         const content = event.target?.result as string;
         const parsed = JSON.parse(content);
-        if (parsed.apps && Array.isArray(parsed.apps)) {
-          onSaveConfig(parsed);
-          setAppsList(parsed.apps);
-          setJsonText(JSON.stringify(parsed.apps, null, 2));
-          alert('Config loaded successfully!');
-          onClose();
-        } else if (Array.isArray(parsed)) {
-          setAppsList(parsed);
-          onSaveConfig({ ...config, apps: parsed });
-          setJsonText(JSON.stringify(parsed, null, 2));
-          alert('Apps list updated successfully!');
-          onClose();
+        if (parsed.appCatalog && isAppCatalogConfig(parsed.appCatalog)) {
+          if (await persistCatalog(parsed.appCatalog, parsed as DashboardConfig)) onClose();
+        } else {
+          setJsonError('Imported JSON must contain a valid appCatalog object.');
         }
       } catch (err: any) {
-        alert('Failed to parse JSON config file.');
+        setJsonError(`Failed to parse JSON config file: ${err.message}`);
       }
     };
     reader.readAsText(file);
   };
 
-  const handleSaveSingleAppForm = () => {
+  const handleSaveSingleAppForm = async () => {
     playTacticalClick(audioEnabled);
-    if (!formApp.name || !formApp.executablePath) {
-      alert('App Name and Executable Path are required.');
+    if (!formApp.name || (formApp.targetKind === 'native' ? !formApp.executablePath : !formApp.url)) {
+      setJsonError(formApp.targetKind === 'native' ? 'App name and executable path are required.' : 'App name and HTTP/HTTPS URL are required.');
       return;
     }
 
-    const appToSave: AppLauncherItem = {
+    const appToSave: AppCatalogRecord = {
       id: formApp.id || `app-${Date.now()}`,
       name: formApp.name,
-      category: formApp.category || 'digital',
+      category: formApp.category || 'Digital Comms',
       iconName: formApp.iconName || 'Radio',
-      executablePath: formApp.executablePath,
+      target: formApp.targetKind === 'web'
+        ? { kind: 'web', url: formApp.url }
+        : { kind: 'native', executablePath: formApp.executablePath, ...(formApp.args ? { args: formApp.args } : {}), ...(formApp.workingDir ? { workingDir: formApp.workingDir } : {}) },
       description: formApp.description || '',
-      installed: formApp.installed ?? true,
+      owner: formApp.owner || 'user_managed',
+      capabilities: formApp.capabilities || [],
+      dependencies: formApp.dependencies || [],
+      enabled: formApp.enabled ?? true,
+      policy: formApp.policy || { editable: true, disableable: true, deletable: true, restorable: false },
       favorite: formApp.favorite ?? false,
       hotkey: formApp.hotkey || '',
-      args: formApp.args || '',
     };
 
     const exists = appsList.findIndex((a) => a.id === appToSave.id);
-    let updated: AppLauncherItem[];
-    if (exists >= 0) {
-      updated = [...appsList];
-      updated[exists] = appToSave;
-    } else {
-      updated = [...appsList, appToSave];
+    if (!isValidCatalogTarget(appToSave.target)) {
+      setJsonError(formApp.targetKind === 'web' ? 'Web targets must use an HTTP or HTTPS URL.' : 'Native targets require an absolute local Windows .exe path and valid working directory.');
+      return;
     }
-
-    setAppsList(updated);
-    setJsonText(JSON.stringify(updated, null, 2));
-    onSaveConfig({ ...config, apps: updated });
-    alert(`App "${appToSave.name}" saved!`);
+    const nextCatalog = exists >= 0 ? updateCatalogRecord(catalogState, appToSave) : addUserManagedRecord(catalogState, appToSave);
+    if (nextCatalog === catalogState) {
+      setJsonError('The catalog rejected this add or edit operation.');
+      return;
+    }
+    if (await persistCatalog(nextCatalog)) setFormApp(formFromRecord(nextCatalog.records.find(record => record.id === appToSave.id) || appToSave));
   };
 
-  const handleDeleteApp = (id: string) => {
+  const handleDeleteApp = async (id: string) => {
     playTacticalClick(audioEnabled);
     if (confirm('Delete this app entry from launcher?')) {
-      const updated = appsList.filter((a) => a.id !== id);
-      setAppsList(updated);
-      setJsonText(JSON.stringify(updated, null, 2));
-      onSaveConfig({ ...config, apps: updated });
+      const nextCatalog = deleteCatalogRecord(catalogState, id);
+      if (nextCatalog === catalogState) setJsonError('The catalog rejected deletion for this record.');
+      else await persistCatalog(nextCatalog);
     }
+  };
+
+  const handleToggleEnabled = async (record: AppCatalogRecord) => {
+    if (!record.policy.disableable) return;
+    const nextCatalog = setCatalogRecordEnabled(catalogState, record.id, !record.enabled);
+    if (nextCatalog === catalogState) setJsonError('This record cannot be enabled or disabled.');
+    else await persistCatalog(nextCatalog);
+  };
+
+  const handleRestoreApp = async (id: string) => {
+    const nextCatalog = restoreBuiltInRecord(catalogState, id, INITIAL_CONFIG.appCatalog.records);
+    if (nextCatalog === catalogState) setJsonError('The catalog rejected restoration for this record.');
+    else await persistCatalog(nextCatalog);
   };
 
   return (
@@ -231,6 +287,11 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-4 flex-1 overflow-y-auto space-y-4">
+          {jsonError && (
+            <div role="alert" className="p-2.5 rounded bg-red-950 border border-red-700 text-red-300 font-mono text-[11px]">
+              {jsonError}
+            </div>
+          )}
           
           {/* TAB 1: General & Operator */}
           {activeTab === 'general' && (
@@ -411,7 +472,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
               {/* Form to Add / Edit Single App */}
               <div className="p-3.5 rounded-xl border border-cyan-800 bg-cyan-950/20 space-y-3">
                 <h4 className="font-black text-xs uppercase text-cyan-300">
-                  {formApp.id ? 'EDIT APP ITEM' : 'ADD NEW HAM RADIO EXECUTABLE'}
+                  {editingApp ? 'EDIT APP ITEM' : 'ADD APP'}
                 </h4>
 
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -435,11 +496,13 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                       onChange={(e) => setFormApp({ ...formApp, category: e.target.value as any })}
                       className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-200 text-xs font-mono"
                     >
-                      <option value="digital">Digital Modes</option>
-                      <option value="logging">Logging & POTA</option>
-                      <option value="mapping">Mapping & APRS</option>
-                      <option value="radio_control">Radio CAT</option>
-                      <option value="utilities">Utilities</option>
+                      <option value="Digital Comms">Digital Comms</option>
+                      <option value="APRS">APRS</option>
+                      <option value="Satellite Ops">Satellite Ops</option>
+                      <option value="Network Voice">Network Voice</option>
+                      <option value="POTA/SOTA">POTA/SOTA</option>
+                      <option value="Web Apps">Web Apps</option>
+                      <option value="Utilities">Utilities</option>
                     </select>
                   </div>
 
@@ -457,16 +520,28 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                 </div>
 
                 <div>
-                  <label className="block text-[10px] uppercase opacity-70 mb-0.5">Executable Path</label>
-                  <input
-                    id="input-app-form-executable-path"
-                    type="text"
-                    value={formApp.executablePath || ''}
-                    onChange={(e) => setFormApp({ ...formApp, executablePath: e.target.value })}
-                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 text-xs font-mono"
-                    placeholder="C:\Program Files\WSJTX\bin\wsjtx.exe"
-                  />
+                  <label className="block text-[10px] uppercase opacity-70 mb-0.5">Target Type</label>
+                  <select
+                    id="select-app-form-target-kind"
+                    value={formApp.targetKind}
+                    onChange={(e) => setFormApp({ ...formApp, targetKind: e.target.value as 'native' | 'web', executablePath: '', args: '', workingDir: '', url: '' })}
+                    disabled={formApp.owner !== 'user_managed' && formApp.policy?.editable === false}
+                    className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-cyan-200 text-xs font-mono"
+                  >
+                    <option value="native">Native Executable</option>
+                    <option value="web">Web URL</option>
+                  </select>
                 </div>
+
+                {formApp.targetKind === 'native' ? (
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input id="input-app-form-executable-path" type="text" value={formApp.executablePath} onChange={(e) => setFormApp({ ...formApp, executablePath: e.target.value })} className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 text-xs font-mono" placeholder="Executable path" />
+                    <input id="input-app-form-args" type="text" value={formApp.args} onChange={(e) => setFormApp({ ...formApp, args: e.target.value })} className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 text-xs font-mono" placeholder="Arguments" />
+                    <input id="input-app-form-working-dir" type="text" value={formApp.workingDir} onChange={(e) => setFormApp({ ...formApp, workingDir: e.target.value })} className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 text-xs font-mono" placeholder="Working directory" />
+                  </div>
+                ) : (
+                  <input id="input-app-form-url" type="url" value={formApp.url} onChange={(e) => setFormApp({ ...formApp, url: e.target.value })} className="w-full px-2 py-1 bg-slate-900 border border-slate-700 rounded text-emerald-300 text-xs font-mono" placeholder="https://example.test" />
+                )}
 
                 <div className="flex items-center justify-between">
                   <button
@@ -483,11 +558,16 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                       setFormApp({
                         id: `custom-${Date.now()}`,
                         name: '',
-                        category: 'digital',
+                        category: 'Digital Comms',
                         iconName: 'Radio',
-                        executablePath: '',
                         description: '',
-                        installed: true,
+                        owner: 'user_managed',
+                        targetKind: 'native',
+                        executablePath: '',
+                        args: '',
+                        workingDir: '',
+                        url: '',
+                        policy: { editable: true, disableable: true, deletable: true, restorable: false },
                         favorite: false,
                       });
                     }}
@@ -500,7 +580,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
               {/* List of configured apps */}
               <div className="space-y-2">
-                <h4 className="font-bold text-xs uppercase opacity-75">CURRENT EXECUTABLE LIST</h4>
+                <h4 className="font-bold text-xs uppercase opacity-75">CURRENT CATALOG RECORDS</h4>
                 {appsList.map((app) => (
                   <div key={app.id} className="p-2.5 rounded-lg border border-slate-800 bg-slate-900 flex items-center justify-between gap-2">
                     <div className="truncate">
@@ -511,14 +591,15 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                         </span>
                       </div>
                       <span className="text-[10px] text-slate-400 block truncate font-mono">
-                        {app.executablePath}
+                        {app.target.kind === 'native' ? app.target.executablePath : app.target.kind === 'web' ? app.target.url : 'Unsupported target'}
                       </span>
                     </div>
 
                     <div className="flex items-center gap-1">
                       <button
                         id={`btn-edit-item-${app.id}`}
-                        onClick={() => setFormApp(app)}
+                        onClick={() => setFormApp(formFromRecord(app))}
+                        disabled={!app.policy.editable}
                         className="p-1.5 rounded bg-slate-800 hover:bg-slate-700 text-cyan-300"
                         title="Edit app"
                       >
@@ -527,14 +608,24 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                       <button
                         id={`btn-delete-item-${app.id}`}
                         onClick={() => handleDeleteApp(app.id)}
+                        disabled={!app.policy.deletable}
                         className="p-1.5 rounded bg-red-950/80 hover:bg-red-900 text-red-400"
                         title="Delete app"
                       >
                         <Trash2 className="w-3.5 h-3.5" />
                       </button>
                     </div>
+                    <div className="flex items-center gap-2 text-[10px]">
+                      <span className={app.enabled ? 'text-emerald-400' : 'text-amber-400'}>{app.enabled ? 'ENABLED' : 'DISABLED'}</span>
+                      <button type="button" onClick={() => handleToggleEnabled(app)} disabled={!app.policy.disableable} className="text-cyan-300 disabled:text-slate-600">{app.enabled ? 'DISABLE' : 'ENABLE'}</button>
+                    </div>
                   </div>
                 ))}
+                {config.appCatalog.deletedBuiltInIds.map(id => {
+                  const record = INITIAL_CONFIG.appCatalog.records.find(candidate => candidate.id === id);
+                  if (!record) return null;
+                  return <div key={`tombstone-${id}`} className="p-2.5 rounded-lg border border-amber-800 bg-amber-950/30 flex items-center justify-between"><span className="text-amber-300 text-xs">{record.name} <span className="text-[10px]">TOMBSTONED</span></span><button type="button" onClick={() => handleRestoreApp(id)} className="text-cyan-300 text-xs">RESTORE</button></div>;
+                })}
               </div>
             </div>
           )}
@@ -544,7 +635,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
             <div className="space-y-3 text-xs">
               <div className="flex items-center justify-between">
                 <label className="font-black uppercase text-amber-300 flex items-center gap-1.5">
-                  <Code className="w-4 h-4" /> RAW JSON CONFIGURATION CODE
+                  <Code className="w-4 h-4" /> APP CATALOG JSON
                 </label>
                 <button
                   id="btn-apply-json-text"
