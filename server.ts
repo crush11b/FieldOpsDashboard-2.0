@@ -33,6 +33,7 @@ import { readSerialInventoryPipe } from './server/serialInventoryPipe';
 import { readClockStatusPipe, readGnssSerialDiagnosticsPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
+import { createAppDiscoveryRouter } from './server/appDiscovery';
 import { DEFAULT_APPS, INITIAL_CONFIG } from './src/data/defaultConfig';
 import { createDashboardConfigRouter, DashboardConfigStore, getDefaultDashboardConfigPath, resolveWsjtxConfiguration } from './server/dashboardConfig';
 import { SpaceWeatherService } from './server/spaceWeather';
@@ -121,6 +122,7 @@ async function startServer() {
   const dashboardConfigStore = new DashboardConfigStore(getDefaultDashboardConfigPath());
   app.use(createDashboardConfigRouter(dashboardConfigStore));
   app.use(createLauncherRouter(DEFAULT_APPS, new NamedPipeTrayLauncherClient()));
+  app.use(createAppDiscoveryRouter({ apps: DEFAULT_APPS }));
   app.use(createPotaTargetRouter(new PotaActivationTargetResolver()));
   const sotaDataStore = new SotaSummitDataStore(getDefaultSotaSummitDatasetPath());
   const sotaResolver = new SotaActivationTargetResolver(() => sotaDataStore.dataset);
@@ -341,141 +343,6 @@ async function startServer() {
       return;
     }
     res.json(await getActiveAlertsApiResponse(coordinates.latitude, coordinates.longitude));
-  });
-
-  // API 4: HAM App Auto-Detection & Path Discovery Engine
-  app.post("/api/apps/detect", (req, res) => {
-    const { os: clientOs, apps: clientApps } = req.body || {};
-    
-    // User-Agent fallback OS detection
-    const userAgent = req.headers['user-agent'] || '';
-    let detectedOs = 'windows';
-    if (/linux/i.test(userAgent) && !/android/i.test(userAgent)) detectedOs = 'linux';
-    if (/mac/i.test(userAgent)) detectedOs = 'mac';
-    if (clientOs) detectedOs = clientOs;
-
-    // Known default installation paths across OS environments
-    const KNOWN_PATHS: Record<string, { win: string[]; linux: string[]; mac: string[]; wingetId?: string; aptPkg?: string; brewCask?: string; version: string }> = {
-      'wsjtx': {
-        win: ['C:\\WSJT\\wsjtx\\bin\\wsjtx.exe', 'C:\\Program Files\\WSJT\\wsjtx\\bin\\wsjtx.exe', 'C:\\Program Files (x86)\\WSJT\\wsjtx\\bin\\wsjtx.exe'],
-        linux: ['/usr/bin/wsjtx', '/usr/local/bin/wsjtx', '/usr/bin/wsjtx-improved'],
-        mac: ['/Applications/wsjtx.app/Contents/MacOS/wsjtx', '/Applications/wsjtx.app'],
-        wingetId: 'K1JT.WSJTX',
-        aptPkg: 'wsjtx',
-        brewCask: 'wsjtx',
-        version: 'v2.7.0'
-      },
-      'fldigi': {
-        win: ['C:\\Program Files (x86)\\fldigi-4.2.04\\fldigi.exe', 'C:\\Program Files (x86)\\fldigi-4.2.05\\fldigi.exe', 'C:\\Program Files\\fldigi\\fldigi.exe', 'C:\\FLdigi\\fldigi.exe'],
-        linux: ['/usr/bin/fldigi', '/usr/local/bin/fldigi'],
-        mac: ['/Applications/fldigi.app/Contents/MacOS/fldigi', '/Applications/fldigi.app'],
-        wingetId: 'W1HKJ.fldigi',
-        aptPkg: 'fldigi',
-        brewCask: 'fldigi',
-        version: 'v4.2.05'
-      },
-      'js8call': {
-        win: ['C:\\Program Files\\JS8Call\\js8call.exe', 'C:\\Program Files (x86)\\JS8Call\\js8call.exe', 'C:\\JS8Call\\js8call.exe'],
-        linux: ['/usr/bin/js8call', '/usr/local/bin/js8call'],
-        mac: ['/Applications/js8call.app/Contents/MacOS/js8call', '/Applications/js8call.app'],
-        wingetId: 'JordanSherer.JS8Call',
-        aptPkg: 'js8call',
-        brewCask: 'js8call',
-        version: 'v2.2.0'
-      },
-      'gridtracker': {
-        win: ['C:\\Program Files\\GridTracker\\GridTracker.exe', 'C:\\Program Files (x86)\\GridTracker\\GridTracker.exe', 'C:\\GridTracker\\GridTracker.exe'],
-        linux: ['/usr/bin/gridtracker', '/opt/GridTracker/GridTracker'],
-        mac: ['/Applications/GridTracker.app/Contents/MacOS/GridTracker', '/Applications/GridTracker.app'],
-        wingetId: 'GridTracker.GridTracker',
-        aptPkg: 'gridtracker',
-        brewCask: 'gridtracker',
-        version: 'v1.24.0'
-      },
-      'n1mm': {
-        win: ['C:\\Program Files (x86)\\N1MM Logger+\\N1MMLogger.net.exe', 'C:\\N1MM Logger+\\N1MMLogger.net.exe'],
-        linux: ['/home/ham/.wine/drive_c/Program Files (x86)/N1MM Logger+/N1MMLogger.net.exe'],
-        mac: ['/Applications/Wine.app/Contents/Resources/wine/drive_c/Program Files (x86)/N1MM Logger+/N1MMLogger.net.exe'],
-        wingetId: 'N1MM.N1MMLoggerPlus',
-        version: 'v1.0.10234'
-      },
-      'varac': {
-        win: ['C:\\VarAC\\VarAC.exe', 'C:\\Program Files\\VarAC\\VarAC.exe', 'C:\\Program Files (x86)\\VarAC\\VarAC.exe'],
-        linux: ['/opt/VarAC/VarAC.exe'],
-        mac: ['/Applications/VarAC.app'],
-        version: 'v9.3.4'
-      },
-      'log4om': {
-        win: ['C:\\Program Files (x86)\\Log4OM2\\Log4OM2.exe', 'C:\\Program Files\\Log4OM2\\Log4OM2.exe'],
-        linux: ['/opt/log4om/Log4OM2.exe'],
-        mac: ['/Applications/Log4OM.app'],
-        wingetId: 'IW3HMH.Log4OM2',
-        version: 'v2.31.0'
-      },
-      'cqrlog': {
-        win: ['C:\\Program Files\\CQRLOG\\cqrlog.exe'],
-        linux: ['/usr/bin/cqrlog', '/usr/local/bin/cqrlog'],
-        mac: ['/Applications/cqrlog.app'],
-        aptPkg: 'cqrlog',
-        version: 'v2.5.2'
-      },
-      'wfview': {
-        win: ['C:\\Program Files\\wfview\\wfview.exe', 'C:\\Program Files (x86)\\wfview\\wfview.exe'],
-        linux: ['/usr/bin/wfview', '/usr/local/bin/wfview'],
-        mac: ['/Applications/wfview.app/Contents/MacOS/wfview', '/Applications/wfview.app'],
-        wingetId: 'wfview.wfview',
-        aptPkg: 'wfview',
-        brewCask: 'wfview',
-        version: 'v1.62'
-      },
-      'direwolf': {
-        win: ['C:\\Program Files\\direwolf\\direwolf.exe', 'C:\\direwolf\\direwolf.exe'],
-        linux: ['/usr/bin/direwolf', '/usr/local/bin/direwolf'],
-        mac: ['/usr/local/bin/direwolf', '/opt/homebrew/bin/direwolf'],
-        aptPkg: 'direwolf',
-        version: 'v1.7'
-      }
-    };
-
-    // Scan or map default executables
-    const detected: any[] = [];
-    const appsToProcess = Array.isArray(clientApps) && clientApps.length > 0 ? clientApps : [];
-
-    appsToProcess.forEach((app: any) => {
-      const info = KNOWN_PATHS[app.id] || KNOWN_PATHS[app.id.toLowerCase()];
-      if (info) {
-        const osPaths = detectedOs === 'windows' ? info.win : detectedOs === 'mac' ? info.mac : info.linux;
-        const suggestedPath = osPaths[0] || app.executablePath;
-        detected.push({
-          id: app.id,
-          name: app.name,
-          detectedPath: suggestedPath,
-          installed: true,
-          verificationMethod: 'OS System Path Match',
-          version: info.version,
-          wingetId: info.wingetId,
-          aptPkg: info.aptPkg,
-          brewCask: info.brewCask,
-        });
-      } else {
-        detected.push({
-          id: app.id,
-          name: app.name,
-          detectedPath: app.executablePath || (detectedOs === 'windows' ? `C:\\Program Files\\${app.name}\\${app.name}.exe` : `/usr/bin/${app.id}`),
-          installed: true,
-          verificationMethod: 'Custom Path Registered',
-          version: '1.0.0'
-        });
-      }
-    });
-
-    res.json({
-      success: true,
-      detectedOs,
-      totalDetected: detected.length,
-      detectedApps: detected,
-      timestamp: new Date().toISOString()
-    });
   });
 
   // Direct script endpoints for 1-click execution without 404
