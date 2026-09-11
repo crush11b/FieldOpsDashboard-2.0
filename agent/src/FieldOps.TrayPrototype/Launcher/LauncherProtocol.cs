@@ -6,9 +6,11 @@ namespace FieldOps.TrayPrototype.Launcher;
 
 internal static class LauncherProtocol
 {
-    internal const int Version = 1;
-    internal const int MaximumMessageBytes = 4096;
-    internal const string PipeName = "FieldOps.Tray.Launcher.v1";
+    internal const int Version = 2;
+    internal const int MaximumMessageBytes = 8192;
+    internal const string PipeName = "FieldOps.Tray.Launcher.v2";
+    internal const int MaximumArguments = 64;
+    internal const int MaximumArgumentBytes = 4096;
     internal static readonly TimeSpan OperationTimeout = TimeSpan.FromSeconds(5);
 }
 
@@ -18,7 +20,12 @@ internal enum LaunchType
     Uri = 2,
 }
 
-internal sealed record LaunchRequest(LaunchType LaunchType, string Target);
+internal sealed record LaunchRequest(
+    int ProtocolVersion,
+    LaunchType LaunchType,
+    string Target,
+    string[]? Arguments = null,
+    string? WorkingDirectory = null);
 
 internal enum LaunchResultCode
 {
@@ -28,6 +35,8 @@ internal enum LaunchResultCode
     InvalidRequest = 4,
     LaunchFailed = 5,
     Busy = 6,
+    ProtocolIncompatible = 7,
+    InvalidWorkingDirectory = 8,
 }
 
 internal sealed record LaunchResponse(LaunchResultCode Result, string Detail);

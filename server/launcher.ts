@@ -3,12 +3,16 @@ import type { Request, Response, Router } from 'express';
 import express from 'express';
 import type { AppLauncherItem } from '../src/types';
 
-export const LAUNCHER_PIPE = '\\\\.\\pipe\\FieldOps.Tray.Launcher.v1';
-export const LAUNCHER_MAX_FRAME = 4096;
+export const LAUNCHER_PIPE = '\\\\.\\pipe\\FieldOps.Tray.Launcher.v2';
+export const LAUNCHER_PROTOCOL_VERSION = 2 as const;
+export const LAUNCHER_MAX_FRAME = 8192;
 export const LAUNCHER_TIMEOUT_MS = 5000;
+const MAX_ARGUMENTS = 64;
+const MAX_ARGUMENT_BYTES = 4096;
+const MAX_WORKING_DIRECTORY_LENGTH = 4096;
 
 export type TrayLaunchType = 1 | 2;
-export type TrayLaunchResult = 1 | 2 | 3 | 4 | 5 | 6;
+export type TrayLaunchResult = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 export type LaunchApiStatus =
   | 'Launched'
   | 'UriOpened'
@@ -16,11 +20,17 @@ export type LaunchApiStatus =
   | 'InvalidRequest'
   | 'LaunchFailed'
   | 'Busy'
-  | 'LauncherUnavailable';
+  | 'LauncherUnavailable'
+  | 'LauncherProtocolError'
+  | 'ProtocolIncompatible'
+  | 'InvalidWorkingDirectory';
 
 export interface TrayLaunchRequest {
+  ProtocolVersion: typeof LAUNCHER_PROTOCOL_VERSION;
   LaunchType: TrayLaunchType;
   Target: string;
+  Arguments?: string[];
+  WorkingDirectory?: string;
 }
 
 export interface TrayLaunchResponse {
@@ -35,6 +45,20 @@ export interface LaunchApiResponse {
 
 export interface TrayLauncherClient {
   launch(request: TrayLaunchRequest): Promise<TrayLaunchResponse>;
+}
+
+export class LauncherProtocolError extends Error {
+  constructor(message = 'The Tray launcher protocol response was invalid.') {
+    super(message);
+    this.name = 'LauncherProtocolError';
+  }
+}
+
+export class LocalLauncherRequestError extends Error {
+  constructor() {
+    super('The local launcher request is invalid or too large.');
+    this.name = 'LocalLauncherRequestError';
+  }
 }
 
 export function isPermittedHttpUri(value: unknown): value is string {
@@ -56,6 +80,67 @@ export function isAbsoluteLocalExePath(value: unknown): value is string {
     && !/["\0]/.test(value);
 }
 
+export function isAbsoluteLocalDirectoryPath(value: unknown): value is string {
+  return typeof value === 'string'
+    && value.length > 0
+    && value.length <= MAX_WORKING_DIRECTORY_LENGTH
+    && !value.startsWith('\\\\')
+    && /^[A-Za-z]:[\\/]/.test(value)
+    && !/["\0]/.test(value);
+}
+
+export function parseConfiguredArguments(value: unknown): string[] | LaunchApiResponse {
+  if (value === undefined || value === '') return [];
+  if (typeof value !== 'string' || value.includes('\0')) {
+    return { status: 'InvalidRequest', detail: 'Configured arguments are invalid.' };
+  }
+
+  const argumentsList: string[] = [];
+  let index = 0;
+  while (index < value.length) {
+    while (index < value.length && /[ \t]/.test(value[index])) index++;
+    if (index >= value.length) break;
+
+    let argument = '';
+    let inQuotes = false;
+    let started = false;
+    while (index < value.length) {
+      let slashCount = 0;
+      while (value[index] === '\\') {
+        slashCount++;
+        index++;
+      }
+      if (value[index] === '"') {
+        argument += '\\'.repeat(Math.floor(slashCount / 2));
+        if (slashCount % 2 === 1) {
+          argument += '"';
+          index++;
+          started = true;
+        } else {
+          inQuotes = !inQuotes;
+          index++;
+          started = true;
+        }
+        continue;
+      }
+      argument += '\\'.repeat(slashCount);
+      if (slashCount > 0) started = true;
+      if (index >= value.length) break;
+      if (!inQuotes && /[ \t]/.test(value[index])) break;
+      argument += value[index++];
+      started = true;
+    }
+    if (inQuotes || !started) return { status: 'InvalidRequest', detail: 'Configured arguments are malformed.' };
+    argumentsList.push(argument);
+    if (argumentsList.length > MAX_ARGUMENTS) return { status: 'InvalidRequest', detail: 'Configured arguments exceed the allowed count.' };
+  }
+
+  if (Buffer.byteLength(JSON.stringify(argumentsList), 'utf8') > MAX_ARGUMENT_BYTES) {
+    return { status: 'InvalidRequest', detail: 'Configured arguments exceed the allowed size.' };
+  }
+  return argumentsList;
+}
+
 export function resolveConfiguredLaunch(apps: readonly AppLauncherItem[], appId: unknown): TrayLaunchRequest | LaunchApiResponse {
   if (typeof appId !== 'string' || appId.length === 0 || appId.length > 128) {
     return { status: 'InvalidRequest', detail: 'Application ID is required.' };
@@ -71,13 +156,31 @@ export function resolveConfiguredLaunch(apps: readonly AppLauncherItem[], appId:
 
   const app = matches[0];
   if (app.uri !== undefined) {
+    if (app.args !== undefined || app.workingDir !== undefined) {
+      return { status: 'InvalidRequest', detail: 'Web launches cannot include native launch options.' };
+    }
     if (isPermittedHttpUri(app.uri)) {
-      return { LaunchType: 2, Target: app.uri };
+      return { ProtocolVersion: LAUNCHER_PROTOCOL_VERSION, LaunchType: 2, Target: app.uri };
     }
     return { status: 'InvalidRequest', detail: 'The configured application URI is invalid.' };
   }
   if (isAbsoluteLocalExePath(app.executablePath)) {
-    return { LaunchType: 1, Target: app.executablePath };
+    const argumentsList = parseConfiguredArguments(app.args);
+    if (!Array.isArray(argumentsList)) return argumentsList;
+    if (app.workingDir !== undefined && !isAbsoluteLocalDirectoryPath(app.workingDir)) {
+      return { status: 'InvalidWorkingDirectory', detail: 'The configured working directory is invalid.' };
+    }
+    const request: TrayLaunchRequest = {
+      ProtocolVersion: LAUNCHER_PROTOCOL_VERSION,
+      LaunchType: 1,
+      Target: app.executablePath,
+      ...(argumentsList.length > 0 ? { Arguments: argumentsList } : {}),
+      ...(app.workingDir !== undefined ? { WorkingDirectory: app.workingDir } : {}),
+    };
+    if (Buffer.byteLength(JSON.stringify(request), 'utf8') > LAUNCHER_MAX_FRAME) {
+      return { status: 'InvalidRequest', detail: 'The configured launcher request exceeds the allowed size.' };
+    }
+    return request;
   }
 
   return { status: 'InvalidRequest', detail: 'The configured application target is invalid.' };
@@ -92,8 +195,20 @@ export class NamedPipeTrayLauncherClient implements TrayLauncherClient {
 
   launch(request: TrayLaunchRequest): Promise<TrayLaunchResponse> {
     return new Promise((resolve, reject) => {
+      let payload: Buffer;
+      try {
+        payload = Buffer.from(JSON.stringify(request));
+      } catch {
+        reject(new LocalLauncherRequestError());
+        return;
+      }
+      if (payload.length <= 0 || payload.length > LAUNCHER_MAX_FRAME) {
+        reject(new LocalLauncherRequestError());
+        return;
+      }
       const socket = this.connect(this.pipeName);
       let buffer = Buffer.alloc(0);
+      let pendingResponse: TrayLaunchResponse | undefined;
       let settled = false;
       const finish = (callback: () => void) => {
         if (settled) return;
@@ -106,40 +221,50 @@ export class NamedPipeTrayLauncherClient implements TrayLauncherClient {
       const timer = setTimeout(() => finish(() => reject(new Error('Launcher pipe request timed out.'))), this.timeoutMs);
 
       socket.once('connect', () => {
-        const payload = Buffer.from(JSON.stringify(request));
-        if (payload.length > LAUNCHER_MAX_FRAME) {
-          finish(() => reject(new Error('Launcher request is too large.')));
-          return;
-        }
         const frame = Buffer.alloc(4 + payload.length);
         frame.writeInt32LE(payload.length, 0);
         payload.copy(frame, 4);
         socket.write(frame);
       });
       socket.on('data', chunk => {
+        if (pendingResponse !== undefined) {
+          finish(() => reject(new LauncherProtocolError()));
+          return;
+        }
         buffer = Buffer.concat([buffer, chunk]);
         if (buffer.length > LAUNCHER_MAX_FRAME + 4) {
-          finish(() => reject(new Error('Launcher response is too large.')));
+          finish(() => reject(new LauncherProtocolError()));
           return;
         }
         if (buffer.length < 4) return;
         const length = buffer.readInt32LE(0);
         if (length <= 0 || length > LAUNCHER_MAX_FRAME) {
-          finish(() => reject(new Error('Launcher response framing was invalid.')));
+          finish(() => reject(new LauncherProtocolError()));
           return;
         }
         if (buffer.length < length + 4) return;
         try {
+          if (buffer.length !== length + 4) throw new LauncherProtocolError();
           const parsed = JSON.parse(buffer.subarray(4, length + 4).toString('utf8')) as TrayLaunchResponse;
-          if (!parsed || !Number.isInteger(parsed.Result) || typeof parsed.Detail !== 'string') throw new Error('Launcher response was malformed.');
-          finish(() => resolve(parsed));
+          if (!parsed || ![1, 2, 3, 4, 5, 6, 7, 8].includes(parsed.Result) || typeof parsed.Detail !== 'string' || parsed.Detail.length > 512 || Object.keys(parsed).some(key => !['Result', 'Detail'].includes(key))) {
+            throw new LauncherProtocolError();
+          }
+          pendingResponse = parsed;
         } catch (error) {
-          finish(() => reject(error));
+          finish(() => reject(error instanceof LauncherProtocolError ? error : new LauncherProtocolError()));
         }
       });
       socket.once('error', error => finish(() => reject(error)));
       socket.once('close', () => {
-        if (!settled) finish(() => reject(new Error('Launcher pipe is unavailable.')));
+        if (!settled) {
+          if (pendingResponse !== undefined) {
+            const response = pendingResponse;
+            pendingResponse = undefined;
+            finish(() => resolve(response));
+            return;
+          }
+          finish(() => reject(buffer.length > 0 ? new LauncherProtocolError() : new Error('Launcher pipe is unavailable.')));
+        }
       });
     });
   }
@@ -153,6 +278,8 @@ function mapTrayResponse(response: TrayLaunchResponse): LaunchApiResponse {
     4: 'InvalidRequest',
     5: 'LaunchFailed',
     6: 'Busy',
+    7: 'ProtocolIncompatible',
+    8: 'InvalidWorkingDirectory',
   };
   return { status: statuses[response.Result] ?? 'LaunchFailed', detail: response.Detail.slice(0, 512) };
 }
@@ -176,7 +303,15 @@ export function createLauncherRouter(
 
     try {
       response.json(mapTrayResponse(await client.launch(resolved)));
-    } catch {
+    } catch (error) {
+      if (error instanceof LocalLauncherRequestError) {
+        response.status(400).json({ status: 'InvalidRequest', detail: 'The configured launcher request exceeds the allowed size.' } satisfies LaunchApiResponse);
+        return;
+      }
+      if (error instanceof LauncherProtocolError) {
+        response.json({ status: 'LauncherProtocolError', detail: 'The Tray launcher returned an invalid protocol response.' } satisfies LaunchApiResponse);
+        return;
+      }
       response.json({ status: 'LauncherUnavailable', detail: 'The FieldOps Tray launcher is unavailable. Start the Tray and try again.' } satisfies LaunchApiResponse);
     }
   });

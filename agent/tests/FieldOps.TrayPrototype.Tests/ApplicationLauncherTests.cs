@@ -12,7 +12,7 @@ public sealed class ApplicationLauncherTests
         try
         {
             var result = await new ApplicationLauncher(executor).LaunchAsync(
-                new(LaunchType.Executable, target),
+                new(LauncherProtocol.Version, LaunchType.Executable, target),
                 CancellationToken.None);
 
             Assert.Equal(LaunchResultCode.Launched, result.Result);
@@ -30,11 +30,78 @@ public sealed class ApplicationLauncherTests
     {
         var executor = new FakeExecutor();
         var result = await new ApplicationLauncher(executor).LaunchAsync(
-            new(LaunchType.Executable, Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.exe")),
+            new(LauncherProtocol.Version, LaunchType.Executable, Path.Combine(Path.GetTempPath(), $"{Guid.NewGuid():N}.exe")),
             CancellationToken.None);
 
         Assert.Equal(LaunchResultCode.ExecutableNotFound, result.Result);
         Assert.Equal(0, executor.ExecutableLaunchCount);
+    }
+
+    [Fact]
+    public async Task Arguments_and_explicit_working_directory_are_preserved_without_shell_execution()
+    {
+        var target = CreateExecutable();
+        var workingDirectory = Path.GetDirectoryName(target)!;
+        var executor = new FakeExecutor();
+        try
+        {
+            var result = await new ApplicationLauncher(executor).LaunchAsync(
+                new(LauncherProtocol.Version, LaunchType.Executable, target, ["two words", "&", "quoted\"value"], workingDirectory),
+                CancellationToken.None);
+
+            Assert.Equal(LaunchResultCode.Launched, result.Result);
+            Assert.Equal(["two words", "&", "quoted\"value"], executor.ExecutableArguments);
+            Assert.Equal(workingDirectory, executor.ExecutableWorkingDirectory);
+        }
+        finally
+        {
+            File.Delete(target);
+        }
+    }
+
+    [Fact]
+    public async Task Mismatched_protocol_is_rejected_without_execution()
+    {
+        var executor = new FakeExecutor();
+        var result = await new ApplicationLauncher(executor).LaunchAsync(
+            new(1, LaunchType.Executable, "C:\\Tools\\launcher.exe"),
+            CancellationToken.None);
+
+        Assert.Equal(LaunchResultCode.ProtocolIncompatible, result.Result);
+        Assert.Equal(0, executor.ExecutableLaunchCount);
+    }
+
+    [Theory]
+    [InlineData("relative")]
+    [InlineData("\\\\server\\share")]
+    [InlineData("C:\\missing-directory")]
+    public async Task Invalid_working_directories_are_rejected(string workingDirectory)
+    {
+        var target = CreateExecutable();
+        try
+        {
+            var result = await new ApplicationLauncher(new FakeExecutor()).LaunchAsync(
+                new(LauncherProtocol.Version, LaunchType.Executable, target, [], workingDirectory),
+                CancellationToken.None);
+
+            Assert.Equal(LaunchResultCode.InvalidWorkingDirectory, result.Result);
+        }
+        finally
+        {
+            File.Delete(target);
+        }
+    }
+
+    [Fact]
+    public async Task Uri_with_native_options_is_rejected()
+    {
+        var executor = new FakeExecutor();
+        var result = await new ApplicationLauncher(executor).LaunchAsync(
+            new(LauncherProtocol.Version, LaunchType.Uri, "https://example.test", ["argument"], null),
+            CancellationToken.None);
+
+        Assert.Equal(LaunchResultCode.InvalidRequest, result.Result);
+        Assert.Equal(0, executor.UriOpenCount);
     }
 
     [Theory]
@@ -47,7 +114,7 @@ public sealed class ApplicationLauncherTests
     {
         var executor = new FakeExecutor();
         var result = await new ApplicationLauncher(executor).LaunchAsync(
-            new(LaunchType.Executable, target),
+            new(LauncherProtocol.Version, LaunchType.Executable, target),
             CancellationToken.None);
 
         Assert.Equal(LaunchResultCode.InvalidRequest, result.Result);
@@ -62,11 +129,11 @@ public sealed class ApplicationLauncherTests
         try
         {
             var result = await new ApplicationLauncher(executor).LaunchAsync(
-                new(LaunchType.Executable, target),
+                new(LauncherProtocol.Version, LaunchType.Executable, target),
                 CancellationToken.None);
 
             Assert.Equal(LaunchResultCode.LaunchFailed, result.Result);
-            Assert.Contains(nameof(InvalidOperationException), result.Detail);
+            Assert.Equal("Executable launch failed.", result.Detail);
         }
         finally
         {
@@ -81,7 +148,7 @@ public sealed class ApplicationLauncherTests
     {
         var executor = new FakeExecutor();
         var result = await new ApplicationLauncher(executor).LaunchAsync(
-            new(LaunchType.Uri, target),
+            new(LauncherProtocol.Version, LaunchType.Uri, target),
             CancellationToken.None);
 
         Assert.Equal(LaunchResultCode.UriOpened, result.Result);
@@ -98,7 +165,7 @@ public sealed class ApplicationLauncherTests
     {
         var executor = new FakeExecutor();
         var result = await new ApplicationLauncher(executor).LaunchAsync(
-            new(LaunchType.Uri, target),
+            new(LauncherProtocol.Version, LaunchType.Uri, target),
             CancellationToken.None);
 
         Assert.Equal(LaunchResultCode.InvalidRequest, result.Result);
@@ -110,7 +177,7 @@ public sealed class ApplicationLauncherTests
     {
         var executor = new FakeExecutor { UriException = new InvalidOperationException() };
         var result = await new ApplicationLauncher(executor).LaunchAsync(
-            new(LaunchType.Uri, "https://example.test"),
+            new(LauncherProtocol.Version, LaunchType.Uri, "https://example.test"),
             CancellationToken.None);
 
         Assert.Equal(LaunchResultCode.LaunchFailed, result.Result);
@@ -125,10 +192,10 @@ public sealed class ApplicationLauncherTests
         var launcher = new ApplicationLauncher(executor);
         try
         {
-            var first = Task.Run(() => launcher.LaunchAsync(new(LaunchType.Executable, target), CancellationToken.None));
+            var first = Task.Run(() => launcher.LaunchAsync(new(LauncherProtocol.Version, LaunchType.Executable, target), CancellationToken.None));
             Assert.True(executor.Entered.Wait(TimeSpan.FromSeconds(5)));
 
-            var second = await launcher.LaunchAsync(new(LaunchType.Uri, "https://example.test"), CancellationToken.None);
+            var second = await launcher.LaunchAsync(new(LauncherProtocol.Version, LaunchType.Uri, "https://example.test"), CancellationToken.None);
             Assert.Equal(LaunchResultCode.Busy, second.Result);
 
             executor.Release.Set();
@@ -151,15 +218,19 @@ public sealed class ApplicationLauncherTests
     private class FakeExecutor : IApplicationExecutor
     {
         public string? ExecutableTarget { get; private set; }
+        public IReadOnlyList<string>? ExecutableArguments { get; private set; }
+        public string? ExecutableWorkingDirectory { get; private set; }
         public string? UriTarget { get; private set; }
         public int ExecutableLaunchCount { get; private set; }
         public int UriOpenCount { get; private set; }
         public Exception? ExecutableException { get; init; }
         public Exception? UriException { get; init; }
 
-        public virtual void LaunchExecutable(string target)
+        public virtual void LaunchExecutable(string target, IReadOnlyList<string> arguments, string workingDirectory)
         {
             ExecutableTarget = target;
+            ExecutableArguments = arguments;
+            ExecutableWorkingDirectory = workingDirectory;
             ExecutableLaunchCount++;
             if (ExecutableException is not null) throw ExecutableException;
         }
@@ -177,11 +248,11 @@ public sealed class ApplicationLauncherTests
         public ManualResetEventSlim Entered { get; } = new();
         public ManualResetEventSlim Release { get; } = new();
 
-        public override void LaunchExecutable(string target)
+        public override void LaunchExecutable(string target, IReadOnlyList<string> arguments, string workingDirectory)
         {
             Entered.Set();
             Release.Wait();
-            base.LaunchExecutable(target);
+            base.LaunchExecutable(target, arguments, workingDirectory);
         }
     }
 }

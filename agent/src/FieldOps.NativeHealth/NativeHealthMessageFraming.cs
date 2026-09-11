@@ -11,12 +11,15 @@ public static class NativeHealthMessageFraming
         UnmappedMemberHandling = JsonUnmappedMemberHandling.Disallow,
     };
 
-    public static async Task<T> ReadAsync<T>(Stream stream, CancellationToken cancellationToken)
+    public static Task<T> ReadAsync<T>(Stream stream, CancellationToken cancellationToken) =>
+        ReadAsync<T>(stream, NativeHealthProtocol.MaximumMessageBytes, cancellationToken);
+
+    public static async Task<T> ReadAsync<T>(Stream stream, int maximumMessageBytes, CancellationToken cancellationToken)
     {
         var lengthBuffer = new byte[sizeof(int)];
         await stream.ReadExactlyAsync(lengthBuffer, cancellationToken);
         var length = BinaryPrimitives.ReadInt32LittleEndian(lengthBuffer);
-        if (length <= 0 || length > NativeHealthProtocol.MaximumMessageBytes)
+        if (length <= 0 || length > maximumMessageBytes)
         {
             throw new InvalidDataException("Native health message length is outside the allowed range.");
         }
@@ -39,9 +42,16 @@ public static class NativeHealthMessageFraming
         Stream stream,
         T message,
         CancellationToken cancellationToken)
+        => await WriteAsync(stream, message, NativeHealthProtocol.MaximumMessageBytes, cancellationToken);
+
+    public static async Task WriteAsync<T>(
+        Stream stream,
+        T message,
+        int maximumMessageBytes,
+        CancellationToken cancellationToken)
     {
         var payload = JsonSerializer.SerializeToUtf8Bytes(message, SerializerOptions);
-        if (payload.Length <= 0 || payload.Length > NativeHealthProtocol.MaximumMessageBytes)
+        if (payload.Length <= 0 || payload.Length > maximumMessageBytes)
         {
             throw new InvalidDataException("Native health message exceeds the allowed size.");
         }

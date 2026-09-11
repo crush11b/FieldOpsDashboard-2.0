@@ -20,10 +20,13 @@ public sealed class LauncherPipeServerTests
         var run = server.RunAsync(cancellation.Token);
         try
         {
-            var response = await SendAsync(pipeName, new(LaunchType.Executable, target));
+            var workingDirectory = Path.GetDirectoryName(target)!;
+            var response = await SendAsync(pipeName, new(LauncherProtocol.Version, LaunchType.Executable, target, ["two words", "&"], workingDirectory));
 
             Assert.Equal(LaunchResultCode.Launched, response.Result);
             Assert.Equal(target, executor.Target);
+            Assert.Equal(["two words", "&"], executor.Arguments);
+            Assert.Equal(workingDirectory, executor.WorkingDirectory);
         }
         finally
         {
@@ -42,8 +45,110 @@ public sealed class LauncherPipeServerTests
         var run = server.RunAsync(cancellation.Token);
         try
         {
-            var response = await SendAsync(pipeName, new((LaunchType)999, "C:\\Tools\\test.exe"));
+            var response = await SendAsync(pipeName, new(LauncherProtocol.Version, (LaunchType)999, "C:\\Tools\\test.exe"));
             Assert.Equal(LaunchResultCode.InvalidRequest, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run;
+        }
+    }
+
+    [Fact]
+    public async Task Version_one_through_the_pipe_returns_protocol_incompatible()
+    {
+        var pipeName = $"FieldOps.Tray.Launcher.Tests.{Guid.NewGuid():N}";
+        using var cancellation = new CancellationTokenSource();
+        var server = CreateServer(pipeName, new RecordingExecutor());
+        var run = server.RunAsync(cancellation.Token);
+        try
+        {
+            var response = await SendAsync(pipeName, new(1, LaunchType.Uri, "https://example.test"));
+            Assert.Equal(LaunchResultCode.ProtocolIncompatible, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run;
+        }
+    }
+
+    [Fact]
+    public async Task Missing_protocol_version_returns_invalid_request()
+    {
+        var pipeName = $"FieldOps.Tray.Launcher.Tests.{Guid.NewGuid():N}";
+        using var cancellation = new CancellationTokenSource();
+        var server = CreateServer(pipeName, new RecordingExecutor());
+        var run = server.RunAsync(cancellation.Token);
+        try
+        {
+            var response = await SendJsonAsync(pipeName, "{\"LaunchType\":2,\"Target\":\"https://example.test\"}");
+            Assert.Equal(LaunchResultCode.InvalidRequest, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run;
+        }
+    }
+
+    [Fact]
+    public async Task Unknown_json_member_returns_invalid_request()
+    {
+        var pipeName = $"FieldOps.Tray.Launcher.Tests.{Guid.NewGuid():N}";
+        using var cancellation = new CancellationTokenSource();
+        var server = CreateServer(pipeName, new RecordingExecutor());
+        var run = server.RunAsync(cancellation.Token);
+        try
+        {
+            var response = await SendJsonAsync(pipeName, "{\"ProtocolVersion\":2,\"LaunchType\":2,\"Target\":\"https://example.test\",\"Extra\":true}");
+            Assert.Equal(LaunchResultCode.InvalidRequest, response.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run;
+        }
+    }
+
+    [Fact]
+    public async Task Trailing_data_returns_invalid_request_and_server_remains_usable()
+    {
+        var pipeName = $"FieldOps.Tray.Launcher.Tests.{Guid.NewGuid():N}";
+        using var cancellation = new CancellationTokenSource();
+        var server = CreateServer(pipeName, new RecordingExecutor());
+        var run = server.RunAsync(cancellation.Token);
+        try
+        {
+            var response = await SendJsonAsync(pipeName, "{\"ProtocolVersion\":2,\"LaunchType\":2,\"Target\":\"https://example.test\"}", [1]);
+            Assert.Equal(LaunchResultCode.InvalidRequest, response.Result);
+
+            var valid = await SendAsync(pipeName, new(LauncherProtocol.Version, LaunchType.Uri, "https://example.test"));
+            Assert.Equal(LaunchResultCode.UriOpened, valid.Result);
+        }
+        finally
+        {
+            cancellation.Cancel();
+            await run;
+        }
+    }
+
+    [Fact]
+    public async Task Truncated_frame_is_rejected_safely()
+    {
+        var pipeName = $"FieldOps.Tray.Launcher.Tests.{Guid.NewGuid():N}";
+        using var cancellation = new CancellationTokenSource();
+        var server = CreateServer(pipeName, new RecordingExecutor());
+        var run = server.RunAsync(cancellation.Token);
+        try
+        {
+            await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.Out, PipeOptions.Asynchronous);
+            await client.ConnectAsync(5000);
+            var length = new byte[sizeof(int)];
+            BinaryPrimitives.WriteInt32LittleEndian(length, 20);
+            await client.WriteAsync(length);
+            await client.WriteAsync("{}"u8.ToArray());
         }
         finally
         {
@@ -148,11 +253,32 @@ public sealed class LauncherPipeServerTests
         return await FieldOps.NativeHealth.NativeHealthMessageFraming.ReadAsync<LaunchResponse>(client, CancellationToken.None);
     }
 
+    private static async Task<LaunchResponse> SendJsonAsync(string pipeName, string json, byte[]? trailing = null)
+    {
+        await using var client = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await client.ConnectAsync(5000);
+        var payload = System.Text.Encoding.UTF8.GetBytes(json);
+        var frame = new byte[sizeof(int) + payload.Length + (trailing?.Length ?? 0)];
+        BinaryPrimitives.WriteInt32LittleEndian(frame.AsSpan(0, sizeof(int)), payload.Length);
+        payload.CopyTo(frame, sizeof(int));
+        trailing?.CopyTo(frame, sizeof(int) + payload.Length);
+        await client.WriteAsync(frame);
+        await client.FlushAsync();
+        return await FieldOps.NativeHealth.NativeHealthMessageFraming.ReadAsync<LaunchResponse>(client, CancellationToken.None);
+    }
+
     private sealed class RecordingExecutor : IApplicationExecutor
     {
         public string? Target { get; private set; }
+        public IReadOnlyList<string>? Arguments { get; private set; }
+        public string? WorkingDirectory { get; private set; }
 
-        public void LaunchExecutable(string target) => Target = target;
+        public void LaunchExecutable(string target, IReadOnlyList<string> arguments, string workingDirectory)
+        {
+            Target = target;
+            Arguments = arguments;
+            WorkingDirectory = workingDirectory;
+        }
 
         public void OpenUri(string target) => Target = target;
     }
