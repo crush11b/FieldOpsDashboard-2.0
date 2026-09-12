@@ -21,8 +21,29 @@ export type AppCatalogTarget =
 export type CatalogTruth = 'yes' | 'no' | 'unknown' | 'unsupported';
 export type LaunchOutcome = 'success' | 'failure' | 'unavailable' | 'unknown';
 
+export const APP_CAPABILITY_REGISTRY = [
+  { id: 'digital-operation', label: 'Digital operation' },
+  { id: 'aprs', label: 'APRS' },
+  { id: 'satellite-operations', label: 'Satellite operations' },
+  { id: 'network-voice', label: 'Network voice' },
+  { id: 'logging', label: 'Logging' },
+  { id: 'mapping', label: 'Mapping' },
+  { id: 'remote-operation', label: 'Remote operation' },
+  { id: 'remote-reception', label: 'Remote reception' },
+  { id: 'web-only', label: 'Web-only' },
+  { id: 'external-radio-control', label: 'External radio control' },
+  { id: 'software-modem', label: 'Software modem' },
+  { id: 'spot-viewing', label: 'Spot viewing' },
+  { id: 'manual-log-upload', label: 'Manual log upload' },
+  { id: 'time-synchronization', label: 'Time synchronization' },
+  { id: 'antenna-analysis', label: 'Antenna analysis' },
+  { id: 'vpn', label: 'VPN' },
+] as const;
+
+export type AppCapabilityId = typeof APP_CAPABILITY_REGISTRY[number]['id'];
+
 export interface AppCatalogCapability {
-  readonly id: string;
+  readonly id: AppCapabilityId;
   readonly label: string;
   readonly description?: string;
 }
@@ -394,11 +415,21 @@ function hasValidTombstones(records: readonly AppCatalogRecord[], deletedBuiltIn
 }
 
 function isCapability(value: unknown): value is AppCatalogCapability {
-  return isRecord(value) && boundedNonEmptyString(value.id) && boundedNonEmptyString(value.label) && optionalBoundedString(value.description);
+  const canonical = isRecord(value) && isAppCapabilityId(value.id)
+    ? APP_CAPABILITY_REGISTRY.find(capability => capability.id === value.id)
+    : undefined;
+  return isRecord(value)
+    && Boolean(canonical)
+    && value.label === canonical?.label
+    && optionalBoundedString(value.description);
+}
+
+export function isAppCapabilityId(value: unknown): value is AppCapabilityId {
+  return typeof value === 'string' && (APP_CAPABILITY_REGISTRY as readonly { id: string }[]).some(capability => capability.id === value);
 }
 
 function isDependency(value: unknown): value is AppCatalogDependency {
-  return isRecord(value) && boundedNonEmptyString(value.id) && typeof value.required === 'boolean';
+  return isRecord(value) && isStableApplicationId(value.id) && typeof value.required === 'boolean';
 }
 
 function optionalBoundedString(value: unknown): boolean {

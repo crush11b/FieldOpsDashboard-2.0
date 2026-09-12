@@ -32,6 +32,7 @@ import {
 } from 'lucide-react';
 import { UIThemeMode } from '../types';
 import { AppCatalogCategory, AppCatalogRecord, isCatalogTargetConfigured } from '../appCatalog/domain';
+import type { AppDiscoveryObservation } from '../appCatalog/discovery';
 import { playTacticalClick } from '../utils/audio';
 
 interface AppLauncherGridProps {
@@ -44,6 +45,7 @@ interface AppLauncherGridProps {
   onAddNewApp: () => void;
   launchStates: Record<string, string | undefined>;
   onLaunchApp: (appId: string) => void;
+  runtimeObservations?: Readonly<Record<string, AppDiscoveryObservation>>;
 }
 
 // Icon mapper for Ham Radio apps
@@ -104,6 +106,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
   onAddNewApp,
   launchStates,
   onLaunchApp,
+  runtimeObservations = {},
 }) => {
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
@@ -155,6 +158,9 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
   const renderAppCard = (app: AppCatalogRecord) => {
     const launchState = launchStates[app.id] ?? 'READY';
+    const observation = runtimeObservations[app.id];
+    const runtimeStatus = observation?.available ?? 'unknown';
+    const relationship = observation?.fieldOpsEvidence?.label ?? (isCatalogTargetConfigured(app.target) ? 'LAUNCHER ONLY' : 'CATALOG ONLY');
     const launching = launchState === 'LAUNCHING';
     return (
       <div
@@ -233,6 +239,32 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
                 NOT CONFIGURED <XCircle className="w-3.5 h-3.5 shrink-0" />
               </span>
             )}
+          </div>
+
+          <div className="grid grid-cols-1 gap-1.5 text-[9px] uppercase tracking-wide">
+            <div className="border border-zinc-800/80 rounded-lg p-2">
+              <div className="text-zinc-500 font-bold">DECLARED APP CAPABILITIES</div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {app.capabilities.length > 0 ? app.capabilities.map(capability => <span key={capability.id} className="px-1.5 py-0.5 rounded border border-cyan-700/50 text-cyan-300">{capability.label}</span>) : <span className="text-zinc-500">NONE DECLARED</span>}
+              </div>
+            </div>
+            <div className="border border-zinc-800/80 rounded-lg p-2">
+              <div className="text-zinc-500 font-bold">DEPENDENCIES</div>
+              <div className="mt-1 flex flex-wrap gap-1">
+                {app.dependencies.length > 0 ? app.dependencies.map(dependency => {
+                  const state = observation?.dependencyStates.find(candidate => candidate.id === dependency.id);
+                  return <span key={dependency.id} className="px-1.5 py-0.5 rounded border border-sky-700/50 text-sky-300">{dependency.id} {state?.status.toUpperCase() ?? 'UNKNOWN'}{dependency.required ? ' REQUIRED' : ' OPTIONAL'}</span>;
+                }) : <span className="text-zinc-500">NONE DECLARED</span>}
+              </div>
+            </div>
+            <div className="border border-zinc-800/80 rounded-lg p-2">
+              <div className="text-zinc-500 font-bold">FIELDOPS RELATIONSHIP</div>
+              <div className="mt-1 text-amber-300">{relationship}</div>
+            </div>
+            <div className="border border-zinc-800/80 rounded-lg p-2">
+              <div className="text-zinc-500 font-bold">RUNTIME STATUS</div>
+              <div className="mt-1 text-emerald-300">{observation ? runtimeStatus.toUpperCase() : 'UNKNOWN'}</div>
+            </div>
           </div>
         </div>
 

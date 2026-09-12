@@ -24,6 +24,7 @@ import {
 } from './types';
 import { INITIAL_CONFIG } from './data/defaultConfig';
 import { AppCatalogRecord, setCatalogRecordFavorite } from './appCatalog/domain';
+import type { AppDiscoveryObservation } from './appCatalog/discovery';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
 import { resolveOperatingLocation } from './location/operatingLocation';
@@ -173,6 +174,25 @@ export default function App() {
   });
   const [systemTelemetry, setSystemTelemetry] = useState<SystemTelemetry | null>(null);
   const [launchStates, setLaunchStates] = useState<Record<string, string>>({});
+  const [appRuntimeObservations, setAppRuntimeObservations] = useState<Readonly<Record<string, AppDiscoveryObservation>>>({});
+
+  useEffect(() => {
+    if (!configReady) return;
+    let cancelled = false;
+    fetch('/api/apps/discover', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ ids: config.appCatalog.records.map(record => record.id) }),
+    }).then(async response => {
+      if (!response.ok) throw new Error(`Discovery request failed: ${response.status}`);
+      return response.json() as Promise<{ observations?: Readonly<Record<string, AppDiscoveryObservation>> }>;
+    }).then(result => {
+      if (!cancelled) setAppRuntimeObservations(result.observations ?? {});
+    }).catch(() => {
+      if (!cancelled) setAppRuntimeObservations({});
+    });
+    return () => { cancelled = true; };
+  }, [configReady, config.appCatalog.records]);
 
   const handleLaunchApp = async (appId: string) => {
     setLaunchStates(previous => ({ ...previous, [appId]: 'LAUNCHING' }));
@@ -544,6 +564,7 @@ export default function App() {
             audioEnabled={config.audioFeedback}
             gridColumns={config.appGridColumns}
             launchStates={launchStates}
+            runtimeObservations={appRuntimeObservations}
             onLaunchApp={handleLaunchApp}
             onToggleFavorite={handleToggleFavorite}
             onEditApp={(app) => {

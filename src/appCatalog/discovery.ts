@@ -1,4 +1,6 @@
 import { isStableApplicationId, type AppCatalogRecord, type AppCatalogTarget, type CatalogTruth, type LaunchOutcome } from './domain';
+import { evaluateDependencyStates, type AppCatalogDependencyState } from './dependencies';
+import { getFieldOpsEvidenceRelationship, type FieldOpsEvidenceRelationship } from './evidence';
 
 // Bounds keep discovery requests, candidate probing, and responses small and
 // predictable. They are not tuned for a catalog of unbounded size.
@@ -31,6 +33,7 @@ export type AppDiscoveryEvidenceSource =
  */
 export interface AppDiscoveryObservation {
   readonly id: string;
+  readonly declaredCapabilities: AppCatalogRecord['capabilities'];
   readonly configured: CatalogTruth;
   readonly enabled: CatalogTruth;
   readonly detected: CatalogTruth;
@@ -40,6 +43,8 @@ export interface AppDiscoveryObservation {
   readonly evidenceSource: AppDiscoveryEvidenceSource;
   readonly reason: string;
   readonly observedAtUtc: string;
+  readonly dependencyStates: readonly AppCatalogDependencyState[];
+  readonly fieldOpsEvidence?: FieldOpsEvidenceRelationship;
 }
 
 export interface AppDiscoveryResult {
@@ -197,8 +202,9 @@ export function discoverApps(
     const record = recordsById.get(id);
     if (!record) {
       observations[id] = {
-        id, configured: 'no', enabled: 'unknown', detected: 'unknown', installed: 'unknown', available: 'unknown', launch: 'unknown',
+        id, declaredCapabilities: [], configured: 'no', enabled: 'unknown', detected: 'unknown', installed: 'unknown', available: 'unknown', launch: 'unknown',
         evidenceSource: 'unknown_id', reason: boundedReason('The application ID is not recognized by the catalog.'), observedAtUtc,
+        dependencyStates: [],
       };
       continue;
     }
@@ -207,8 +213,9 @@ export function discoverApps(
 
     if (!record.enabled) {
       observations[id] = {
-        id, configured, enabled: 'no', detected: 'unknown', installed: 'unknown', available: 'no', launch: 'unknown',
+        id, declaredCapabilities: record.capabilities, configured, enabled: 'no', detected: 'unknown', installed: 'unknown', available: 'no', launch: 'unknown',
         evidenceSource: 'disabled_record', reason: boundedReason('The application is disabled and was not probed.'), observedAtUtc,
+        dependencyStates: [],
       };
       continue;
     }
@@ -216,10 +223,11 @@ export function discoverApps(
     const target = record.target;
     if (target.kind === 'unsupported') {
       observations[id] = {
-        id, configured, enabled: 'yes', detected: 'unsupported', installed: 'unsupported', available: 'unsupported', launch: 'unknown',
+        id, declaredCapabilities: record.capabilities, configured, enabled: 'yes', detected: 'unsupported', installed: 'unsupported', available: 'unsupported', launch: 'unknown',
         evidenceSource: 'unsupported_target',
         reason: boundedReason(target.reason === 'missing' ? 'No target is configured for this application.' : 'This legacy target type is not supported for discovery.'),
         observedAtUtc,
+        dependencyStates: [],
       };
       continue;
     }
@@ -227,7 +235,7 @@ export function discoverApps(
     if (target.kind === 'web') {
       const permitted = isPermittedWebTarget(target.url);
       observations[id] = {
-        id, configured, enabled: 'yes', detected: 'unsupported', installed: 'unsupported',
+        id, declaredCapabilities: record.capabilities, configured, enabled: 'yes', detected: 'unsupported', installed: 'unsupported',
         // No network reachability check is performed, so a structurally valid web
         // target is still only ever `unknown` availability, never a claimed `yes`.
         available: permitted ? 'unknown' : 'no',
@@ -237,6 +245,7 @@ export function discoverApps(
           ? 'A valid HTTP or HTTPS web target is configured. Web targets are never locally installed, and reachability is not checked.'
           : 'The configured web target is not a valid HTTP or HTTPS URI.'),
         observedAtUtc,
+        dependencyStates: [],
       };
       continue;
     }
@@ -244,7 +253,7 @@ export function discoverApps(
     const candidatePaths = candidatePathsById[id] ?? [];
     const probed = probeNativeTarget(target, candidatePaths, probe);
     observations[id] = {
-      id, configured, enabled: 'yes', launch: 'unknown', observedAtUtc,
+      id, declaredCapabilities: record.capabilities, configured, enabled: 'yes', launch: 'unknown', observedAtUtc,
       detected: probed.detected,
       available: probed.available,
       // Installation is never inferred from the file probe; only independent
@@ -252,6 +261,19 @@ export function discoverApps(
       installed: installationEvidence(id),
       evidenceSource: probed.evidenceSource,
       reason: boundedReason(probed.reason),
+      dependencyStates: [],
+    };
+  }
+
+  for (const id of requestedIds) {
+    const record = recordsById.get(id);
+    const observation = observations[id];
+    if (!record || !observation) continue;
+    observations[id] = {
+      ...observation,
+      declaredCapabilities: record.capabilities,
+      dependencyStates: evaluateDependencyStates(record.dependencies, records, observations),
+      ...(getFieldOpsEvidenceRelationship(id) ? { fieldOpsEvidence: getFieldOpsEvidenceRelationship(id) } : {}),
     };
   }
 
