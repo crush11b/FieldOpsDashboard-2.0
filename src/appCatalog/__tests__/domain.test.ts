@@ -331,7 +331,7 @@ describe('App Catalog domain contract', () => {
   it('preserves native target options and allows clearing hotkeys during edits', () => {
     const source = toCatalogRecord(legacyApp({ args: '--grid FN31', workingDir: 'C:\\Field' }));
     if (!source) throw new Error('Expected record.');
-    const catalog: AppCatalogConfig = { schemaVersion: 1, records: [{ ...source, hotkey: 'F1', capabilities: [{ id: 'cap', label: 'Capability' }], dependencies: [{ id: 'dep', required: true }] }], deletedBuiltInIds: [] };
+    const catalog: AppCatalogConfig = { schemaVersion: 1, records: [{ ...source, hotkey: 'F1', capabilities: [{ id: 'logging', label: 'Logging' }], dependencies: [{ id: 'dep', required: true }] }], deletedBuiltInIds: [] };
     const updated = updateCatalogRecord(catalog, { ...catalog.records[0], name: 'Edited', hotkey: '' });
     expect(updated.records[0]).toMatchObject({ name: 'Edited', target: { kind: 'native', args: '--grid FN31', workingDir: 'C:\\Field' }, capabilities: catalog.records[0].capabilities, dependencies: catalog.records[0].dependencies });
     expect(updated.records[0]).not.toHaveProperty('hotkey');

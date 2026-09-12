@@ -114,6 +114,19 @@ describe('App discovery route', () => {
     expect(invalidResponse.status).toBe(503);
     expect(await invalidResponse.json()).toMatchObject({ code: 'configuration_unavailable' });
   });
+
+  it('keeps runtime observations, dependency states, and FieldOps evidence distinct', async () => {
+    const response = await post({ ids: ['wsjtx', 'flrig'] }, [], {
+      probe: () => 'missing',
+      catalogResolver: () => ({ kind: 'ready', catalog: INITIAL_CONFIG.appCatalog }),
+    });
+    const body = await response.json();
+    expect(body.observations.wsjtx.declaredCapabilities).toEqual([{ id: 'digital-operation', label: 'Digital operation' }]);
+    expect(body.observations.wsjtx).toHaveProperty('dependencyStates');
+    expect(body.observations.wsjtx.fieldOpsEvidence).toMatchObject({ kind: 'read-only-evidence', label: 'READ-ONLY EVIDENCE' });
+    expect(body.observations.flrig).not.toHaveProperty('fieldOpsEvidence');
+    expect(body.observations.flrig).not.toHaveProperty('capabilities');
+  });
 });
 
 describe('statAppFileProbe', () => {
