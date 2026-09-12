@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_APPS } from '../../data/defaultConfig';
+import { DEFAULT_APPS, INITIAL_CONFIG } from '../../data/defaultConfig';
+import { CURATED_APP_CATALOG, CURATED_APP_CATALOG_RECORDS } from '../curatedCatalog';
 import {
   APP_CATALOG_CATEGORIES,
   APP_CATALOG_SCHEMA_VERSION,
@@ -31,10 +32,65 @@ const legacyApp = (overrides: Partial<AppLauncherItem> = {}): AppLauncherItem =>
 });
 
 describe('App Catalog domain contract', () => {
+  it('contains the exact curated workbook catalog and authoritative taxonomy', () => {
+    expect(CURATED_APP_CATALOG_RECORDS).toHaveLength(40);
+    expect(new Set(CURATED_APP_CATALOG_RECORDS.map(record => record.id)).size).toBe(40);
+    expect(CURATED_APP_CATALOG_RECORDS.every(record => /^[a-z0-9][a-z0-9-]{0,127}$/.test(record.id))).toBe(true);
+    expect(new Set(CURATED_APP_CATALOG_RECORDS.map(record => record.category))).toEqual(new Set(APP_CATALOG_CATEGORIES));
+    expect(CURATED_APP_CATALOG_RECORDS.map(record => record.name)).toEqual([
+      'WSJT-X', 'WinLink Express', 'Vara HF', 'Vara FM', 'JS8Call', 'GridTracker', 'JTAlert', 'MSHV', 'FlDigi', 'FlRig',
+      'YAAC', 'Direwolf', 'PinPoint', 'GPredict', 'UISS', 'Wires-X', 'D-Star Doozy', 'QSO One', 'HamClock', 'HamDashboard',
+      'PSKReporter', 'APRS.fi', 'FieldSpotter', 'QRZ Lookup', 'WebSDR', 'SOTLAS', 'HamRS', 'N1mm Logger', 'Ham2K', 'POTA Spots',
+      'POTA Log Upload', 'SOTA Spots', 'SOTA Log Upload', 'WireGuard', 'BktTimeSync', 'Otto', 'AntScope', 'Band Chart', 'HT Commander', 'POTACAT',
+    ]);
+    expect(CURATED_APP_CATALOG_RECORDS.every(record => !record.description.includes('192.168.') && !record.description.includes('127.0.0.1'))).toBe(true);
+    expect(CURATED_APP_CATALOG_RECORDS.every(record => record.target.kind === 'unsupported' || isValidCatalogTarget(record.target))).toBe(true);
+    expect(CURATED_APP_CATALOG_RECORDS.find(record => record.id === 'yaac')).toMatchObject({ enabled: false, target: { kind: 'unsupported' } });
+    expect(CURATED_APP_CATALOG_RECORDS.find(record => record.id === 'pinpoint')).toMatchObject({ favorite: true, category: 'APRS' });
+    expect(CURATED_APP_CATALOG_RECORDS.filter(record => ['bkttimesync', 'otto', 'band-chart'].includes(record.id)).every(record => !record.enabled && record.target.kind === 'unsupported' || record.id === 'bkttimesync')).toBe(true);
+    expect(CURATED_APP_CATALOG_RECORDS.filter(record => ['hamclock', 'hamdash', 'websdr'].includes(record.id)).every(record => record.target.kind === 'unsupported')).toBe(true);
+    expect(CURATED_APP_CATALOG_RECORDS.filter(record => ['pota-spots', 'pota-log-upload', 'sota-spots', 'sota-log-upload'].includes(record.id)).every(record => record.target.kind === 'web')).toBe(true);
+    expect(DEFAULT_APPS).toEqual(projectedLegacyDefaults());
+  });
+
+  it('keeps typed curated defaults authoritative through fresh and legacy initialization', () => {
+    expect(INITIAL_CONFIG.appCatalog).toBe(CURATED_APP_CATALOG);
+    const disabledIds = ['yaac', 'bkttimesync', 'otto', 'band-chart', 'ham2k'];
+    expect(disabledIds.every(id => INITIAL_CONFIG.appCatalog.records.find(record => record.id === id)?.enabled === false)).toBe(true);
+    const migrated = migrateAppCatalog(undefined, DEFAULT_APPS, CURATED_APP_CATALOG.records);
+    expect(migrated.status).toBe('migrated');
+    if (migrated.status !== 'migrated') throw new Error('Expected legacy migration.');
+    expect(disabledIds.every(id => migrated.catalog.records.find(record => record.id === id)?.enabled === false)).toBe(true);
+  });
+
+  it('reconciles trusted typed records without losing curated metadata', () => {
+    const result = migrateAppCatalog(undefined, [], CURATED_APP_CATALOG.records);
+    expect(result.status).toBe('migrated');
+    if (result.status !== 'migrated') throw new Error('Expected migration.');
+    expect(result.catalog.records).toEqual(CURATED_APP_CATALOG_RECORDS);
+    expect(result.catalog.records.find(record => record.id === 'ham2k')).toMatchObject({ enabled: false, target: { kind: 'unsupported' }, capabilities: [] });
+    expect(result.catalog.records.find(record => record.id === 'qso-one')?.description).toContain('without a radio');
+  });
+
   it('exposes exactly the seven authoritative categories', () => {
     expect(APP_CATALOG_CATEGORIES).toEqual([
       'Digital Comms', 'APRS', 'Satellite Ops', 'Network Voice', 'POTA/SOTA', 'Web Apps', 'Utilities',
     ]);
+  });
+
+  it('matches the approved 40-record category counts and contract categories', () => {
+    expect(CURATED_APP_CATALOG.records).toHaveLength(40);
+    expect(Object.fromEntries(APP_CATALOG_CATEGORIES.map(category => [category, CURATED_APP_CATALOG.records.filter(record => record.category === category).length]))).toEqual({
+      'Digital Comms': 9,
+      APRS: 3,
+      'Satellite Ops': 2,
+      'Network Voice': 3,
+      'POTA/SOTA': 8,
+      'Web Apps': 8,
+      Utilities: 7,
+    });
+    expect(CURATED_APP_CATALOG.records.find(record => record.id === 'flrig')?.category).toBe('Utilities');
+    expect(CURATED_APP_CATALOG.records.find(record => record.id === 'potacat')?.category).toBe('POTA/SOTA');
   });
 
   it('keeps durable configuration separate from runtime status', () => {
@@ -135,6 +191,37 @@ describe('App Catalog domain contract', () => {
   it('does not fall back or lose data for malformed or newer catalogs', () => {
     expect(migrateAppCatalog({ schemaVersion: 1, records: [{ id: 'bad' }], deletedBuiltInIds: [] }, [legacyApp()], [])).toMatchObject({ status: 'invalid' });
     expect(migrateAppCatalog({ schemaVersion: 99, records: [], deletedBuiltInIds: [] }, [legacyApp()], [])).toEqual({ status: 'unsupported', schemaVersion: 99 });
+  });
+
+  it('reconciles typed trusted defaults without losing curated metadata', () => {
+    const source = CURATED_APP_CATALOG.records.filter(record => record.id !== 'ham2k');
+    const result = migrateAppCatalog({ ...CURATED_APP_CATALOG, records: source }, [], CURATED_APP_CATALOG.records);
+    expect(result.status).toBe('current');
+    if (result.status !== 'current') throw new Error('Expected current migration.');
+    expect(result.catalog.records.find(record => record.id === 'ham2k')).toEqual(CURATED_APP_CATALOG.records.find(record => record.id === 'ham2k'));
+  });
+
+  it('rejects invalid, non-curated, and duplicate typed trusted defaults', () => {
+    const ham2k = CURATED_APP_CATALOG.records.find(record => record.id === 'ham2k');
+    if (!ham2k) throw new Error('Expected Ham2K.');
+    expect(migrateAppCatalog(undefined, [], [{ ...ham2k, owner: 'user_managed' }]).status).toBe('invalid');
+    expect(migrateAppCatalog(undefined, [], [{ ...ham2k, policy: { ...ham2k.policy, restorable: false } }]).status).toBe('invalid');
+    expect(migrateAppCatalog(undefined, [], [ham2k, ham2k]).status).toBe('invalid');
+    expect(migrateAppCatalog(undefined, [], [{ ...ham2k, name: '' }]).status).toBe('invalid');
+  });
+
+  it('keeps Ham2K review metadata unconfigured, disabled, and capability-free', () => {
+    const ham2k = CURATED_APP_CATALOG.records.find(record => record.id === 'ham2k');
+    expect(ham2k).toMatchObject({ enabled: false, target: { kind: 'unsupported' }, description: expect.stringContaining('requires review') });
+    expect(ham2k?.capabilities).toEqual([]);
+  });
+
+  it('keeps the serialized curated catalog free of personal addresses and coordinates', () => {
+    const serialized = JSON.stringify(CURATED_APP_CATALOG);
+    expect(serialized).not.toMatch(/(?:192\.168\.|10\.\d+\.|172\.(?:1[6-9]|2\d|3[01])\.)\d+/i);
+    for (const record of CURATED_APP_CATALOG.records) {
+      if (record.target.kind === 'web') expect(record.target.url).not.toMatch(/[?&](?:lat|lon|latitude|longitude|center)=/i);
+    }
   });
 
   it('validates required-system policy and protects required records in operations', () => {
@@ -287,3 +374,21 @@ describe('App Catalog domain contract', () => {
     expect(isAppCatalogConfig(catalog({ kind: 'unsupported', reason: 'legacy_target' }))).toBe(true);
   });
 });
+
+function projectedLegacyDefaults() {
+  return CURATED_APP_CATALOG_RECORDS.map(record => ({
+    id: record.id,
+    name: record.name,
+    category: record.category === 'Digital Comms' ? 'digital' : record.category === 'APRS' ? 'aprs' : record.category === 'Satellite Ops' ? 'satellite' : record.category === 'Network Voice' ? 'network_voice' : record.category === 'POTA/SOTA' ? 'logging' : record.category === 'Web Apps' ? 'web_apps' : 'utilities',
+    iconName: record.iconName,
+    executablePath: record.target.kind === 'native' ? record.target.executablePath : '',
+    ...(record.target.kind === 'web' ? { uri: record.target.url } : {}),
+    ...(record.target.kind === 'native' && record.target.args ? { args: record.target.args } : {}),
+    ...(record.target.kind === 'native' && record.target.workingDir ? { workingDir: record.target.workingDir } : {}),
+    deps: record.dependencies.map(dependency => dependency.id),
+    description: record.description,
+    installed: false,
+    favorite: record.favorite,
+    ...(record.hotkey ? { hotkey: record.hotkey } : {}),
+  }));
+}

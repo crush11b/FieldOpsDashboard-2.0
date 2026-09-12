@@ -57,6 +57,13 @@ describe('product-owned Dashboard configuration', () => {
     expect(config.propagation.stationProfile).toEqual(INITIAL_CONFIG.propagation.stationProfile);
   });
 
+  it('preserves disabled typed curated defaults in fresh normalization', () => {
+    const config = normalizeDashboardConfig({});
+    for (const id of ['yaac', 'bkttimesync', 'otto', 'band-chart', 'ham2k']) {
+      expect(config.appCatalog.records.find(record => record.id === id)?.enabled).toBe(false);
+    }
+  });
+
   it('preserves bounded legacy hotkeys while discarding runtime installed state', () => {
     const config = normalizeDashboardConfig({ apps: [{ ...INITIAL_CONFIG.apps[0], hotkey: 'F9', installed: true }] });
     const migrated = config.appCatalog.records.find(record => record.id === INITIAL_CONFIG.apps[0].id);
@@ -169,6 +176,18 @@ describe('product-owned Dashboard configuration', () => {
 
     expect(config.appCatalog.records.find(record => record.id === 'wsjtx')?.enabled).toBe(false);
     expect(config.apps.find(app => app.id === 'wsjtx')?.name).toBe('WSJT-X');
+  });
+
+  it('reconciles missing catalog records from typed curated defaults', () => {
+    const ham2k = INITIAL_CONFIG.appCatalog.records.find(record => record.id === 'ham2k');
+    if (!ham2k) throw new Error('Expected Ham2K curated default.');
+    const partialCatalog = {
+      ...INITIAL_CONFIG.appCatalog,
+      records: INITIAL_CONFIG.appCatalog.records.filter(record => record.id !== ham2k.id),
+    };
+    const config = normalizeDashboardConfig({ appCatalog: partialCatalog });
+
+    expect(config.appCatalog.records.find(record => record.id === ham2k.id)).toEqual(ham2k);
   });
 
   it('rejects duplicate catalog IDs instead of replacing persisted input', () => {

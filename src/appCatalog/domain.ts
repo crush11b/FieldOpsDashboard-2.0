@@ -130,7 +130,9 @@ export function isStableApplicationId(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9][a-z0-9-]{0,127}$/.test(value);
 }
 
-export function migrateAppCatalog(input: unknown, legacyApps: readonly AppLauncherItem[], builtInApps: readonly AppLauncherItem[]): AppCatalogMigrationResult {
+export type TrustedCuratedDefaults = readonly AppCatalogRecord[] | readonly AppLauncherItem[];
+
+export function migrateAppCatalog(input: unknown, legacyApps: readonly AppLauncherItem[], builtInApps: TrustedCuratedDefaults): AppCatalogMigrationResult {
   if (input !== undefined) {
     if (!isRecord(input) || typeof input.schemaVersion !== 'number') return { status: 'invalid', reason: 'The App Catalog is present but malformed.' };
     if (input.schemaVersion > APP_CATALOG_SCHEMA_VERSION) return { status: 'unsupported', schemaVersion: input.schemaVersion };
@@ -140,13 +142,16 @@ export function migrateAppCatalog(input: unknown, legacyApps: readonly AppLaunch
   }
 
   const builtInIds = new Set(builtInApps.map(app => app.id));
+  const trustedRecords = toTrustedCuratedRecords(builtInApps);
+  if (!trustedRecords) return { status: 'invalid', reason: 'Trusted defaults could not be reconciled with the App Catalog.' };
   const rawRecords: AppCatalogRecord[] = [];
   for (const app of legacyApps) {
     const record = toCatalogRecord(app, builtInIds);
     if (!record) {
       return { status: 'invalid', reason: `Legacy application record '${app.id || 'unknown'}' could not be migrated safely.` };
     }
-    rawRecords.push(record);
+    const trustedRecord = trustedRecords.find(candidate => candidate.id === record.id);
+    rawRecords.push(trustedRecord ? { ...record, enabled: trustedRecord.enabled } : record);
   }
 
   const catalog = {
@@ -308,18 +313,18 @@ export function restoreBuiltInRecord(
   };
 }
 
-function mergeTrustedCuratedDefaults(input: AppCatalogConfig, builtInApps: readonly AppLauncherItem[]): AppCatalogConfig | null {
+function mergeTrustedCuratedDefaults(input: AppCatalogConfig, builtInApps: TrustedCuratedDefaults): AppCatalogConfig | null {
   const records = [...input.records];
   const existingIds = new Set(records.map(record => record.id));
   const deletedIds = new Set(input.deletedBuiltInIds);
-  const builtInIds = new Set(builtInApps.map(app => app.id));
-  if (builtInIds.size !== builtInApps.length) return null;
-  for (const app of builtInApps) {
-    const record = toCatalogRecord(app, builtInIds);
+  const trustedRecords = toTrustedCuratedRecords(builtInApps);
+  if (!trustedRecords) return null;
+  const recordsById = trustedRecords;
+  for (const record of recordsById) {
     if (!record) return null;
     const existing = input.records.find(candidate => candidate.id === record.id);
     if (existing && (existing.owner !== record.owner || !samePolicy(existing.policy, record.policy))) return null;
-    if (existingIds.has(app.id) || deletedIds.has(app.id) || !builtInIds.has(app.id)) continue;
+    if (record.owner !== 'curated_default' || existingIds.has(record.id) || deletedIds.has(record.id)) continue;
     records.push(record);
   }
   const merged: AppCatalogConfig = {
@@ -328,6 +333,25 @@ function mergeTrustedCuratedDefaults(input: AppCatalogConfig, builtInApps: reado
     deletedBuiltInIds: [...input.deletedBuiltInIds],
   };
   return isAppCatalogConfig(merged) ? merged : null;
+}
+
+function toTrustedCuratedRecords(input: TrustedCuratedDefaults): AppCatalogRecord[] | null {
+  if (input.length === 0) return [];
+  const looksTyped = input.some(value => isRecord(value)
+    && ('owner' in value || 'target' in value || 'policy' in value || isAppCatalogCategory(value.category)));
+  if (looksTyped) {
+    if (!input.every(isAppCatalogRecord)) return null;
+    const records = input as readonly AppCatalogRecord[];
+    if (records.some(record => record.owner !== 'curated_default'
+      || !record.policy.editable
+      || !record.policy.disableable
+      || !record.policy.deletable
+      || !record.policy.restorable)) return null;
+    return new Set(records.map(record => record.id)).size === records.length ? [...records] : null;
+  }
+  const builtInIds = new Set(input.map(app => app.id));
+  const records = input.map(app => toCatalogRecord(app, builtInIds));
+  return records.every((record): record is AppCatalogRecord => record !== null) ? records : null;
 }
 
 function samePolicy(left: AppCatalogPolicy, right: AppCatalogPolicy): boolean {

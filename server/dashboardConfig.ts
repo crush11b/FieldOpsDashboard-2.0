@@ -71,22 +71,27 @@ export function normalizeDashboardConfig(input: unknown): DashboardConfig {
   let appCatalog = defaultConfig.appCatalog;
   let completeApps: AppLauncherItem[];
   if (hasCatalog) {
-    const migration = migrateAppCatalog(source.appCatalog, [], defaultConfig.apps);
+    const migration = migrateAppCatalog(source.appCatalog, [], defaultConfig.appCatalog.records);
     if (migration.status === 'invalid') throw new DashboardConfigValidationError(migration.reason);
     if (migration.status === 'unsupported') throw new DashboardConfigValidationError(`The App Catalog schema version ${String(migration.schemaVersion)} is not supported.`);
     appCatalog = migration.catalog;
     completeApps = projectCatalogToLegacyApps(appCatalog);
   } else {
     if (source.apps !== undefined && !Array.isArray(source.apps)) throw new DashboardConfigValidationError('The legacy apps field must be an array.');
-    const sourceApps = Array.isArray(source.apps) && source.apps.length > 0 ? source.apps : defaultConfig.apps;
-    const normalizedApps = sourceApps.map(normalizeApp);
-    if (normalizedApps.some(app => app === null)) throw new DashboardConfigValidationError('The legacy application configuration is malformed.');
-    const legacyApps = normalizedApps as AppLauncherItem[];
-    const migration = migrateAppCatalog(undefined, legacyApps, defaultConfig.apps);
-    if (migration.status === 'invalid') throw new DashboardConfigValidationError(migration.reason);
-    if (migration.status === 'unsupported') throw new DashboardConfigValidationError('The App Catalog schema version is not supported.');
-    appCatalog = migration.catalog;
-    completeApps = projectCatalogToLegacyApps(appCatalog);
+    if (!Array.isArray(source.apps) || source.apps.length === 0) {
+      appCatalog = defaultConfig.appCatalog;
+      completeApps = defaultConfig.apps;
+    } else {
+      const sourceApps = source.apps;
+      const normalizedApps = sourceApps.map(normalizeApp);
+      if (normalizedApps.some(app => app === null)) throw new DashboardConfigValidationError('The legacy application configuration is malformed.');
+      const legacyApps = normalizedApps as AppLauncherItem[];
+      const migration = migrateAppCatalog(undefined, legacyApps, defaultConfig.appCatalog.records);
+      if (migration.status === 'invalid') throw new DashboardConfigValidationError(migration.reason);
+      if (migration.status === 'unsupported') throw new DashboardConfigValidationError('The App Catalog schema version is not supported.');
+      appCatalog = migration.catalog;
+      completeApps = projectCatalogToLegacyApps(appCatalog);
+    }
   }
 
   return {
