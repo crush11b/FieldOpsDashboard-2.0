@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import express, { type Request, type Response, type Router } from 'express';
-import type { AppCatalogRecord } from '../src/appCatalog/domain';
+import type { AppCatalogConfig, AppCatalogRecord } from '../src/appCatalog/domain';
 import { toCatalogRecord } from '../src/appCatalog/domain';
 import {
   discoverApps,
@@ -11,7 +11,7 @@ import {
   type InstallationEvidenceProvider,
 } from '../src/appCatalog/discovery';
 import type { AppLauncherItem } from '../src/types';
-import { isLoopbackRequest } from './dashboardConfig';
+import { isLoopbackRequest, type DashboardCatalogRuntimeResult } from './dashboardConfig';
 
 // Curated, Windows-only candidate installation paths for the supported local
 // ToughBook deployment. These are only ever used as bounded probe candidates;
@@ -58,7 +58,8 @@ function isNodeError(error: unknown): error is NodeJS.ErrnoException {
 }
 
 export interface AppDiscoveryRouterOptions {
-  readonly apps: readonly AppLauncherItem[];
+  readonly apps?: readonly AppLauncherItem[];
+  readonly catalogResolver?: () => DashboardCatalogRuntimeResult;
   readonly candidatePathsById?: Readonly<Record<string, readonly string[]>>;
   readonly probe?: AppFileProbe;
   readonly now?: () => string;
@@ -89,9 +90,14 @@ export function createAppDiscoveryRouter(options: AppDiscoveryRouterOptions): Ro
     // The catalog is derived server-side from trusted configuration on every
     // request; the browser can never supply an executable path, argument,
     // working directory, application definition, or OS claim.
-    const records: readonly AppCatalogRecord[] = options.apps
-      .map(app => toCatalogRecord(app))
-      .filter((record): record is AppCatalogRecord => record !== null);
+    const runtime = options.catalogResolver?.();
+    if (runtime?.kind === 'unavailable') {
+      response.status(503).json({ error: runtime.reason, code: 'configuration_unavailable' });
+      return;
+    }
+    const records: readonly AppCatalogRecord[] = runtime?.kind === 'ready'
+      ? runtime.catalog.records
+      : (options.apps ?? []).map(app => toCatalogRecord(app)).filter((record): record is AppCatalogRecord => record !== null);
 
     const result = discoverApps(records, requestedIds, candidatePathsById, probe, now, installationEvidence);
     response.json(result);

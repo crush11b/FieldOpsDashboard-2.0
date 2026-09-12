@@ -1,6 +1,7 @@
 import type { AppCategory, AppLauncherItem, DashboardConfig } from './types';
 import { isAntennaType, isDeploymentCompatible, isDeploymentGeometry, isHeightCategory, isHeightCategoryValidForDeployment, isPropagationMode } from './propagation/domain';
 import { PROPAGATION_REGION_IDS } from './propagation/regionalDestinations';
+import { isAppCatalogConfig } from './appCatalog/domain';
 
 const APP_CATEGORIES: readonly AppCategory[] = [
   'digital', 'aprs', 'satellite', 'network_voice', 'web_apps', 'utilities',
@@ -21,6 +22,7 @@ export function isUsableDashboardConfig(value: unknown): value is DashboardConfi
     && (value.gpsComPort === undefined || typeof value.gpsComPort === 'string')
     && (value.gpsBaudRate === undefined || (typeof value.gpsBaudRate === 'number' && VALID_BAUD_RATES.has(value.gpsBaudRate)))
     && Array.isArray(value.apps) && value.apps.every(isUsableApp)
+    && isAppCatalogConfig(value.appCatalog)
     && isUsablePropagation(value.propagation);
 }
 

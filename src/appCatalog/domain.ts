@@ -60,6 +60,7 @@ export interface AppCatalogRecord {
   readonly dependencies: readonly AppCatalogDependency[];
   readonly enabled: boolean;
   readonly favorite: boolean;
+  readonly hotkey?: string;
   readonly policy: AppCatalogPolicy;
 }
 
@@ -80,6 +81,11 @@ export const EMPTY_APP_CATALOG: AppCatalogConfig = {
   deletedBuiltInIds: [],
 };
 
+const MAX_CATALOG_RECORDS = 256;
+const MAX_CATALOG_TOMBSTONES = 256;
+const MAX_CATALOG_COLLECTION_ITEMS = 64;
+const MAX_CATALOG_TEXT_LENGTH = 512;
+
 const LEGACY_CATEGORY_MAP: Record<string, AppCatalogCategory> = {
   digital: 'Digital Comms',
   aprs: 'APRS',
@@ -99,6 +105,9 @@ export function isAppCatalogCategory(value: unknown): value is AppCatalogCategor
 
 export function isAppCatalogConfig(value: unknown): value is AppCatalogConfig {
   if (!isRecord(value) || value.schemaVersion !== APP_CATALOG_SCHEMA_VERSION || !Array.isArray(value.records) || !Array.isArray(value.deletedBuiltInIds)) return false;
+  if (value.records.length > MAX_CATALOG_RECORDS || value.deletedBuiltInIds.length > MAX_CATALOG_TOMBSTONES) return false;
+  if (new Set(value.records.map(record => isRecord(record) ? record.id : undefined)).size !== value.records.length) return false;
+  if (new Set(value.deletedBuiltInIds).size !== value.deletedBuiltInIds.length) return false;
   return value.records.every(isAppCatalogRecord)
     && value.deletedBuiltInIds.every(id => typeof id === 'string' && isStableApplicationId(id))
     && hasValidCatalogPolicies(value.records)
@@ -106,13 +115,15 @@ export function isAppCatalogConfig(value: unknown): value is AppCatalogConfig {
 }
 
 export function isAppCatalogRecord(value: unknown): value is AppCatalogRecord {
-  if (!isRecord(value) || !isStableApplicationId(value.id) || typeof value.name !== 'string' || !value.name.trim() || !isAppCatalogCategory(value.category)) return false;
-  if (!['required_system', 'curated_default', 'user_managed'].includes(value.owner as string) || typeof value.iconName !== 'string' || typeof value.description !== 'string') return false;
-  if (!isTarget(value.target) || !isPolicy(value.policy)) return false;
+  if (!isRecord(value) || !isStableApplicationId(value.id) || !boundedNonEmptyString(value.name) || !isAppCatalogCategory(value.category)) return false;
+  if (!['required_system', 'curated_default', 'user_managed'].includes(value.owner as string) || !boundedNonEmptyString(value.iconName) || !boundedNonEmptyString(value.description) || !optionalBoundedString(value.hotkey)) return false;
+  if (!isTarget(value.target) || !isPolicy(value.policy) || (value.target.kind !== 'unsupported' && !isValidCatalogTarget(value.target))) return false;
+  if (!Array.isArray(value.capabilities) || value.capabilities.length > MAX_CATALOG_COLLECTION_ITEMS || new Set(value.capabilities.map(capability => isRecord(capability) ? capability.id : undefined)).size !== value.capabilities.length) return false;
+  if (!Array.isArray(value.dependencies) || value.dependencies.length > MAX_CATALOG_COLLECTION_ITEMS || new Set(value.dependencies.map(dependency => isRecord(dependency) ? dependency.id : undefined)).size !== value.dependencies.length) return false;
   return typeof value.enabled === 'boolean'
     && typeof value.favorite === 'boolean'
-    && Array.isArray(value.capabilities) && value.capabilities.every(isCapability)
-    && Array.isArray(value.dependencies) && value.dependencies.every(isDependency);
+    && value.capabilities.every(isCapability)
+    && value.dependencies.every(isDependency);
 }
 
 export function isStableApplicationId(value: unknown): value is string {
@@ -124,7 +135,8 @@ export function migrateAppCatalog(input: unknown, legacyApps: readonly AppLaunch
     if (!isRecord(input) || typeof input.schemaVersion !== 'number') return { status: 'invalid', reason: 'The App Catalog is present but malformed.' };
     if (input.schemaVersion > APP_CATALOG_SCHEMA_VERSION) return { status: 'unsupported', schemaVersion: input.schemaVersion };
     if (input.schemaVersion !== APP_CATALOG_SCHEMA_VERSION || !isAppCatalogConfig(input)) return { status: 'invalid', reason: 'The App Catalog does not satisfy the current schema.' };
-    return { status: 'current', catalog: deduplicateCatalog(input) };
+    const merged = mergeTrustedCuratedDefaults(input, builtInApps);
+    return merged ? { status: 'current', catalog: merged } : { status: 'invalid', reason: 'Trusted defaults could not be reconciled with the App Catalog.' };
   }
 
   const builtInIds = new Set(builtInApps.map(app => app.id));
@@ -137,17 +149,23 @@ export function migrateAppCatalog(input: unknown, legacyApps: readonly AppLaunch
     rawRecords.push(record);
   }
 
-  const catalog = deduplicateCatalog({
+  const catalog = {
     schemaVersion: APP_CATALOG_SCHEMA_VERSION,
     records: rawRecords,
     deletedBuiltInIds: [],
-  });
+  } satisfies AppCatalogConfig;
 
-  return { status: 'migrated', catalog };
+  if (!isAppCatalogConfig(catalog)) return { status: 'invalid', reason: 'Legacy applications produced an invalid App Catalog.' };
+
+  const merged = mergeTrustedCuratedDefaults(catalog, builtInApps);
+  if (!merged) return { status: 'invalid', reason: 'Trusted defaults could not be reconciled with legacy applications.' };
+
+  return { status: 'migrated', catalog: merged };
 }
 
 export function toCatalogRecord(app: AppLauncherItem, builtInIds: ReadonlySet<string> = new Set<string>()): AppCatalogRecord | null {
   if (!isStableApplicationId(app.id) || !app.name.trim()) return null;
+  if (app.uri && (app.args !== undefined || app.workingDir !== undefined)) return null;
   const target: AppCatalogTarget = app.uri
     ? { kind: 'web', url: app.uri }
     : app.executablePath.toLowerCase().endsWith('.exe')
@@ -157,7 +175,7 @@ export function toCatalogRecord(app: AppLauncherItem, builtInIds: ReadonlySet<st
   return {
     id: app.id,
     name: app.name,
-    category: LEGACY_CATEGORY_MAP[app.category] ?? 'Utilities',
+    category: LEGACY_CATEGORY_MAP[app.category] ?? 'Digital Comms',
     iconName: app.iconName,
     description: app.description,
     owner,
@@ -166,6 +184,7 @@ export function toCatalogRecord(app: AppLauncherItem, builtInIds: ReadonlySet<st
     dependencies: (app.deps ?? []).map(id => ({ id, required: true })),
     enabled: true,
     favorite: app.favorite,
+    ...(app.hotkey ? { hotkey: app.hotkey.slice(0, 32) } : {}),
     policy: {
       editable: true,
       disableable: true,
@@ -179,11 +198,77 @@ export function isCatalogTargetConfigured(target: AppCatalogTarget): boolean {
   return target.kind === 'native' || target.kind === 'web';
 }
 
+export function isValidCatalogTarget(target: AppCatalogTarget): boolean {
+  if (target.kind === 'web') {
+    try {
+      if (!/^https?:\/\/[^/\\?#]+(?:[/?#]|$)/i.test(target.url) || target.url.includes('\0')) return false;
+      const url = new URL(target.url);
+      return (url.protocol === 'http:' || url.protocol === 'https:') && Boolean(url.hostname);
+    } catch {
+      return false;
+    }
+  }
+  if (target.kind !== 'native' || target.executablePath.includes('\0') || target.args?.includes('\0') || !/^[A-Za-z]:\\[^<>:"|?*]*\.exe$/i.test(target.executablePath)) return false;
+  return !target.workingDir || (/^[A-Za-z]:\\[^<>:"|?*]*$/i.test(target.workingDir) && !target.workingDir.includes('\0'));
+}
+
+export function projectCatalogToLegacyApps(catalog: AppCatalogConfig): AppLauncherItem[] {
+  return catalog.records.map(record => ({
+    id: record.id,
+    name: record.name,
+    category: legacyCategoryFor(record.category),
+    iconName: record.iconName,
+    executablePath: record.target.kind === 'native' ? record.target.executablePath : '',
+    ...(record.target.kind === 'web' ? { uri: record.target.url } : {}),
+    ...(record.target.kind === 'native' && record.target.args ? { args: record.target.args } : {}),
+    ...(record.target.kind === 'native' && record.target.workingDir ? { workingDir: record.target.workingDir } : {}),
+    deps: record.dependencies.map(dependency => dependency.id),
+    description: record.description,
+    installed: false,
+    favorite: record.favorite,
+    ...(record.hotkey ? { hotkey: record.hotkey } : {}),
+  }));
+}
+
 export function setCatalogRecordEnabled(catalog: AppCatalogConfig, id: string, enabled: boolean): AppCatalogConfig {
   return {
     ...catalog,
     records: catalog.records.map(record => record.id === id && record.owner !== 'required_system' && record.policy.disableable ? { ...record, enabled } : record),
   };
+}
+
+export function setCatalogRecordFavorite(catalog: AppCatalogConfig, id: string, favorite: boolean): AppCatalogConfig {
+  return {
+    ...catalog,
+    records: catalog.records.map(record => record.id === id ? { ...record, favorite } : record),
+  };
+}
+
+export function updateCatalogRecord(catalog: AppCatalogConfig, updated: AppCatalogRecord): AppCatalogConfig {
+  const current = catalog.records.find(record => record.id === updated.id);
+  if (!current || !current.policy.editable || current.owner !== updated.owner || !samePolicy(current.policy, updated.policy) || !isValidCatalogTarget(updated.target)) return catalog;
+  const records = catalog.records.map(record => {
+    if (record.id !== updated.id) return record;
+    const { hotkey: _previousHotkey, ...withoutHotkey } = record;
+    return {
+      ...withoutHotkey,
+      name: updated.name,
+      category: updated.category,
+      iconName: updated.iconName,
+      description: updated.description,
+      target: updated.target,
+      favorite: updated.favorite,
+      ...(updated.hotkey ? { hotkey: updated.hotkey } : {}),
+    };
+  });
+  return isAppCatalogConfig({ ...catalog, records }) ? { ...catalog, records } : catalog;
+}
+
+export function addUserManagedRecord(catalog: AppCatalogConfig, record: AppCatalogRecord): AppCatalogConfig {
+  if (record.owner !== 'user_managed' || catalog.records.some(existing => existing.id === record.id) || !isAppCatalogRecord(record) || !isValidCatalogTarget(record.target)) return catalog;
+  const canonical = { ...record, policy: { editable: true, disableable: true, deletable: true, restorable: false } };
+  const next = { ...catalog, records: [...catalog.records, canonical] };
+  return isAppCatalogConfig(next) ? next : catalog;
 }
 
 export function deleteCatalogRecord(catalog: AppCatalogConfig, id: string): AppCatalogConfig {
@@ -223,37 +308,39 @@ export function restoreBuiltInRecord(
   };
 }
 
-function deduplicateCatalog(input: AppCatalogConfig): AppCatalogConfig {
-  const rawDeletedBuiltInIds = [...new Set(input.deletedBuiltInIds)].sort();
-  const deletedIds = new Set(rawDeletedBuiltInIds);
-  const records = new Map<string, AppCatalogRecord>();
-
-  for (const record of input.records) {
-    if (records.has(record.id)) continue;
-    // Tombstones may suppress only curated-default records
-    const isSuppressed = deletedIds.has(record.id) && record.owner === 'curated_default';
-    if (!isSuppressed) {
-      records.set(record.id, record);
-    }
+function mergeTrustedCuratedDefaults(input: AppCatalogConfig, builtInApps: readonly AppLauncherItem[]): AppCatalogConfig | null {
+  const records = [...input.records];
+  const existingIds = new Set(records.map(record => record.id));
+  const deletedIds = new Set(input.deletedBuiltInIds);
+  const builtInIds = new Set(builtInApps.map(app => app.id));
+  if (builtInIds.size !== builtInApps.length) return null;
+  for (const app of builtInApps) {
+    const record = toCatalogRecord(app, builtInIds);
+    if (!record) return null;
+    const existing = input.records.find(candidate => candidate.id === record.id);
+    if (existing && (existing.owner !== record.owner || !samePolicy(existing.policy, record.policy))) return null;
+    if (existingIds.has(app.id) || deletedIds.has(app.id) || !builtInIds.has(app.id)) continue;
+    records.push(record);
   }
-
-  // Remove tombstones that conflict with active non-curated records
-  const finalDeletedBuiltInIds = rawDeletedBuiltInIds.filter(id => {
-    const activeRecord = records.get(id);
-    return !activeRecord || activeRecord.owner === 'curated_default';
-  });
-
-  return {
+  const merged: AppCatalogConfig = {
     schemaVersion: APP_CATALOG_SCHEMA_VERSION,
-    records: [...records.values()],
-    deletedBuiltInIds: finalDeletedBuiltInIds,
+    records,
+    deletedBuiltInIds: [...input.deletedBuiltInIds],
   };
+  return isAppCatalogConfig(merged) ? merged : null;
+}
+
+function samePolicy(left: AppCatalogPolicy, right: AppCatalogPolicy): boolean {
+  return left.editable === right.editable
+    && left.disableable === right.disableable
+    && left.deletable === right.deletable
+    && left.restorable === right.restorable;
 }
 
 function isTarget(value: unknown): value is AppCatalogTarget {
   if (!isRecord(value) || typeof value.kind !== 'string') return false;
-  if (value.kind === 'native') return typeof value.executablePath === 'string' && value.executablePath.length > 0 && optionalString(value.args) && optionalString(value.workingDir);
-  if (value.kind === 'web') return typeof value.url === 'string' && value.url.length > 0;
+  if (value.kind === 'native') return boundedNonEmptyString(value.executablePath) && optionalBoundedString(value.args) && optionalBoundedString(value.workingDir);
+  if (value.kind === 'web') return boundedNonEmptyString(value.url);
   return value.kind === 'unsupported' && (value.reason === 'missing' || value.reason === 'legacy_target');
 }
 
@@ -279,19 +366,40 @@ function hasValidCatalogPolicies(records: readonly AppCatalogRecord[]): boolean 
 
 function hasValidTombstones(records: readonly AppCatalogRecord[], deletedBuiltInIds: readonly string[]): boolean {
   const deletedSet = new Set(deletedBuiltInIds);
-  return !records.some(record => record.owner !== 'curated_default' && deletedSet.has(record.id));
+  return !records.some(record => deletedSet.has(record.id));
 }
 
 function isCapability(value: unknown): value is AppCatalogCapability {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.label === 'string' && optionalString(value.description);
+  return isRecord(value) && boundedNonEmptyString(value.id) && boundedNonEmptyString(value.label) && optionalBoundedString(value.description);
 }
 
 function isDependency(value: unknown): value is AppCatalogDependency {
-  return isRecord(value) && typeof value.id === 'string' && typeof value.required === 'boolean';
+  return isRecord(value) && boundedNonEmptyString(value.id) && typeof value.required === 'boolean';
 }
 
-function optionalString(value: unknown): boolean {
-  return value === undefined || typeof value === 'string';
+function optionalBoundedString(value: unknown): boolean {
+  return value === undefined || (typeof value === 'string' && value.length <= MAX_CATALOG_TEXT_LENGTH);
+}
+
+function boundedNonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0 && value.length <= MAX_CATALOG_TEXT_LENGTH;
+}
+
+function boundedString(value: unknown): value is string {
+  return typeof value === 'string' && value.length <= MAX_CATALOG_TEXT_LENGTH;
+}
+
+function legacyCategoryFor(category: AppCatalogCategory): AppLauncherItem['category'] {
+  const categories: Record<AppCatalogCategory, AppLauncherItem['category']> = {
+    'Digital Comms': 'digital',
+    APRS: 'aprs',
+    'Satellite Ops': 'satellite',
+    'Network Voice': 'network_voice',
+    'POTA/SOTA': 'logging',
+    'Web Apps': 'web_apps',
+    Utilities: 'utilities',
+  };
+  return categories[category];
 }
 
 function isRecord(value: unknown): value is Record<string, any> {

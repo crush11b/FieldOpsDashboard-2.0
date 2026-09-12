@@ -7,6 +7,7 @@ import { INITIAL_CONFIG } from '../src/data/defaultConfig';
 import { normalizeStationProfile } from '../src/propagation/stationProfileCatalog';
 import { PROPAGATION_REGION_IDS, type PropagationRegionId } from '../src/propagation/regionalDestinations';
 import { isUsableDashboardConfig } from '../src/dashboardConfigValidation';
+import { migrateAppCatalog, projectCatalogToLegacyApps, type AppCatalogConfig } from '../src/appCatalog/domain';
 
 const CONFIG_FILE_NAME = 'dashboard-config.json';
 const MAX_TEXT_LENGTH = 512;
@@ -34,6 +35,19 @@ export type DashboardConfigFileResult =
   | { kind: 'invalid'; reason: string }
   | { kind: 'loaded'; config: DashboardConfig };
 
+export class DashboardConfigValidationError extends Error {
+  readonly code = 'invalid_dashboard_config';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'DashboardConfigValidationError';
+  }
+}
+
+export type DashboardCatalogRuntimeResult =
+  | { readonly kind: 'ready'; readonly catalog: AppCatalogConfig }
+  | { readonly kind: 'unavailable'; readonly reason: string };
+
 export function getDefaultDashboardConfigPath(
   environment: NodeJS.ProcessEnv = process.env,
   homeDirectory = os.homedir(),
@@ -42,18 +56,38 @@ export function getDefaultDashboardConfigPath(
   return path.join(localAppData, 'FieldOpsDashboard', CONFIG_FILE_NAME);
 }
 
+export function resolveDashboardCatalog(store: Pick<DashboardConfigStore, 'read'>): DashboardCatalogRuntimeResult {
+  const result = store.read();
+  if (result.kind === 'missing') return { kind: 'ready', catalog: INITIAL_CONFIG.appCatalog };
+  if (result.kind === 'invalid') return { kind: 'unavailable', reason: result.reason };
+  return { kind: 'ready', catalog: result.config.appCatalog };
+}
+
 export function normalizeDashboardConfig(input: unknown): DashboardConfig {
-  const source = isRecord(input) ? input : {};
+  if (!isRecord(input)) throw new DashboardConfigValidationError('The Dashboard configuration body must be a JSON object.');
+  const source = input;
   const defaultConfig = INITIAL_CONFIG;
-  const sourceApps = Array.isArray(source.apps) ? source.apps : [];
-  const apps = sourceApps
-    .map(normalizeApp)
-    .filter((app): app is AppLauncherItem => app !== null);
-  const appIds = new Set(apps.map(app => app.id));
-  const completeApps = [
-    ...apps,
-    ...defaultConfig.apps.filter(app => !appIds.has(app.id)).map(cloneApp),
-  ];
+  const hasCatalog = source.appCatalog !== undefined;
+  let appCatalog = defaultConfig.appCatalog;
+  let completeApps: AppLauncherItem[];
+  if (hasCatalog) {
+    const migration = migrateAppCatalog(source.appCatalog, [], defaultConfig.apps);
+    if (migration.status === 'invalid') throw new DashboardConfigValidationError(migration.reason);
+    if (migration.status === 'unsupported') throw new DashboardConfigValidationError(`The App Catalog schema version ${String(migration.schemaVersion)} is not supported.`);
+    appCatalog = migration.catalog;
+    completeApps = projectCatalogToLegacyApps(appCatalog);
+  } else {
+    if (source.apps !== undefined && !Array.isArray(source.apps)) throw new DashboardConfigValidationError('The legacy apps field must be an array.');
+    const sourceApps = Array.isArray(source.apps) && source.apps.length > 0 ? source.apps : defaultConfig.apps;
+    const normalizedApps = sourceApps.map(normalizeApp);
+    if (normalizedApps.some(app => app === null)) throw new DashboardConfigValidationError('The legacy application configuration is malformed.');
+    const legacyApps = normalizedApps as AppLauncherItem[];
+    const migration = migrateAppCatalog(undefined, legacyApps, defaultConfig.apps);
+    if (migration.status === 'invalid') throw new DashboardConfigValidationError(migration.reason);
+    if (migration.status === 'unsupported') throw new DashboardConfigValidationError('The App Catalog schema version is not supported.');
+    appCatalog = migration.catalog;
+    completeApps = projectCatalogToLegacyApps(appCatalog);
+  }
 
   return {
     theme: source.theme === 'night_vision' || source.theme === 'sunlight' ? source.theme : defaultConfig.theme,
@@ -74,6 +108,7 @@ export function normalizeDashboardConfig(input: unknown): DashboardConfig {
         : defaultConfig.propagation.destinationRegion,
     },
     apps: completeApps,
+    appCatalog,
   };
 }
 
@@ -108,7 +143,7 @@ export function parseDashboardConfigJson(json: string): DashboardConfig | null {
     if (!isRecord(parsed)) return null;
     const config = normalizeDashboardConfig(parsed);
     return isUsableDashboardConfig(config) ? config : null;
-  } catch {
+    } catch {
     return null;
   }
 }
@@ -181,7 +216,11 @@ export function createDashboardConfigRouter(
     }
     try {
       response.json({ config: store.write(request.body) });
-    } catch {
+    } catch (error) {
+      if (error instanceof DashboardConfigValidationError) {
+        response.status(422).json({ error: error.message, code: error.code });
+        return;
+      }
       response.status(500).json({ error: 'Dashboard configuration could not be persisted.' });
     }
   });
@@ -192,7 +231,7 @@ function normalizeApp(input: unknown): AppLauncherItem | null {
   if (!isRecord(input)) return null;
   const id = boundedString(input.id, '').trim();
   const name = boundedString(input.name, '').trim();
-  if (!id || id.length > 128 || !name) return null;
+  if (!id || id.length > 128 || !name || !name.trim()) return null;
   const category = APP_CATEGORIES.includes(input.category as AppCategory) ? input.category as AppCategory : 'custom';
   const app: AppLauncherItem = {
     id,
@@ -205,7 +244,7 @@ function normalizeApp(input: unknown): AppLauncherItem | null {
     favorite: typeof input.favorite === 'boolean' ? input.favorite : false,
   };
   if (typeof input.uri === 'string' && input.uri.length <= MAX_TEXT_LENGTH) app.uri = input.uri;
-  if (typeof input.hotkey === 'string') app.hotkey = input.hotkey.slice(0, 32);
+  if (typeof input.hotkey === 'string' && input.hotkey.trim()) app.hotkey = input.hotkey.slice(0, 32);
   if (typeof input.args === 'string') app.args = input.args.slice(0, MAX_TEXT_LENGTH);
   if (typeof input.workingDir === 'string') app.workingDir = input.workingDir.slice(0, MAX_TEXT_LENGTH);
   if (Array.isArray(input.deps)) app.deps = input.deps.filter((dep): dep is string => typeof dep === 'string').slice(0, 32).map(dep => dep.slice(0, 128));

@@ -10,7 +10,6 @@ import { RoadmapToolsModal } from './components/RoadmapToolsModal';
 import { TouchMenuDrawer } from './components/TouchMenuDrawer';
 
 import { 
-  AppLauncherItem, 
   DashboardConfig, 
   DualBatteryStatus, 
   ExternalDataStatus,
@@ -24,6 +23,7 @@ import {
   SystemTelemetry
 } from './types';
 import { INITIAL_CONFIG } from './data/defaultConfig';
+import { AppCatalogRecord, setCatalogRecordFavorite } from './appCatalog/domain';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
 import { resolveOperatingLocation } from './location/operatingLocation';
@@ -255,10 +255,11 @@ export default function App() {
 
   // Modal / Drawer UI States
   const [configModalOpen, setConfigModalOpen] = useState(false);
+  const [configModalInitialTab, setConfigModalInitialTab] = useState<'general' | 'apps' | 'json_editor'>('general');
   const [roadmapModalOpen, setRoadmapModalOpen] = useState(false);
   const [roadmapActiveTab, setRoadmapActiveTab] = useState('coordinate');
   const [touchMenuOpen, setTouchMenuOpen] = useState(false);
-  const [editingApp, setEditingApp] = useState<AppLauncherItem | null>(null);
+  const [editingApp, setEditingApp] = useState<AppCatalogRecord | null>(null);
 
   const refreshSolar = async () => {
       try {
@@ -404,10 +405,9 @@ export default function App() {
 
   // Toggle Favorite App
   const handleToggleFavorite = (appId: string) => {
-    updateConfig({
-      ...config,
-      apps: config.apps.map((a) => (a.id === appId ? { ...a, favorite: !a.favorite } : a)),
-    });
+    const app = config.appCatalog.records.find(record => record.id === appId);
+    if (!app) return;
+    void persistConfig({ ...config, appCatalog: setCatalogRecordFavorite(config.appCatalog, appId, !app.favorite) });
   };
 
   // Handle Theme Change
@@ -474,7 +474,11 @@ export default function App() {
         systemTelemetry={systemTelemetry}
         audioEnabled={config.audioFeedback}
         onToggleAudio={() => updateConfig({ ...config, audioFeedback: !config.audioFeedback })}
-        onOpenConfig={() => setConfigModalOpen(true)}
+        onOpenConfig={() => {
+          setEditingApp(null);
+          setConfigModalInitialTab('general');
+          setConfigModalOpen(true);
+        }}
         onOpenRoadmap={(tab) => {
           if (tab) setRoadmapActiveTab(tab);
           setRoadmapModalOpen(true);
@@ -535,7 +539,7 @@ export default function App() {
         {/* 3. JSON-based Ham Radio App Launcher Bento Block */}
         <section className="pt-1">
           <AppLauncherGrid
-            apps={config.apps}
+            apps={config.appCatalog.records}
             theme={config.theme}
             audioEnabled={config.audioFeedback}
             gridColumns={config.appGridColumns}
@@ -544,10 +548,12 @@ export default function App() {
             onToggleFavorite={handleToggleFavorite}
             onEditApp={(app) => {
               setEditingApp(app);
+              setConfigModalInitialTab('apps');
               setConfigModalOpen(true);
             }}
             onAddNewApp={() => {
               setEditingApp(null);
+              setConfigModalInitialTab('apps');
               setConfigModalOpen(true);
             }}
           />
@@ -604,9 +610,10 @@ export default function App() {
           setConfigModalOpen(false);
           setEditingApp(null);
         }}
-        onSaveConfig={updateConfig}
+        onSaveConfig={persistConfig}
         onResetToDefaults={() => updateConfig(INITIAL_CONFIG)}
         editingApp={editingApp}
+        initialTab={configModalInitialTab}
       />
 
       <RoadmapToolsModal
@@ -628,7 +635,11 @@ export default function App() {
         theme={config.theme}
         audioEnabled={config.audioFeedback}
         onThemeChange={handleThemeChange}
-        onOpenConfig={() => setConfigModalOpen(true)}
+        onOpenConfig={() => {
+          setEditingApp(null);
+          setConfigModalInitialTab('general');
+          setConfigModalOpen(true);
+        }}
         onOpenRoadmap={(tab) => {
           if (tab) setRoadmapActiveTab(tab);
           setRoadmapModalOpen(true);

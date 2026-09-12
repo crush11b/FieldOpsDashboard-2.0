@@ -4,11 +4,15 @@ import {
   APP_CATALOG_CATEGORIES,
   APP_CATALOG_SCHEMA_VERSION,
   deleteCatalogRecord,
+  addUserManagedRecord,
   isAppCatalogConfig,
   migrateAppCatalog,
+  isValidCatalogTarget,
   restoreBuiltInRecord,
   setCatalogRecordEnabled,
+  setCatalogRecordFavorite,
   toCatalogRecord,
+  updateCatalogRecord,
   type AppCatalogConfig,
   type AppCatalogRecord,
 } from '../domain';
@@ -60,6 +64,53 @@ describe('App Catalog domain contract', () => {
     expect(first.catalog.schemaVersion).toBe(APP_CATALOG_SCHEMA_VERSION);
   });
 
+  it('restores missing trusted defaults during partial legacy migration', () => {
+    const result = migrateAppCatalog(undefined, [DEFAULT_APPS[0]], DEFAULT_APPS);
+
+    expect(result.status).toBe('migrated');
+    if (result.status !== 'migrated') throw new Error('Expected migration.');
+    expect(result.catalog.records).toHaveLength(DEFAULT_APPS.length);
+    expect(result.catalog.records.find(record => record.id === DEFAULT_APPS[0].id)?.favorite).toBe(DEFAULT_APPS[0].favorite);
+  });
+
+  it('preserves operator state while adding new trusted defaults during update reconciliation', () => {
+    const initial = migrateAppCatalog(undefined, [DEFAULT_APPS[0]], [DEFAULT_APPS[0]]);
+    if (initial.status !== 'migrated') throw new Error('Expected initial migration.');
+    const operatorCatalog = {
+      ...initial.catalog,
+      records: initial.catalog.records.map(record => record.id === DEFAULT_APPS[0].id
+        ? { ...record, name: 'Operator WSJT-X', favorite: false, enabled: false }
+        : record),
+    };
+    const newDefault = legacyApp({ id: 'new-trusted-tool', name: 'New Trusted Tool', favorite: true });
+    const updated = migrateAppCatalog(operatorCatalog, [], [DEFAULT_APPS[0], newDefault]);
+
+    expect(updated.status).toBe('current');
+    if (updated.status !== 'current') throw new Error('Expected current catalog.');
+    expect(updated.catalog.records.find(record => record.id === DEFAULT_APPS[0].id)).toMatchObject({ name: 'Operator WSJT-X', favorite: false, enabled: false });
+    expect(updated.catalog.records.find(record => record.id === 'new-trusted-tool')?.name).toBe('New Trusted Tool');
+  });
+
+  it('does not re-add a tombstoned trusted default during update reconciliation', () => {
+    const initial = migrateAppCatalog(undefined, [DEFAULT_APPS[0]], [DEFAULT_APPS[0]]);
+    if (initial.status !== 'migrated') throw new Error('Expected initial migration.');
+    const tombstoned: AppCatalogConfig = { ...initial.catalog, records: [], deletedBuiltInIds: [DEFAULT_APPS[0].id] };
+    const updated = migrateAppCatalog(tombstoned, [], [DEFAULT_APPS[0]]);
+
+    expect(updated.status).toBe('current');
+    if (updated.status !== 'current') throw new Error('Expected current catalog.');
+    expect(updated.catalog.records).toEqual([]);
+    expect(updated.catalog.deletedBuiltInIds).toEqual([DEFAULT_APPS[0].id]);
+  });
+
+  it('rejects invalid merged catalogs and trusted default conversion failures', () => {
+    const initial = migrateAppCatalog(undefined, [], []);
+    if (initial.status !== 'migrated') throw new Error('Expected initial migration.');
+    const invalidMerged = migrateAppCatalog({ ...initial.catalog, records: [{ ...toCatalogRecord(legacyApp()), policy: { editable: true, disableable: true, deletable: true, restorable: true } } as AppCatalogRecord] }, [], []);
+    expect(invalidMerged.status).toBe('invalid');
+    expect(migrateAppCatalog(initial.catalog, [], [legacyApp({ id: 'INVALID ID!' })]).status).toBe('invalid');
+  });
+
   it('prevents silent legacy-record loss when legacy records are invalid', () => {
     const invalidIdResult = migrateAppCatalog(undefined, [legacyApp({ id: 'INVALID ID!' })], []);
     expect(invalidIdResult.status).toBe('invalid');
@@ -74,17 +125,11 @@ describe('App Catalog domain contract', () => {
     expect(mixedResult.status).toBe('invalid');
   });
 
-  it('deduplicates legacy migration deterministically', () => {
+  it('rejects duplicate legacy IDs instead of silently replacing records', () => {
     const app1 = legacyApp({ id: 'dup-tool', name: 'First Variant', executablePath: 'C:\\first.exe' });
     const app2 = legacyApp({ id: 'dup-tool', name: 'Second Variant', executablePath: 'C:\\second.exe' });
     const result = migrateAppCatalog(undefined, [app1, app2], []);
-    expect(result.status).toBe('migrated');
-    if (result.status !== 'migrated') throw new Error('Expected migration.');
-    expect(result.catalog.records).toHaveLength(1);
-    expect(result.catalog.records[0].name).toBe('First Variant');
-
-    const repeated = migrateAppCatalog(undefined, [app1, app2], []);
-    expect(repeated).toEqual(result);
+    expect(result.status).toBe('invalid');
   });
 
   it('does not fall back or lose data for malformed or newer catalogs', () => {
@@ -194,5 +239,51 @@ describe('App Catalog domain contract', () => {
     const disabled = setCatalogRecordEnabled(migrated.catalog, 'wsjtx', false);
     expect(disabled.records.find(record => record.id === 'wsjtx')?.enabled).toBe(false);
     expect(disabled.records.find(record => record.id === 'wsjtx')).not.toHaveProperty('availability');
+  });
+
+  it('preserves native target options and allows clearing hotkeys during edits', () => {
+    const source = toCatalogRecord(legacyApp({ args: '--grid FN31', workingDir: 'C:\\Field' }));
+    if (!source) throw new Error('Expected record.');
+    const catalog: AppCatalogConfig = { schemaVersion: 1, records: [{ ...source, hotkey: 'F1', capabilities: [{ id: 'cap', label: 'Capability' }], dependencies: [{ id: 'dep', required: true }] }], deletedBuiltInIds: [] };
+    const updated = updateCatalogRecord(catalog, { ...catalog.records[0], name: 'Edited', hotkey: '' });
+    expect(updated.records[0]).toMatchObject({ name: 'Edited', target: { kind: 'native', args: '--grid FN31', workingDir: 'C:\\Field' }, capabilities: catalog.records[0].capabilities, dependencies: catalog.records[0].dependencies });
+    expect(updated.records[0]).not.toHaveProperty('hotkey');
+  });
+
+  it('keeps favorites independent from edit policy and protects enablement policy', () => {
+    const base = toCatalogRecord(legacyApp());
+    if (!base) throw new Error('Expected record.');
+    const locked = { ...base, policy: { editable: false, disableable: false, deletable: false, restorable: false } };
+    const catalog: AppCatalogConfig = { schemaVersion: 1, records: [locked], deletedBuiltInIds: [] };
+    expect(setCatalogRecordFavorite(catalog, base.id, true).records[0].favorite).toBe(true);
+    expect(setCatalogRecordEnabled(catalog, base.id, false)).toEqual(catalog);
+    expect(updateCatalogRecord(catalog, { ...locked, enabled: false })).toEqual(catalog);
+  });
+
+  it('canonicalizes user-managed policy when adding a record', () => {
+    const empty: AppCatalogConfig = { schemaVersion: 1, records: [], deletedBuiltInIds: [] };
+    const record = toCatalogRecord(legacyApp({ id: 'new-user-app' }));
+    if (!record) throw new Error('Expected record.');
+    const added = addUserManagedRecord(empty, { ...record, policy: { editable: false, disableable: false, deletable: false, restorable: false } });
+    expect(added.records[0].policy).toEqual({ editable: true, disableable: true, deletable: true, restorable: false });
+  });
+
+  it('validates approved target forms before catalog persistence', () => {
+    expect(isValidCatalogTarget({ kind: 'web', url: 'https://example.test/tool' })).toBe(true);
+    expect(isValidCatalogTarget({ kind: 'web', url: 'ftp://example.test/tool' })).toBe(false);
+    expect(isValidCatalogTarget({ kind: 'native', executablePath: 'C:\\Field\\tool.exe', workingDir: 'C:\\Field' })).toBe(true);
+    expect(isValidCatalogTarget({ kind: 'native', executablePath: 'relative.exe' })).toBe(false);
+    expect(isValidCatalogTarget({ kind: 'native', executablePath: 'C:\\Field\\tool.exe', workingDir: 'relative' })).toBe(false);
+  });
+
+  it('rejects malformed configured targets during catalog validation but preserves unsupported targets', () => {
+    const base = toCatalogRecord(legacyApp());
+    if (!base) throw new Error('Expected record.');
+    const catalog = (target: AppCatalogRecord['target']): AppCatalogConfig => ({ schemaVersion: 1, records: [{ ...base, target }], deletedBuiltInIds: [] });
+    expect(isAppCatalogConfig(catalog({ kind: 'web', url: 'https:///missing-host' }))).toBe(false);
+    expect(isAppCatalogConfig(catalog({ kind: 'native', executablePath: 'relative.exe' }))).toBe(false);
+    expect(isAppCatalogConfig(catalog({ kind: 'native', executablePath: 'C:\\Field\\tool.txt' }))).toBe(false);
+    expect(isAppCatalogConfig(catalog({ kind: 'native', executablePath: 'C:\\Field\\tool.exe', args: 'bad\0args' }))).toBe(false);
+    expect(isAppCatalogConfig(catalog({ kind: 'unsupported', reason: 'legacy_target' }))).toBe(true);
   });
 });

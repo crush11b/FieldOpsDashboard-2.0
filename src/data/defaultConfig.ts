@@ -1,5 +1,6 @@
 import { AppLauncherItem, BandPropagation, DashboardConfig, LogEntry } from '../types';
 import { DEFAULT_STATION_PROFILE } from '../propagation/stationProfileCatalog';
+import { migrateAppCatalog } from '../appCatalog/domain';
 
 export const DEFAULT_APPS: AppLauncherItem[] = [
   // 1. Digital Comms
@@ -458,4 +459,9 @@ export const INITIAL_CONFIG: DashboardConfig = {
   wsjtx: { mode: 'multicast', multicastAddress: '239.255.0.0', multicastInterface: '', host: '127.0.0.1', port: 2237 },
   propagation: { stationProfile: DEFAULT_STATION_PROFILE, destinationRegion: 'western_europe' },
   apps: DEFAULT_APPS,
+  appCatalog: (() => {
+    const result = migrateAppCatalog(undefined, DEFAULT_APPS, DEFAULT_APPS);
+    if (result.status !== 'migrated') throw new Error('Default App Catalog could not be created.');
+    return result.catalog;
+  })(),
 };
