@@ -41,7 +41,7 @@ Operations Assistant includes:
 - **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [Version 2.8 changelog](CHANGELOG.md) and the [Version 2.8 operational-intelligence plan](docs/planning/Version-2.8-Operational-Intelligence.md). V2.9 planning is documented in the [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md); no V2.9 implementation is implied by that document.
+See the [Version 2.8 changelog](CHANGELOG.md) and the [Version 2.8 operational-intelligence plan](docs/planning/Version-2.8-Operational-Intelligence.md). V2.9 development is underway but unreleased: slices 2.9-00 through 2.9-07 have landed on `main`, while 2.9-08 remains unfinished and 2.9-09 remains ahead; 2.9-09 has not begun and neither slice is a release claim. The [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md) records the remaining scope and release boundary.
 
 ## What works today
 
@@ -80,11 +80,11 @@ Version 2.8.0 is scoped to a trustworthy, locally operated Operational Intellige
 
 Implemented in Version 2.8.0: mission-aware guidance, explicit operational objectives, retained evidence review, GNSS-backed clock synchronization, and station-specific MY SIGNAL evidence. These capabilities remain evidence-grounded; FieldOps does not control WSJT-X or the radio.
 
-CAT/direct radio control, PTT/transmit control, spotting, equipment/loadout profiles, and additional QSO Logger frequency usability remain deferred.
+CAT/direct radio control, PTT/transmit control, spotting, equipment/loadout profiles, automatic frequency recommendations, and the remaining QSO Logger frequency-usability work remain outside the accepted V2.8 release boundary. V2.9 development is addressing the approved catalog, launcher, evidence-foundation, and remaining punch-list slices without changing the published release claim.
 
 ## SmartDeploy and activation-support scope
 
-Version 2.4 recovers the original SmartDeploy concept as bounded POTA/SOTA activation planning. The released Field Tools scope supports retained offline planning briefs with propagation, path, and mission-time context, plus associated Activation Notes. It does not include Version 2.5 Field Operations Assistant behavior.
+The current SmartDeploy and activation-support workflow is the bounded V2.8 capability: retained offline POTA/SOTA planning briefs, mission-window context, modeled propagation, environmental and space-weather evidence, Activation Notes, readiness checks, activation lifecycle, QSO logging, and review. These capabilities remain evidence-grounded and do not provide radio control or guaranteed path prediction.
 
 The future concept is:
 
@@ -100,7 +100,7 @@ Equipment Inventory
 
 Future SmartDeploy work may synthesize POTA/SOTA mission context, an operating window, selected equipment and loadout, weather forecasts and hazards, space-weather outlooks, propagation modeling, antenna deployment considerations, power/endurance considerations, contingencies, and evidence-grounded operational recommendations.
 
-The retained brief workflow is available in the bounded Field Tools scope. Inventory, loadouts, activation sequencing, and broader Operations Brief automation remain future product direction.
+The retained brief workflow is available in the bounded V2.8 Field Tools scope. Persistent equipment inventory, reusable loadouts, resource-aware recommendations, richer mission reasoning, and broader Field Operations Assistant automation remain future product direction for V3.0 or later.
 
 ## Architecture at a glance
 
@@ -191,7 +191,7 @@ The supported native artifact publisher and release mechanics are documented wit
 
 ## Project status
 
-FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.4 is the current Field Tools release, while broader POTA/SOTA activation-support workflows and the Local/NVIS evaluator remain deferred.
+FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.8.0 remains the current accepted and published release. V2.9 development is underway but unreleased; its remaining 2.9-08 punch-list and 2.9-09 integration work are not complete release claims. Broader Field Operations Assistant capabilities and the Local/NVIS evaluator remain deferred.
 
 Some integrations require local hardware, installed radio applications, configured credentials, or live external services. Modeled, cached, stale, unavailable, and manual values should be interpreted according to their displayed status.
 
