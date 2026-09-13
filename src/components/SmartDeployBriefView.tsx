@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { SmartDeployBrief, SmartDeployBriefV1, SmartDeployBriefV2 } from '../../server/smartDeployBrief';
 import type { Activation } from '../../server/activation';
 import { ActivationNotesPanel } from './ActivationNotesPanel';
@@ -18,13 +18,130 @@ export const SmartDeployBriefView: React.FC<SmartDeployBriefViewProps> = ({ brie
   ? <V2BriefView brief={brief} />
   : <V1BriefView brief={brief} />;
 
+type PlanEvidenceKind = 'forecast' | 'space';
+type PlanEvidenceStatus = 'loading' | 'retained' | 'refreshing' | 'updated' | 'unavailable' | 'failed';
+type PlanEvidenceItem = { record: any; status: PlanEvidenceStatus; message: string | null; busy: boolean };
+type PlanEvidenceState = Record<PlanEvidenceKind, PlanEvidenceItem>;
+const createPlanEvidenceState = (): PlanEvidenceState => ({
+  forecast: { record: null, status: 'loading', message: null, busy: false },
+  space: { record: null, status: 'loading', message: null, busy: false },
+});
+
 const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
   const [phase, setPhase] = useState<'plan' | 'prepare' | 'operate' | 'review'>('plan');
   const [activation, setActivation] = useState<Activation | null>(null);
   const [activeActivations, setActiveActivations] = useState<Activation[]>([]);
   const [reconciliationMessage, setReconciliationMessage] = useState<string | null>(null);
   const [qsoCount, setQsoCount] = useState<number | null>(null);
-  useEffect(() => { let cancelled = false; void fetch('/api/activations').then(response => response.ok ? response.json() : null).then(payload => { if (cancelled) return; const activations = (payload?.activations || []) as Activation[]; setActiveActivations(activations.filter(item => item.status === 'active')); const match = activations.find(item => item.briefId === brief.briefId); if (match) { setActivation(match); setPhase(match.status === 'active' ? 'operate' : match.status === 'completed' ? 'review' : 'plan'); } }).catch(() => undefined); return () => { cancelled = true; }; }, [brief.briefId]);
+  const [activationResolved, setActivationResolved] = useState(false);
+  const activationResolutionEpoch = useRef<number | null>(null);
+  const [planEvidence, setPlanEvidence] = useState<PlanEvidenceState>(createPlanEvidenceState);
+  const attemptedAutomaticRefresh = useRef<number | null>(null);
+  const requestGeneration = useRef<Record<PlanEvidenceKind, number>>({ forecast: 0, space: 0 });
+  const lifecycle = useRef({ briefId: brief.briefId, epoch: 0 });
+  if (lifecycle.current.briefId !== brief.briefId) {
+    lifecycle.current = { briefId: brief.briefId, epoch: lifecycle.current.epoch + 1 };
+    requestGeneration.current.forecast += 1;
+    requestGeneration.current.space += 1;
+    attemptedAutomaticRefresh.current = null;
+  }
+  const mounted = useRef(true);
+  useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
+  useEffect(() => {
+    setPlanEvidence(createPlanEvidenceState());
+    const briefId = brief.briefId;
+    const epoch = lifecycle.current.epoch;
+    const loadRetained = async (kind: PlanEvidenceKind) => {
+      ++requestGeneration.current[kind];
+      try {
+        const path = kind === 'forecast' ? 'mission-forecast' : 'space-weather';
+        const response = await fetch(`/api/${path}/brief/${encodeURIComponent(briefId)}`);
+        const payload = await response.json();
+        if (!mounted.current || lifecycle.current.epoch !== epoch || lifecycle.current.briefId !== briefId) return;
+        if (!response.ok) throw new Error(payload.message || `Retained ${kind} evidence is unavailable.`);
+        setPlanEvidence(previous => {
+          const current = previous[kind];
+          if (current.status === 'updated' || (current.status === 'failed' && current.record)) return previous;
+          if (current.status === 'failed') return payload.record ? { ...previous, [kind]: { ...current, record: payload.record } } : previous;
+          if (current.status === 'unavailable' && current.message) { const label = kind === 'forecast' ? 'Mission forecast' : 'Space weather'; return payload.record ? { ...previous, [kind]: { ...current, record: payload.record, status: 'failed', message: `${label} refresh failed; prior retained evidence is preserved. ${current.message}` } } : previous; }
+          if (current.busy || current.status === 'refreshing') return payload.record ? { ...previous, [kind]: { ...current, record: payload.record, status: 'refreshing' } } : previous;
+          return { ...previous, [kind]: { ...current, record: payload.record, status: payload.record ? 'retained' : 'unavailable', message: payload.record ? null : payload.message || current.message } };
+        });
+      } catch (error) {
+        if (!mounted.current || lifecycle.current.epoch !== epoch || lifecycle.current.briefId !== briefId) return;
+        setPlanEvidence(previous => {
+          const current = previous[kind];
+          if (current.busy || current.status === 'refreshing' || current.status === 'updated' || current.status === 'failed' || current.record) return previous;
+          return { ...previous, [kind]: { ...current, status: 'unavailable', message: error instanceof Error ? error.message : `Retained ${kind} evidence is unavailable.` } };
+        });
+      }
+    };
+    void loadRetained('forecast');
+    void loadRetained('space');
+  }, [brief.briefId]);
+  const refreshEvidence = async (kind: PlanEvidenceKind) => {
+    if (planEvidence[kind].busy) return;
+    const briefId = brief.briefId;
+    const epoch = lifecycle.current.epoch;
+    const generation = ++requestGeneration.current[kind];
+    setPlanEvidence(previous => ({ ...previous, [kind]: { ...previous[kind], busy: true, message: null, status: previous[kind].record ? 'refreshing' : 'loading' } }));
+    try {
+      const path = kind === 'forecast' ? 'mission-forecast' : 'space-weather';
+      const response = await fetch(`/api/${path}/brief/${encodeURIComponent(briefId)}/refresh`, { method: 'POST' });
+      const payload = await response.json();
+      if (!mounted.current || lifecycle.current.epoch !== epoch || lifecycle.current.briefId !== briefId || generation !== requestGeneration.current[kind]) return;
+      if (!response.ok) {
+        const label = kind === 'forecast' ? 'Mission forecast' : 'Space weather';
+        const detail = payload.message || 'Refresh failed.';
+        setPlanEvidence(previous => {
+          const record = payload.record || previous[kind].record;
+          return { ...previous, [kind]: { ...previous[kind], record, busy: false, status: record ? 'failed' : 'unavailable', message: record ? `${label} refresh failed; prior retained evidence is preserved. ${detail}` : `${label} unavailable: ${detail}` } };
+        });
+        return;
+      }
+      setPlanEvidence(previous => ({ ...previous, [kind]: { ...previous[kind], record: payload.record, busy: false, status: 'updated', message: 'Updated evidence is displayed.' } }));
+    } catch (error) {
+      if (!mounted.current || lifecycle.current.epoch !== epoch || lifecycle.current.briefId !== briefId || generation !== requestGeneration.current[kind]) return;
+      setPlanEvidence(previous => {
+        const label = kind === 'forecast' ? 'Mission forecast' : 'Space weather';
+        const detail = error instanceof Error ? error.message : 'Refresh failed.';
+        return { ...previous, [kind]: { ...previous[kind], busy: false, status: previous[kind].record ? 'failed' : 'unavailable', message: previous[kind].record ? `${label} refresh failed; prior retained evidence is preserved. ${detail}` : `${label} unavailable: ${detail}` } };
+      });
+    }
+  };
+  useEffect(() => {
+    if (!activationResolved || activationResolutionEpoch.current !== lifecycle.current.epoch || phase !== 'plan' || attemptedAutomaticRefresh.current === lifecycle.current.epoch) return;
+    attemptedAutomaticRefresh.current = lifecycle.current.epoch;
+    void refreshEvidence('forecast');
+    void refreshEvidence('space');
+  }, [activationResolved, phase, brief.briefId]);
+  useEffect(() => {
+    const { briefId, epoch } = lifecycle.current;
+    let cancelled = false;
+    activationResolutionEpoch.current = null;
+    setActivationResolved(false);
+    setPhase('plan');
+    setActivation(null);
+    setActiveActivations([]);
+    void fetch('/api/activations').then(async response => {
+      if (!response.ok) throw new Error('Activation state unavailable.');
+      return response.json();
+    }).then(payload => {
+      if (cancelled || !mounted.current || lifecycle.current.epoch !== epoch || lifecycle.current.briefId !== briefId) return;
+      const activations = (payload?.activations || []) as Activation[];
+      setActiveActivations(activations.filter(item => item.status === 'active'));
+      const match = activations.find(item => item.briefId === briefId);
+      if (match) {
+        setActivation(match);
+        setPhase(match.status === 'active' ? 'operate' : match.status === 'completed' ? 'review' : 'plan');
+      }
+      activationResolutionEpoch.current = epoch;
+      setActivationResolved(true);
+    }).catch(() => {
+      if (!cancelled && mounted.current && lifecycle.current.epoch === epoch && lifecycle.current.briefId === briefId) { activationResolutionEpoch.current = epoch; setActivationResolved(true); }
+    });
+    return () => { cancelled = true; };
+  }, [brief.briefId]);
   const repairActiveActivations = async (keepActivationId: string) => { setReconciliationMessage(null); const result = await reconcileActiveActivation(keepActivationId); if (result.kind !== 'activation') { setReconciliationMessage(result.message); return; } setActiveActivations([result.activation]); setReconciliationMessage(`Reconciled ${result.reconciledActivationIds?.length || 0} stale active Activation record(s) as completed.`); if (activation?.activationId === keepActivationId) setActivation(result.activation); };
   useEffect(() => { if (!activation) { setQsoCount(null); return; } void listQsos(activation.activationId).then(result => setQsoCount(result.qsos.length)).catch(() => setQsoCount(null)); }, [activation]);
   const propagation = brief.sections.propagation.evidence;
@@ -57,7 +174,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
       </div>
     </div>
 
-    <PlanningOutlook brief={brief} propagation={propagation} solar={solar} />
+    <PlanningOutlook brief={brief} propagation={propagation} solar={solar} evidence={planEvidence} onRefresh={refreshEvidence} />
     <BriefSection title="LIVE BAND ACTIVITY"><p className="text-[11px] text-slate-200">{observedRfPrimary(observedRf.status)}</p></BriefSection>
 
     <details className="rounded-xl border border-slate-700 bg-slate-950/50 p-3"><summary className="cursor-pointer text-[11px] font-black uppercase text-cyan-300">Technical Details</summary><div className="mt-3 space-y-2"><Detail label="SCHEMA / BRIEF" value={`${brief.schemaVersion} / ${brief.briefId}`} /><Detail label="GENERATED" value={formatUtc(brief.generatedAtUtc)} /><Detail label="MISSION UTC" value={`${brief.missionWindow.start} / ${brief.missionWindow.midpoint} / ${brief.missionWindow.end}`} /><Detail label="CURRENT DEVICE" value={brief.currentDeviceLocation ? `${brief.currentDeviceLocation.gridSquare || formatCoordinates(brief.currentDeviceLocation.coordinates)} (context only)` : 'Unavailable'} /><Detail label="ACTIVATION COORDINATES" value={`${formatCoordinates(brief.activation.coordinates)} / ${brief.activation.gridSquare || 'Grid unavailable'}`} /><Detail label="PLANNED COORDINATES / PROVENANCE" value={`${formatCoordinates(brief.plannedOperatingSite.location.coordinates)} / ${brief.plannedOperatingSite.description} / raw location provenance: ${brief.plannedOperatingSite.location.provenance} / planning source: ${brief.plannedOperatingSite.source}`} /><Detail label="RF REGION" value={`${brief.propagationObjective.regionId} / ${brief.propagationObjective.regionLabel}`} /><Detail label="OBSERVED RF WINDOW / STATUS" value={`${observedRf.evidence.observationWindow.startsAt ? `${formatUtc(observedRf.evidence.observationWindow.startsAt)} to ${formatUtc(observedRf.evidence.observationWindow.endsAt)}` : 'Unavailable'} / ${observedRf.status}`} /><Detail label="MODEL" value="ITU-R P.533 representative regional paths; long-lived solar-cycle model input; no mission-time forecast." /><h4 className="pt-2 text-[10px] font-black uppercase text-amber-300">Structured limitations</h4><ul className="list-disc pl-5 space-y-1 text-[10px] text-slate-300">{brief.limitations.map(limitation => <li key={limitation.code}><strong>{limitation.code}:</strong> {limitation.message}</li>)}</ul></div></details>
@@ -76,15 +193,10 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
   </section>;
 };
 
-const PlanningOutlook: React.FC<{ brief: SmartDeployBriefV2; propagation: SmartDeployBriefV2['sections']['propagation']['evidence']; solar: SmartDeployBriefV2['sections']['solar']['evidence'] }> = ({ brief, propagation, solar }) => {
-  const [forecast, setForecast] = useState<any>(null);
-  const [spaceWeather, setSpaceWeather] = useState<any>(null);
-  const [busy, setBusy] = useState<'forecast' | 'space' | null>(null);
-  const [forecastState, setForecastState] = useState<'loading' | 'retained' | 'updated' | 'unavailable' | 'failed'>('loading');
-  const [message, setMessage] = useState<string | null>(null);
-  useEffect(() => { setForecast(null); setSpaceWeather(null); setForecastState('loading'); setMessage(null); void Promise.all([fetch(`/api/mission-forecast/brief/${encodeURIComponent(brief.briefId)}`).then(async response => { const payload = await response.json(); if (!response.ok) throw new Error(payload.message || 'Retained mission forecast is unavailable.'); setForecast(payload.record); setForecastState(payload.record ? 'retained' : 'unavailable'); if (!payload.record && payload.message) setMessage(payload.message); }), fetch(`/api/space-weather/brief/${encodeURIComponent(brief.briefId)}`).then(response => response.json()).then(payload => setSpaceWeather(payload.record))]).catch(error => { setForecastState('unavailable'); setMessage(error instanceof Error ? error.message : 'Retained planning evidence could not be read locally.'); }); }, [brief.briefId]);
-  const refresh = async (kind: 'forecast' | 'space') => { setBusy(kind); setMessage(null); if (kind === 'forecast') setForecastState('loading'); try { const path = kind === 'forecast' ? 'mission-forecast' : 'space-weather'; const response = await fetch(`/api/${path}/brief/${encodeURIComponent(brief.briefId)}/refresh`, { method: 'POST' }); const payload = await response.json(); if (!response.ok) throw new Error(payload.message || 'Refresh failed.'); kind === 'forecast' ? (setForecast(payload.record), setForecastState('updated')) : setSpaceWeather(payload.record); } catch (error) { if (kind === 'forecast') setForecastState(forecast ? 'failed' : 'unavailable'); setMessage(error instanceof Error ? error.message : 'Refresh failed; prior retained evidence is preserved.'); } finally { setBusy(null); } };
-  return <section className="space-y-3"><BriefSection title="PLANNING OUTLOOK"><div className="grid grid-cols-1 sm:grid-cols-3 gap-2">{propagation.samples.map(sample => <div key={sample.position} className="rounded-lg border border-slate-700 bg-slate-950/70 p-3"><strong className="block uppercase text-cyan-300">{sample.position}</strong><span className="block text-[10px] text-slate-400">{formatUtc(sample.modelDateTimeUtc)}</span><span className="block mt-1 text-[11px] text-amber-200">Strongest modeled band: {propagation.summary.strongestBandBySample.find(item => item.position === sample.position)?.band || 'Unavailable'}</span></div>)}</div><p className="text-[10px] text-slate-400">{solarCondition(solar)} Propagation is modeled guidance, never a guarantee.</p></BriefSection><EvidenceCard title="RETAINED MISSION FORECAST" record={forecast} empty={forecastState === 'loading' ? 'Loading mission forecast...' : forecastState === 'unavailable' ? 'Mission forecast unavailable.' : 'Not requested; refresh explicitly when connected.'} status={forecastState.toUpperCase()} onRefresh={() => void refresh('forecast')} busy={busy === 'forecast'}>{forecast?.periods?.slice(0, 3).map((period: any) => <span key={period.startsAtUtc} className="block text-[11px] text-slate-200">{formatUtc(period.startsAtUtc)}: {period.condition}, {period.temperatureF}°F, {period.precipitationProbability}% precipitation, wind {period.windSpeedMph} mph {period.windDirection}</span>)}</EvidenceCard><EvidenceCard title="RETAINED SPACE WEATHER" record={spaceWeather} empty="Not requested; refresh explicitly when connected." onRefresh={() => void refresh('space')} busy={busy === 'space'}>{spaceWeather && <><p className="text-[11px] text-slate-200">{spaceWeather.interpretation.plainLanguageEffect}</p><p className="text-[10px] text-slate-400">Solar support: {spaceWeather.interpretation.solarSupport} / geomagnetic activity: {spaceWeather.interpretation.geomagneticActivity} / flare concern: {spaceWeather.interpretation.flareConcern}</p></>}</EvidenceCard>{message && <p role="alert" className="text-[11px] text-amber-200">{message}</p>}</section>;
+const PlanningOutlook: React.FC<{ brief: SmartDeployBriefV2; propagation: SmartDeployBriefV2['sections']['propagation']['evidence']; solar: SmartDeployBriefV2['sections']['solar']['evidence']; evidence: PlanEvidenceState; onRefresh: (kind: PlanEvidenceKind) => Promise<void> }> = ({ brief, propagation, solar, evidence, onRefresh }) => {
+  const forecast = evidence.forecast.record;
+  const spaceWeather = evidence.space.record;
+  return <section className="space-y-3"><BriefSection title="PLANNING OUTLOOK"><div className="grid grid-cols-1 sm:grid-cols-3 gap-2">{propagation.samples.map(sample => <div key={sample.position} className="rounded-lg border border-slate-700 bg-slate-950/70 p-3"><strong className="block uppercase text-cyan-300">{sample.position}</strong><span className="block text-[10px] text-slate-400">{formatUtc(sample.modelDateTimeUtc)}</span><span className="block mt-1 text-[11px] text-amber-200">Strongest modeled band: {propagation.summary.strongestBandBySample.find(item => item.position === sample.position)?.band || 'Unavailable'}</span></div>)}</div><p className="text-[10px] text-slate-400">{solarCondition(solar)} Propagation is modeled guidance, never a guarantee.</p></BriefSection><EvidenceCard title="RETAINED MISSION FORECAST" record={forecast} empty={evidence.forecast.status === 'loading' ? 'Loading mission forecast...' : evidence.forecast.status === 'unavailable' ? 'Mission forecast unavailable.' : 'Not requested; refresh explicitly when connected.'} status={evidence.forecast.status.toUpperCase()} message={evidence.forecast.message} onRefresh={() => onRefresh('forecast')} busy={evidence.forecast.busy}>{forecast?.periods?.slice(0, 3).map((period: any) => <span key={period.startsAtUtc} className="block text-[11px] text-slate-200">{formatUtc(period.startsAtUtc)}: {period.condition}, {period.temperatureF}°F, {period.precipitationProbability}% precipitation, wind {period.windSpeedMph} mph {period.windDirection}</span>)}</EvidenceCard><EvidenceCard title="RETAINED SPACE WEATHER" record={spaceWeather} empty={evidence.space.status === 'loading' ? 'Loading space weather...' : evidence.space.status === 'unavailable' ? 'Space weather unavailable.' : 'Not requested; refresh explicitly when connected.'} status={evidence.space.status.toUpperCase()} message={evidence.space.message} onRefresh={() => onRefresh('space')} busy={evidence.space.busy}>{spaceWeather && <><p className="text-[11px] text-slate-200">{spaceWeather.interpretation.plainLanguageEffect}</p><p className="text-[10px] text-slate-400">Solar support: {spaceWeather.interpretation.solarSupport} / geomagnetic activity: {spaceWeather.interpretation.geomagneticActivity} / flare concern: {spaceWeather.interpretation.flareConcern}</p></>}</EvidenceCard></section>;
 };
 
 const ForecastPresentation: React.FC<{ record: any }> = ({ record }) => { if (!record) return null; const providerName = record.provider?.name || 'Open-Meteo'; const isAggregated = record.presentation?.mode === 'aggregated'; const periods = isAggregated ? record.operatingPeriods : record.periods; const hourly = record.hourly || record.periods || []; return <><p className="text-[10px] text-cyan-200">{isAggregated ? 'Compact operating periods / UTC' : 'Hourly evidence / UTC'} · {record.coverageStatus || 'retained'} coverage · provider: {providerName} · retrieved: {formatUtc(record.retrievedAtUtc)} · freshness: {record.freshness || 'retained'}</p><div className="space-y-2">{periods?.map((period: any) => <div key={period.periodId || period.startsAtUtc} className="text-[11px] text-slate-200">{isAggregated ? <><p>{period.label || 'Operating period'} / {formatUtc(period.startsAtUtc)} to {formatUtc(period.endsAtUtc)} / {period.coverageStatus} coverage / {period.observedHourlySlotCount} of {period.expectedHourlySlotCount} hourly slots observed{period.missingHourlySlotCount ? ` / missing ${period.missingHourlySlotCount}` : ''}</p><p>Temperature {period.temperatureMinF ?? 'Unavailable'}-{period.temperatureMaxF ?? 'Unavailable'}°F / precipitation max {period.precipitationProbabilityMax ?? 'Unavailable'}% / sustained wind {period.sustainedWindMinMph ?? 'Unavailable'}-{period.sustainedWindMaxMph ?? 'Unavailable'} mph / gust max {period.windGustMaxMph ?? 'Unavailable'} mph / {period.significantCondition || 'Condition unavailable'} / provider {period.provider} / retrieved {formatUtc(period.retrievedAtUtc)} / freshness {period.freshness}</p>{period.limitations?.map((limitation: string) => <p key={limitation} className="text-[10px] text-amber-200">Limitation: {limitation}</p>)}</> : <p>{formatUtc(period.startsAtUtc)}{period.endsAtUtc ? ` to ${formatUtc(period.endsAtUtc)}` : ''}: {period.condition}, {period.temperatureF}°F, {period.precipitationProbability}% precipitation, wind {period.windSpeedMph} mph {period.windDirection}, gust {period.windGustMph ?? 'Unavailable'} mph, provider {providerName}, retrieved {formatUtc(record.retrievedAtUtc)}</p>}</div>)}</div><details className="mt-2"><summary className="cursor-pointer text-[10px] font-black uppercase text-cyan-300">Underlying hourly evidence / UTC</summary><div className="mt-2 space-y-1"><p className="text-[10px] text-slate-400">Record freshness: {record.freshness || 'retained'} / overall coverage: {record.coverageStatus || 'retained'} / mission interval: {record.missionWindow ? `${formatUtc(record.missionWindow.start)} to ${formatUtc(record.missionWindow.end)}` : 'Unavailable'}</p>{record.diagnostics?.map((diagnostic: string) => <p key={diagnostic} className="text-[10px] text-amber-200">Diagnostic: {diagnostic}</p>)}{record.limitations?.map((limitation: string) => <p key={limitation} className="text-[10px] text-amber-200">Limitation: {limitation}</p>)}{hourly.map((hour: any, index: number) => <p key={`${hour.startsAtUtc}-${index}`} className="text-[10px] text-slate-300">{formatUtc(hour.startsAtUtc)} to {formatUtc(hour.endsAtUtc)} / {hour.condition} / {hour.temperatureF}°F / precipitation {hour.precipitationProbability}% / sustained wind {hour.windSpeedMph} mph {hour.windDirection} / gust {hour.windGustMph ?? 'Unavailable'} mph / provider {providerName} / retrieved {formatUtc(record.retrievedAtUtc)}</p>)}</div></details></>; };
