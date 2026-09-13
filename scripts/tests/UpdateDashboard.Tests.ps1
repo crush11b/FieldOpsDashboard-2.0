@@ -64,3 +64,16 @@ Describe 'UpdateDashboard SHA-256 verification' {
         Assert-P533RuntimeArtifact -PackageRoot $packageRoot -NativeRoot $nativeRoot -ExpectedRevision ('a' * 40) | Should Be $runtimeRoot
     }
 }
+
+Describe 'UpdateDashboard runtime shutdown ordering' {
+    It 'discovers and stops the Dashboard child before cleaning up launcher wrappers' {
+        $source = Get-Content -LiteralPath $updaterPath -Raw
+        $shutdownStage = $source.IndexOf("Write-Host '[3/8] Stopping FieldOps and dashboard processes...'")
+        $runtimeShutdown = $source.IndexOf('Invoke-FieldOpsRuntimeShutdown', $shutdownStage)
+        $wrapperCleanup = $source.IndexOf('Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath', $shutdownStage)
+
+        $shutdownStage | Should BeGreaterThan -1
+        $runtimeShutdown | Should BeGreaterThan $shutdownStage
+        $wrapperCleanup | Should BeGreaterThan $runtimeShutdown
+    }
+}

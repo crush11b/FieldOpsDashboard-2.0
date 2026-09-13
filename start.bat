@@ -17,7 +17,7 @@ echo [+] Press Ctrl+C in this window to stop the server.
 echo.
 
 set "NODE_ENV=production"
-node dist\server.cjs
+node "%~dp0dist\server.cjs"
 pause
 exit /b %errorlevel%
 

@@ -26,7 +26,7 @@ function Get-FieldOpsOwnedRuntimeProcesses {
 
     $processes = @(Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue)
     $dashboardProcesses = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot $DashboardRoot -ProcessProvider { $processes })
-    foreach ($process in $processes) {
+    foreach ($process in ($processes | Sort-Object @{ Expression = { if ([string]$_.Name -ieq 'node.exe' -or [string]$_.Name -ieq 'node') { 0 } else { 1 } } }, ProcessId)) {
         $name = [string]$process.Name
         $executablePath = if ([string]::IsNullOrWhiteSpace([string]$process.ExecutablePath)) { '' } else { ConvertTo-FieldOpsNormalizedPath -Path ([string]$process.ExecutablePath) }
         $commandLine = [string]$process.CommandLine

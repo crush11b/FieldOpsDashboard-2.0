@@ -101,6 +101,18 @@ Describe 'FieldOps runtime readiness' {
         @((Get-FieldOpsDashboardProcessCandidates -DashboardRoot 'C:\FieldOpsDashboard' -ProcessProvider { $processes })).Count | Should Be 1
     }
 
+    It 'recognizes a relative Dashboard server only under the verified start wrapper' {
+        $processes = @(
+            [pscustomobject]@{ Name = 'cmd.exe'; CommandLine = 'cmd /c "C:\FieldOpsDashboard\start.bat"'; ProcessId = 801 },
+            [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node dist\server.cjs'; ParentProcessId = 801; ProcessId = 802 },
+            [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node dist\server.cjs'; ParentProcessId = 803; ProcessId = 804 },
+            [pscustomobject]@{ Name = 'cmd.exe'; CommandLine = 'cmd /c C:\OtherApplication\start.bat'; ProcessId = 803 }
+        )
+        $candidates = @(Get-FieldOpsDashboardProcessCandidates -DashboardRoot 'C:\FieldOpsDashboard' -ProcessProvider { $processes })
+        $candidates.Count | Should Be 1
+        $candidates[0].ProcessId | Should Be 802
+    }
+
     It 'waits for HTTP after the Dashboard process appears' {
         $script:httpCalls = 0
         $delayedHttp = {

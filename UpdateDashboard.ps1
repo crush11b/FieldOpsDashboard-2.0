@@ -428,11 +428,11 @@ try {
     }
     else {
         $runtimeShutdownStarted = $true
-        Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
         Invoke-FieldOpsRuntimeShutdown `
             -DashboardRoot $resolvedInstallPath `
             -NativeRoot (Join-Path $env:ProgramFiles 'FieldOpsDashboard') `
             -Timeout ([TimeSpan]::FromSeconds(30)) | Out-Null
+        Stop-FieldOpsLauncherWrappers -InstallRoot $resolvedInstallPath
     }
     Write-Host '[4/8] Activating staged deployment...' -ForegroundColor Yellow
     # Ensure the updater is not running from the directory it is about to move.
