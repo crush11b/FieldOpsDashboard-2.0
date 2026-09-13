@@ -1,6 +1,6 @@
 # Version 2.9 - Field Product Completion
 
-- Status: **Authoritative scope contract for 2.9-00; later slices require separate approval**
+- Status: **V2.9-08 complete after closure-record acceptance; V2.9 remains unreleased and 2.9-09 remains gated**
 - Baseline: **V2.8.0**, tag `v2.8.0`, peeled commit `a92b3a5e58201a8622ebab138fc7832ca7758b71`
 - Supported deployment: one operator on one locally operated Windows ToughBook/ToughPad
 - Entry branch: `planning/2.9-00-scope-contract`
@@ -213,6 +213,8 @@ Define evidence records and feasibility review only. Acceptance: SSB interferenc
 ### 2.9-08 - Remaining pre-V3.0 punch list
 
 Review and either fix or explicitly defer the individually inventoried stale README/setup wording, automatic PLAN forecast/space-weather refresh, duration-aware propagation forecast, Weather and Alerts Unknown behavior, JS8 defaults, QSO Logger frequency usability, non-elevated updater behavior, installation-file locks and backup cleanup, installed-launcher cleanup, legacy Auto App Installer presentation, and remaining high-value usability/presentation issues. Acceptance: every item has evidence, owner/disposition, and focused validation or a recorded blocker.
+
+**Closure:** The authoritative evidence and final dispositions for all eleven items are recorded in [Version 2.9-08 Punch-List Closure](../validation/Version-2.9-08-Punch-List-Closure.md). V2.9-08 is complete after that record is accepted; V2.9 remains unreleased and 2.9-09 has not begun.
 
 ### 2.9-09 - Integration, update survival, and CF-20 acceptance
 
