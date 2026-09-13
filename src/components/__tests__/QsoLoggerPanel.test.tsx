@@ -163,7 +163,7 @@ describe('QsoLoggerPanel', () => {
     vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(JSON.stringify({ kind: 'qsos', qsos: [{ ...qso, frequencyMHz: 14.075 }, imported, { ...qso, qsoId: 'qso-missing', callsign: 'N0CALL' }] }), { status: 200 }));
     render(<QsoLoggerPanel activation={activation} />);
     await waitFor(() => expect(screen.getByText('K1ABC')).toBeInTheDocument());
-    expect(screen.getByText('FREQUENCY MHz')).toBeInTheDocument();
+    expect(screen.getByRole('columnheader', { name: 'FREQUENCY MHz' })).toBeInTheDocument();
     expect(screen.getByText('14.075')).toBeInTheDocument();
     expect(screen.getByText('7.0475')).toBeInTheDocument();
     expect(screen.getByText('\u2014')).toBeInTheDocument();
