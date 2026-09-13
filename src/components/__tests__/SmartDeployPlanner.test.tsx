@@ -274,6 +274,278 @@ describe('SmartDeploy planner', () => {
 });
 
 describe('SmartDeploy brief rendering', () => {
+  const retainedForecast = { coverage: 'mission-window hourly forecast', retrievedAtUtc: '2026-08-18T11:00:00.000Z', periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', condition: 'Retained forecast', temperatureF: 70, precipitationProbability: 5, windSpeedMph: 4, windDirection: 'NW' }] };
+  const retainedSpaceWeather = { retrievedAtUtc: '2026-08-18T11:00:00.000Z', interpretation: { plainLanguageEffect: 'Retained solar conditions.', solarSupport: 'good', geomagneticActivity: 'quiet', flareConcern: 'low' } };
+
+  it('displays retained evidence while both automatic refreshes remain pending', async () => {
+    let resolveForecast!: (value: unknown) => void;
+    let resolveSpace!: (value: unknown) => void;
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return Promise.resolve({ ok: true, json: async () => ({ activations: [] }) });
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return new Promise(resolve => { resolveForecast = resolve; });
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return new Promise(resolve => { resolveSpace = resolve; });
+      if (path.includes('/mission-forecast/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedForecast }) });
+      if (path.includes('/space-weather/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+      return Promise.resolve({ ok: false, json: async () => ({ message: 'Unexpected request.' }) });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Retained forecast, 70°F/)).toBeTruthy());
+    expect(screen.getByText('Retained solar conditions.')).toBeTruthy();
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'LOADING...' })).toHaveLength(2));
+    expect(screen.getAllByRole('button', { name: 'LOADING...' })[0]).toBeDisabled();
+    fireEvent.click(screen.getAllByRole('button', { name: 'LOADING...' })[0]);
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+    expect(resolveForecast).toBeTypeOf('function');
+    expect(resolveSpace).toBeTypeOf('function');
+    resolveForecast({ ok: true, json: async () => ({ record: retainedForecast }) });
+    resolveSpace({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+  });
+
+  it('renders independent automatic refresh results and preserves one family when the other fails', async () => {
+    const updatedForecast = { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Updated forecast' }] };
+    const updatedSpaceWeather = { ...retainedSpaceWeather, interpretation: { ...retainedSpaceWeather.interpretation, plainLanguageEffect: 'Updated solar conditions.' } };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: false, json: async () => ({ message: 'Forecast provider unavailable.' }) };
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: updatedSpaceWeather }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: retainedForecast }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText('Updated solar conditions.')).toBeTruthy());
+    expect(screen.getByText(/Retained forecast, 70°F/)).toBeTruthy();
+    expect(screen.getByText(/Forecast provider unavailable/)).toBeTruthy();
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+  });
+
+  it('renders both independently successful automatic refresh records', async () => {
+    const updatedForecast = { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Updated forecast' }] };
+    const updatedSpaceWeather = { ...retainedSpaceWeather, interpretation: { ...retainedSpaceWeather.interpretation, plainLanguageEffect: 'Updated solar conditions.' } };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: updatedForecast }) };
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: updatedSpaceWeather }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: retainedForecast }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Updated forecast, 70°F/)).toBeTruthy());
+    expect(screen.getByText('Updated solar conditions.')).toBeTruthy();
+    expect(screen.getAllByText(/Updated evidence is displayed/)).toHaveLength(2);
+  });
+
+  it('reports both evidence families unavailable when retained reads and automatic refreshes fail', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/') || path.includes('/space-weather/brief/')) return { ok: false, json: async () => ({ message: 'Provider unavailable.' }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Mission forecast unavailable: Provider unavailable/)).toBeTruthy());
+    expect(screen.getByText(/Space weather unavailable: Provider unavailable/)).toBeTruthy();
+    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+  });
+
+  it('keeps refresh success ahead of a late retained GET success', async () => {
+    let resolveForecastGet!: (value: unknown) => void;
+    const updatedForecast = { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Fresh forecast' }] };
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return Promise.resolve({ ok: true, json: async () => ({ activations: [] }) });
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({ record: updatedForecast }) });
+      if (path.includes('/mission-forecast/brief/')) return new Promise(resolve => { resolveForecastGet = resolve; });
+      if (path.includes('/space-weather/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+      return Promise.resolve({ ok: false, json: async () => ({ message: 'Unexpected request.' }) });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Fresh forecast, 70°F/)).toBeTruthy());
+    resolveForecastGet({ ok: true, json: async () => ({ record: retainedForecast }) });
+    await waitFor(() => expect(screen.getByText(/Fresh forecast, 70°F/)).toBeTruthy());
+    expect(screen.getAllByText(/Status: UPDATED\./)).toHaveLength(2);
+  });
+
+  it('keeps refresh failure ahead of a late retained GET success', async () => {
+    let resolveForecastGet!: (value: unknown) => void;
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return Promise.resolve({ ok: true, json: async () => ({ activations: [] }) });
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return Promise.resolve({ ok: false, json: async () => ({ message: 'Forecast provider unavailable.' }) });
+      if (path.includes('/mission-forecast/brief/')) return new Promise(resolve => { resolveForecastGet = resolve; });
+      if (path.includes('/space-weather/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+      return Promise.resolve({ ok: false, json: async () => ({ message: 'Unexpected request.' }) });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Mission forecast unavailable: Forecast provider unavailable/)).toBeTruthy());
+    resolveForecastGet({ ok: true, json: async () => ({ record: retainedForecast }) });
+    await waitFor(() => expect(screen.getByText(/Retained forecast, 70°F/)).toBeTruthy());
+    expect(screen.getByText(/Status: FAILED\./)).toBeTruthy();
+    expect(screen.getByText(/Mission forecast refresh failed; prior retained evidence is preserved/)).toBeTruthy();
+  });
+
+  it('keeps refresh success ahead of a late failed retained GET', async () => {
+    let rejectForecastGet!: (value: unknown) => void;
+    const updatedForecast = { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Fresh forecast' }] };
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return Promise.resolve({ ok: true, json: async () => ({ activations: [] }) });
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({ record: updatedForecast }) });
+      if (path.includes('/mission-forecast/brief/')) return new Promise((_, reject) => { rejectForecastGet = reject; });
+      if (path.includes('/space-weather/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+      return Promise.resolve({ ok: false, json: async () => ({ message: 'Unexpected request.' }) });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Fresh forecast, 70°F/)).toBeTruthy());
+    rejectForecastGet(new Error('Late retained read failed.'));
+    await waitFor(() => expect(screen.getByText(/Fresh forecast, 70°F/)).toBeTruthy());
+    expect(screen.getAllByText(/Status: UPDATED\./)).toHaveLength(2);
+  });
+
+  it('displays a retained record returned with a failed refresh response', async () => {
+    const returnedRetained = { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Returned retained forecast' }] };
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: false, json: async () => ({ record: returnedRetained, message: 'Provider unavailable.' }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByText(/Returned retained forecast, 70°F/)).toBeTruthy());
+    expect(screen.getByText(/Status: FAILED\./)).toBeTruthy();
+    expect(screen.getByText(/Provider unavailable/)).toBeTruthy();
+  });
+
+  it('does not automatically refresh active or completed retained activations', async () => {
+    for (const status of ['active', 'completed'] as const) {
+      const activation = { activationId: `${status}-activation`, briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status };
+      const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const path = String(input);
+        if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [activation] }) };
+        if (path.includes('/mission-forecast/brief/') || path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+        return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+      });
+      vi.stubGlobal('fetch', fetcher);
+      const view = render(<SmartDeployBriefView brief={v2Brief} />);
+      await waitFor(() => expect(status === 'active' ? screen.getByText('QSOs in OPERATE') : screen.getByRole('button', { name: 'review' })).toBeTruthy());
+      expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(0);
+      view.unmount();
+    }
+  });
+
+  it('allows the bounded PLAN refresh after activation-list failure', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: false, json: async () => ({ message: 'Activation state unavailable.' }) };
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: retainedForecast }) };
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2));
+  });
+
+  it('refreshes once per brief lifecycle across A to B to A and ignores obsolete responses', async () => {
+    const briefB = { ...v2Brief, briefId: 'brief-b' } as SmartDeployBriefV2;
+    const responses: Array<(value: unknown) => void> = [];
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return Promise.resolve({ ok: true, json: async () => ({ activations: [] }) });
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return new Promise(resolve => { responses.push(resolve); });
+      if (path.includes('/mission-forecast/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: null }) });
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return Promise.resolve({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+      if (path.includes('/space-weather/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: null }) });
+      return Promise.resolve({ ok: false, json: async () => ({ message: 'Unexpected request.' }) });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const view = render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(responses).toHaveLength(1));
+    view.rerender(<SmartDeployBriefView brief={briefB} />);
+    await waitFor(() => expect(responses).toHaveLength(2));
+    view.rerender(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(responses).toHaveLength(3));
+    responses[0]({ ok: true, json: async () => ({ record: { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Obsolete A' }] } }) });
+    responses[1]({ ok: true, json: async () => ({ record: { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Obsolete B' }] } }) });
+    responses[2]({ ok: true, json: async () => ({ record: { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Current A' }] } }) });
+    await waitFor(() => expect(screen.getByText(/Current A, 70°F/)).toBeTruthy());
+    expect(screen.queryByText(/Obsolete A, 70°F/)).toBeNull();
+    expect(screen.queryByText(/Obsolete B, 70°F/)).toBeNull();
+  });
+
+  it('does not duplicate automatic refreshes under React Strict Mode', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: retainedForecast }) };
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    render(<React.StrictMode><SmartDeployBriefView brief={v2Brief} /></React.StrictMode>);
+    await waitFor(() => expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2));
+  });
+
+  it('does not duplicate automatic refresh across rerenders or PLAN navigation, and manual refresh makes another request', async () => {
+    const fetcher = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) };
+      if (path.includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: retainedForecast }) };
+      if (path.includes('/space-weather/brief/') && init?.method === 'POST') return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      if (path.includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: retainedForecast }) };
+      if (path.includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: retainedSpaceWeather }) };
+      return { ok: false, json: async () => ({ message: 'Unexpected request.' }) };
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const view = render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2));
+    view.rerender(<SmartDeployBriefView brief={v2Brief} />);
+    fireEvent.click(screen.getByRole('button', { name: 'prepare' }));
+    fireEvent.click(screen.getByRole('button', { name: 'plan' }));
+    await waitFor(() => expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2));
+    fireEvent.click(screen.getByRole('button', { name: 'REFRESH MISSION FORECAST' }));
+    await waitFor(() => expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(3));
+  });
+
+  it('ignores an automatic response belonging to a replaced brief', async () => {
+    let resolveOld!: (value: unknown) => void;
+    const replacementBrief = brief;
+    const fetcher = vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path === '/api/activations') return Promise.resolve({ ok: true, json: async () => ({ activations: [] }) });
+      if (path.includes('/mission-forecast/brief/brief-v2') && init?.method === 'POST') return new Promise(resolve => { resolveOld = resolve; });
+      if (path.includes('/mission-forecast/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedForecast }) });
+      if (path.includes('/space-weather/brief/')) return Promise.resolve({ ok: true, json: async () => ({ record: retainedSpaceWeather }) });
+      return Promise.resolve({ ok: false, json: async () => ({ message: 'Unexpected request.' }) });
+    });
+    vi.stubGlobal('fetch', fetcher);
+    const view = render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(resolveOld).toBeTypeOf('function'));
+    view.rerender(<SmartDeployBriefView brief={replacementBrief} />);
+    expect(screen.getByText('LEGACY SMARTDEPLOY BRIEF')).toBeTruthy();
+    resolveOld({ ok: true, json: async () => ({ record: { ...retainedForecast, periods: [{ ...retainedForecast.periods[0], condition: 'Obsolete forecast' }] } }) });
+    await waitFor(() => expect(screen.queryByText(/Obsolete forecast, 70°F/)).toBeNull());
+  });
+
   it('presents retained multi-day forecast periods compactly and discloses hourly evidence', async () => {
     const forecast = { schemaVersion: 2, briefId: v2Brief.briefId, provider: { name: 'Open-Meteo', timezone: 'UTC' }, retrievedAtUtc: '2026-08-18T11:00:00.000Z', updatedAtUtc: '2026-08-18T11:00:00.000Z', missionWindow: v2Brief.missionWindow, freshness: 'retained', coverageStatus: 'partial', presentation: { mode: 'aggregated', hourlyThresholdHours: 12 }, operatingPeriods: [{ periodId: 'utc-2026-08-18T12', label: 'Afternoon (UTC)', startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T18:00:00.000Z', timezoneLabel: 'UTC', expectedHourlySlotCount: 6, observedHourlySlotCount: 5, missingHourlySlotCount: 1, coverageStatus: 'partial', temperatureMinF: 70, temperatureMaxF: 75, precipitationProbabilityMax: 40, sustainedWindMinMph: 2, sustainedWindMaxMph: 9, significantCondition: 'Cloudy', provider: 'Open-Meteo', retrievedAtUtc: '2026-08-18T11:00:00.000Z', freshness: 'retained', limitations: ['1 hourly slot is missing'], hourlyObservationIndexes: [0], hourlyObservationTimestampsUtc: ['2026-08-18T12:00:00.000Z'] }], periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', missionApplicable: true, temperatureF: 70, precipitationProbability: 20, windSpeedMph: 2, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }], hourly: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', missionApplicable: true, temperatureF: 70, precipitationProbability: 20, windSpeedMph: 2, windDirectionDegrees: 0, windDirection: 'N', weatherCode: 0, condition: 'Clear Sky' }], limitations: ['1 hourly slot is missing'] };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => { if (String(input) === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) }; if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) }; if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) }; return { ok: false, json: async () => ({ message: 'Unavailable' }) }; }));
