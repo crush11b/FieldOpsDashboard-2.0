@@ -41,7 +41,7 @@ Operations Assistant includes:
 - **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [Version 2.8 changelog](CHANGELOG.md) and the [Version 2.8 operational-intelligence plan](docs/planning/Version-2.8-Operational-Intelligence.md). V2.9 development is underway but unreleased: 2.9-00 through 2.9-08 are complete, 2.9-09 is in progress, and its automated integration gate has passed; update survival, CF-20 acceptance, and release closure remain open. The [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md) records the remaining scope and release boundary.
+See the [Version 2.8 changelog](CHANGELOG.md) and the [Version 2.8 operational-intelligence plan](docs/planning/Version-2.8-Operational-Intelligence.md). V2.9 development is underway but unreleased: 2.9-00 through 2.9-08 are complete, and 2.9-09 automated integration and live CF-20 acceptance have passed. Final release closure remains open. The [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md) records the remaining release boundary, with [automated integration](docs/validation/Version-2.9-09-Automated-Integration-Gate.md) and [live CF-20 acceptance](docs/validation/Version-2.9-09-Field-CF20-Acceptance.md) records.
 
 ## What works today
 

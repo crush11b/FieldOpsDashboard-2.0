@@ -218,7 +218,7 @@ Review and either fix or explicitly defer the individually inventoried stale REA
 
 ### 2.9-09 - Integration, update survival, and CF-20 acceptance
 
-**Progress:** The automated integration gate passed; see the [Version 2.9-09 Automated Integration Gate](../validation/Version-2.9-09-Automated-Integration-Gate.md). Supported update-path survival, restart and rollback survival, persisted App Catalog/configuration survival, CF-20 field acceptance, and final release closure remain open.
+**Progress:** The automated integration gate and live CF-20 acceptance passed; see the [Version 2.9-09 Automated Integration Gate](../validation/Version-2.9-09-Automated-Integration-Gate.md) and [Version 2.9-09 Field and CF-20 Acceptance](../validation/Version-2.9-09-Field-CF20-Acceptance.md). Supported update-path survival, restart and rollback survival, persisted App Catalog/configuration survival, and CF-20 field acceptance are complete. Final release closure remains open.
 
 Integrate accepted slices, prove configuration and catalog survival through update/rollback/restart, and repeat focused CF-20 validation. Acceptance: no unauthorized launch target is accepted, catalog state survives the supported update path, Tray and Dashboard remain usable, offline/unavailable states remain truthful, and the complete 2.9 release gate passes on hardware.
 
