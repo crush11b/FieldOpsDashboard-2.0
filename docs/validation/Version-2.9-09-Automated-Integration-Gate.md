@@ -2,7 +2,7 @@
 
 - Date: **2026-09-13**
 - Baseline: `66cfef9d3147c4312dc46db24591c41728db3c9a`
-- Status: **PASSED**
+- Status: **PASSED; V2.9-09 complete**
 
 ## Automated evidence
 
@@ -34,4 +34,4 @@ The live update and CF-20 acceptance evidence is recorded in [Version 2.9-09 Fie
 
 This record proves the automated integration gate only. No release, version, tag, deployment, or CF-20 acceptance claim is made.
 
-The automated and live V2.9-09 evidence gates are complete. The remaining V2.9 gate is final release closure.
+The automated and live V2.9-09 evidence gates are complete. The final V2.9.0 release-candidate record is [Version 2.9.0 Release Closure](Version-2.9-Release-Closure.md).

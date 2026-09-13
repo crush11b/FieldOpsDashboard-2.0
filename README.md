@@ -20,7 +20,7 @@ The project prioritizes practical single-operator field usefulness, trustworthy 
 
 ## Current release
 
-**Version 2.8.0 - Operational Intelligence release closure**
+**Version 2.9.0 - Field Product Completion release candidate**
 
 This release completes Operational Intelligence on top of the dependable Windows Local Agent and Tray baseline. It is designed for single-operator ToughBook use with local and offline operation, honest source and freshness states, retained activation evidence, mission-aware guidance, and separate modeled, environmental, observed-RF, and station-specific evidence.
 
@@ -41,7 +41,7 @@ Operations Assistant includes:
 - **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [Version 2.8 changelog](CHANGELOG.md) and the [Version 2.8 operational-intelligence plan](docs/planning/Version-2.8-Operational-Intelligence.md). V2.9 development is underway but unreleased: 2.9-00 through 2.9-08 are complete, and 2.9-09 automated integration and live CF-20 acceptance have passed. Final release closure remains open. The [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md) records the remaining release boundary, with [automated integration](docs/validation/Version-2.9-09-Automated-Integration-Gate.md) and [live CF-20 acceptance](docs/validation/Version-2.9-09-Field-CF20-Acceptance.md) records.
+See the [Version 2.9 changelog](CHANGELOG.md) and the [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md). The V2.9.0 release candidate includes completed 2.9-00 through 2.9-09 work, automated integration evidence, and live CF-20 acceptance. The [V2.9 release-closure record](docs/validation/Version-2.9-Release-Closure.md) records the remaining publication boundary.
 
 ## What works today
 
@@ -191,7 +191,7 @@ The supported native artifact publisher and release mechanics are documented wit
 
 ## Project status
 
-FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.8.0 remains the current accepted and published release. V2.9 development is underway but unreleased; its remaining 2.9-08 punch-list and 2.9-09 integration work are not complete release claims. Broader Field Operations Assistant capabilities and the Local/NVIS evaluator remain deferred.
+FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.9.0 is the current release candidate; publication remains pending explicit release authorization. V2.9 development and its 2.9-09 integration work are complete within the documented boundary. Broader Field Operations Assistant capabilities and the Local/NVIS evaluator remain deferred.
 
 Some integrations require local hardware, installed radio applications, configured credentials, or live external services. Modeled, cached, stale, unavailable, and manual values should be interpreted according to their displayed status.
 

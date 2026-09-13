@@ -1,7 +1,7 @@
 Dashboard application launching is handled by the interactive FieldOps Tray companion through the local named pipe `\\.\pipe\FieldOps.Tray.Launcher.v2` using the version-2 launcher protocol. The Tray must be running in the signed-in operator session before dashboard launch buttons can work. The dashboard never accepts an executable path or URI from the browser and never starts processes itself.
 
 ========================================================================
-  FIELDOPS DASHBOARD 2.8.0 - LOCAL / OFFLINE TOUGHBOOK DEPLOYMENT GUIDE
+  FIELDOPS DASHBOARD 2.9.0 - LOCAL / OFFLINE TOUGHBOOK DEPLOYMENT GUIDE
 ========================================================================
 
 HOW TO RUN THE DASHBOARD LOCALLY ON WINDOWS:

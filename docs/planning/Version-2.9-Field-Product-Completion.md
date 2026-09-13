@@ -1,6 +1,6 @@
 # Version 2.9 - Field Product Completion
 
-- Status: **V2.9-08 complete after closure-record acceptance; V2.9-09 is in progress and its automated integration gate has passed; V2.9 remains unreleased**
+- Status: **V2.9.0 release candidate; V2.9-00 through V2.9-09 complete; publication not yet authorized**
 - Baseline: **V2.8.0**, tag `v2.8.0`, peeled commit `a92b3a5e58201a8622ebab138fc7832ca7758b71`
 - Supported deployment: one operator on one locally operated Windows ToughBook/ToughPad
 - Entry branch: `planning/2.9-00-scope-contract`
@@ -218,7 +218,7 @@ Review and either fix or explicitly defer the individually inventoried stale REA
 
 ### 2.9-09 - Integration, update survival, and CF-20 acceptance
 
-**Progress:** The automated integration gate and live CF-20 acceptance passed; see the [Version 2.9-09 Automated Integration Gate](../validation/Version-2.9-09-Automated-Integration-Gate.md) and [Version 2.9-09 Field and CF-20 Acceptance](../validation/Version-2.9-09-Field-CF20-Acceptance.md). Supported update-path survival, restart and rollback survival, persisted App Catalog/configuration survival, and CF-20 field acceptance are complete. Final release closure remains open.
+**Progress:** V2.9-09 automated integration and live CF-20 acceptance passed; see the [Version 2.9-09 Automated Integration Gate](../validation/Version-2.9-09-Automated-Integration-Gate.md) and [Version 2.9-09 Field and CF-20 Acceptance](../validation/Version-2.9-09-Field-CF20-Acceptance.md). Supported update-path survival, restart and rollback survival, persisted App Catalog/configuration survival, and CF-20 field acceptance are complete. V2.9.0 release-candidate closure is recorded in [Version 2.9.0 Release Closure](../validation/Version-2.9-Release-Closure.md).
 
 Integrate accepted slices, prove configuration and catalog survival through update/rollback/restart, and repeat focused CF-20 validation. Acceptance: no unauthorized launch target is accepted, catalog state survives the supported update path, Tray and Dashboard remain usable, offline/unavailable states remain truthful, and the complete 2.9 release gate passes on hardware.
 
@@ -269,4 +269,4 @@ Each slice still requires focused review, acceptance evidence, and product-owner
 
 ## 12. Authorization statement
 
-This document authorizes only the 2.9-00 scope-contract work. No later V2.9 slice is authorized merely by writing this document. Each slice, including 2.9-01, requires separate review and approval before implementation begins.
+This document records the completed V2.9 scope contract and evidence boundary. It does not by itself authorize publication of V2.9.0; release publication requires acceptance of the [Version 2.9.0 Release Closure](../validation/Version-2.9-Release-Closure.md) and a separate authorized release action.
