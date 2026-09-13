@@ -19,3 +19,5 @@ The POTA document is a non-authoritative research and design input. It records u
 - [`planning/Version-2.9-Field-Product-Completion.md`](planning/Version-2.9-Field-Product-Completion.md) - authoritative V2.9 scope and deferred-work reconciliation; later slices still require separate approval
 
 The roadmap and engineering backlog remain authoritative for implementation sequencing after they are reconciled with the approved rebaseline.
+
+The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-List-Closure.md`](validation/Version-2.9-08-Punch-List-Closure.md). It records evidence and final dispositions for every inventoried punch-list item without authorizing release or V2.9-09 work.
