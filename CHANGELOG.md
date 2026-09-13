@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.9.0] - Release candidate closure
+
+Version 2.9.0 completes the Field Product Completion scope for the supported single-operator ToughBook deployment. V2.9-09 automated integration, update survival, restart and rollback, persisted App Catalog/configuration, and live CF-20 acceptance passed.
+
+### Added
+- **Field Product Completion**: The V2.9 App Catalog, launcher, availability, persistence, capability, evidence-foundation, and punch-list work is complete within the documented V2.9 boundary.
+- **Release evidence**: Automated integration and live CF-20 acceptance records document source/native parity, restart behavior, persisted catalog/configuration, and runtime verification.
+
+### Validation
+- V2.9-09 focused and complete-suite validation passed; see the final V2.9 release-closure record.
+- Final release-candidate metadata is 2.9.0; publication remains a separate authorized release action.
+
 ## [2.8.0] - Release closure
 
 Version 2.8.0 completes Operational Intelligence for the supported single-operator ToughBook deployment. Successful CF-20 field acceptance was completed on 2026-09-08.

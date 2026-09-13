@@ -4,7 +4,7 @@
 - Baseline: `4254be395c2aff3873c921c4dba98f8655409460`
 - Target/source/native revision: `3ff84c5d9d13b6dc230fa81c4ab0ff8d35b15a2a`
 - Corrective updater commit: `4254be395c2aff3873c921c4dba98f8655409460`
-- Status: **PASSED; V2.9 remains unreleased pending final release closure**
+- Status: **PASSED; V2.9-09 complete; V2.9.0 release candidate**
 
 ## Initial failure and rollback
 
@@ -35,7 +35,7 @@ PR #72 corrected the updater and was merged as commit `4254be395c2aff3873c921c4d
 - Agent: `Running/Auto`.
 - Tray process count: `1`.
 
-These results close the supported update-path, restart and rollback, persisted App Catalog/configuration, and CF-20 field-acceptance evidence for V2.9-09. They do not authorize a release, version change, tag, or deployment.
+These results close the supported update-path, restart and rollback, persisted App Catalog/configuration, and CF-20 field-acceptance evidence for V2.9-09. The V2.9.0 release-candidate closure is recorded separately; publication remains a separately authorized action.
 
 ## Focused validation
 
