@@ -1,5 +1,5 @@
-// FieldOps Dashboard 2.9.0 — Field Product Completion - Offline Field Service Worker
-const CACHE_NAME = 'fieldops-2.9.0-shell-v1';
+// FieldOps Dashboard 2.9.1 — Deployment Identity and Rollback Safety - Offline Field Service Worker
+const CACHE_NAME = 'fieldops-2.9.1-shell-v1';
 
 const PRECACHE_URLS = [
   '/',

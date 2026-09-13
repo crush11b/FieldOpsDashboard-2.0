@@ -2,7 +2,7 @@
   "productName": "FieldOps Dashboard",
   "productId": "FieldOpsDashboard",
   "packageName": "fieldops-dashboard",
-  "version": "2.9.0",
-  "releaseName": "Field Product Completion",
+  "version": "2.9.1",
+  "releaseName": "Deployment Identity and Rollback Safety",
   "repository": "crush11b/FieldOpsDashboard-2.0"
 }

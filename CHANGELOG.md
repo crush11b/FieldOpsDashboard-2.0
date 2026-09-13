@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [2.9.1] - Deployment identity and rollback safety patch
+
+Version 2.9.1 hardens the V2.9.0 deployment path without changing product scope or native artifact behavior.
+
+### Fixed
+- **Deployment identity**: Production Dashboard startup resolves and validates deployment identity from the installed runtime manifest instead of relying on the process working directory.
+- **Startup safety**: Offline startup passes absolute runtime and manifest paths and verifies the deployment manifest and runtime bundle hash before launch.
+- **Rollback safety**: Updater rollback stops the exact Dashboard process it started and fails closed when any listener remains on port 3000, including IPv4 and IPv6 bindings.
+
+### Validation
+- Release validation results are recorded in the [Version 2.9.1 Release Closure](docs/validation/Version-2.9.1-Release-Closure.md).
+- Version 2.9.0 tags, releases, native artifacts, and historical validation records remain unchanged.
+
 ## [2.9.0] - Release candidate closure
 
 Version 2.9.0 completes the Field Product Completion scope for the supported single-operator ToughBook deployment. V2.9-09 automated integration, update survival, restart and rollback, persisted App Catalog/configuration, and live CF-20 acceptance passed.
