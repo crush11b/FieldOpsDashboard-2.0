@@ -7,6 +7,7 @@ Describe 'FieldOps runtime shutdown' {
             $global:FieldOpsTestServiceStatus = 'Running'
             $global:FieldOpsTestProcesses = @()
             $global:FieldOpsTestStoppedIds = @()
+            $global:FieldOpsTestListeners = @()
 
             Mock Get-Service -ModuleName FieldOps.RuntimeShutdown {
                 if ($global:FieldOpsTestServiceExists) {
@@ -21,11 +22,12 @@ Describe 'FieldOps runtime shutdown' {
             Mock Get-CimInstance -ModuleName FieldOps.RuntimeShutdown {
                 @($global:FieldOpsTestProcesses | Where-Object { $global:FieldOpsTestStoppedIds -notcontains $_.ProcessId })
             }
+            Mock Get-NetTCPConnection -ModuleName FieldOps.RuntimeShutdown { $global:FieldOpsTestListeners }
             Mock Start-Sleep -ModuleName FieldOps.RuntimeShutdown {}
         }
 
     AfterEach {
-            Remove-Variable FieldOpsTestServiceExists, FieldOpsTestServiceStatus, FieldOpsTestProcesses, FieldOpsTestStoppedIds -Scope Global -ErrorAction SilentlyContinue
+            Remove-Variable FieldOpsTestServiceExists, FieldOpsTestServiceStatus, FieldOpsTestProcesses, FieldOpsTestStoppedIds, FieldOpsTestListeners -Scope Global -ErrorAction SilentlyContinue
         }
 
     It 'stops a running FieldOpsAgent service and verifies quiescence' {
@@ -177,6 +179,33 @@ Describe 'FieldOps runtime shutdown' {
                 $global:FieldOpsTestProcesses = @()
                 (Wait-FieldOpsRuntimeQuiescent -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -ServiceName 'FieldOpsAgent' -Timeout ([TimeSpan]::FromSeconds(1))).Processes.Count | Should Be 0
             }
+
+                It 'discovers listeners on loopback, wildcard, and IPv6 addresses' {
+                    $listeners = @(
+                        [pscustomobject]@{ OwningProcess = 401; LocalAddress = '127.0.0.1' },
+                        [pscustomobject]@{ OwningProcess = 402; LocalAddress = '0.0.0.0' },
+                        [pscustomobject]@{ OwningProcess = 403; LocalAddress = '::1' },
+                        [pscustomobject]@{ OwningProcess = 404; LocalAddress = '::' }
+                    )
+                    $processes = @($listeners | ForEach-Object {
+                        [pscustomobject]@{ ProcessId = $_.OwningProcess; CommandLine = "node C:\OtherApplication\$($_.OwningProcess).cjs" }
+                    })
+
+                    $found = Get-FieldOpsPort3000Listeners -PortListenerProvider { $listeners } -ProcessProvider { $processes }
+
+                    @($found).Count | Should Be 4
+                    @($found | Select-Object -ExpandProperty ProcessId) | Should Be @(401, 402, 403, 404)
+                }
+
+                It 'fails closed when an unrecognized loopback port listener remains' {
+                    $global:FieldOpsTestServiceStatus = 'Stopped'
+                    $global:FieldOpsTestListeners = @([pscustomobject]@{ OwningProcess = 999 })
+                    $global:FieldOpsTestProcesses = @([pscustomobject]@{ ProcessId = 999; Name = 'node.exe'; ExecutablePath = 'C:\Program Files\nodejs\node.exe'; CommandLine = 'node C:\OtherApplication\server.cjs' })
+
+                    { Wait-FieldOpsRuntimeQuiescent -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -ServiceName 'FieldOpsAgent' -Timeout ([TimeSpan]::Zero) } |
+                    Should Throw 'Port 3000 listeners: PID 999 CommandLine=[node C:\OtherApplication\server.cjs]'
+                    Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeShutdown -Times 0 -Scope It
+                }
 
     It 'fails with remaining process details when quiescence misses its deadline' {
             $global:FieldOpsTestServiceStatus = 'Stopped'

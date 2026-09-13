@@ -5,9 +5,11 @@ Describe 'UpdateDashboard SHA-256 verification' {
         $source = Get-Content -LiteralPath $updaterPath -Raw
         $helperMatch = [regex]::Match($source, '(?s)function Get-Sha256Hex\s*\{.*?\n\}')
         $artifactMatch = [regex]::Match($source, '(?s)function Assert-P533RuntimeArtifact\s*\{.*?\n\}')
-        if (-not $helperMatch.Success -or -not $artifactMatch.Success) { throw 'Updater verification functions could not be loaded.' }
+        $manifestMatch = [regex]::Match($source, '(?s)function Assert-DeploymentManifest\s*\{.*?\n\}')
+        if (-not $helperMatch.Success -or -not $artifactMatch.Success -or -not $manifestMatch.Success) { throw 'Updater verification functions could not be loaded.' }
         . ([scriptblock]::Create($helperMatch.Value))
         . ([scriptblock]::Create($artifactMatch.Value))
+        . ([scriptblock]::Create($manifestMatch.Value))
         $script:testRoot = Join-Path ([IO.Path]::GetTempPath()) ('fieldops-updater-sha256-' + [Guid]::NewGuid().ToString('N'))
         New-Item -ItemType Directory -Path $script:testRoot -Force | Out-Null
     }
@@ -62,6 +64,46 @@ Describe 'UpdateDashboard SHA-256 verification' {
         [IO.File]::WriteAllText((Join-Path $runtimeRoot 'provenance.json'), (@{ modelVersion = 'model'; dataVersion = 'data'; runtimeNetworkRequired = $false; installedFiles = @{ 'data-a.bin' = Get-Sha256Hex -Path (Join-Path $runtimeRoot 'data-a.bin') } } | ConvertTo-Json -Depth 5))
         [IO.File]::WriteAllText((Join-Path $nativeRoot 'artifact-manifest.json'), (@{ bundles = @(@{ name = 'p533' }) } | ConvertTo-Json -Depth 5))
         Assert-P533RuntimeArtifact -PackageRoot $packageRoot -NativeRoot $nativeRoot -ExpectedRevision ('a' * 40) | Should Be $runtimeRoot
+    }
+}
+
+Describe 'UpdateDashboard deployment manifest validation' {
+    BeforeAll {
+        $script:manifestTestRoot = Join-Path ([IO.Path]::GetTempPath()) ('fieldops-updater-manifest-' + [Guid]::NewGuid().ToString('N'))
+        New-Item -ItemType Directory -Path $script:manifestTestRoot -Force | Out-Null
+    }
+
+    AfterAll {
+        if (Test-Path -LiteralPath $script:manifestTestRoot) { Remove-Item -LiteralPath $script:manifestTestRoot -Recurse -Force }
+    }
+
+    It 'accepts complete identity and matching runtime bundle hash' {
+        $manifestPath = Join-Path $script:manifestTestRoot 'deployment-manifest.json'
+        $bundlePath = Join-Path $script:manifestTestRoot 'server.cjs'
+        [IO.File]::WriteAllText($bundlePath, 'runtime bundle', [Text.UTF8Encoding]::new($false))
+        (@{
+            sourceRevision = 'a' * 40
+            nativeRevision = 'a' * 40
+            informationalVersion = '2.9.0+' + ('a' * 40)
+            runtimeBundleSha256 = Get-Sha256Hex -Path $bundlePath
+        } | ConvertTo-Json) | Set-Content -LiteralPath $manifestPath
+
+        (Assert-DeploymentManifest -ManifestPath $manifestPath -ExpectedRevision ('a' * 40) -RuntimeBundlePath $bundlePath).sourceRevision | Should Be ('a' * 40)
+    }
+
+    It 'rejects missing, malformed, incomplete, mismatched, and hashed bundles' {
+        $bundlePath = Join-Path $script:manifestTestRoot 'validation-server.cjs'
+        [IO.File]::WriteAllText($bundlePath, 'runtime bundle', [Text.UTF8Encoding]::new($false))
+        $manifestPath = Join-Path $script:manifestTestRoot 'validation-manifest.json'
+        { Assert-DeploymentManifest -ManifestPath (Join-Path $script:manifestTestRoot 'missing-manifest.json') -ExpectedRevision ('a' * 40) -RuntimeBundlePath $bundlePath } | Should Throw 'is missing'
+        [IO.File]::WriteAllText($manifestPath, '{not-json', [Text.UTF8Encoding]::new($false))
+        { Assert-DeploymentManifest -ManifestPath $manifestPath -ExpectedRevision ('a' * 40) -RuntimeBundlePath $bundlePath } | Should Throw 'malformed'
+        (@{ sourceRevision = 'a' * 40; nativeRevision = 'a' * 40 } | ConvertTo-Json) | Set-Content -LiteralPath $manifestPath
+        { Assert-DeploymentManifest -ManifestPath $manifestPath -ExpectedRevision ('a' * 40) -RuntimeBundlePath $bundlePath } | Should Throw "missing 'informationalVersion'"
+        (@{ sourceRevision = 'b' * 40; nativeRevision = 'a' * 40; informationalVersion = '2.9.0' } | ConvertTo-Json) | Set-Content -LiteralPath $manifestPath
+        { Assert-DeploymentManifest -ManifestPath $manifestPath -ExpectedRevision ('a' * 40) -RuntimeBundlePath $bundlePath } | Should Throw 'sourceRevision'
+        (@{ sourceRevision = 'a' * 40; nativeRevision = 'a' * 40; informationalVersion = '2.9.0'; runtimeBundleSha256 = '0' * 64 } | ConvertTo-Json) | Set-Content -LiteralPath $manifestPath
+        { Assert-DeploymentManifest -ManifestPath $manifestPath -ExpectedRevision ('a' * 40) -RuntimeBundlePath $bundlePath } | Should Throw 'runtimeBundleSha256'
     }
 }
 

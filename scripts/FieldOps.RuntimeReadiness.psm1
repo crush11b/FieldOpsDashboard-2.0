@@ -99,9 +99,10 @@ function Get-FieldOpsDashboardProcessCandidates {
         [CmdletBinding()]
         param(
             [Parameter(Mandatory = $true)][string]$DashboardRoot,
+            [string]$ManifestPath = (Join-Path $DashboardRoot 'deployment-manifest.json'),
             [int]$StartupProbeMilliseconds = 250,
             [scriptblock]$NodeProvider = { param($Name) Get-Command $Name -ErrorAction SilentlyContinue },
-            [scriptblock]$ProcessStarter = { param($FilePath, $ArgumentList, $WorkingDirectory) Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -PassThru -ErrorAction Stop },
+            [scriptblock]$ProcessStarter = { param($FilePath, $ArgumentList, $WorkingDirectory, $AbsoluteManifestPath) Start-Process -FilePath $FilePath -ArgumentList $ArgumentList -WorkingDirectory $WorkingDirectory -PassThru -ErrorAction Stop },
             [scriptblock]$SleepProvider = { param($Milliseconds) Start-Sleep -Milliseconds $Milliseconds }
         )
 
@@ -109,12 +110,16 @@ function Get-FieldOpsDashboardProcessCandidates {
         if ($null -eq $node) { $node = & $NodeProvider 'node' }
         if ($null -eq $node) { throw 'Node.js executable was not found on PATH.' }
         $serverPath = [IO.Path]::GetFullPath((Join-Path $DashboardRoot 'dist\server.cjs'))
+        $manifestPath = [IO.Path]::GetFullPath($ManifestPath)
         $previousNodeEnv = [Environment]::GetEnvironmentVariable('NODE_ENV', 'Process')
+        $previousManifestEnv = [Environment]::GetEnvironmentVariable('FIELDOPS_DEPLOYMENT_MANIFEST_PATH', 'Process')
         try {
             [Environment]::SetEnvironmentVariable('NODE_ENV', 'production', 'Process')
-            $process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot
+            [Environment]::SetEnvironmentVariable('FIELDOPS_DEPLOYMENT_MANIFEST_PATH', $manifestPath, 'Process')
+            $process = & $ProcessStarter $node.Source @($serverPath) $DashboardRoot $manifestPath
         } finally {
             [Environment]::SetEnvironmentVariable('NODE_ENV', $previousNodeEnv, 'Process')
+            [Environment]::SetEnvironmentVariable('FIELDOPS_DEPLOYMENT_MANIFEST_PATH', $previousManifestEnv, 'Process')
         }
         & $SleepProvider $StartupProbeMilliseconds
         $process.Refresh()
@@ -123,6 +128,28 @@ function Get-FieldOpsDashboardProcessCandidates {
         }
         return $process
     }
+
+function Stop-FieldOpsDashboardProcess {
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory = $true)]$Process,
+        [TimeSpan]$Timeout = [TimeSpan]::FromSeconds(30),
+        [int]$PollMilliseconds = 100
+    )
+
+    $processId = [int]$Process.Id
+    try { $Process.Refresh() } catch { return }
+    if ($Process.HasExited) { return }
+    Stop-Process -Id $processId -Force -ErrorAction Stop
+    $deadline = [DateTime]::UtcNow.Add($Timeout)
+    do {
+        try { $Process.Refresh() } catch { return }
+        if ($Process.HasExited) { return }
+        if ([DateTime]::UtcNow -ge $deadline) { break }
+        Start-Sleep -Milliseconds $PollMilliseconds
+    } while ($true)
+    throw "Dashboard process PID $processId did not exit after it was explicitly stopped."
+}
 
 function ConvertFrom-FieldOpsDashboardVersionResponse {
     param([Parameter(Mandatory = $true)]$Response)
@@ -337,5 +364,4 @@ function Test-FieldOpsRuntimeReadiness {
     }
 }
 
-Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness, Get-FieldOpsDashboardProcessCandidates, ConvertFrom-FieldOpsDashboardVersionResponse
-Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness, Get-FieldOpsDashboardProcessCandidates, Start-FieldOpsDashboardProcess, ConvertFrom-FieldOpsDashboardVersionResponse
+Export-ModuleMember -Function Test-FieldOpsRuntimeReadiness, Test-FieldOpsAgentReadiness, Test-FieldOpsTrayReadiness, Test-FieldOpsDashboardReadiness, Get-FieldOpsDashboardProcessCandidates, Start-FieldOpsDashboardProcess, Stop-FieldOpsDashboardProcess, ConvertFrom-FieldOpsDashboardVersionResponse

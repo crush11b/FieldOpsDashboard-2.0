@@ -17,6 +17,7 @@ echo [+] Press Ctrl+C in this window to stop the server.
 echo.
 
 set "NODE_ENV=production"
+set "FIELDOPS_DEPLOYMENT_MANIFEST_PATH=%~dp0deployment-manifest.json"
 node "%~dp0dist\server.cjs"
 pause
 exit /b %errorlevel%

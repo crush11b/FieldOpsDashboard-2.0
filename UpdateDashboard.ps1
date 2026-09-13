@@ -124,6 +124,26 @@ function Get-Sha256Hex {
     }
 }
 
+function Assert-DeploymentManifest {
+    param(
+        [Parameter(Mandatory = $true)][string]$ManifestPath,
+        [Parameter(Mandatory = $true)][string]$ExpectedRevision,
+        [Parameter(Mandatory = $true)][string]$RuntimeBundlePath
+    )
+
+    if (-not [IO.Path]::IsPathRooted($ManifestPath)) { throw "Deployment manifest path must be absolute: '$ManifestPath'." }
+    if (-not (Test-Path -LiteralPath $ManifestPath -PathType Leaf)) { throw "Deployment manifest '$ManifestPath' is missing." }
+    if (-not (Test-Path -LiteralPath $RuntimeBundlePath -PathType Leaf)) { throw "Runtime bundle '$RuntimeBundlePath' is missing." }
+    try { $manifest = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json } catch { throw "Deployment manifest '$ManifestPath' is malformed: $($_.Exception.Message)" }
+    foreach ($name in @('sourceRevision', 'nativeRevision', 'informationalVersion')) {
+        if ([string]::IsNullOrWhiteSpace([string]$manifest.$name)) { throw "Deployment manifest '$ManifestPath' is missing '$name'." }
+    }
+    if (-not [string]::Equals([string]$manifest.sourceRevision, $ExpectedRevision, [StringComparison]::OrdinalIgnoreCase)) { throw "Deployment manifest sourceRevision '$($manifest.sourceRevision)' does not equal requested revision '$ExpectedRevision'." }
+    if (-not [string]::Equals([string]$manifest.nativeRevision, $ExpectedRevision, [StringComparison]::OrdinalIgnoreCase)) { throw "Deployment manifest nativeRevision '$($manifest.nativeRevision)' does not equal requested revision '$ExpectedRevision'." }
+    if ($manifest.PSObject.Properties['runtimeBundleSha256'] -and -not [string]::Equals([string]$manifest.runtimeBundleSha256, (Get-Sha256Hex -Path $RuntimeBundlePath), [StringComparison]::OrdinalIgnoreCase)) { throw "Deployment manifest runtimeBundleSha256 does not match '$RuntimeBundlePath'." }
+    return $manifest
+}
+
 function Assert-P533RuntimeArtifact {
     param(
         [Parameter(Mandatory = $true)][string]$PackageRoot,
@@ -344,6 +364,7 @@ $runtimeSnapshot = $null
 $runtimeRollbackResult = $null
 $filesystemRollbackSucceeded = $false
 $runtimeMayHaveStarted = $false
+$startedDashboardProcess = $null
 $rollbackQuiescenceSucceeded = $true
 $safeWorkingDirectory = $installParent
 $backupRetentionModule = Join-Path $PSScriptRoot 'scripts\FieldOps.BackupRetention.psm1'
@@ -477,6 +498,8 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "npm install failed with exit code $LASTEXITCODE." }
     & npm run build
     if ($LASTEXITCODE -ne 0) { throw "npm run build failed with exit code $LASTEXITCODE." }
+    $deploymentManifest.runtimeBundleSha256 = Get-Sha256Hex -Path (Join-Path $resolvedInstallPath 'dist\server.cjs')
+    [IO.File]::WriteAllText((Join-Path $resolvedInstallPath 'deployment-manifest.json'), ($deploymentManifest | ConvertTo-Json -Depth 3), (New-Object Text.UTF8Encoding($false)))
 
     Write-Host '[6/8] Publishing and installing the Local Agent and tray...' -ForegroundColor Yellow
     $artifactRoot = Join-Path $resolvedInstallPath 'agent\artifacts\publish\win-x64'
@@ -514,7 +537,8 @@ try {
         Write-Host '[7/8] Starting production Dashboard Server...' -ForegroundColor Green
         Set-Location -LiteralPath $resolvedInstallPath
         Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeReadiness.psm1') -Force
-        Start-FieldOpsDashboardProcess -DashboardRoot $resolvedInstallPath | Out-Null
+        Assert-DeploymentManifest -ManifestPath (Join-Path $resolvedInstallPath 'deployment-manifest.json') -ExpectedRevision $deploymentRevision -RuntimeBundlePath (Join-Path $resolvedInstallPath 'dist\server.cjs') | Out-Null
+        $startedDashboardProcess = Start-FieldOpsDashboardProcess -DashboardRoot $resolvedInstallPath -ManifestPath (Join-Path $resolvedInstallPath 'deployment-manifest.json')
     } else {
         Write-Host '[7/8] Dashboard launch skipped.' -ForegroundColor Gray
     }
@@ -580,6 +604,11 @@ try {
     if ($deploymentStarted -and $runtimeMayHaveStarted -and -not $SkipProcessStop) {
         try {
             Import-Module (Join-Path $resolvedInstallPath 'scripts\FieldOps.RuntimeShutdown.psm1') -Force
+            if ($null -ne $startedDashboardProcess) {
+                Write-Host "[ROLLBACK] Stopping exact updater-started Dashboard PID $($startedDashboardProcess.Id)..." -ForegroundColor Yellow
+                Stop-FieldOpsDashboardProcess -Process $startedDashboardProcess -Timeout ([TimeSpan]::FromSeconds(30))
+                $startedDashboardProcess = $null
+            }
             Write-Host '[ROLLBACK] Quiescing newly started FieldOps runtime before filesystem restore...' -ForegroundColor Yellow
             Invoke-FieldOpsRuntimeShutdown `
                 -DashboardRoot $resolvedInstallPath `
