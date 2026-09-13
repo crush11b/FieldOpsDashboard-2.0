@@ -21,3 +21,5 @@ The POTA document is a non-authoritative research and design input. It records u
 The roadmap and engineering backlog remain authoritative for implementation sequencing after they are reconciled with the approved rebaseline.
 
 The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-List-Closure.md`](validation/Version-2.9-08-Punch-List-Closure.md). It records evidence and final dispositions for every inventoried punch-list item without authorizing release or V2.9-09 work.
+
+The authoritative V2.9-09 automated-integration evidence is [`validation/Version-2.9-09-Automated-Integration-Gate.md`](validation/Version-2.9-09-Automated-Integration-Gate.md). It records the passed automated gate and does not authorize release or deployment.
