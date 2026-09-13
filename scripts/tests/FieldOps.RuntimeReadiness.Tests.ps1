@@ -70,19 +70,32 @@ Describe 'FieldOps runtime readiness' {
     }
 
     It 'starts production Dashboard directly with node and an absolute server path' {
-        $calls = [pscustomobject]@{ FilePath = $null; ArgumentList = $null; WorkingDirectory = $null; NodeEnv = $null }
+        $calls = [pscustomobject]@{ FilePath = $null; ArgumentList = $null; WorkingDirectory = $null; ManifestPath = $null; NodeEnv = $null; ManifestEnv = $null }
         $process = New-Object psobject -Property @{ Id = 701; HasExited = $false; ExitCode = $null }
         $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { }
         $nodeProvider = { param($Name) [pscustomobject]@{ Source = 'C:\Program Files\nodejs\node.exe' } }
-        $starter = { param($FilePath, $ArgumentList, $WorkingDirectory) $calls.FilePath = $FilePath; $calls.ArgumentList = @($ArgumentList); $calls.WorkingDirectory = $WorkingDirectory; $calls.NodeEnv = [Environment]::GetEnvironmentVariable('NODE_ENV', 'Process'); $process }
-        $result = Start-FieldOpsDashboardProcess -DashboardRoot 'C:\FieldOpsDashboard' -NodeProvider $nodeProvider -ProcessStarter $starter -SleepProvider { param($Milliseconds) }
+        $starter = { param($FilePath, $ArgumentList, $WorkingDirectory, $ManifestPath) $calls.FilePath = $FilePath; $calls.ArgumentList = @($ArgumentList); $calls.WorkingDirectory = $WorkingDirectory; $calls.ManifestPath = $ManifestPath; $calls.NodeEnv = [Environment]::GetEnvironmentVariable('NODE_ENV', 'Process'); $calls.ManifestEnv = [Environment]::GetEnvironmentVariable('FIELDOPS_DEPLOYMENT_MANIFEST_PATH', 'Process'); $process }
+        $result = Start-FieldOpsDashboardProcess -DashboardRoot 'C:\FieldOpsDashboard' -ManifestPath 'C:\FieldOpsDashboard\deployment-manifest.json' -NodeProvider $nodeProvider -ProcessStarter $starter -SleepProvider { param($Milliseconds) }
         $result.Id | Should Be 701
         $calls.FilePath | Should Be 'C:\Program Files\nodejs\node.exe'
         $calls.ArgumentList[0] | Should Be 'C:\FieldOpsDashboard\dist\server.cjs'
         $calls.WorkingDirectory | Should Be 'C:\FieldOpsDashboard'
+        $calls.ManifestPath | Should Be 'C:\FieldOpsDashboard\deployment-manifest.json'
+        $calls.ManifestEnv | Should Be 'C:\FieldOpsDashboard\deployment-manifest.json'
         $calls.NodeEnv | Should Be 'production'
         $env:NODE_ENV | Should BeNullOrEmpty
+        $env:FIELDOPS_DEPLOYMENT_MANIFEST_PATH | Should BeNullOrEmpty
         (Get-Content -LiteralPath $updaterPath -Raw) | Should Not Match "Start-Process -FilePath 'npm\.cmd' -ArgumentList 'start'"
+    }
+
+    It 'stops only the exact Dashboard process object returned by startup' {
+        $process = New-Object psobject -Property @{ Id = 706; HasExited = $false; RefreshCount = 0 }
+        $process | Add-Member -MemberType ScriptMethod -Name Refresh -Value { $this.RefreshCount++; if ($this.RefreshCount -gt 1) { $this.HasExited = $true } }
+        Mock Stop-Process -ModuleName FieldOps.RuntimeReadiness {}
+
+        Stop-FieldOpsDashboardProcess -Process $process -Timeout ([TimeSpan]::FromSeconds(1))
+
+        Assert-MockCalled Stop-Process -ModuleName FieldOps.RuntimeReadiness -Times 1 -Scope It -ParameterFilter { $Id -eq 706 }
     }
 
     It 'reports an immediate production Node exit with launch diagnostics' {

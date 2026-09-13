@@ -73,6 +73,7 @@ import { WsjtxListener } from './server/wsjtx';
 import { WsjtxQsoRouter } from './server/wsjtxQsoRouter';
 import { createWsjtxRouter } from './server/wsjtxApi';
 import { WsjtxAdifWatcher } from './server/wsjtxAdifWatcher';
+import { loadDeploymentIdentity } from './server/deploymentIdentity';
 
 const execFileAsync = promisify(execFile);
 const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['scripts/p533-assets.mjs', '--verify-only'], { cwd: process.cwd() }); return { files: 27 }; };
@@ -82,11 +83,8 @@ async function startServer() {
   const PORT = 3000;
   const distPath = path.join(process.cwd(), 'dist');
   const runtimeBundleSha256 = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex');
-  const deploymentManifestPath = path.join(process.cwd(), 'deployment-manifest.json');
-  let runtimeDeploymentIdentity: { sourceRevision?: string; nativeRevision?: string; informationalVersion?: string; deployedAtUtc?: string } = {};
-  try {
-    runtimeDeploymentIdentity = JSON.parse(fs.readFileSync(deploymentManifestPath, 'utf8').replace(/^\uFEFF/, ''));
-  } catch {
+  const runtimeDeploymentIdentity = loadDeploymentIdentity(process.env.FIELDOPS_DEPLOYMENT_MANIFEST_PATH, __filename);
+  if (!runtimeDeploymentIdentity.sourceRevision && !runtimeDeploymentIdentity.nativeRevision && !runtimeDeploymentIdentity.informationalVersion) {
     console.warn('Deployment identity is unavailable at Dashboard startup.');
   }
 

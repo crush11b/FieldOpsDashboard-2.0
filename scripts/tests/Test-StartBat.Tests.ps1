@@ -22,5 +22,8 @@ if ($launcher -notmatch '(?im)exit\s+/b\s+1') {
 if ($launcher -notmatch '(?im)set\s+"NODE_ENV=production"') {
     throw 'start.bat must preserve production startup mode.'
 }
+if ($launcher -notmatch '(?im)set\s+"FIELDOPS_DEPLOYMENT_MANIFEST_PATH=%~dp0deployment-manifest\.json"') {
+    throw 'start.bat must pass the absolute deployment manifest path.'
+}
 
 Write-Output 'start.bat dependency and production-mode checks passed.'

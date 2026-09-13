@@ -54,13 +54,33 @@ function Get-FieldOpsRuntimeState {
     param(
         [Parameter(Mandatory = $true)][string]$DashboardRoot,
         [Parameter(Mandatory = $true)][string]$NativeRoot,
-        [Parameter(Mandatory = $true)][string]$ServiceName
+        [Parameter(Mandatory = $true)][string]$ServiceName,
+        [scriptblock]$PortListenerProvider = { Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue },
+        [scriptblock]$ListenerProcessProvider = { Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue }
     )
 
     $service = Get-Service -Name $ServiceName -ErrorAction SilentlyContinue
     [pscustomobject]@{
         Service = $service
         Processes = @(Get-FieldOpsOwnedRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot)
+        PortListeners = @(Get-FieldOpsPort3000Listeners -PortListenerProvider $PortListenerProvider -ProcessProvider $ListenerProcessProvider)
+    }
+}
+
+function Get-FieldOpsPort3000Listeners {
+    param(
+        [scriptblock]$PortListenerProvider = { Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue },
+        [scriptblock]$ProcessProvider = { Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue }
+    )
+
+    $processes = @(& $ProcessProvider)
+    foreach ($listener in @(& $PortListenerProvider)) {
+        $processId = [int]$listener.OwningProcess
+        $process = $processes | Where-Object { [int]$_.ProcessId -eq $processId } | Select-Object -First 1
+        [pscustomobject]@{
+            ProcessId = $processId
+            CommandLine = if ($null -eq $process) { '<unavailable>' } else { [string]$process.CommandLine }
+        }
     }
 }
 
@@ -84,7 +104,9 @@ function Wait-FieldOpsServiceStopped {
     param(
         [Parameter(Mandatory = $true)][string]$ServiceName,
         [Parameter(Mandatory = $true)][TimeSpan]$Timeout,
-        [int]$PollMilliseconds = 100
+        [int]$PollMilliseconds = 100,
+        [scriptblock]$PortListenerProvider = { Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue },
+        [scriptblock]$ListenerProcessProvider = { Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue }
     )
 
     $deadline = [DateTime]::UtcNow.Add($Timeout)
@@ -158,14 +180,16 @@ function Wait-FieldOpsRuntimeQuiescent {
         [Parameter(Mandatory = $true)][string]$NativeRoot,
         [Parameter(Mandatory = $true)][string]$ServiceName,
         [Parameter(Mandatory = $true)][TimeSpan]$Timeout,
-        [int]$PollMilliseconds = 100
+        [int]$PollMilliseconds = 100,
+        [scriptblock]$PortListenerProvider = { Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue },
+        [scriptblock]$ListenerProcessProvider = { Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue }
     )
 
     $deadline = [DateTime]::UtcNow.Add($Timeout)
     do {
-        $state = Get-FieldOpsRuntimeState -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ServiceName $ServiceName
+        $state = Get-FieldOpsRuntimeState -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ServiceName $ServiceName -PortListenerProvider $PortListenerProvider -ListenerProcessProvider $ListenerProcessProvider
         $serviceRunning = $null -ne $state.Service -and $state.Service.Status -ne [ServiceProcess.ServiceControllerStatus]::Stopped
-        if (-not $serviceRunning -and $state.Processes.Count -eq 0) {
+        if (-not $serviceRunning -and $state.Processes.Count -eq 0 -and $state.PortListeners.Count -eq 0) {
             return $state
         }
         if ([DateTime]::UtcNow -ge $deadline) { break }
@@ -175,7 +199,8 @@ function Wait-FieldOpsRuntimeQuiescent {
     $remaining = @($state.Processes | ForEach-Object { "$($_.Name) PID $($_.ProcessId) [$($_.ExecutablePath)]" })
     $serviceDetail = if ($null -eq $state.Service) { 'absent' } else { [string]$state.Service.Status }
     $processDetail = if ($remaining.Count -eq 0) { 'none' } else { $remaining -join '; ' }
-    throw "FieldOps runtime did not become quiescent before the $([int]$Timeout.TotalSeconds)-second deadline. Service '$ServiceName': $serviceDetail. Remaining processes: $processDetail."
+    $listenerDetail = if ($state.PortListeners.Count -eq 0) { 'none' } else { ($state.PortListeners | ForEach-Object { "PID $($_.ProcessId) CommandLine=[$($_.CommandLine)]" }) -join '; ' }
+    throw "FieldOps runtime did not become quiescent before the $([int]$Timeout.TotalSeconds)-second deadline. Service '$ServiceName': $serviceDetail. Remaining processes: $processDetail. Port 3000 listeners: $listenerDetail."
 }
 
 function Invoke-FieldOpsRuntimeShutdown {
@@ -185,7 +210,9 @@ function Invoke-FieldOpsRuntimeShutdown {
         [Parameter(Mandatory = $true)][string]$NativeRoot,
         [string]$ServiceName = 'FieldOpsAgent',
         [TimeSpan]$Timeout = [TimeSpan]::FromSeconds(30),
-        [switch]$SkipProcessStop
+        [switch]$SkipProcessStop,
+        [scriptblock]$PortListenerProvider = { Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue },
+        [scriptblock]$ListenerProcessProvider = { Get-CimInstance -ClassName Win32_Process -ErrorAction SilentlyContinue }
     )
 
     if ($SkipProcessStop) {
@@ -213,8 +240,8 @@ function Invoke-FieldOpsRuntimeShutdown {
     }
 
     $stoppedProcesses = @(Stop-FieldOpsRuntimeProcesses -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ExcludeAgent)
-    $state = Wait-FieldOpsRuntimeQuiescent -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ServiceName $ServiceName -Timeout $Timeout
+    $state = Wait-FieldOpsRuntimeQuiescent -DashboardRoot $DashboardRoot -NativeRoot $NativeRoot -ServiceName $ServiceName -Timeout $Timeout -PortListenerProvider $PortListenerProvider -ListenerProcessProvider $ListenerProcessProvider
     return [pscustomobject]@{ Status = 'quiescent'; Service = $service; AgentProcessId = $agentProcessId; AgentExitElapsed = $agentExitElapsed; Processes = $stoppedProcesses; FinalState = $state }
 }
 
-Export-ModuleMember -Function Get-FieldOpsOwnedRuntimeProcesses, Get-FieldOpsRuntimeState, Wait-FieldOpsServiceStopped, Wait-FieldOpsAgentProcessExit, Stop-FieldOpsRuntimeProcesses, Wait-FieldOpsRuntimeQuiescent, Invoke-FieldOpsRuntimeShutdown
+Export-ModuleMember -Function Get-FieldOpsOwnedRuntimeProcesses, Get-FieldOpsRuntimeState, Get-FieldOpsPort3000Listeners, Wait-FieldOpsServiceStopped, Wait-FieldOpsAgentProcessExit, Stop-FieldOpsRuntimeProcesses, Wait-FieldOpsRuntimeQuiescent, Invoke-FieldOpsRuntimeShutdown

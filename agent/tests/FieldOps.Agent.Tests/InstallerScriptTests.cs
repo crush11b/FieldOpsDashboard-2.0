@@ -328,12 +328,48 @@ public sealed class InstallerScriptTests
     }
 
     [Fact]
-    public void DeploymentManifestIsWrittenWithoutBomAndVersionEndpointStripsBom()
+    public void DeploymentManifestIsWrittenWithoutBomAndIdentityLoaderStripsBom()
     {
+        var repositoryRoot = GetRepositoryRoot();
         var updater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "UpdateDashboard.ps1"));
-        var server = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "server.ts"));
+        var identityLoader = File.ReadAllText(Path.Combine(repositoryRoot, "server", "deploymentIdentity.ts"));
         Assert.Contains("UTF8Encoding($false)", updater);
-        Assert.Contains("replace(/^\\uFEFF/, '')", server);
+        Assert.Contains("replace(/^\\uFEFF/, '')", identityLoader);
+
+        var manifestPath = Path.Combine(Path.GetTempPath(), $"fieldops-bom-manifest-{Guid.NewGuid():N}.json");
+        var manifest = "{\"sourceRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"nativeRevision\":\"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\",\"informationalVersion\":\"2.9.0+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\"}";
+        File.WriteAllText(manifestPath, "\uFEFF" + manifest, new System.Text.UTF8Encoding(false));
+        try
+        {
+            var script = "import { loadDeploymentIdentity } from './server/deploymentIdentity.ts'; console.log(JSON.stringify(loadDeploymentIdentity(process.argv[1], process.argv[2])));";
+            using var process = new Process();
+            process.StartInfo = new ProcessStartInfo
+            {
+                FileName = "node.exe",
+                WorkingDirectory = repositoryRoot,
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
+            };
+            process.StartInfo.ArgumentList.Add("--import");
+            process.StartInfo.ArgumentList.Add("tsx");
+            process.StartInfo.ArgumentList.Add("--input-type=module");
+            process.StartInfo.ArgumentList.Add("-e");
+            process.StartInfo.ArgumentList.Add(script);
+            process.StartInfo.ArgumentList.Add(manifestPath);
+            process.StartInfo.ArgumentList.Add(Path.Combine(repositoryRoot, "server", "deploymentIdentity.ts"));
+            Assert.True(process.Start());
+            var output = process.StandardOutput.ReadToEnd();
+            var error = process.StandardError.ReadToEnd();
+            process.WaitForExit();
+            Assert.True(process.ExitCode == 0, error);
+            Assert.Contains("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", output);
+            Assert.Contains("2.9.0+aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", output);
+        }
+        finally
+        {
+            File.Delete(manifestPath);
+        }
     }
 
     [Fact]
