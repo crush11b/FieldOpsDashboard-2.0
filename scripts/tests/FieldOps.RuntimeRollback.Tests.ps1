@@ -123,6 +123,20 @@ Describe 'FieldOps runtime rollback state' {
         $snapshot.Dashboard.Processes[0].ProcessId | Should Be 103
     }
 
+    It 'captures a verified legacy Dashboard child as running' {
+        $dashboardProvider = {
+            @(
+                [pscustomobject]@{ Name = 'cmd.exe'; CommandLine = 'cmd /c "C:\FieldOpsDashboard\start.bat"'; ProcessId = 801 },
+                [pscustomobject]@{ Name = 'node.exe'; CommandLine = 'node dist\server.cjs'; ParentProcessId = 801; ProcessId = 802 }
+            )
+        }
+        $snapshot = Get-FieldOpsRuntimeSnapshot -DashboardRoot $script:dashboardRoot -NativeRoot $script:nativeRoot -TrayPath $script:trayPath -OperatorAccount $script:operator -OperatorSid $script:sid `
+            -ServiceProvider { param($Name) $null } -AgentProcessProvider { @() } -SessionProvider { @() } -TrayProcessProvider { @() } -DashboardProcessProvider $dashboardProvider -HttpProvider { param($Uri) throw 'offline' }
+        $snapshot.Dashboard.Running | Should Be $true
+        $snapshot.Dashboard.ProcessCount | Should Be 1
+        $snapshot.Dashboard.Processes[0].ProcessId | Should Be 802
+    }
+
     It 'treats duplicate owned Dashboard servers as not running' {
         $dashboardProvider = {
             @(

@@ -66,14 +66,33 @@ function Get-FieldOpsDashboardProcessCandidates {
         [Parameter(Mandatory = $true)][scriptblock]$ProcessProvider
     )
 
+    $processes = @(& $ProcessProvider)
     $expectedPath = ConvertTo-FieldOpsReadinessPath (Join-Path $DashboardRoot 'dist\server.cjs')
     $pathPattern = [regex]::Escape($expectedPath).Replace('\\', '[/\\]')
     $dashboardPattern = $pathPattern + '(?=[\\/"''\s]|$)'
-    return @(& $ProcessProvider | Where-Object {
-        [string]$_.Name -in @('node.exe', 'node') -and
-        -not [string]::IsNullOrWhiteSpace([string]$_.CommandLine) -and
-        [string]$_.CommandLine -match $dashboardPattern
-    })
+    $rootPattern = [regex]::Escape((ConvertTo-FieldOpsReadinessPath $DashboardRoot)).Replace('\\', '[/\\]') + '(?=[\\/"''\s]|$)'
+    $startPattern = [regex]::Escape((ConvertTo-FieldOpsReadinessPath (Join-Path $DashboardRoot 'start.bat'))).Replace('\\', '[/\\]') + '(?=[\\/"''\s]|$)'
+    $processById = @{}
+    foreach ($process in $processes) {
+        if ($null -ne $process.ProcessId) { $processById[[int]$process.ProcessId] = $process }
+    }
+
+    foreach ($process in $processes) {
+        if ([string]$process.Name -notin @('node.exe', 'node') -or [string]::IsNullOrWhiteSpace([string]$process.CommandLine)) { continue }
+        $commandLine = [string]$process.CommandLine
+        $isAbsoluteDashboard = $commandLine -match $dashboardPattern
+        $isLegacyRelativeDashboard = $commandLine -match '(?i)(^|[\s"''])(?:dist[\\/]server\.cjs)(?=[\s"'']|$)'
+        if (-not $isAbsoluteDashboard -and $isLegacyRelativeDashboard) {
+            $parent = if ($null -ne $process.ParentProcessId) { $processById[[int]$process.ParentProcessId] } else { $null }
+            $isVerifiedParent = $null -ne $parent -and
+                [string]$parent.Name -ieq 'cmd.exe' -and
+                (([string]$parent.CommandLine -match $rootPattern) -or ([string]$parent.CommandLine -match $startPattern))
+            if (-not $isVerifiedParent) { continue }
+        }
+        if ($isAbsoluteDashboard -or $isLegacyRelativeDashboard) {
+            $process
+        }
+    }
 }
 
     function Start-FieldOpsDashboardProcess {

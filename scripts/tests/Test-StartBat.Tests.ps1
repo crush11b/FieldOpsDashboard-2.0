@@ -3,6 +3,10 @@ $ErrorActionPreference = 'Stop'
 $repositoryRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $launcher = Get-Content (Join-Path $repositoryRoot 'start.bat') -Raw
 
+if ($launcher -notmatch 'node\s+"%~dp0dist\\server\.cjs"') {
+    throw 'start.bat must launch the Dashboard server with an absolute script path.'
+}
+
 if ($launcher -match '(?im)^\s*(call\s+)?npm\s+install\b') {
     throw 'start.bat must not install packages during offline startup.'
 }

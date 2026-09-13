@@ -154,6 +154,19 @@ Describe 'FieldOps runtime shutdown' {
             ($global:FieldOpsTestStoppedIds -contains 204) | Should Be $false
         }
 
+        It 'stops a verified legacy Dashboard child before its cmd wrapper' {
+                $global:FieldOpsTestServiceStatus = 'Stopped'
+                $global:FieldOpsTestProcesses = @(
+                    [pscustomobject]@{ Name = 'cmd.exe'; ProcessId = 302; ParentProcessId = 1; ExecutablePath = 'C:\Windows\System32\cmd.exe'; CommandLine = 'cmd /c "C:\FieldOpsDashboard\start.bat"' },
+                    [pscustomobject]@{ Name = 'node.exe'; ProcessId = 301; ParentProcessId = 302; ExecutablePath = 'C:\Program Files\nodejs\node.exe'; CommandLine = 'node dist\server.cjs' }
+                )
+
+                Invoke-FieldOpsRuntimeShutdown -DashboardRoot 'C:\FieldOpsDashboard' -NativeRoot 'C:\Program Files\FieldOpsDashboard' -Timeout ([TimeSpan]::FromSeconds(1))
+
+                $global:FieldOpsTestStoppedIds[0] | Should Be 301
+                $global:FieldOpsTestStoppedIds[1] | Should Be 302
+        }
+
             It 'fails quiescence while direct production Node remains and succeeds after it disappears' {
                 $global:FieldOpsTestServiceStatus = 'Stopped'
                 $global:FieldOpsTestProcesses = @([pscustomobject]@{
