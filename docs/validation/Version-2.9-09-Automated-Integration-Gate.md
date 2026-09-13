@@ -28,14 +28,10 @@ The first PowerShell attempt used incompatible Pester 5 semantics against a lega
 
 PRs #69 and #70 contained test-only QSO heading-selector corrections; production source was unchanged.
 
+The live update and CF-20 acceptance evidence is recorded in [Version 2.9-09 Field and CF-20 Acceptance](Version-2.9-09-Field-CF20-Acceptance.md). It records the initial running-Dashboard failure and rollback, the merged updater correction, successful update/reboot evidence, and post-reboot runtime and catalog verification.
+
 ## Release boundary
 
 This record proves the automated integration gate only. No release, version, tag, deployment, or CF-20 acceptance claim is made.
 
-Remaining V2.9-09 gates are:
-
-- Supported update-path survival
-- Restart and rollback survival
-- Persisted App Catalog/configuration survival
-- CF-20 field acceptance
-- Final release closure
+The automated and live V2.9-09 evidence gates are complete. The remaining V2.9 gate is final release closure.

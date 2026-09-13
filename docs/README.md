@@ -23,3 +23,5 @@ The roadmap and engineering backlog remain authoritative for implementation sequ
 The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-List-Closure.md`](validation/Version-2.9-08-Punch-List-Closure.md). It records evidence and final dispositions for every inventoried punch-list item without authorizing release or V2.9-09 work.
 
 The authoritative V2.9-09 automated-integration evidence is [`validation/Version-2.9-09-Automated-Integration-Gate.md`](validation/Version-2.9-09-Automated-Integration-Gate.md). It records the passed automated gate and does not authorize release or deployment.
+
+The authoritative V2.9-09 live update and CF-20 acceptance evidence is [`validation/Version-2.9-09-Field-CF20-Acceptance.md`](validation/Version-2.9-09-Field-CF20-Acceptance.md). It records the updater correction, successful running-Dashboard update and reboot verification, and the remaining final release-closure boundary.
