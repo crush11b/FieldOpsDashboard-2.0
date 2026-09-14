@@ -11,7 +11,7 @@ export const V3_QSO_ASSOCIATIONS_SCHEMA_VERSION = 1 as const;
 
 export type V3ActivationProgram = 'POTA' | 'SOTA';
 export type V3DomainMigrationStatus =
-  | { readonly status: 'migrated'; readonly activations: V3ActivationStoreDocument; readonly qsos: V3QsoStoreDocument }
+  | { readonly status: 'migrated' | 'current'; readonly activations: V3ActivationStoreDocument; readonly qsos: V3QsoStoreDocument }
   | { readonly status: 'invalid'; readonly reason: string }
   | { readonly status: 'unsupported'; readonly aggregate: 'activations' | 'qsos'; readonly storeVersion: unknown };
 
@@ -68,6 +68,9 @@ export function migrateV2_9_1DomainDocuments(
   activationInput: unknown,
   qsoInput: unknown,
 ): V3DomainMigrationStatus {
+  if (isV3ActivationStoreDocument(activationInput) && isV3QsoStoreDocument(qsoInput)) {
+    return { status: 'current', activations: activationInput, qsos: qsoInput };
+  }
   if (!isRecord(activationInput) || typeof activationInput.storeVersion !== 'number') {
     return { status: 'invalid', reason: 'The V2.9.1 Activation store is malformed.' };
   }
@@ -216,6 +219,32 @@ function normalizeReference(program: V3ActivationProgram, value: unknown): strin
 function entityId(activationId: string, program: V3ActivationProgram, reference: string): string {
   const digest = createHash('sha256').update(`${activationId}|${program}|${reference}`).digest('hex').slice(0, 24);
   return `entity-${digest}`;
+}
+
+function isV3ActivationStoreDocument(value: unknown): value is V3ActivationStoreDocument {
+  return isRecord(value)
+    && value.storeVersion === V3_ACTIVATION_STORE_VERSION
+    && Array.isArray(value.activations)
+    && value.activations.every((activation: unknown) => isRecord(activation)
+      && activation.schemaVersion === V3_ACTIVATION_SCHEMA_VERSION
+      && isStableId(activation.activationId)
+      && isRecord(activation.entityState)
+      && activation.entityState.schemaVersion === V3_ENTITY_STATE_SCHEMA_VERSION
+      && Array.isArray(activation.entityState.entities)
+      && Array.isArray(activation.entityState.activeEntityIds));
+}
+
+function isV3QsoStoreDocument(value: unknown): value is V3QsoStoreDocument {
+  return isRecord(value)
+    && value.storeVersion === V3_QSO_STORE_VERSION
+    && Array.isArray(value.qsos)
+    && value.qsos.every((qso: unknown) => isRecord(qso)
+      && qso.schemaVersion === V3_QSO_SCHEMA_VERSION
+      && isStableId(qso.qsoId)
+      && isStableId(qso.activationId)
+      && isRecord(qso.entityAssociations)
+      && qso.entityAssociations.schemaVersion === V3_QSO_ASSOCIATIONS_SCHEMA_VERSION
+      && Array.isArray(qso.entityAssociations.entities));
 }
 
 function isStableId(value: unknown): value is string {
