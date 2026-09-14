@@ -1,6 +1,6 @@
 # ADR-013: Operating Context and Multi-Entity QSO Associations
 
-- Status: Proposed for V3.0-01
+- Status: Accepted for V3.0-01
 - Date: 2026-09-14
 - Scope: shared operating context, activation entities, and canonical QSO associations
 - Baseline: V2.9.1 at `7e67ed7a1820ce5fa11b57b89cf33808fb07aa3c`
