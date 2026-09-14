@@ -176,7 +176,7 @@ public sealed class WindowsSystemTelemetryProviderTests
         var observation = new NetworkInterfaceObservation("Wi-Fi", "Intel adapter", "Wireless80211", "192.168.1.20", 54_000_000, "FieldNet");
         Assert.Equal("Wireless80211", observation.Type);
         Assert.Equal("FieldNet", observation.Ssid);
-        Assert.Null(observation with { Ssid = null }.Ssid);
+        Assert.Null((observation with { Ssid = null }).Ssid);
     }
 
     private sealed class Fake(NativePowerStatus? value) : IWindowsPowerStatus
