@@ -55,7 +55,7 @@ public sealed class WindowsPowerStatus : IWindowsPowerStatus
 
 public sealed class WindowsSystemMetrics(IWifiSsidProvider? wifiSsidProvider = null) : IWindowsSystemMetrics
 {
-    private readonly IWifiSsidProvider wifiSsidProvider = wifiSsidProvider ?? new WindowsWifiSsidProvider();
+    private readonly IWifiSsidProvider _wifiSsidProvider = wifiSsidProvider ?? new WindowsWifiSsidProvider();
     [StructLayout(LayoutKind.Sequential)] private struct FileTime { public uint Low; public uint High; }
     [StructLayout(LayoutKind.Sequential)] private struct MemoryStatus { public uint Length; public uint MemoryLoad; public ulong Total; public ulong Available; public ulong PageFileTotal; public ulong PageFileAvailable; public ulong VirtualTotal; public ulong VirtualAvailable; public ulong AvailableExtendedVirtual; }
     [DllImport("kernel32.dll")] private static extern bool GetSystemTimes(out FileTime idle, out FileTime kernel, out FileTime user);
