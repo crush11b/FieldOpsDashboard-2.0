@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatWeatherHour, isSupportedTimeZone } from '../weatherTime';
+import { formatWeatherHour, isSupportedTimeZone, weatherConditionLabel } from '../weatherTime';
 
 describe('weather presentation time', () => {
   it('converts UTC into America/New_York standard time', () => {
@@ -24,5 +24,17 @@ describe('weather presentation time', () => {
     expect(formatWeatherHour('not-a-time', 'America/New_York')).toBe('not-a-time');
     expect(formatWeatherHour('2026-09-14T18:00:00.000Z', 'not/a-zone')).toBe('2026-09-14T18:00:00.000Z');
     expect(isSupportedTimeZone('not/a-zone')).toBe(false);
+  });
+  it('maps WMO weather codes without inventing unknown conditions', () => {
+    expect(weatherConditionLabel(0)).toBe('Clear');
+    expect(weatherConditionLabel(2)).toBe('Partly cloudy');
+    expect(weatherConditionLabel(3)).toBe('Overcast');
+    expect(weatherConditionLabel(48)).toBe('Fog');
+    expect(weatherConditionLabel(65)).toBe('Rain');
+    expect(weatherConditionLabel(75)).toBe('Snow');
+    expect(weatherConditionLabel(95)).toBe('Thunderstorms');
+    expect(weatherConditionLabel(99)).toBe('Thunderstorms / hail');
+    expect(weatherConditionLabel(999)).toBe('Unknown');
+    expect(weatherConditionLabel(Number.NaN)).toBe('Unknown');
   });
 });
