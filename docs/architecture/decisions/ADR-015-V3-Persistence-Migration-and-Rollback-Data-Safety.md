@@ -1,6 +1,6 @@
 # ADR-015: V3 Persistence Migration and Rollback Data Safety
 
-- Status: Proposed for V3.0-01
+- Status: Accepted for V3.0-01
 - Date: 2026-09-14
 - Scope: V2.9.1-to-V3 schema migration, compatibility, corruption, backup, and rollback data behavior
 
