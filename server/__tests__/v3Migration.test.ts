@@ -81,8 +81,8 @@ describe('V3 migration backup foundation', () => {
       targetProductVersion: '3.0.0',
       files: [
         { relativePath: 'dashboard-config.json', existed: true },
-        { relativePath: path.normalize('records/activations.json'), existed: true },
         { relativePath: 'qsos.json', existed: false, sizeBytes: null, sha256: null },
+        { relativePath: path.normalize('records/activations.json'), existed: true },
       ],
     });
     expect(created.manifest.files.filter(file => file.existed).every(file => /^[a-f0-9]{64}$/.test(file.sha256!))).toBe(true);
