@@ -11,6 +11,9 @@ The active product strategy is defined by:
 - [`planning/Version-3.0-Field-Operations-Assistant.md`](planning/Version-3.0-Field-Operations-Assistant.md) - authoritative V3.0 scope, architecture, migration, sequencing, and acceptance contract
 - [`planning/FieldOpsDashboard_Project_Rebaseline_2026.md`](planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
 - [`architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md`](architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md)
+- [`architecture/decisions/ADR-013-Operating-Context-and-Multi-Entity-QSO-Associations.md`](architecture/decisions/ADR-013-Operating-Context-and-Multi-Entity-QSO-Associations.md) - accepted V3.0 operating-context and QSO-association contract
+- [`architecture/decisions/ADR-014-Equipment-Inventory-Loadouts-and-Historical-Snapshots.md`](architecture/decisions/ADR-014-Equipment-Inventory-Loadouts-and-Historical-Snapshots.md) - accepted V3.0 inventory/loadout contract
+- [`architecture/decisions/ADR-015-V3-Persistence-Migration-and-Rollback-Data-Safety.md`](architecture/decisions/ADR-015-V3-Persistence-Migration-and-Rollback-Data-Safety.md) - accepted V3.0 migration and rollback-data contract
 
 These documents preserve the existing architecture while reprioritizing delivery around a usable single-operator field product. Multi-user, enterprise, fleet, remote-administration, signing, and advanced hardening work remain documented future capabilities but do not block the current MVP.
 
