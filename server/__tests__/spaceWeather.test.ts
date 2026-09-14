@@ -115,7 +115,6 @@ describe('NOAA space-weather evidence', () => {
 
     expect(result.products.f107).toMatchObject({ state: 'live', value: 122 });
     expect(result.products.kp.state).toBe('unavailable');
-    expect(result.modelSsn?.state).toBe('unavailable');
     expect(result.products.kp.value).toBeUndefined();
     expect(result.products.xray).toMatchObject({ state: 'live', value: 'C2.1' });
   });
@@ -188,6 +187,7 @@ describe('NOAA space-weather evidence', () => {
     const result = await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => NOW, fetcher: async () => { throw new Error('offline'); } });
     expect(result.products.f107.state).toBe('unavailable');
     expect(result.products.kp.state).toBe('unavailable');
+    expect(result.modelSsn?.state).toBe('unavailable');
   });
 
   it('does not fabricate values when live and cache are unavailable', async () => {
