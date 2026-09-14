@@ -161,6 +161,24 @@ public sealed class WindowsSystemTelemetryProviderTests
         Assert.Null(result.Memory);
     }
 
+    [Fact]
+    public void DecodesObservedUtf8SsidWithoutInventingIdentity()
+    {
+        Assert.Equal("FieldNet", WifiSsid.Decode(System.Text.Encoding.UTF8.GetBytes("FieldNet"), 8));
+        Assert.Null(WifiSsid.Decode(Array.Empty<byte>(), 0));
+        Assert.Null(WifiSsid.Decode(new byte[33], 33));
+        Assert.Null(WifiSsid.Decode(new byte[] { 0x01 }, 1));
+    }
+
+    [Fact]
+    public void NetworkObservationSerializesNullableSsidSeparatelyFromAdapterType()
+    {
+        var observation = new NetworkInterfaceObservation("Wi-Fi", "Intel adapter", "Wireless80211", "192.168.1.20", 54_000_000, "FieldNet");
+        Assert.Equal("Wireless80211", observation.Type);
+        Assert.Equal("FieldNet", observation.Ssid);
+        Assert.Null(observation with { Ssid = null }.Ssid);
+    }
+
     private sealed class Fake(NativePowerStatus? value) : IWindowsPowerStatus
     {
         public bool TryGet(out NativePowerStatus status) { status = value ?? default; return value.HasValue; }
