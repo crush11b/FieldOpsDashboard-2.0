@@ -8,6 +8,9 @@ import {
   isPreV3BackupManifest,
   readAndVerifyPreV3Backup,
   restorePreV3Snapshot,
+  V2_9_1_OPERATOR_DATA_FILES,
+  V3_DOMAIN_MIGRATION_FILES,
+  v3MigrationBackupFileSet,
 } from '../v3Migration';
 
 const roots: string[] = [];
@@ -30,6 +33,30 @@ function workspace() {
 const fixedNow = () => new Date('2026-09-14T16:00:00.000Z');
 
 describe('V3 migration backup foundation', () => {
+  it('enumerates the complete V2.9.1 local operator-data backup set without secrets', () => {
+    expect(V2_9_1_OPERATOR_DATA_FILES).toEqual([
+      'dashboard-config.json',
+      'smartdeploy-briefs.json',
+      'activation-notes.json',
+      'field-readiness-checklists.json',
+      'mission-forecasts.json',
+      'space-weather-snapshots.json',
+      'activations.json',
+      'qsos.json',
+      'operational-intelligence.json',
+      'space-weather-cache.json',
+      'observed-rf-cache.json',
+      'sota-summits.json',
+    ]);
+    expect(V3_DOMAIN_MIGRATION_FILES).toEqual(['activations.json', 'qsos.json']);
+    expect(v3MigrationBackupFileSet()).toEqual([
+      ...V2_9_1_OPERATOR_DATA_FILES,
+      'equipment-inventory.json',
+      'loadouts.json',
+    ].sort((left, right) => left.localeCompare(right)));
+    expect(v3MigrationBackupFileSet()).not.toContain('telemetry-credentials.json');
+  });
+
   it('creates an immutable, hashed manifest for present and absent V2.9.1 stores', () => {
     const work = workspace();
     fs.writeFileSync(path.join(work.sourceDirectory, 'dashboard-config.json'), '{"version":1}\n');
