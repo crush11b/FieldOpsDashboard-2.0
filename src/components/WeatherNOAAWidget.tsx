@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
 import { ExternalDataStatus, NOAAAlert, UIThemeMode, WeatherData } from '../types';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
-import { formatWeatherHour, resolveOperatorTimeZone } from '../utils/weatherTime';
+import { formatWeatherHour, resolveOperatorTimeZone, weatherConditionLabel } from '../utils/weatherTime';
 
 interface WeatherNOAAWidgetProps {
   weather: WeatherData | null;
@@ -248,12 +248,11 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           {hourlyList.map((item, idx) => (
             <div key={idx} className="p-1.5 rounded-lg border border-zinc-800/80 bg-zinc-900/60 text-center space-y-0.5">
               <span className="text-[10px] font-extrabold text-cyan-300 block">{formatWeatherHour(item.utcTime ?? item.time, operatorTimeZone)}</span>
+              <span className="text-[9px] font-bold leading-tight text-zinc-300 block" title={weatherConditionLabel(item.weatherCode)}>{weatherConditionLabel(item.weatherCode)}</span>
               <span className="text-xs font-black text-zinc-100 block">{item.tempF}°F</span>
               <div className="flex items-center justify-center gap-1 text-[9px] text-zinc-400">
                 <span>{item.windMph}mph</span>
-                {item.precipProb > 0 && (
-                  <span className="text-sky-400 font-bold">💧{item.precipProb}%</span>
-                )}
+                <span className="text-sky-400 font-bold" aria-label={`Precipitation ${item.precipProb}%`}>💧{item.precipProb}%</span>
               </div>
             </div>
           ))}
