@@ -8,6 +8,7 @@ The `planning/` directory contains the development roadmap, engineering backlog,
 
 The active product strategy is defined by:
 
+- [`planning/Version-3.0-Field-Operations-Assistant.md`](planning/Version-3.0-Field-Operations-Assistant.md) - authoritative V3.0 scope, architecture, migration, sequencing, and acceptance contract
 - [`planning/FieldOpsDashboard_Project_Rebaseline_2026.md`](planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
 - [`architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md`](architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md)
 
@@ -18,7 +19,7 @@ The POTA document is a non-authoritative research and design input. It records u
 - [`planning/Version-2.4-POTA-Activation-Target-Decision.md`](planning/Version-2.4-POTA-Activation-Target-Decision.md) - non-authoritative research input; the approved Version 2.4 product boundary is recorded in the rebaseline
 - [`planning/Version-2.9-Field-Product-Completion.md`](planning/Version-2.9-Field-Product-Completion.md) - authoritative completed V2.9 scope and deferred-work reconciliation
 
-The roadmap and engineering backlog remain authoritative for implementation sequencing after they are reconciled with the approved rebaseline.
+The historical roadmap and engineering backlogs remain inputs only after reconciliation with the approved rebaseline, accepted ADRs, completed V2.9 record, and the authoritative V3.0 contract. Historical entries do not reopen completed work.
 
 The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-List-Closure.md`](validation/Version-2.9-08-Punch-List-Closure.md). It records evidence and final dispositions for every inventoried punch-list item while preserving the historical V2.8 boundary.
 
@@ -26,4 +27,4 @@ The authoritative V2.9-09 automated-integration evidence is [`validation/Version
 
 The authoritative V2.9-09 live update and CF-20 acceptance evidence is [`validation/Version-2.9-09-Field-CF20-Acceptance.md`](validation/Version-2.9-09-Field-CF20-Acceptance.md). It records the updater correction, successful running-Dashboard update and reboot verification.
 
-The final V2.9.0 release-candidate record is [`validation/Version-2.9-Release-Closure.md`](validation/Version-2.9-Release-Closure.md). It records the completed release gates and the separate authorization boundary for publication.
+The V2.9.0 release-candidate record is [`validation/Version-2.9-Release-Closure.md`](validation/Version-2.9-Release-Closure.md). The accepted V2.9.1 patch baseline is recorded in [`validation/Version-2.9.1-Release-Closure.md`](validation/Version-2.9.1-Release-Closure.md). V3.0 begins from tag `v2.9.1` at commit `7e67ed7a1820ce5fa11b57b89cf33808fb07aa3c`.
