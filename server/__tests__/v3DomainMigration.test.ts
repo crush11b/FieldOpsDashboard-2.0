@@ -120,13 +120,21 @@ describe('V2.9.1 Activation and QSO domain migration', () => {
     expect(result.qsos.qsos[1].entityAssociations.entities).toEqual([]);
   });
 
-  it('is deterministic across repeated transformation of the same V2.9.1 documents', () => {
+  it('is deterministic and recognizes its validated output as current on rerun', () => {
     const [activations, qsos] = documents();
-    expect(migrateV2_9_1DomainDocuments(activations, qsos)).toEqual(migrateV2_9_1DomainDocuments(activations, qsos));
+    const first = migrateV2_9_1DomainDocuments(activations, qsos);
+    expect(first).toEqual(migrateV2_9_1DomainDocuments(activations, qsos));
+    expect(first.status).toBe('migrated');
+    if (first.status !== 'migrated') return;
+    expect(migrateV2_9_1DomainDocuments(first.activations, first.qsos)).toEqual({
+      status: 'current',
+      activations: first.activations,
+      qsos: first.qsos,
+    });
   });
 
   it('fails the whole transform for malformed references or duplicate stable IDs', () => {
-    const [_, qsos] = documents();
+    const [, qsos] = documents();
     expect(migrateV2_9_1DomainDocuments(
       { storeVersion: 2, activations: [activation({ reference: 'not-a-park' })] },
       qsos,
