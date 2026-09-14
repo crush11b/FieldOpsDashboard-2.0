@@ -115,6 +115,7 @@ describe('NOAA space-weather evidence', () => {
 
     expect(result.products.f107).toMatchObject({ state: 'live', value: 122 });
     expect(result.products.kp.state).toBe('unavailable');
+    expect(result.modelSsn?.state).toBe('unavailable');
     expect(result.products.kp.value).toBeUndefined();
     expect(result.products.xray).toMatchObject({ state: 'live', value: 'C2.1' });
   });
@@ -182,6 +183,7 @@ describe('NOAA space-weather evidence', () => {
     fs.writeFileSync(filePath, JSON.stringify({
       f107: { value: {}, observedAt: 'not-a-time', receivedAt: NOW.toISOString() },
       kp: { value: true, observedAt: NOW.toISOString(), receivedAt: 'not-a-time' },
+      modelSsn: { value: 91.2, observedAt: '2026-09-01T00:00:00.000Z', receivedAt: NOW.toISOString(), modelBasis: 'invented', effectiveMonth: '2026-09' },
     }));
     const result = await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => NOW, fetcher: async () => { throw new Error('offline'); } });
     expect(result.products.f107.state).toBe('unavailable');
