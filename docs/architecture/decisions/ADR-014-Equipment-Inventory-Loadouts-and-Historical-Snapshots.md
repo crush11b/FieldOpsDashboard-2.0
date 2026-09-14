@@ -1,6 +1,6 @@
 # ADR-014: Equipment Inventory, Loadouts, and Historical Snapshots
 
-- Status: Proposed for V3.0-01
+- Status: Accepted for V3.0-01
 - Date: 2026-09-14
 - Scope: operator-managed equipment facts, reusable loadouts, and retained mission snapshots
 
