@@ -4,6 +4,38 @@ import { createHash, randomUUID } from 'node:crypto';
 
 export const V3_MIGRATION_MANIFEST_VERSION = 1 as const;
 
+
+export const V2_9_1_OPERATOR_DATA_FILES = [
+  'dashboard-config.json',
+  'smartdeploy-briefs.json',
+  'activation-notes.json',
+  'field-readiness-checklists.json',
+  'mission-forecasts.json',
+  'space-weather-snapshots.json',
+  'activations.json',
+  'qsos.json',
+  'operational-intelligence.json',
+  'space-weather-cache.json',
+  'observed-rf-cache.json',
+  'sota-summits.json',
+] as const;
+
+export type V2_9_1OperatorDataFile = typeof V2_9_1_OPERATOR_DATA_FILES[number];
+
+export const V3_DOMAIN_MIGRATION_FILES = [
+  'activations.json',
+  'qsos.json',
+] as const satisfies readonly V2_9_1OperatorDataFile[];
+
+export const V3_NEW_DATA_FILES = [
+  'equipment-inventory.json',
+  'loadouts.json',
+] as const;
+
+export function v3MigrationBackupFileSet(): readonly string[] {
+  return [...V2_9_1_OPERATOR_DATA_FILES, ...V3_NEW_DATA_FILES].sort((left, right) => left.localeCompare(right));
+}
+
 export interface MigrationFileRecord {
   readonly relativePath: string;
   readonly existed: boolean;
