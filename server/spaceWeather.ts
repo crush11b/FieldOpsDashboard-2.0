@@ -189,10 +189,18 @@ function readCache(filePath: string): CacheFile {
 }
 
 function isCacheRecord(value: unknown): value is CacheRecord {
-  return isRecord(value)
-    && (typeof value.value === 'string' || value.value === null || (typeof value.value === 'number' && Number.isFinite(value.value)))
-    && timestamp(value.observedAt) !== null
-    && timestamp(value.receivedAt) !== null;
+  if (!isRecord(value)
+    || !(typeof value.value === 'string' || value.value === null || (typeof value.value === 'number' && Number.isFinite(value.value)))
+    || timestamp(value.observedAt) === null
+    || timestamp(value.receivedAt) === null) return false;
+  const hasModelBasis = value.modelBasis !== undefined;
+  const hasEffectiveMonth = value.effectiveMonth !== undefined;
+  if (hasModelBasis !== hasEffectiveMonth) return false;
+  if (!hasModelBasis) return true;
+  return (value.modelBasis === 'observed_smoothed' || value.modelBasis === 'predicted_smoothed')
+    && typeof value.effectiveMonth === 'string'
+    && /^\d{4}-(0[1-9]|1[0-2])$/.test(value.effectiveMonth)
+    && value.observedAt.slice(0, 7) === value.effectiveMonth;
 }
 
 function writeCache(filePath: string, cache: CacheFile): void {
