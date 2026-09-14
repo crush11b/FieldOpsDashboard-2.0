@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { getProductUserAgent } from '../../src/productMetadata';
-import { getSpaceWeatherSnapshot, parseF107, parseKp, parseModelSsn, parseRScale, parseSsn, parseXray, SpaceWeatherService } from '../spaceWeather';
+import { getSpaceWeatherSnapshot, parseF107, parseKp, parseModelSsn, parsePredictedModelSsn, parseRScale, parseSsn, parseXray, SpaceWeatherService } from '../spaceWeather';
 
 const NOW = new Date('2026-08-17T03:00:00.000Z');
 const temporaryDirectories: string[] = [];
@@ -20,6 +20,7 @@ function jsonResponse(body: unknown, ok = true): Response {
 
 function payloadFor(url: string): unknown {
   if (url.includes('f107')) return [{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: '2026-08-16T22:00:00', flux: 122 }];
+  if (url.includes('predicted-solar-cycle')) return [{ 'time-tag': '2026-09', predicted_ssn: 91.2 }];
   if (url.includes('solar-cycle')) return [{ 'time-tag': '2026-08', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }];
   if (url.includes('planetary')) return [{ time_tag: '2026-08-17T00:00:00', Kp: 2.33, a_running: 8, station_count: 8 }];
   if (url.includes('scales')) return { '0': { DateStamp: '2026-08-17', TimeStamp: '02:24:00', R: { Scale: '1' } } };
@@ -35,7 +36,9 @@ describe('NOAA space-weather evidence', () => {
     expect(parseF107([{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: 'bad', flux: 900 }])).toMatchObject({ value: 129 });
     expect(parseSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83 }])).toMatchObject({ value: 106.83 });
     expect(parseModelSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }])).toMatchObject({ value: 109.5 });
-    expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }, { 'time-tag': '2026-07', smoothed_ssn: -1 }])).toMatchObject({ value: 109.5, observedAt: '2026-06-01T00:00:00.000Z' });
+    expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }, { 'time-tag': '2026-07', smoothed_ssn: -1 }])).toMatchObject({ value: 109.5, observedAt: '2026-06-01T00:00:00.000Z', modelBasis: 'observed_smoothed', effectiveMonth: '2026-06' });
+    expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }], new Date('2026-07-10T00:00:00Z'))).toBeNull();
+    expect(parsePredictedModelSsn([{ 'time-tag': '2026-09', predicted_ssn: 91.2 }], new Date('2026-09-14T00:00:00Z'))).toMatchObject({ value: 91.2, modelBasis: 'predicted_smoothed', effectiveMonth: '2026-09' });
     expect(parseKp([{ time_tag: '2026-08-17T00:00:00', Kp: 2.33 }])).toMatchObject({ value: 2.33 });
     expect(parseRScale({ '0': { DateStamp: '2026-08-17', TimeStamp: '02:24:00', R: { Scale: '1' } } })).toMatchObject({ value: 1 });
     expect(parseXray([{ time_tag: '2026-08-17T02:23:00Z', current_class: 'C2.1' }])).toMatchObject({ value: 'C2.1' });
@@ -51,6 +54,57 @@ describe('NOAA space-weather evidence', () => {
       String(input).includes('f107') ? [{ time_tag: '2026-07-01T20:00:00', flux: 122 }] : payloadFor(String(input)),
     ) });
     expect(stale.products.f107).toMatchObject({ state: 'stale', observedAt: '2026-07-01T20:00:00.000Z' });
+  });
+
+  it('uses a month-aligned predicted R12 during the definitive smoothing gap', async () => {
+    const modelDate = new Date('2026-09-14T12:00:00.000Z');
+    const result = await getSpaceWeatherSnapshot({
+      cachePath: cachePath(),
+      now: () => modelDate,
+      modelDate,
+      fetcher: async input => jsonResponse(payloadFor(String(input))),
+    });
+
+    expect(result.modelSsn).toMatchObject({
+      value: 91.2,
+      state: 'live',
+      modelInput: {
+        semanticBasis: 'noaa_predicted_smoothed_monthly_ssn',
+        validity: 'long_lived_model_input',
+        basis: 'predicted_smoothed',
+        effectiveMonth: '2026-09',
+      },
+    });
+  });
+
+  it('bases retained model-input freshness on receipt age and never substitutes another month', async () => {
+    const filePath = cachePath();
+    const modelDate = new Date('2026-09-14T12:00:00.000Z');
+    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => modelDate, modelDate, fetcher: async input => jsonResponse(payloadFor(String(input))) });
+
+    const cached = await getSpaceWeatherSnapshot({
+      cachePath: filePath,
+      now: () => new Date('2026-09-15T12:00:00.000Z'),
+      modelDate,
+      fetcher: async () => { throw new Error('offline'); },
+    });
+    expect(cached.modelSsn).toMatchObject({ state: 'cached', value: 91.2, modelInput: { effectiveMonth: '2026-09' } });
+
+    const stale = await getSpaceWeatherSnapshot({
+      cachePath: filePath,
+      now: () => new Date('2026-10-31T12:00:00.000Z'),
+      modelDate,
+      fetcher: async () => { throw new Error('offline'); },
+    });
+    expect(stale.modelSsn?.state).toBe('stale');
+
+    const wrongMonth = await getSpaceWeatherSnapshot({
+      cachePath: filePath,
+      now: () => new Date('2026-09-15T12:00:00.000Z'),
+      modelDate: new Date('2026-10-01T00:00:00.000Z'),
+      fetcher: async () => { throw new Error('offline'); },
+    });
+    expect(wrongMonth.modelSsn?.state).toBe('unavailable');
   });
 
   it('keeps valid products live when one NOAA product fails', async () => {
