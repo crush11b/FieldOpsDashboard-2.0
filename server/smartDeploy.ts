@@ -146,7 +146,7 @@ export class SmartDeployService {
         ...baseEvidence,
         limitations: [
           ...baseEvidence.limitations,
-          'Propagation modeling uses a long-lived smoothed monthly SSN model input; mission-window space-weather forecasting is not included in Slice 1.',
+          'Propagation modeling uses a month-aligned long-lived smoothed monthly SSN model input; transient mission-window space-weather forecasting is not included.',
           ...(resolution.status === 'stale' ? [targetRequest.program === 'SOTA' ? 'SOTA summit data is stale and was used from the local dataset.' : 'POTA target data is stale and was used without a successful refresh.'] : []),
         ],
       };
