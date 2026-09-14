@@ -132,7 +132,16 @@ function isWeatherDataForDisplay(value: unknown, live: boolean): boolean {
 }
 
 function isHourlyForecastItem(value: unknown): boolean {
-  return isRecord(value) && isNonemptyString(value.time, 64) && isFiniteNumber(value.tempF) && isFiniteNumber(value.precipProb);
+  return isRecord(value)
+    && isUtcTimestamp(value.startsAtUtc)
+    && isFiniteNumber(value.tempF)
+    && isFiniteNumber(value.precipProb);
+}
+
+function isUtcTimestamp(value: unknown): boolean {
+  return typeof value === 'string'
+    && value.endsWith('Z')
+    && Number.isFinite(Date.parse(value));
 }
 
 function isAlertsForDisplay(value: unknown): boolean {

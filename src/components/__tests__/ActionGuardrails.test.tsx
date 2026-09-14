@@ -72,8 +72,8 @@ describe('misleading action guardrails', () => {
     );
 
     expect(markup).toContain('id="header-network-status"');
-    expect(markup).toContain('aria-label="Network status: Unavailable"');
-    expect(markup).toContain('Unavailable');
+    expect(markup).toContain('aria-label="Network status: Network telemetry unavailable"');
+    expect(markup).toContain('Network telemetry unavailable');
     expect(markup).not.toContain('btn-header-network-toggle');
   });
 

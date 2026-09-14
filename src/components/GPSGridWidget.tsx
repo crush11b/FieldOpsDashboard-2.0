@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Navigation, MapPin, Satellite, Edit2, Check, RefreshCw, Compass, Lock, Unlock, ChevronDown } from 'lucide-react';
-import { GPSProvenance, GPSStatus, UIThemeMode, latLonToGridSquare, gridSquareToLatLon } from '../types';
+import { GPSProvenance, GPSStatus, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
 import { parseCoordinates, resolveGpsCoordinates } from '../location/coordinates';
+import { gridSquareToLatLon, latLonToGridSquare } from '../location/maidenhead';
 import type { ClockSynchronizationEvidence, GnssRecoveryResult, GnssSerialDiagnostics } from '../../server/locationTelemetryPipe';
 import { recoverGnss } from '../gnssRecoveryApi';
 
@@ -378,11 +379,11 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
               </div>
 
               <div>
-                <label className="block text-[10px] uppercase opacity-75 mb-0.5 font-bold text-emerald-400">Direct 4/6-Digit Grid Square (e.g. FM17hd, CN87, DM79)</label>
+                <label className="block text-[10px] uppercase opacity-75 mb-0.5 font-bold text-emerald-400">Direct 4/6/8-Character Grid Square (e.g. FM17hd, CN87, DM79hd12)</label>
                 <input
                   id="input-gps-grid-square"
                   type="text"
-                  maxLength={6}
+                  maxLength={8}
                   value={inputGrid}
                   onChange={(e) => {
                     const val = e.target.value;

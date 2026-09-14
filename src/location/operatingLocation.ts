@@ -6,7 +6,7 @@ import {
   type CoordinateProvenance,
   type Coordinates,
 } from './coordinates';
-import { latLonToGridSquare } from '../types';
+import { latLonToGridSquare } from './maidenhead';
 
 export interface OperatingLocation {
   readonly coordinates: Coordinates | null;

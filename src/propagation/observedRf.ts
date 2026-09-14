@@ -1,4 +1,4 @@
-import { latLonToGridSquare } from '../types';
+import { latLonToGridSquare } from '../location/maidenhead';
 import type { PropagationGuidanceBand } from './domain';
 
 export const OBSERVED_RF_WINDOW_MS = 15 * 60 * 1000;

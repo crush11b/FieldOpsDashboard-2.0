@@ -1,7 +1,8 @@
 import type { TelemetrySource, TelemetryStatus, TelemetryTimestamps } from './telemetry';
-import { parseCoordinates } from './location/coordinates';
 import type { StationProfile } from './propagation/domain';
 import type { AppCatalogConfig } from './appCatalog/domain';
+
+export { gridSquareToLatLon, latLonToGridSquare } from './location/maidenhead';
 
 export type AppCategory = 
   | 'digital'
@@ -56,7 +57,7 @@ export interface SystemTelemetry {
   cpu: { usagePercent: number; logicalProcessorCount: number; model: string | null } | null;
   memory: { totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number } | null;
   storage: { volume: string; totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number } | null;
-  network: { available: boolean; interfaces: Array<{ name: string; description: string | null; type: string; ipv4Address: string | null; linkSpeedBitsPerSecond: number | null }> } | null;
+  network: { available: boolean; interfaces: Array<{ name: string; description: string | null; type: string; ipv4Address: string | null; linkSpeedBitsPerSecond: number | null; ssid?: string | null }> } | null;
 }
 
 export interface DualBatteryStatus {
@@ -97,8 +98,7 @@ export interface GPSProvenance {
 }
 
 export interface HourlyWeatherItem {
-  time: string;
-  utcTime?: string;
+  startsAtUtc: string;
   tempF: number;
   precipProb: number;
   windMph: number;
@@ -202,60 +202,6 @@ export interface LogEntry {
   sotaRef?: string;
   timestamp: string;
   notes?: string;
-}
-
-// Maidenhead Grid Square Utility Functions
-export function latLonToGridSquare(lat: number, lon: number): string {
-  const coordinates = parseCoordinates(lat, lon);
-  if (!coordinates) return '';
-
-  // Maidenhead's upper bounds are exclusive even though geographic coordinates
-  // permit +90/+180. Represent those boundary points in the final valid cell.
-  lat = Math.min(coordinates.lat, 90 - 1e-10);
-  lon = Math.min(coordinates.lon, 180 - 1e-10);
-
-  let adjustedLon = lon + 180;
-  let adjustedLat = lat + 90;
-
-  // 1st pair: Field (A-R)
-  const field1 = String.fromCharCode(65 + Math.floor(adjustedLon / 20));
-  const field2 = String.fromCharCode(65 + Math.floor(adjustedLat / 10));
-
-  // 2nd pair: Square (0-9)
-  const square1 = Math.floor((adjustedLon % 20) / 2);
-  const square2 = Math.floor((adjustedLat % 10) / 1);
-
-  // 3rd pair: Subsquare (a-x)
-  const subsquare1 = String.fromCharCode(97 + Math.floor(((adjustedLon % 2) * 60) / 5));
-  const subsquare2 = String.fromCharCode(97 + Math.floor(((adjustedLat % 1) * 60) / 2.5));
-
-  return `${field1}${field2}${square1}${square2}${subsquare1}${subsquare2}`;
-}
-
-export function gridSquareToLatLon(grid: string): { lat: number; lon: number } | null {
-  const cleanGrid = grid.trim().toUpperCase();
-  if (cleanGrid.length < 4) return null;
-
-  const f1 = cleanGrid.charCodeAt(0) - 65;
-  const f2 = cleanGrid.charCodeAt(1) - 65;
-  const s1 = parseInt(cleanGrid.charAt(2), 10);
-  const s2 = parseInt(cleanGrid.charAt(3), 10);
-
-  if (f1 < 0 || f1 > 17 || f2 < 0 || f2 > 17 || isNaN(s1) || isNaN(s2)) return null;
-
-  let lon = f1 * 20 + s1 * 2 - 180 + 1.0;
-  let lat = f2 * 10 + s2 * 1 - 90 + 0.5;
-
-  if (cleanGrid.length >= 6) {
-    const sub1 = cleanGrid.charCodeAt(4) - 65;
-    const sub2 = cleanGrid.charCodeAt(5) - 65;
-    if (sub1 >= 0 && sub1 < 24 && sub2 >= 0 && sub2 < 24) {
-      lon = f1 * 20 + s1 * 2 + (sub1 * 5) / 60 - 180 + 2.5 / 60;
-      lat = f2 * 10 + s2 * 1 + (sub2 * 2.5) / 60 - 90 + 1.25 / 60;
-    }
-  }
-
-  return { lat, lon };
 }
 
 export type ExternalDataStatus = 'loading' | 'live' | 'unavailable';

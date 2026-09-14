@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { gridSquareToLatLon } from '../src/types';
+import { gridSquareToLatLon } from '../src/location/maidenhead';
 import type { Activation } from './activation';
 import { normalizeLocator, type ObservedRfSnapshot, type PskReceptionReport } from '../src/propagation/observedRf';
 import { normalizeStationSignalObservation, normalizeTxContext, type StationSignalObservation, type TxContext } from './operationalIntelligence';

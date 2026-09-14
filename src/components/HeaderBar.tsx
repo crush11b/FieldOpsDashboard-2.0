@@ -3,6 +3,7 @@ import {
   Radio, 
   BatteryCharging, 
   WifiOff,
+  Network,
   Navigation, 
   Sun, 
   Moon, 
@@ -163,12 +164,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             aria-label={`Network status: ${formatNetworkDisplay(systemTelemetry?.network ?? null)}`}
             className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-300"
           >
-            <WifiOff className="w-4 h-4 text-zinc-500" />
+            {systemTelemetry?.network?.available
+              ? <Network className="w-4 h-4 text-sky-400" />
+              : <WifiOff className="w-4 h-4 text-zinc-500" />}
             <div className="flex flex-col text-left">
               <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">
                 NETWORK
               </span>
-              <span className="text-xs uppercase font-mono font-bold text-zinc-400">
+              <span className="text-xs font-mono font-bold text-zinc-400">
                 {formatNetworkDisplay(systemTelemetry?.network ?? null)}
               </span>
             </div>

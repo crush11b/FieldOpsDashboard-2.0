@@ -1,4 +1,6 @@
 using FieldOps.Agent.SystemTelemetry;
+using System.Text;
+using System.Text.Json;
 
 namespace FieldOps.Agent.Tests;
 
@@ -130,6 +132,37 @@ public sealed class WindowsSystemTelemetryProviderTests
         Assert.Equal(storage, result.Storage);
         Assert.Equal(network, result.Network);
         Assert.Equal(SystemTelemetryStatus.Available, result.Status);
+    }
+
+    [Fact]
+    public void NetworkContractSerializesNullableSsidWithoutBssidOrMacAddress()
+    {
+        var adapter = new NetworkInterfaceObservation("Wi-Fi", "Field Wi-Fi", "Wireless80211", "192.168.1.20", 54_000_000, "Camp Network");
+        var json = JsonSerializer.Serialize(adapter);
+        using var document = JsonDocument.Parse(json);
+        Assert.Equal("Camp Network", document.RootElement.GetProperty("ssid").GetString());
+        Assert.False(document.RootElement.TryGetProperty("bssid", out _));
+        Assert.False(document.RootElement.TryGetProperty("macAddress", out _));
+    }
+
+    [Theory]
+    [InlineData("Camp Network")]
+    [InlineData("FieldOps-5G")]
+    [InlineData(" POTA ")]
+    public void NormalizesSafeUtf8Ssid(string input)
+    {
+        var bytes = Encoding.UTF8.GetBytes(input);
+        Assert.Equal(input.Trim(), WindowsWifiSsidProvider.NormalizeSsid(bytes, (uint)bytes.Length));
+    }
+
+    [Fact]
+    public void RejectsUnsafeOrMalformedSsid()
+    {
+        Assert.Null(WindowsWifiSsidProvider.NormalizeSsid([], 0));
+        Assert.Null(WindowsWifiSsidProvider.NormalizeSsid(Encoding.UTF8.GetBytes("Field\nNetwork"), 13));
+        Assert.Null(WindowsWifiSsidProvider.NormalizeSsid([0xff, 0xfe], 2));
+        Assert.Null(WindowsWifiSsidProvider.NormalizeSsid(new byte[33], 33));
+        Assert.Null(WindowsWifiSsidProvider.NormalizeSsid([1, 2], 3));
     }
 
     [Fact]

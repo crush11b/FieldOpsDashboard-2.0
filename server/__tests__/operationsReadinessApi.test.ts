@@ -104,7 +104,7 @@ describe('Operations Readiness API', () => {
             tempF: 41, tempC: 5, humidity: 70, pressureInHg: 29.88, pressureHpa: 1012,
             windMph: 12, windGustMph: 18, windDir: 'W', condition: 'Partly Cloudy', icon: 'sun',
             locationName: 'Elkins, WV', dewPointF: 30, uvIndex: 1, lastUpdated: retrievedAtUtc,
-            cached: false, hourlyForecast: [{ time: '12 PM', tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2 }],
+            cached: false, hourlyForecast: [{ startsAtUtc: '2026-08-20T12:00:00.000Z', tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2 }],
           },
           retrievedAtUtc,
           source: { id: 'open-meteo-current-weather', type: 'weather_provider', name: 'Open-Meteo current weather' },

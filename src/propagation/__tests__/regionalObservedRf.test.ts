@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { latLonToGridSquare } from '../../types';
+import { latLonToGridSquare } from '../../location/maidenhead';
 import { OBSERVED_RF_BANDS, parsePskPayload, type ObservedRfSnapshot, type PskReceptionReport } from '../observedRf';
 import { PROPAGATION_REGION_IDS } from '../regionalDestinations';
 import { findPropagationRegionMembership, validatePropagationRegionMembership } from '../regionalMembership';

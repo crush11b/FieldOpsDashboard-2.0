@@ -1,4 +1,4 @@
-import { latLonToGridSquare } from '../src/types';
+import { latLonToGridSquare } from '../src/location/maidenhead';
 import type { ActivationTarget } from '../src/planning/smartDeployPlanning';
 import type { ActivationTargetRequest, ActivationTargetResolution, ActivationTargetResolver } from './activationTargetResolver';
 import { LocalSotaSummitDataset, normalizeSotaReference, SOTA_SUMMIT_SOURCE_ID, SOTA_SUMMIT_SOURCE_NAME, SOTA_SUMMIT_SOURCE_TYPE } from './sotaSummitDataset';

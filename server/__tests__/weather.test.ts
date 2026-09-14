@@ -95,7 +95,7 @@ describe('weather and NOAA partial-failure semantics', () => {
   });
 
   it('treats legitimate zero weather measurements as live data', async () => {
-    const body = weatherBody();
+    const body: Record<string, any> = weatherBody();
     Object.assign(body.current, {
       temperature_2m: 0,
       relative_humidity_2m: 0,
@@ -110,6 +110,29 @@ describe('weather and NOAA partial-failure semantics', () => {
 
     expect(result.weatherStatus).toBe('live');
     expect(result.weather).toMatchObject({ tempF: 0, humidity: 0, windMph: 0, windGustMph: 0, uvIndex: 0 });
+  });
+
+  it('returns hourly forecast instants as canonical UTC without a server-formatted display label', async () => {
+    const body: Record<string, any> = weatherBody();
+    body.hourly = {
+      time: ['2026-07-28T16:00:00', '2026-07-28T17:00:00'],
+      temperature_2m: [41, 42],
+      weather_code: [2, 3],
+      precipitation_probability: [10, 20],
+      wind_speed_10m: [5, 6],
+    };
+    const urls: string[] = [];
+    const result = await getCurrentWeatherApiResponse(38, -79, async input => {
+      urls.push(String(input));
+      return jsonResponse(String(input).includes('/points/') ? pointBody() : body);
+    }, NOW);
+
+    expect(urls.find(url => url.includes('open-meteo'))).toContain('timezone=UTC');
+    expect(result.weather?.hourlyForecast).toEqual([
+      { startsAtUtc: '2026-07-28T16:00:00.000Z', tempF: 41, precipProb: 10, windMph: 5, weatherCode: 2 },
+      { startsAtUtc: '2026-07-28T17:00:00.000Z', tempF: 42, precipProb: 20, windMph: 6, weatherCode: 3 },
+    ]);
+    expect(result.weather?.hourlyForecast?.[0]).not.toHaveProperty('time');
   });
 
   it('fails closed for malformed NOAA features', async () => {

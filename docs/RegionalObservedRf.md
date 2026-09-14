@@ -26,7 +26,7 @@ Coordinates outside these zones intentionally return `unclassified`; there is no
 
 ## Locator semantics
 
-A valid 4-character or 6-character PSK locator is converted with the existing `gridSquareToLatLon` utility. The result is a locator-center estimate, not an exact transmitter or receiver position. Missing or unusable remote locators produce `insufficient_location`. A usable locator outside the catalog produces `unclassified`.
+A valid 4-character or 6-character PSK locator is converted with the shared Maidenhead domain utility. The result is a locator-center estimate, not an exact transmitter or receiver position. Missing or unusable remote locators produce `insufficient_location`. A usable locator outside the catalog produces `unclassified`.
 
 For outbound reports the remote endpoint is the receiver. For inbound reports it is the sender. Local reports do not classify the local endpoint as a destination: they are retained as `local_nvis` with status `local`, described as local-area digital activity with unknown propagation mechanism. They are not labeled NVIS observed.
 

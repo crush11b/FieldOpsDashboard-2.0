@@ -151,6 +151,8 @@ describe('SmartDeploy Slice 1 planning contract', () => {
     expect(result).toMatchObject({ status: 'resolved', location: { gridSquare: 'FM07PK', provenance: 'manual', planningSemantics: 'operator_planned_override', source: { type: 'manual_planned_site_grid' } } });
     expect(result.status === 'resolved' && result.location.coordinates).not.toEqual(baseRequest.activationTarget.coordinates);
     expect(result.status === 'resolved' && result.location.coordinates).not.toEqual(baseRequest.currentDeviceLocation?.coordinates);
+    expect(resolvePlannedOperatingLocation(baseRequest.activationTarget, baseRequest.currentDeviceLocation, 'manual', { gridSquare: 'FM07pk12' }))
+      .toMatchObject({ status: 'resolved', location: { gridSquare: 'FM07PK12' } });
   });
 
   it('resolves a manual latitude/longitude planned site and derives one grid', () => {

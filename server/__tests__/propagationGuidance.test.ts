@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardConfigStore, normalizeDashboardConfig } from '../dashboardConfig';
 import { parseGuidanceRequest, propagationGuidanceModelCacheKey, PropagationGuidanceService, PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_ENTRIES, PROPAGATION_GUIDANCE_MODEL_CACHE_MAX_AGE_MS } from '../propagationGuidance';
-import { latLonToGridSquare } from '../../src/types';
+import { latLonToGridSquare } from '../../src/location/maidenhead';
 import { parsePskPayload } from '../../src/propagation/observedRf';
 
 vi.mock('../regionalP533', () => ({ executeRegionalP533: vi.fn() }));

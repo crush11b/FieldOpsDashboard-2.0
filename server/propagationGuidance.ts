@@ -3,7 +3,7 @@ import type { ObservedRfService } from './observedRf';
 import type { DashboardConfig } from '../src/types';
 import type { OperatingLocation } from '../src/location/operatingLocation';
 import { parseCoordinates, type Coordinates } from '../src/location/coordinates';
-import { latLonToGridSquare } from '../src/types';
+import { latLonToGridSquare } from '../src/location/maidenhead';
 import { deriveRegionalObservedRf } from '../src/propagation/regionalObservedRf';
 import { evaluateRegionalBandAssessments, PROPAGATION_RATING_POLICY_VERSION, type PropagationBandAssessment } from '../src/propagation/ratingEvaluator';
 import { PROPAGATION_GUIDANCE_BANDS, type StationProfile } from '../src/propagation/domain';

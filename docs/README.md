@@ -17,6 +17,8 @@ The POTA document is a non-authoritative research and design input. It records u
 
 - [`planning/Version-2.4-POTA-Activation-Target-Decision.md`](planning/Version-2.4-POTA-Activation-Target-Decision.md) - non-authoritative research input; the approved Version 2.4 product boundary is recorded in the rebaseline
 - [`planning/Version-2.9-Field-Product-Completion.md`](planning/Version-2.9-Field-Product-Completion.md) - authoritative completed V2.9 scope and deferred-work reconciliation
+- [`planning/Version-3.0-Cohesive-Field-Operations.md`](planning/Version-3.0-Cohesive-Field-Operations.md) - authoritative V3.0 scope, legacy-roadmap reconciliation, delivery slices, and initial field-candidate boundary
+- [`validation/Version-3.0-Initial-Field-Candidate.md`](validation/Version-3.0-Initial-Field-Candidate.md) - bounded initial V3.0 automated, Windows/native, upgrade, and CF-20 acceptance worksheet
 
 The roadmap and engineering backlog remain authoritative for implementation sequencing after they are reconciled with the approved rebaseline.
 

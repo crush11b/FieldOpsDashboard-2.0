@@ -19,7 +19,6 @@ import {
   SolarData, 
   UIThemeMode, 
   WeatherData,
-  latLonToGridSquare,
   SystemTelemetry
 } from './types';
 import { INITIAL_CONFIG } from './data/defaultConfig';
@@ -28,6 +27,7 @@ import type { AppDiscoveryObservation } from './appCatalog/discovery';
 import { playTacticalClick } from './utils/audio';
 import { isCurrentOperatingLocation, parseCoordinates, resolveGpsCoordinates } from './location/coordinates';
 import { resolveOperatingLocation } from './location/operatingLocation';
+import { latLonToGridSquare } from './location/maidenhead';
 import { toFiniteNumber } from './utils/numbers';
 import { formatNetworkDisplay, formatStorageDisplay } from './utils/systemTelemetryDisplay';
 import { hasMeaningfulWeatherMovement, NOAA_ALERT_REFRESH_INTERVAL_MS, WEATHER_REFRESH_INTERVAL_MS } from './utils/weatherRefreshPolicy';

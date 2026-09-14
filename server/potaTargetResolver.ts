@@ -1,5 +1,5 @@
 import express, { type Router } from 'express';
-import { latLonToGridSquare } from '../src/types';
+import { latLonToGridSquare } from '../src/location/maidenhead';
 import { parseCoordinates, type Coordinates } from '../src/location/coordinates';
 import type { ActivationTarget, PlanningInputProvenance } from '../src/planning/smartDeployPlanning';
 import { getProductUserAgent } from '../src/productMetadata';

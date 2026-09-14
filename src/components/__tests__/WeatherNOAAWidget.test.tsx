@@ -23,6 +23,16 @@ const alertOne = {
 };
 const alertTwo = { ...alertOne, id: 'alert-2', title: 'Flood Warning' };
 const retainedWeather = { tempF: 78, tempC: 25.6, condition: 'Clear' } as WeatherData;
+const forecastWeather = {
+  ...retainedWeather,
+  hourlyForecast: [{
+    startsAtUtc: '2026-09-18T18:00:00.000Z',
+    tempF: 78,
+    precipProb: 20,
+    windMph: 5,
+    weatherCode: 2,
+  }],
+} as WeatherData;
 
 async function flushEffects() {
   await act(async () => { await Promise.resolve(); });
@@ -132,6 +142,26 @@ describe('WeatherNOAAWidget truth states', () => {
 
     expect(markup).toContain('NOAA UNAVAILABLE');
     expect(markup).not.toContain('NOAA ALERTS (0)');
+  });
+
+  it('formats canonical UTC forecast timestamps in the selected named timezone and labels the zone', () => {
+    const markup = renderToStaticMarkup(
+      <WeatherNOAAWidget
+        weather={forecastWeather}
+        weatherStatus="live"
+        alerts={[]}
+        alertsStatus="live"
+        theme="dark_tactical"
+        audioEnabled={false}
+        timeZoneSelection={{ mode: 'named', timeZone: 'America/New_York' }}
+      />,
+    );
+
+    expect(markup).toContain('TIME: America/New_York (EDT)');
+    expect(markup).toContain('dateTime="2026-09-18T18:00:00.000Z"');
+    expect(markup).toContain('2:00 PM');
+    expect(markup).toContain('>EDT</span>');
+    expect(markup).not.toContain('6:00 PM');
   });
 });
 

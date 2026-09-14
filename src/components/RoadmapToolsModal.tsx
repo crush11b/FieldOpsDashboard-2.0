@@ -29,6 +29,7 @@ import { calculateDistanceKm, calculateDistanceMiles, calculateInitialBearing, c
 import { calculateSolarEvents, type SolarEventName } from '../location/solarEvents';
 import type { StationProfile } from '../propagation/domain';
 import { SmartDeployPlanner } from './SmartDeployPlanner';
+import { MaidenheadWorkspace } from './MaidenheadWorkspace';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -839,6 +840,7 @@ const CoordinateTool: React.FC<CoordinateToolProps> = ({ operatingLocation }) =>
 
         <p className="border-t border-cyan-800/60 pt-3 text-[11px] text-slate-300">{statusDetail}</p>
       </div>
+      <MaidenheadWorkspace operatingLocation={operatingLocation} />
     </div>
   );
 };

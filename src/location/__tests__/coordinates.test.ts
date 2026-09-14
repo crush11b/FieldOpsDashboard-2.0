@@ -7,7 +7,7 @@ import {
   resolveGpsCoordinates,
 } from '../coordinates';
 import type { GPSProvenance } from '../../types';
-import { latLonToGridSquare } from '../../types';
+import { latLonToGridSquare } from '../maidenhead';
 
 describe('coordinate guardrails', () => {
   it.each([

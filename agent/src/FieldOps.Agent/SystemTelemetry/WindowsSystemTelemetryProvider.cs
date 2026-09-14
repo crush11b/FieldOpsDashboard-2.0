@@ -55,6 +55,15 @@ public sealed class WindowsPowerStatus : IWindowsPowerStatus
 
 public sealed class WindowsSystemMetrics : IWindowsSystemMetrics
 {
+    private readonly IWifiSsidProvider wifiSsidProvider;
+
+    public WindowsSystemMetrics() : this(new WindowsWifiSsidProvider()) { }
+
+    internal WindowsSystemMetrics(IWifiSsidProvider wifiSsidReader)
+    {
+        wifiSsidProvider = wifiSsidReader ?? throw new ArgumentNullException(nameof(wifiSsidReader));
+    }
+
     [StructLayout(LayoutKind.Sequential)] private struct FileTime { public uint Low; public uint High; }
     [StructLayout(LayoutKind.Sequential)] private struct MemoryStatus { public uint Length; public uint MemoryLoad; public ulong Total; public ulong Available; public ulong PageFileTotal; public ulong PageFileAvailable; public ulong VirtualTotal; public ulong VirtualAvailable; public ulong AvailableExtendedVirtual; }
     [DllImport("kernel32.dll")] private static extern bool GetSystemTimes(out FileTime idle, out FileTime kernel, out FileTime user);
@@ -111,7 +120,10 @@ public sealed class WindowsSystemMetrics : IWindowsSystemMetrics
                 var ipv4 = adapter.GetIPProperties().UnicastAddresses
                     .FirstOrDefault(address => address.Address.AddressFamily == AddressFamily.InterNetwork)?.Address.ToString();
                 long? speed = adapter.Speed >= 0 ? adapter.Speed : null;
-                return new NetworkInterfaceObservation(adapter.Name, adapter.Description, adapter.NetworkInterfaceType.ToString(), ipv4, speed);
+                var ssid = adapter.NetworkInterfaceType == NetworkInterfaceType.Wireless80211
+                    ? TryGetSsid(adapter.Id)
+                    : null;
+                return new NetworkInterfaceObservation(adapter.Name, adapter.Description, adapter.NetworkInterfaceType.ToString(), ipv4, speed, ssid);
             })
             .ToArray();
         network = new NetworkObservation(interfaces.Length > 0, interfaces);
@@ -119,6 +131,12 @@ public sealed class WindowsSystemMetrics : IWindowsSystemMetrics
     }
 
     private static ulong ToUInt64(FileTime value) => ((ulong)value.High << 32) | value.Low;
+    private string? TryGetSsid(string interfaceId)
+    {
+        try { return wifiSsidProvider.GetConnectedSsid(interfaceId); }
+        catch { return null; }
+    }
+
     private static string? GetProcessorModel()
     {
         try { return Microsoft.Win32.Registry.GetValue(@"HKEY_LOCAL_MACHINE\HARDWARE\DESCRIPTION\System\CentralProcessor\0", "ProcessorNameString", null) as string; }

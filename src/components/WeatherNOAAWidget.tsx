@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
 import { ExternalDataStatus, NOAAAlert, UIThemeMode, WeatherData } from '../types';
+import { formatWeatherHour, resolveWeatherTimeZone, type WeatherTimeZoneSelection } from '../timePresentation';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
 
 interface WeatherNOAAWidgetProps {
@@ -10,7 +11,10 @@ interface WeatherNOAAWidgetProps {
   alertsStatus: ExternalDataStatus;
   theme: UIThemeMode;
   audioEnabled: boolean;
+  timeZoneSelection?: WeatherTimeZoneSelection;
 }
+
+const DEFAULT_WEATHER_TIME_ZONE_SELECTION: WeatherTimeZoneSelection = { mode: 'device' };
 
 export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   weather,
@@ -19,6 +23,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
   alertsStatus,
   theme,
   audioEnabled,
+  timeZoneSelection = DEFAULT_WEATHER_TIME_ZONE_SELECTION,
 }) => {
   const alertItems = alerts ?? [];
   const effectiveAlertsStatus = alertsStatus === 'live' && alerts === null ? 'unavailable' : alertsStatus;
@@ -104,7 +109,15 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
     : 'border-amber-500/40 bg-amber-500/10 text-amber-300';
 
-  const hourlyList = weather?.hourlyForecast?.slice(0, 6) ?? [];
+  const resolvedTimeZone = resolveWeatherTimeZone(timeZoneSelection);
+  const hourlyList = (weather?.hourlyForecast?.slice(0, 6) ?? []).map(item => ({
+    item,
+    formatted: formatWeatherHour(item.startsAtUtc, resolvedTimeZone.timeZone),
+  }));
+  const forecastZones = [...new Set(hourlyList.flatMap(({ formatted }) => formatted ? [formatted.zone] : []))];
+  const forecastTimeLabel = resolvedTimeZone.fallbackReason
+    ? `UTC FALLBACK (${resolvedTimeZone.fallbackReason === 'invalid_named_timezone' ? 'INVALID TARGET ZONE' : 'DEVICE ZONE UNAVAILABLE'})`
+    : `${resolvedTimeZone.contextLabel}${forecastZones.length > 0 ? ` (${forecastZones.join(' / ')})` : ''}`;
 
   return (
     <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
@@ -239,13 +252,14 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <span className="flex items-center gap-1.5 text-cyan-300">
             <Clock className="w-3 h-3 text-cyan-400" /> 6-HOUR OPERATIONAL WEATHER OUTLOOK
           </span>
-          <span className="text-zinc-500 font-mono">DEPLOYMENT RISK ASSESSMENT</span>
+          <span data-testid="weather-timezone-label" className="text-zinc-500 font-mono">TIME: {forecastTimeLabel}</span>
         </div>
 
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
-          {hourlyList.map((item, idx) => (
-            <div key={idx} className="p-1.5 rounded-lg border border-zinc-800/80 bg-zinc-900/60 text-center space-y-0.5">
-              <span className="text-[10px] font-extrabold text-cyan-300 block">{item.time}</span>
+          {hourlyList.map(({ item, formatted }) => (
+            <div key={item.startsAtUtc} className="p-1.5 rounded-lg border border-zinc-800/80 bg-zinc-900/60 text-center space-y-0.5">
+              <time dateTime={item.startsAtUtc} className="text-[10px] font-extrabold text-cyan-300 block">{formatted?.clock ?? 'UNKNOWN'}</time>
+              <span className="text-[8px] font-bold text-zinc-500 block">{formatted?.zone ?? 'TIME UNAVAILABLE'}</span>
               <span className="text-xs font-black text-zinc-100 block">{item.tempF}°F</span>
               <div className="flex items-center justify-center gap-1 text-[9px] text-zinc-400">
                 <span>{item.windMph}mph</span>

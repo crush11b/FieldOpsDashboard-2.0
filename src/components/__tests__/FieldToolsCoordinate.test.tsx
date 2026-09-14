@@ -2,7 +2,7 @@
 import React from 'react';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { RoadmapToolsModal } from '../RoadmapToolsModal';
 import { GPSGridWidget } from '../GPSGridWidget';
 import type { GPSProvenance, GPSStatus } from '../../types';
@@ -158,6 +158,102 @@ describe('Field Tools coordinate workspace', () => {
 
     expect(markup).toContain('0.000000');
     expect(markup).toContain('JJ00aa');
+  });
+
+  it('converts coordinates at 4-, 6-, and 8-character Maidenhead precision', () => {
+    render(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={vi.fn()}
+        callsign="N0CALL"
+        gridSquare={gps.gridSquare}
+        gps={gps}
+        gpsProvenance={{
+          status: 'ok',
+          source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+        }}
+      />,
+    );
+
+    expect(screen.getByText('MAIDENHEAD WORKSPACE')).toBeInTheDocument();
+    expect(screen.getByText('FM17', { selector: 'strong' })).toBeInTheDocument();
+    expect(screen.getAllByText('FM17gj', { selector: 'strong' })).toHaveLength(2);
+    expect(screen.getByText('FM17gj47', { selector: 'strong' })).toBeInTheDocument();
+  });
+
+  it('decodes a locator center and estimates its path from the operating location', () => {
+    render(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={vi.fn()}
+        callsign="N0CALL"
+        gridSquare={gps.gridSquare}
+        gps={{ ...gps, lat: 0, lon: 0, gridSquare: 'JJ00aa' }}
+        gpsProvenance={{
+          status: 'ok',
+          source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Maidenhead locator (4, 6, or 8 characters)'), { target: { value: 'FM17' } });
+
+    expect(screen.getByText('37.500000°')).toBeInTheDocument();
+    expect(screen.getByText('-77.000000°')).toBeInTheDocument();
+    expect(screen.getByText('Distance to center')).toBeInTheDocument();
+    expect(screen.getByText('Initial bearing', { selector: 'span' })).toBeInTheDocument();
+    expect(screen.getByText(/geometric center/)).toBeInTheDocument();
+  });
+
+  it('strictly rejects malformed Maidenhead locators', () => {
+    render(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={vi.fn()}
+        callsign="N0CALL"
+        gridSquare={gps.gridSquare}
+        gps={gps}
+        gpsProvenance={{
+          status: 'ok',
+          source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+        }}
+      />,
+    );
+
+    fireEvent.change(screen.getByLabelText('Maidenhead locator (4, 6, or 8 characters)'), { target: { value: 'FM17zz' } });
+
+    expect(screen.getByText('ENTER A VALID 4-, 6-, OR 8-CHARACTER MAIDENHEAD LOCATOR.')).toBeInTheDocument();
+    expect(screen.queryByText('Distance to center')).not.toBeInTheDocument();
+  });
+
+  it('copies generated locators through the local browser clipboard', async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: { writeText } });
+    render(
+      <RoadmapToolsModal
+        theme="dark_tactical"
+        audioEnabled={false}
+        isOpen
+        onClose={vi.fn()}
+        callsign="N0CALL"
+        gridSquare={gps.gridSquare}
+        gps={gps}
+        gpsProvenance={{
+          status: 'ok',
+          source: { id: 'gps:serial-nmea', type: 'serial_nmea', name: 'Internal GNSS / NMEA' },
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: 'Copy 8-character locator' }));
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith('FM17gj47'));
+    Object.defineProperty(window.navigator, 'clipboard', { configurable: true, value: undefined });
   });
 
   it('calculates distance and bearing from the operating location', () => {

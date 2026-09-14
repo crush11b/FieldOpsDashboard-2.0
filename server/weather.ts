@@ -205,8 +205,7 @@ function parseHourlyForecast(hourly: Record<string, any> | undefined, now: Date)
     const weatherCode = finiteNumber(hourly.weather_code?.[index]);
     if ([tempF, precipProb, windMph, weatherCode].some((value) => value === null)) return [];
     return [{
-      time: new Intl.DateTimeFormat('en-US', { timeZone: 'UTC', hour: 'numeric' }).format(utc),
-      utcTime: utc.toISOString(),
+      startsAtUtc: utc.toISOString(),
       tempF: Math.round(tempF!),
       precipProb: Math.round(precipProb!),
       windMph: Math.round(windMph!),

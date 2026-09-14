@@ -1,4 +1,4 @@
-import { gridSquareToLatLon } from '../types';
+import { gridSquareToLatLon } from '../location/maidenhead';
 import type { Coordinates } from '../location/coordinates';
 import type { PropagationGuidanceBand } from './domain';
 import {

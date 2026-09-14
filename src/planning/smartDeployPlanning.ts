@@ -1,5 +1,11 @@
 import type { OperatingLocation } from '../location/operatingLocation';
-import { gridSquareToLatLon, latLonToGridSquare } from '../types';
+import {
+  gridSquareToLatLon,
+  isMaidenheadLocator,
+  latLonToGridSquare,
+  latLonToMaidenhead,
+  maidenheadToLocation,
+} from '../location/maidenhead';
 import { parseCoordinates, type Coordinates } from '../location/coordinates';
 import {
   isAntennaType,
@@ -403,7 +409,7 @@ function resolveManualPlannedOperatingLocation(input: ManualPlannedOperatingLoca
   const coordinates = coordinateInput ?? gridCoordinates;
   if (!coordinates) return { status: 'unavailable', reason: 'The planned operating location is incomplete.' };
   const calculatedGrid = latLonToGridSquare(coordinates.lat, coordinates.lon);
-  if (hasGrid && coordinateInput && !gridMatchesCoordinates(gridValue, calculatedGrid)) {
+  if (hasGrid && coordinateInput && !gridMatchesCoordinates(gridValue, coordinateInput)) {
     return { status: 'unavailable', reason: 'The planned-site grid and coordinates do not identify the same location.' };
   }
 
@@ -411,7 +417,7 @@ function resolveManualPlannedOperatingLocation(input: ManualPlannedOperatingLoca
     status: 'resolved',
     location: {
       coordinates,
-      gridSquare: hasGrid ? gridValue.toUpperCase() : calculatedGrid || null,
+      gridSquare: hasGrid ? maidenheadToLocation(gridValue)?.locator.toUpperCase() ?? null : calculatedGrid || null,
       provenance: 'manual',
       status: 'degraded',
       source: { id: 'smartdeploy:planned-site', type: coordinateInput ? 'manual_planned_site_coordinates' : 'manual_planned_site_grid', name: 'Operator planned site' },
@@ -420,11 +426,13 @@ function resolveManualPlannedOperatingLocation(input: ManualPlannedOperatingLoca
   };
 }
 
-function gridMatchesCoordinates(inputGrid: string, calculatedGrid: string): boolean {
-  const normalized = inputGrid.trim().toUpperCase();
-  return calculatedGrid.toUpperCase().startsWith(normalized);
+function gridMatchesCoordinates(inputGrid: string, coordinates: Coordinates): boolean {
+  const decoded = maidenheadToLocation(inputGrid);
+  if (!decoded) return false;
+  const coordinateLocator = latLonToMaidenhead(coordinates.lat, coordinates.lon, decoded.precision);
+  return coordinateLocator.toUpperCase() === decoded.locator.toUpperCase();
 }
 
 function isManualGridSquare(value: string): boolean {
-  return /^[A-R]{2}[0-9]{2}(?:[A-X]{2})?$/i.test(value);
+  return isMaidenheadLocator(value, [4, 6, 8]);
 }

@@ -77,7 +77,7 @@ describe('Operations Readiness planned-site weather enrichment', () => {
         uvIndex: 1,
         lastUpdated: NOW.toISOString(),
         cached: false,
-        hourlyForecast: [{ tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2, time: expect.any(String) }],
+        hourlyForecast: [{ tempF: 42, precipProb: 20, windMph: 10, weatherCode: 2, startsAtUtc: '2026-08-20T12:00:00.000Z' }],
       },
     });
     expect(result.displayEvidence.alerts).toMatchObject({
@@ -86,8 +86,7 @@ describe('Operations Readiness planned-site weather enrichment', () => {
       active: [{ id: 'alert-1', severity: 'Unknown', title: 'High Wind Warning', description: 'Strong winds expected.', area: 'Test County', issued: 'Recently', expires: 'Until further notice' }],
     });
     const hourly = result.displayEvidence.weather.data?.hourlyForecast?.[0];
-    expect(hourly?.time).toEqual(expect.any(String));
-    expect(hourly?.time).not.toBe('');
+    expect(hourly?.startsAtUtc).toBe('2026-08-20T12:00:00.000Z');
     expect(urls).toHaveLength(3);
     expect(urls.filter(url => url.includes('api.open-meteo.com'))).toHaveLength(1);
     expect(urls.filter(url => url.includes('/points/'))).toHaveLength(1);
@@ -102,9 +101,11 @@ describe('Operations Readiness planned-site weather enrichment', () => {
     expect(result.displayEvidence.alerts).toMatchObject({ status: 'live', active: [], retrievedAtUtc: NOW.toISOString() });
   });
 
-  it('requests and retains UTC so the browser can render operator-local time once', async () => {
+  it('requests and retains only canonical UTC so the browser controls presentation', async () => {
     const result = await enrichOperationsReadinessWeather(brief({ lat: 37, lon: -77 }), { fetcher: fetcher({ timezone: 'America/New_York' }), now: NOW });
-    expect(result.displayEvidence.weather.data).toMatchObject({ timezone: 'UTC', hourlyForecast: [{ time: '12 PM', utcTime: '2026-08-20T12:00:00.000Z' }] });
+    expect(result.displayEvidence.weather.data).toMatchObject({ timezone: 'UTC', hourlyForecast: [{ startsAtUtc: '2026-08-20T12:00:00.000Z' }] });
+    expect(result.displayEvidence.weather.data?.hourlyForecast?.[0]).not.toHaveProperty('time');
+    expect(result.displayEvidence.weather.data?.hourlyForecast?.[0]).not.toHaveProperty('utcTime');
   });
 
   it('does not call providers when planned-site coordinates are missing', async () => {
