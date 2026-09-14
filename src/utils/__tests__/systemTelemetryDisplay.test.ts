@@ -10,12 +10,29 @@ describe('system telemetry display', () => {
     expect(formatStorageDisplay(null)).toBe('Unavailable');
   });
 
-  it('formats connected interface identity, type, and IPv4 address', () => {
-    expect(formatNetworkDisplay({ available: true, interfaces: [{ name: 'Wi-Fi', description: 'Field Wi-Fi', type: 'Wireless80211', ipv4Address: '192.168.1.20', linkSpeedBitsPerSecond: 54_000_000 }] })).toBe('Wi-Fi (Wireless80211) 192.168.1.20 54 Mbps');
+  it('shows the observed SSID without exposing the technical adapter type', () => {
+    expect(formatNetworkDisplay({ available: true, interfaces: [{
+      name: 'Wi-Fi', description: 'Intel Wireless Adapter', type: 'Wireless80211',
+      ipv4Address: '192.168.1.20', linkSpeedBitsPerSecond: 54_000_000, ssid: 'FieldNet',
+    }] })).toBe('FieldNet 192.168.1.20 54 Mbps');
   });
 
-  it('does not fabricate a network value when no usable interface exists', () => {
-    expect(formatNetworkDisplay({ available: false, interfaces: [] })).toBe('Unavailable');
+  it('uses a truthful generic Wi-Fi fallback when SSID is unavailable', () => {
+    expect(formatNetworkDisplay({ available: true, interfaces: [{
+      name: 'Wi-Fi', description: 'Not an SSID', type: 'Wireless80211',
+      ipv4Address: null, linkSpeedBitsPerSecond: null, ssid: null,
+    }] })).toBe('Wi-Fi');
+  });
+
+  it('shows an Ethernet interface label independently of Wi-Fi identity', () => {
+    expect(formatNetworkDisplay({ available: true, interfaces: [{
+      name: 'Ethernet 2', description: 'Dock adapter', type: 'Ethernet',
+      ipv4Address: '10.0.0.2', linkSpeedBitsPerSecond: 1_000_000_000,
+    }] })).toBe('Ethernet 2 10.0.0.2 1000 Mbps');
+  });
+
+  it('distinguishes disconnected from unavailable telemetry', () => {
+    expect(formatNetworkDisplay({ available: false, interfaces: [] })).toBe('Disconnected');
     expect(formatNetworkDisplay(null)).toBe('Unavailable');
   });
 });

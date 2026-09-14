@@ -39,7 +39,8 @@ public sealed record NetworkInterfaceObservation(
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("type")] string Type,
     [property: JsonPropertyName("ipv4Address")] string? Ipv4Address,
-    [property: JsonPropertyName("linkSpeedBitsPerSecond")] long? LinkSpeedBitsPerSecond);
+    [property: JsonPropertyName("linkSpeedBitsPerSecond")] long? LinkSpeedBitsPerSecond,
+    [property: JsonPropertyName("ssid")] string? Ssid = null);
 
 public sealed record NetworkObservation(
     [property: JsonPropertyName("available")] bool Available,

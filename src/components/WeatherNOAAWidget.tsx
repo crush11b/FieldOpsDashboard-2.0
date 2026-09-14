@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { CloudRain, Sun, Wind, Thermometer, AlertOctagon, ChevronDown, ChevronUp, ShieldAlert, Volume2, VolumeX, Check, Clock } from 'lucide-react';
 import { ExternalDataStatus, NOAAAlert, UIThemeMode, WeatherData } from '../types';
 import { playTacticalClick, playEmergencyBeep, speakNOAAAlert, speakNOAAAlertFull, cancelSpeech } from '../utils/audio';
+import { formatWeatherHour, resolveOperatorTimeZone } from '../utils/weatherTime';
 
 interface WeatherNOAAWidgetProps {
   weather: WeatherData | null;
@@ -105,6 +106,7 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     : 'border-amber-500/40 bg-amber-500/10 text-amber-300';
 
   const hourlyList = weather?.hourlyForecast?.slice(0, 6) ?? [];
+  const operatorTimeZone = resolveOperatorTimeZone();
 
   return (
     <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
@@ -239,13 +241,13 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
           <span className="flex items-center gap-1.5 text-cyan-300">
             <Clock className="w-3 h-3 text-cyan-400" /> 6-HOUR OPERATIONAL WEATHER OUTLOOK
           </span>
-          <span className="text-zinc-500 font-mono">DEPLOYMENT RISK ASSESSMENT</span>
+          <span className="text-zinc-500 font-mono">TIME ZONE: {operatorTimeZone}</span>
         </div>
 
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {hourlyList.map((item, idx) => (
             <div key={idx} className="p-1.5 rounded-lg border border-zinc-800/80 bg-zinc-900/60 text-center space-y-0.5">
-              <span className="text-[10px] font-extrabold text-cyan-300 block">{item.time}</span>
+              <span className="text-[10px] font-extrabold text-cyan-300 block">{formatWeatherHour(item.utcTime ?? item.time, operatorTimeZone)}</span>
               <span className="text-xs font-black text-zinc-100 block">{item.tempF}°F</span>
               <div className="flex items-center justify-center gap-1 text-[9px] text-zinc-400">
                 <span>{item.windMph}mph</span>

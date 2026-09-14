@@ -53,8 +53,9 @@ public sealed class WindowsPowerStatus : IWindowsPowerStatus
     public bool TryGet(out NativePowerStatus status) { if (!GetSystemPowerStatus(out var n)) { status = default; return false; } status = new(n.AC, n.Flag, n.Percent, n.Life); return true; }
 }
 
-public sealed class WindowsSystemMetrics : IWindowsSystemMetrics
+public sealed class WindowsSystemMetrics(IWifiSsidProvider? wifiSsidProvider = null) : IWindowsSystemMetrics
 {
+    private readonly IWifiSsidProvider _wifiSsidProvider = wifiSsidProvider ?? new WindowsWifiSsidProvider();
     [StructLayout(LayoutKind.Sequential)] private struct FileTime { public uint Low; public uint High; }
     [StructLayout(LayoutKind.Sequential)] private struct MemoryStatus { public uint Length; public uint MemoryLoad; public ulong Total; public ulong Available; public ulong PageFileTotal; public ulong PageFileAvailable; public ulong VirtualTotal; public ulong VirtualAvailable; public ulong AvailableExtendedVirtual; }
     [DllImport("kernel32.dll")] private static extern bool GetSystemTimes(out FileTime idle, out FileTime kernel, out FileTime user);
@@ -111,7 +112,13 @@ public sealed class WindowsSystemMetrics : IWindowsSystemMetrics
                 var ipv4 = adapter.GetIPProperties().UnicastAddresses
                     .FirstOrDefault(address => address.Address.AddressFamily == AddressFamily.InterNetwork)?.Address.ToString();
                 long? speed = adapter.Speed >= 0 ? adapter.Speed : null;
-                return new NetworkInterfaceObservation(adapter.Name, adapter.Description, adapter.NetworkInterfaceType.ToString(), ipv4, speed);
+                string? ssid = null;
+                if (adapter.NetworkInterfaceType == NetworkInterfaceType.Wireless80211
+                    && Guid.TryParse(adapter.Id, out var interfaceId))
+                {
+                    try { _wifiSsidProvider.TryGetSsid(interfaceId, out ssid); } catch { ssid = null; }
+                }
+                return new NetworkInterfaceObservation(adapter.Name, adapter.Description, adapter.NetworkInterfaceType.ToString(), ipv4, speed, ssid);
             })
             .ToArray();
         network = new NetworkObservation(interfaces.Length > 0, interfaces);
