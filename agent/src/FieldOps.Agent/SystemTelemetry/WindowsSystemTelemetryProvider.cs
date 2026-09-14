@@ -116,7 +116,7 @@ public sealed class WindowsSystemMetrics(IWifiSsidProvider? wifiSsidProvider = n
                 if (adapter.NetworkInterfaceType == NetworkInterfaceType.Wireless80211
                     && Guid.TryParse(adapter.Id, out var interfaceId))
                 {
-                    try { wifiSsidProvider.TryGetSsid(interfaceId, out ssid); } catch { ssid = null; }
+                    try { _wifiSsidProvider.TryGetSsid(interfaceId, out ssid); } catch { ssid = null; }
                 }
                 return new NetworkInterfaceObservation(adapter.Name, adapter.Description, adapter.NetworkInterfaceType.ToString(), ipv4, speed, ssid);
             })
