@@ -132,10 +132,10 @@ export class SmartDeployService {
     try {
       const executionRequest = toSmartDeployExecutionRequest(normalized.request);
       this.observedRf.setOperatingLocation(normalized.request.plannedOperatingLocation);
-      const weather = await this.spaceWeather.getSnapshot();
+      const weather = await this.spaceWeather.getSnapshot(false, new Date(executionRequest.missionWindow.start));
       const modelSsn = weather.modelSsn;
-      const hasLongLivedModelInput = modelSsn?.modelInput?.semanticBasis === 'noaa_smoothed_monthly_ssn'
-        && modelSsn.modelInput.validity === 'long_lived_model_input';
+      const hasLongLivedModelInput = modelSsn?.modelInput?.validity === 'long_lived_model_input'
+        && (modelSsn.modelInput.basis === 'observed_smoothed' || modelSsn.modelInput.basis === 'predicted_smoothed');
       const ssn = hasLongLivedModelInput && typeof modelSsn.value === 'number' && Number.isFinite(modelSsn.value)
         ? modelSsn.value
         : Number.NaN;
