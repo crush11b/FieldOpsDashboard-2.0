@@ -56,7 +56,7 @@ export interface SystemTelemetry {
   cpu: { usagePercent: number; logicalProcessorCount: number; model: string | null } | null;
   memory: { totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number } | null;
   storage: { volume: string; totalBytes: number; availableBytes: number; usedBytes: number; usedPercent: number } | null;
-  network: { available: boolean; interfaces: Array<{ name: string; description: string | null; type: string; ipv4Address: string | null; linkSpeedBitsPerSecond: number | null }> } | null;
+  network: { available: boolean; interfaces: Array<{ name: string; description: string | null; type: string; ipv4Address: string | null; linkSpeedBitsPerSecond: number | null; ssid?: string | null }> } | null;
 }
 
 export interface DualBatteryStatus {
