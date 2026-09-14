@@ -191,7 +191,9 @@ function readCache(filePath: string): CacheFile {
 function isCacheRecord(value: unknown): value is CacheRecord {
   if (!isRecord(value)
     || !(typeof value.value === 'string' || value.value === null || (typeof value.value === 'number' && Number.isFinite(value.value)))
+    || typeof value.observedAt !== 'string'
     || timestamp(value.observedAt) === null
+    || typeof value.receivedAt !== 'string'
     || timestamp(value.receivedAt) === null) return false;
   const hasModelBasis = value.modelBasis !== undefined;
   const hasEffectiveMonth = value.effectiveMonth !== undefined;
