@@ -34,17 +34,6 @@ export function TelemetryCard<TPayload>({
   const hasData = data !== undefined;
   const suppressData = envelope.status === 'unavailable';
 
-  const cardStyle = theme === 'night_vision'
-    ? 'bg-black border-red-900/90 text-red-500'
-    : theme === 'sunlight'
-      ? 'bg-white border-amber-400 text-slate-900 shadow-sm'
-      : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg';
-  const contentStyle = theme === 'night_vision'
-    ? 'text-red-400'
-    : theme === 'sunlight'
-      ? 'text-slate-900'
-      : 'text-zinc-100';
-
   let content: ReactNode;
   if (suppressData) {
     content = <span aria-label={TELEMETRY_UNAVAILABLE_LABEL}>{TELEMETRY_UNAVAILABLE_VALUE}</span>;
@@ -61,7 +50,8 @@ export function TelemetryCard<TPayload>({
   return (
     <article
       aria-labelledby={titleId}
-      className={`rounded-2xl border p-4 sm:p-5 font-mono transition-all space-y-4 ${cardStyle} ${className}`}
+      data-theme={theme}
+      className={`fo-surface rounded-2xl border p-4 sm:p-5 font-mono transition-all space-y-4 ${className}`}
     >
       <header className="flex flex-wrap items-start justify-between gap-3 pb-3 border-b border-current/15">
         <div className="flex min-w-0 items-center gap-2">
@@ -73,14 +63,14 @@ export function TelemetryCard<TPayload>({
         <StatusBadge status={envelope.status} />
       </header>
 
-      <div className={`min-h-16 [text-wrap:pretty] ${contentStyle}`}>
+      <div className="fo-text-primary min-h-16 [text-wrap:pretty]">
         {content ?? (
           <span aria-label={TELEMETRY_UNAVAILABLE_LABEL}>{TELEMETRY_UNAVAILABLE_VALUE}</span>
         )}
       </div>
 
       {envelope.status === 'error' && (
-        <div role="alert" className="rounded-xl border border-red-500/50 bg-red-950/40 p-3 text-xs text-red-200">
+        <div role="alert" className="fo-status-danger rounded-xl border p-3 text-xs">
           <span className="font-bold uppercase tracking-wide">Telemetry error:</span>{' '}
           {envelope.error.message}
         </div>
