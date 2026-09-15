@@ -84,6 +84,19 @@ describe('TelemetryCard lifecycle presentation', () => {
     expect(screen.queryByText('browser_geolocation')).not.toBeInTheDocument();
     expect(screen.getByText('1m ago')).toBeVisible();
   });
+
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('uses semantic surfaces in %s', theme => {
+    const { container } = render(
+      <TelemetryCard envelope={createLiveEnvelope({ value: 0 })} title="Test Telemetry" theme={theme}>
+        {data => <span>Reading: {data.value}</span>}
+      </TelemetryCard>,
+    );
+
+    expect(container.querySelector('article')).toHaveAttribute('data-theme', theme);
+    expect(container.querySelector('article')).toHaveClass('fo-surface');
+    expect(screen.getByRole('status')).toHaveAttribute('data-status', 'ok');
+    expect(screen.getByRole('status')).toHaveClass('fo-text-success');
+  });
 });
 
 interface TestPayload {
