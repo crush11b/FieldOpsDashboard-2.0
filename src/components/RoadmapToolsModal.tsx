@@ -29,6 +29,7 @@ import { calculateDistanceKm, calculateDistanceMiles, calculateInitialBearing, c
 import { calculateSolarEvents, type SolarEventName } from '../location/solarEvents';
 import type { StationProfile } from '../propagation/domain';
 import { SmartDeployPlanner } from './SmartDeployPlanner';
+import { MaidenheadCalculator } from './MaidenheadCalculator';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -214,6 +215,16 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           </button>
 
           <button
+            id="tab-field-maidenhead"
+            role="tab"
+            aria-selected={activeTab === 'maidenhead'}
+            onClick={() => setActiveTab('maidenhead')}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
+          >
+            <Calculator className="w-4 h-4" /> MAIDENHEAD
+          </button>
+
+          <button
             id="tab-field-distance-bearing"
             role="tab"
             aria-selected={activeTab === 'distance_bearing'}
@@ -258,6 +269,10 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         <div className="fo-operational-view p-4 flex-1 overflow-y-auto space-y-4 text-xs">
           {activeTab === 'coordinate' && (
             <CoordinateTool operatingLocation={operatingLocation} />
+          )}
+
+          {activeTab === 'maidenhead' && (
+            <MaidenheadCalculator operatingLocation={operatingLocation} />
           )}
 
           {activeTab === 'distance_bearing' && (
@@ -499,7 +514,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         {/* Footer */}
         <div className="fo-surface-subtle p-4 border-t flex items-center justify-between">
           <span className="fo-text-muted text-[10px]">
-            Location • Distance / Bearing • Sun / Twilight • SmartDeploy
+            Location • Maidenhead • Distance / Bearing • Sun / Twilight • SmartDeploy
           </span>
           <button
             id="btn-close-roadmap-bottom"
