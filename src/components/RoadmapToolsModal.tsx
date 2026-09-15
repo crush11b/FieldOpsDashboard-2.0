@@ -255,7 +255,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         </div>
 
         {/* Modal Content */}
-        <div className="p-4 flex-1 overflow-y-auto space-y-4 text-xs">
+        <div className="fo-operational-view p-4 flex-1 overflow-y-auto space-y-4 text-xs">
           {activeTab === 'coordinate' && (
             <CoordinateTool operatingLocation={operatingLocation} />
           )}
