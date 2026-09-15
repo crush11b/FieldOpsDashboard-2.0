@@ -5,9 +5,11 @@ import type { PropagationSourceState } from '../src/propagation/domain';
 import { getProductUserAgent } from '../src/productMetadata';
 
 export const NOAA_SPACE_WEATHER_HOST = 'https://services.swpc.noaa.gov';
+export const NOAA_DAILY_SSN_PATH = '/text/daily-solar-indices.txt';
 
 export type SpaceWeatherProduct = 'f107' | 'ssn' | 'kp' | 'rScale' | 'xray';
 export type SpaceWeatherSnapshotStatus = 'live' | 'partial' | 'cached' | 'stale' | 'unavailable';
+export type ModelSsnBasis = 'observed_smoothed' | 'predicted_smoothed';
 
 export interface SpaceWeatherEvidenceItem {
   readonly product: SpaceWeatherProduct;
@@ -20,8 +22,10 @@ export interface SpaceWeatherEvidenceItem {
   readonly source: { readonly id: string; readonly type: 'noaa-swpc'; readonly name: 'NOAA SWPC' };
   readonly error?: string;
   readonly modelInput?: {
-    readonly semanticBasis: 'noaa_smoothed_monthly_ssn';
+    readonly semanticBasis: 'noaa_smoothed_monthly_ssn' | 'noaa_predicted_smoothed_monthly_ssn';
     readonly validity: 'long_lived_model_input';
+    readonly basis: ModelSsnBasis;
+    readonly effectiveMonth: string;
   };
 }
 
@@ -38,6 +42,8 @@ interface CacheRecord {
   readonly unit?: string;
   readonly observedAt: string;
   readonly receivedAt: string;
+  readonly modelBasis?: ModelSsnBasis;
+  readonly effectiveMonth?: string;
 }
 
 type CacheFile = Partial<Record<SpaceWeatherProduct | 'modelSsn', CacheRecord>>;
@@ -46,13 +52,14 @@ export const SPACE_WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 const PRODUCT_CONFIG: Readonly<Record<SpaceWeatherProduct, { path: string; maxAgeMs: number; unit?: string }>> = {
   f107: { path: '/json/f107_cm_flux.json', maxAgeMs: 72 * 60 * 60 * 1000, unit: 'sfu' },
-  ssn: { path: '/json/solar-cycle/observed-solar-cycle-indices.json', maxAgeMs: 45 * 24 * 60 * 60 * 1000 },
+  ssn: { path: NOAA_DAILY_SSN_PATH, maxAgeMs: 7 * 24 * 60 * 60 * 1000 },
   kp: { path: '/products/noaa-planetary-k-index.json', maxAgeMs: 12 * 60 * 60 * 1000 },
   rScale: { path: '/products/noaa-scales.json', maxAgeMs: 36 * 60 * 60 * 1000 },
   xray: { path: '/json/goes/primary/xray-flares-latest.json', maxAgeMs: 3 * 60 * 60 * 1000 },
 };
 
-const MODEL_SSN_MAX_AGE_MS = 180 * 24 * 60 * 60 * 1000;
+const MODEL_INPUT_SOURCE_MAX_AGE_MS = 45 * 24 * 60 * 60 * 1000;
+const PREDICTED_MODEL_SSN_PATH = '/json/solar-cycle/predicted-solar-cycle.json';
 
 const SOURCE = { id: 'noaa-swpc', type: 'noaa-swpc' as const, name: 'NOAA SWPC' as const };
 
@@ -102,19 +109,51 @@ export function parseF107(payload: unknown): CacheRecord | null {
 }
 
 export function parseSsn(payload: unknown): CacheRecord | null {
-  if (!Array.isArray(payload)) return null;
-  const item = newest(payload.filter(isRecord), row => timestamp(`${String(row['time-tag'] ?? '')}-01`));
-  const observedAt = item && timestamp(`${String(item['time-tag'] ?? '')}-01`);
-  const value = item && finite(item.observed_swpc_ssn ?? item.ssn);
-  return observedAt && value !== null && value >= 0 ? { value, observedAt, receivedAt: '' } : null;
+  if (typeof payload !== 'string') return null;
+  let latest: CacheRecord | null = null;
+  for (const line of payload.split(/\r?\n/)) {
+    const fields = line.trim().split(/\s+/);
+    if (fields.length < 5) continue;
+    const [year, month, day] = fields.slice(0, 3).map(Number);
+    const value = Number(fields[4]);
+    if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)
+      || !Number.isFinite(value) || value < 0 || value > 1000) continue;
+    const observedAt = timestamp(`${String(year).padStart(4, '0')}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}T12:00:00Z`);
+    const parsedDate = observedAt ? new Date(observedAt) : null;
+    if (!parsedDate || parsedDate.getUTCFullYear() !== year || parsedDate.getUTCMonth() + 1 !== month || parsedDate.getUTCDate() !== day) continue;
+    if (!latest || observedAt > latest.observedAt) latest = { value, observedAt, receivedAt: '' };
+  }
+  return latest;
 }
 
-export function parseModelSsn(payload: unknown): CacheRecord | null {
+export function parseModelSsn(payload: unknown, targetDate?: Date): CacheRecord | null {
   if (!Array.isArray(payload)) return null;
-  const item = newest(payload.filter((row): row is Record<string, unknown> => isRecord(row) && modelSsnValue(row) !== null), row => timestamp(`${String(row['time-tag'] ?? '')}-01`));
-  const observedAt = item && timestamp(`${String(item['time-tag'] ?? '')}-01`);
+  const valid = payload.filter((row): row is Record<string, unknown> => isRecord(row) && modelSsnValue(row) !== null);
+  const targetMonth = targetDate ? monthTag(targetDate) : null;
+  const item = targetMonth
+    ? valid.find(row => row['time-tag'] === targetMonth) ?? null
+    : newest(valid, row => timestamp(`${String(row['time-tag'] ?? '')}-01`));
+  const effectiveMonth = item && typeof item['time-tag'] === 'string' ? item['time-tag'] : null;
+  const observedAt = effectiveMonth && timestamp(`${effectiveMonth}-01`);
   const value = item && modelSsnValue(item);
-  return observedAt && value !== null && value >= 0 && value <= 400 ? { value, observedAt, receivedAt: '' } : null;
+  return observedAt && effectiveMonth && value !== null && value >= 0 && value <= 400
+    ? { value, observedAt, receivedAt: '', modelBasis: 'observed_smoothed', effectiveMonth }
+    : null;
+}
+
+export function parsePredictedModelSsn(payload: unknown, targetDate: Date): CacheRecord | null {
+  if (!Array.isArray(payload)) return null;
+  const effectiveMonth = monthTag(targetDate);
+  const item = payload.find((row): row is Record<string, unknown> => isRecord(row) && row['time-tag'] === effectiveMonth);
+  const value = item ? finite(item.predicted_ssn) : null;
+  const observedAt = timestamp(`${effectiveMonth}-01`);
+  return observedAt && value !== null && value >= 0 && value <= 400
+    ? { value, observedAt, receivedAt: '', modelBasis: 'predicted_smoothed', effectiveMonth }
+    : null;
+}
+
+function monthTag(date: Date): string {
+  return Number.isFinite(date.getTime()) ? date.toISOString().slice(0, 7) : '';
 }
 
 function modelSsnValue(row: Record<string, unknown>): number | null {
@@ -161,10 +200,20 @@ function readCache(filePath: string): CacheFile {
 }
 
 function isCacheRecord(value: unknown): value is CacheRecord {
-  return isRecord(value)
-    && (typeof value.value === 'string' || value.value === null || (typeof value.value === 'number' && Number.isFinite(value.value)))
-    && timestamp(value.observedAt) !== null
-    && timestamp(value.receivedAt) !== null;
+  if (!isRecord(value)
+    || !(typeof value.value === 'string' || value.value === null || (typeof value.value === 'number' && Number.isFinite(value.value)))
+    || typeof value.observedAt !== 'string'
+    || timestamp(value.observedAt) === null
+    || typeof value.receivedAt !== 'string'
+    || timestamp(value.receivedAt) === null) return false;
+  const hasModelBasis = value.modelBasis !== undefined;
+  const hasEffectiveMonth = value.effectiveMonth !== undefined;
+  if (hasModelBasis !== hasEffectiveMonth) return false;
+  if (!hasModelBasis) return true;
+  return (value.modelBasis === 'observed_smoothed' || value.modelBasis === 'predicted_smoothed')
+    && typeof value.effectiveMonth === 'string'
+    && /^\d{4}-(0[1-9]|1[0-2])$/.test(value.effectiveMonth)
+    && value.observedAt.slice(0, 7) === value.effectiveMonth;
 }
 
 function writeCache(filePath: string, cache: CacheFile): void {
@@ -193,7 +242,22 @@ function itemFromRecord(product: SpaceWeatherProduct | 'modelSsn', record: Cache
 }
 
 function modelSsnItemFromRecord(record: CacheRecord, state: PropagationSourceState): SpaceWeatherEvidenceItem {
-  return { ...itemFromRecord('modelSsn', record, state), evidenceType: undefined, modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn', validity: 'long_lived_model_input' } };
+  const basis = record.modelBasis ?? 'observed_smoothed';
+  const effectiveMonth = record.effectiveMonth ?? record.observedAt.slice(0, 7);
+  return {
+    ...itemFromRecord('modelSsn', record, state),
+    evidenceType: undefined,
+    modelInput: {
+      semanticBasis: basis === 'predicted_smoothed' ? 'noaa_predicted_smoothed_monthly_ssn' : 'noaa_smoothed_monthly_ssn',
+      validity: 'long_lived_model_input',
+      basis,
+      effectiveMonth,
+    },
+  };
+}
+
+function retainedModelState(record: CacheRecord, now: Date): PropagationSourceState {
+  return observationState(record.receivedAt, now, MODEL_INPUT_SOURCE_MAX_AGE_MS, true);
 }
 
 function snapshotStatus(products: Readonly<Record<SpaceWeatherProduct, SpaceWeatherEvidenceItem>>): SpaceWeatherSnapshotStatus {
@@ -210,6 +274,7 @@ export async function getSpaceWeatherSnapshot(options: {
   fetcher?: Fetcher;
   now?: () => Date;
   timeoutMs?: number;
+  modelDate?: Date;
 } = {}): Promise<SpaceWeatherSnapshot> {
   const cachePath = options.cachePath ?? getDefaultSpaceWeatherCachePath();
   const fetcher = options.fetcher ?? fetch;
@@ -228,15 +293,16 @@ export async function getSpaceWeatherSnapshot(options: {
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
       let response: Response;
       try {
+        const isText = product === 'ssn';
         response = await fetcher(`${NOAA_SPACE_WEATHER_HOST}${config.path}`, {
-          headers: { Accept: 'application/json', 'User-Agent': getProductUserAgent('NOAA SWPC') },
+          headers: { Accept: isText ? 'text/plain' : 'application/json', 'User-Agent': getProductUserAgent('NOAA SWPC') },
           signal: controller.signal,
         });
       } finally {
         clearTimeout(timeout);
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      live = parsers[product](await response.json());
+      live = parsers[product](product === 'ssn' ? await response.text() : await response.json());
       if (!live) throw new Error('NOAA payload did not contain a valid observation');
       live = { ...live, receivedAt };
       cache[product] = live;
@@ -252,29 +318,40 @@ export async function getSpaceWeatherSnapshot(options: {
     }
   }));
 
-  const modelConfig = { path: '/json/solar-cycle/observed-solar-cycle-indices.json', maxAgeMs: MODEL_SSN_MAX_AGE_MS };
+  const modelDate = options.modelDate ?? now();
+  const requestedModelMonth = monthTag(modelDate);
   try {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
-    let response: Response;
-    try {
-      response = await fetcher(`${NOAA_SPACE_WEATHER_HOST}${modelConfig.path}`, {
-        headers: { Accept: 'application/json', 'User-Agent': getProductUserAgent('NOAA SWPC') },
-        signal: controller.signal,
-      });
-    } finally {
-      clearTimeout(timeout);
+    const fetchJson = async (sourcePath: string): Promise<unknown> => {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
+      try {
+        const response = await fetcher(`${NOAA_SPACE_WEATHER_HOST}${sourcePath}`, {
+          headers: { Accept: 'application/json', 'User-Agent': getProductUserAgent('NOAA SWPC') },
+          signal: controller.signal,
+        });
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        return response.json();
+      } finally {
+        clearTimeout(timeout);
+      }
+    };
+
+    const observedPayload = await fetchJson('/json/solar-cycle/observed-solar-cycle-indices.json');
+    let record = parseModelSsn(observedPayload, modelDate);
+    if (!record) {
+      record = parsePredictedModelSsn(await fetchJson(PREDICTED_MODEL_SSN_PATH), modelDate);
     }
-    if (!response.ok) throw new Error(`HTTP ${response.status}`);
-    const live = parseModelSsn(await response.json());
-    if (!live) throw new Error('NOAA payload did not contain a valid smoothed SSN model input');
-    const record = { ...live, receivedAt };
+    if (!record) throw new Error(`NOAA payloads did not contain a model SSN for ${requestedModelMonth}`);
+    record = { ...record, receivedAt };
     cache.modelSsn = record;
-    modelSsn = modelSsnItemFromRecord(record, observationState(record.observedAt, now(), modelConfig.maxAgeMs, false));
+    modelSsn = modelSsnItemFromRecord(record, 'live');
   } catch (error) {
-    const retained = isCacheRecord(cache.modelSsn) ? cache.modelSsn : null;
+    const retained = isCacheRecord(cache.modelSsn)
+      && (cache.modelSsn.effectiveMonth ?? cache.modelSsn.observedAt.slice(0, 7)) === requestedModelMonth
+      ? cache.modelSsn
+      : null;
     modelSsn = retained
-      ? modelSsnItemFromRecord(retained, observationState(retained.observedAt, now(), modelConfig.maxAgeMs, true))
+      ? modelSsnItemFromRecord(retained, retainedModelState(retained, now()))
       : { product: 'ssn', state: 'unavailable', source: SOURCE, error: error instanceof Error ? error.message : 'NOAA model input unavailable' };
   }
 
@@ -284,20 +361,34 @@ export async function getSpaceWeatherSnapshot(options: {
 
 export class SpaceWeatherService {
   private snapshot: SpaceWeatherSnapshot | null = null;
+  private snapshotModelMonth: string | null = null;
   private refreshPromise: Promise<SpaceWeatherSnapshot> | null = null;
+  private refreshModelMonth: string | null = null;
   private lastRefreshAt = 0;
 
   constructor(private readonly options: Parameters<typeof getSpaceWeatherSnapshot>[0] = {}, private readonly refreshIntervalMs = SPACE_WEATHER_REFRESH_INTERVAL_MS) {}
 
-  async getSnapshot(forceRefresh = false): Promise<SpaceWeatherSnapshot> {
-    const now = (this.options.now ?? (() => new Date()))().getTime();
-    if (this.snapshot && !forceRefresh && now - this.lastRefreshAt < this.refreshIntervalMs) return this.snapshot;
+  async getSnapshot(forceRefresh = false, modelDate?: Date): Promise<SpaceWeatherSnapshot> {
+    const clock = this.options.now ?? (() => new Date());
+    const requestedDate = modelDate ?? clock();
+    const requestedMonth = monthTag(requestedDate);
+    const now = clock().getTime();
+    if (this.snapshot && this.snapshotModelMonth === requestedMonth && !forceRefresh && now - this.lastRefreshAt < this.refreshIntervalMs) return this.snapshot;
+    if (this.refreshPromise && this.refreshModelMonth !== requestedMonth) {
+      await this.refreshPromise;
+      return this.getSnapshot(forceRefresh, requestedDate);
+    }
     if (!this.refreshPromise) {
-      this.refreshPromise = getSpaceWeatherSnapshot(this.options).then(snapshot => {
+      this.refreshModelMonth = requestedMonth;
+      this.refreshPromise = getSpaceWeatherSnapshot({ ...this.options, modelDate: requestedDate }).then(snapshot => {
         this.snapshot = snapshot;
-        this.lastRefreshAt = (this.options.now ?? (() => new Date()))().getTime();
+        this.snapshotModelMonth = requestedMonth;
+        this.lastRefreshAt = clock().getTime();
         return snapshot;
-      }).finally(() => { this.refreshPromise = null; });
+      }).finally(() => {
+        this.refreshPromise = null;
+        this.refreshModelMonth = null;
+      });
     }
     return this.refreshPromise;
   }

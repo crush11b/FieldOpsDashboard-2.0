@@ -81,7 +81,7 @@ export class PropagationGuidanceService {
     if (configResult.kind === 'invalid') throw new GuidanceServiceError('Persisted dashboard configuration is unavailable.');
     const config = configResult.kind === 'loaded' ? configResult.config : this.defaultConfig();
     const stationProfile = config.propagation.stationProfile;
-    const spaceWeather = await this.spaceWeather.getSnapshot();
+    const spaceWeather = await this.spaceWeather.getSnapshot(false, new Date(evaluatedAtUtc));
     this.observedRf.setOperatingLocation(request.operatingLocation);
     const modelSsn = spaceWeather.modelSsn ?? unavailableModelSsn();
     const modelAvailable = typeof modelSsn.value === 'number' && Number.isFinite(modelSsn.value) && modelSsn.state !== 'unavailable';

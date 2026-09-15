@@ -132,10 +132,10 @@ export class SmartDeployService {
     try {
       const executionRequest = toSmartDeployExecutionRequest(normalized.request);
       this.observedRf.setOperatingLocation(normalized.request.plannedOperatingLocation);
-      const weather = await this.spaceWeather.getSnapshot();
+      const weather = await this.spaceWeather.getSnapshot(false, new Date(executionRequest.missionWindow.start));
       const modelSsn = weather.modelSsn;
-      const hasLongLivedModelInput = modelSsn?.modelInput?.semanticBasis === 'noaa_smoothed_monthly_ssn'
-        && modelSsn.modelInput.validity === 'long_lived_model_input';
+      const hasLongLivedModelInput = modelSsn?.modelInput?.validity === 'long_lived_model_input'
+        && (modelSsn.modelInput.basis === 'observed_smoothed' || modelSsn.modelInput.basis === 'predicted_smoothed');
       const ssn = hasLongLivedModelInput && typeof modelSsn.value === 'number' && Number.isFinite(modelSsn.value)
         ? modelSsn.value
         : Number.NaN;
@@ -146,7 +146,7 @@ export class SmartDeployService {
         ...baseEvidence,
         limitations: [
           ...baseEvidence.limitations,
-          'Propagation modeling uses a long-lived smoothed monthly SSN model input; mission-window space-weather forecasting is not included in Slice 1.',
+          'Propagation modeling uses a month-aligned long-lived smoothed monthly SSN model input; transient mission-window space-weather forecasting is not included.',
           ...(resolution.status === 'stale' ? [targetRequest.program === 'SOTA' ? 'SOTA summit data is stale and was used from the local dataset.' : 'POTA target data is stale and was used without a successful refresh.'] : []),
         ],
       };

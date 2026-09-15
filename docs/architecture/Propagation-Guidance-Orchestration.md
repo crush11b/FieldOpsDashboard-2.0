@@ -8,7 +8,7 @@ The request contains a canonical destination region and an operating location wi
 
 ## Source independence
 
-Current NOAA products remain current-condition evidence. The NOAA smoothed monthly sunspot number is returned separately as `snapshot.modelSsn` and is the only solar value supplied to regional P.533. The parser selects the newest row with a valid smoothed value, skipping NOAA's provisional `-1` rows, and prefers `smoothed_ssn` when present. It has a longer model-input freshness window than current SSN evidence. The service never fabricates a model SSN from a default, clock, or legacy solar endpoint.
+Current-condition evidence uses NOAA SWPC for Kp, R-scale, X-ray, F10.7, and the daily SESC sunspot number published in `daily-solar-indices.txt`. Daily SSN retains its observation date and is never substituted for the P.533 input. The NOAA smoothed monthly sunspot number is returned separately as `snapshot.modelSsn` and is the only solar value supplied to regional P.533. The parser selects the requested evaluation month when a definitive smoothed value is available and otherwise uses NOAA's month-aligned predicted smoothed SSN. The service never fabricates a model SSN from a default, clock, daily SSN, or legacy solar endpoint.
 
 Observed RF and NOAA evidence remain independent of the modeled result. A model result may be complete, partial, unavailable, or not applicable while observed evidence still contributes according to the existing rating policy.
 
@@ -24,7 +24,7 @@ The cache key includes:
 - UTC evaluation hour
 - Model SSN value and observation timestamp
 
-Current NOAA Kp, R-scale, X-ray, F10.7, and current SSN changes do not invalidate a model result. They still affect the current evidence and final rating evaluation.
+Current NOAA Kp, R-scale, X-ray, F10.7, and daily SESC SSN changes do not invalidate a model result. They still affect the current evidence and final rating evaluation.
 
 ## Truthful offline behavior
 
@@ -39,7 +39,7 @@ The response status is `complete` only when at least one assessment is available
 The response includes:
 
 - `assessments`: exactly the canonical ten bands, including `6m`
-- `spaceWeather`: current NOAA products plus separate model SSN provenance
+- `spaceWeather`: current NOAA products plus separate NOAA model-SSN provenance
 - `model`: model status, cache state, SSN input, provenance, counts, timing, and reason
 - `ratingPolicyVersion`: `regional_guidance_v1`
 - `sourceErrors`: user-safe source and model errors

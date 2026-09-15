@@ -21,7 +21,7 @@ const weather = {
   status: 'live' as const,
   fetchedAt: '2026-08-17T03:00:00.000Z',
   products: { f107: product('f107', 130), ssn: product('ssn', 106), kp: product('kp', 2), rScale: product('rScale', 0), xray: product('xray', 'C1.0') },
-  modelSsn: { ...product('ssn', 109), modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn' as const, validity: 'long_lived_model_input' as const } },
+  modelSsn: { ...product('ssn', 109), modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn' as const, validity: 'long_lived_model_input' as const, basis: 'observed_smoothed' as const, effectiveMonth: '2026-08' } },
 };
 
 const profile = { mode: 'SSB' as const, transmitPowerWatts: 10, antenna: { type: 'EFHW' as const }, deployment: { geometry: 'inverted_v' as const, heightCategory: '15_to_30_ft' as const } };
