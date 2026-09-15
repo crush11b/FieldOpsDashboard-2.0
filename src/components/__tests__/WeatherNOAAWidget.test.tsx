@@ -36,6 +36,24 @@ beforeEach(() => {
 });
 
 describe('WeatherNOAAWidget truth states', () => {
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('uses semantic surfaces and truthful theme identity in %s', theme => {
+    const { container } = render(
+      <WeatherNOAAWidget
+        weather={retainedWeather}
+        weatherStatus="live"
+        alerts={[]}
+        alertsStatus="live"
+        theme={theme}
+        audioEnabled={false}
+      />,
+    );
+
+    const card = container.firstElementChild;
+    expect(card).toHaveAttribute('data-theme', theme);
+    expect(card).toHaveClass('fo-surface');
+    expect(screen.getByTestId('weather-freshness-status')).toHaveClass('fo-status-success');
+  });
+
   it('labels live weather as live', () => {
     const markup = renderToStaticMarkup(
       <WeatherNOAAWidget
@@ -116,6 +134,25 @@ describe('WeatherNOAAWidget truth states', () => {
 
     expect(markup).toContain('NOAA UNAVAILABLE');
     expect(markup).not.toContain('ALL CLEAR');
+  });
+
+  it('uses text and expanded state in addition to color for NOAA status', () => {
+    render(
+      <WeatherNOAAWidget
+        weather={retainedWeather}
+        weatherStatus="live"
+        alerts={[alertOne]}
+        alertsStatus="live"
+        theme="sunlight"
+        audioEnabled={false}
+      />,
+    );
+
+    const alertsButton = screen.getByRole('button', { name: /NOAA ALERTS \(1\)/i });
+    expect(alertsButton).toHaveClass('fo-status-caution', 'min-h-11');
+    expect(alertsButton).toHaveAttribute('aria-expanded', 'false');
+    fireEvent.click(alertsButton);
+    expect(alertsButton).toHaveAttribute('aria-expanded', 'true');
   });
 
   it('fails closed when a live NOAA status has no alert payload', () => {
