@@ -19,10 +19,10 @@ function jsonResponse(body: unknown, ok = true): Response {
 }
 
 function responseFor(url: string, ok = true): Response {
-  if (url.includes('SN_d_tot_V2.0.csv')) {
-    return new Response('2026;08;14;2026.616;92;10.2;32;0\n2026;08;16;2026.622;118;11.4;28;0\n', {
+  if (url.includes('daily-solar-indices.txt')) {
+    return new Response('2026 08 14  117     92      340\n2026 08 16  129    118      511\n', {
       status: ok ? 200 : 503,
-      headers: { 'content-type': 'text/csv' },
+      headers: { 'content-type': 'text/plain' },
     });
   }
   return jsonResponse(payloadFor(url), ok);
@@ -44,8 +44,8 @@ afterEach(() => {
 describe('space-weather evidence', () => {
   it('selects the newest valid observation and rejects malformed products', () => {
     expect(parseF107([{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: 'bad', flux: 900 }])).toMatchObject({ value: 129 });
-    expect(parseSsn('2026;08;14;2026.616;92;10.2;32;0\n2026;08;16;2026.622;118;11.4;28;0\n')).toMatchObject({ value: 118, observedAt: '2026-08-16T12:00:00.000Z' });
-    expect(parseSsn('2026;02;30;2026.166;9001;0;0;0\n')).toBeNull();
+    expect(parseSsn('2026 08 14  117     92      340\n2026 08 16  129    118      511\n')).toMatchObject({ value: 118, observedAt: '2026-08-16T12:00:00.000Z' });
+    expect(parseSsn('2026 02 30  117   9001      340\n')).toBeNull();
     expect(parseModelSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }])).toMatchObject({ value: 109.5 });
     expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }, { 'time-tag': '2026-07', smoothed_ssn: -1 }])).toMatchObject({ value: 109.5, observedAt: '2026-06-01T00:00:00.000Z', modelBasis: 'observed_smoothed', effectiveMonth: '2026-06' });
     expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }], new Date('2026-07-10T00:00:00Z'))).toBeNull();
@@ -59,7 +59,7 @@ describe('space-weather evidence', () => {
   it('classifies fresh and old successful HTTP observations by source age', async () => {
     const fresh = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => responseFor(String(input)) });
     expect(fresh.products.f107.state).toBe('live');
-    expect(fresh.products.ssn).toMatchObject({ state: 'live', value: 118, observedAt: '2026-08-16T12:00:00.000Z', source: { name: 'SILSO' } });
+    expect(fresh.products.ssn).toMatchObject({ state: 'live', value: 118, observedAt: '2026-08-16T12:00:00.000Z', source: { name: 'NOAA SWPC' } });
 
     const stale = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => jsonResponse(
       String(input).includes('f107') ? [{ time_tag: '2026-07-01T20:00:00', flux: 122 }] : payloadFor(String(input)),
@@ -67,12 +67,12 @@ describe('space-weather evidence', () => {
     expect(stale.products.f107).toMatchObject({ state: 'stale', observedAt: '2026-07-01T20:00:00.000Z' });
   });
 
-  it('keeps a recently observed daily SILSO SSN live in the middle of the month', async () => {
+  it('keeps a recently observed daily NOAA SESC SSN live in the middle of the month', async () => {
     const result = await getSpaceWeatherSnapshot({
       cachePath: cachePath(),
       now: () => new Date('2026-09-15T00:30:00.000Z'),
-      fetcher: async input => String(input).includes('SN_d_tot_V2.0.csv')
-        ? new Response('2026;09;14;2026.704;123;10.2;32;0\n')
+      fetcher: async input => String(input).includes('daily-solar-indices.txt')
+        ? new Response('2026 09 14  114    123      420\n')
         : jsonResponse(payloadFor(String(input))),
     });
 
@@ -80,7 +80,7 @@ describe('space-weather evidence', () => {
       value: 123,
       state: 'live',
       observedAt: '2026-09-14T12:00:00.000Z',
-      source: { id: 'silso', name: 'SILSO' },
+      source: { id: 'noaa-swpc', name: 'NOAA SWPC' },
     });
   });
 
@@ -182,10 +182,7 @@ describe('space-weather evidence', () => {
       return responseFor(String(input));
     } });
     expect(requests).toHaveLength(6);
-    expect(requests.filter(request => request.url.includes('sidc.be'))).toEqual([
-      expect.objectContaining({ userAgent: getProductUserAgent('SILSO') }),
-    ]);
-    expect(requests.filter(request => !request.url.includes('sidc.be')).every(request => request.userAgent === getProductUserAgent('NOAA SWPC'))).toBe(true);
+    expect(requests.every(request => request.userAgent === getProductUserAgent('NOAA SWPC'))).toBe(true);
     expect(result.products.xray).toMatchObject({ value: 'C2.1', evidenceType: 'latest_goes_xray_flare_class' });
     expect(result.modelSsn).toMatchObject({ value: 109.5, state: 'live', modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn' } });
   });

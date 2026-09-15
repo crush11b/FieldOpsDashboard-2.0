@@ -5,7 +5,7 @@ import type { PropagationSourceState } from '../src/propagation/domain';
 import { getProductUserAgent } from '../src/productMetadata';
 
 export const NOAA_SPACE_WEATHER_HOST = 'https://services.swpc.noaa.gov';
-export const SILSO_DAILY_SSN_URL = 'https://www.sidc.be/SILSO/DATA/SN_d_tot_V2.0.csv';
+export const NOAA_DAILY_SSN_PATH = '/text/daily-solar-indices.txt';
 
 export type SpaceWeatherProduct = 'f107' | 'ssn' | 'kp' | 'rScale' | 'xray';
 export type SpaceWeatherSnapshotStatus = 'live' | 'partial' | 'cached' | 'stale' | 'unavailable';
@@ -19,11 +19,7 @@ export interface SpaceWeatherEvidenceItem {
   readonly unit?: string;
   readonly observedAt?: string;
   readonly receivedAt?: string;
-  readonly source: {
-    readonly id: string;
-    readonly type: 'noaa-swpc' | 'silso';
-    readonly name: 'NOAA SWPC' | 'SILSO';
-  };
+  readonly source: { readonly id: string; readonly type: 'noaa-swpc'; readonly name: 'NOAA SWPC' };
   readonly error?: string;
   readonly modelInput?: {
     readonly semanticBasis: 'noaa_smoothed_monthly_ssn' | 'noaa_predicted_smoothed_monthly_ssn';
@@ -56,7 +52,7 @@ export const SPACE_WEATHER_REFRESH_INTERVAL_MS = 15 * 60 * 1000;
 
 const PRODUCT_CONFIG: Readonly<Record<SpaceWeatherProduct, { path: string; maxAgeMs: number; unit?: string }>> = {
   f107: { path: '/json/f107_cm_flux.json', maxAgeMs: 72 * 60 * 60 * 1000, unit: 'sfu' },
-  ssn: { path: SILSO_DAILY_SSN_URL, maxAgeMs: 7 * 24 * 60 * 60 * 1000 },
+  ssn: { path: NOAA_DAILY_SSN_PATH, maxAgeMs: 7 * 24 * 60 * 60 * 1000 },
   kp: { path: '/products/noaa-planetary-k-index.json', maxAgeMs: 12 * 60 * 60 * 1000 },
   rScale: { path: '/products/noaa-scales.json', maxAgeMs: 36 * 60 * 60 * 1000 },
   xray: { path: '/json/goes/primary/xray-flares-latest.json', maxAgeMs: 3 * 60 * 60 * 1000 },
@@ -66,7 +62,6 @@ const MODEL_INPUT_SOURCE_MAX_AGE_MS = 45 * 24 * 60 * 60 * 1000;
 const PREDICTED_MODEL_SSN_PATH = '/json/solar-cycle/predicted-solar-cycle.json';
 
 const SOURCE = { id: 'noaa-swpc', type: 'noaa-swpc' as const, name: 'NOAA SWPC' as const };
-const SILSO_SOURCE = { id: 'silso', type: 'silso' as const, name: 'SILSO' as const };
 
 export function getDefaultSpaceWeatherCachePath(
   environment: NodeJS.ProcessEnv = process.env,
@@ -117,7 +112,7 @@ export function parseSsn(payload: unknown): CacheRecord | null {
   if (typeof payload !== 'string') return null;
   let latest: CacheRecord | null = null;
   for (const line of payload.split(/\r?\n/)) {
-    const fields = line.trim().split(';').map(field => field.trim());
+    const fields = line.trim().split(/\s+/);
     if (fields.length < 5) continue;
     const [year, month, day] = fields.slice(0, 3).map(Number);
     const value = Number(fields[4]);
@@ -234,7 +229,6 @@ function writeCache(filePath: string, cache: CacheFile): void {
 }
 
 function itemFromRecord(product: SpaceWeatherProduct | 'modelSsn', record: CacheRecord, state: PropagationSourceState): SpaceWeatherEvidenceItem {
-  const source = product === 'ssn' ? SILSO_SOURCE : SOURCE;
   return {
     product: product === 'modelSsn' ? 'ssn' : product,
     ...(product === 'xray' ? { evidenceType: 'latest_goes_xray_flare_class' as const } : {}),
@@ -243,7 +237,7 @@ function itemFromRecord(product: SpaceWeatherProduct | 'modelSsn', record: Cache
     unit: record.unit ?? (product === 'modelSsn' ? undefined : PRODUCT_CONFIG[product].unit),
     observedAt: record.observedAt,
     receivedAt: record.receivedAt,
-    source,
+    source: SOURCE,
   };
 }
 
@@ -299,9 +293,9 @@ export async function getSpaceWeatherSnapshot(options: {
       const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? 5000);
       let response: Response;
       try {
-        const isSilso = product === 'ssn';
-        response = await fetcher(isSilso ? config.path : `${NOAA_SPACE_WEATHER_HOST}${config.path}`, {
-          headers: { Accept: isSilso ? 'text/csv' : 'application/json', 'User-Agent': getProductUserAgent(isSilso ? 'SILSO' : 'NOAA SWPC') },
+        const isText = product === 'ssn';
+        response = await fetcher(`${NOAA_SPACE_WEATHER_HOST}${config.path}`, {
+          headers: { Accept: isText ? 'text/plain' : 'application/json', 'User-Agent': getProductUserAgent('NOAA SWPC') },
           signal: controller.signal,
         });
       } finally {
@@ -309,7 +303,7 @@ export async function getSpaceWeatherSnapshot(options: {
       }
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       live = parsers[product](product === 'ssn' ? await response.text() : await response.json());
-      if (!live) throw new Error(`${product === 'ssn' ? 'SILSO' : 'NOAA'} payload did not contain a valid observation`);
+      if (!live) throw new Error('NOAA payload did not contain a valid observation');
       live = { ...live, receivedAt };
       cache[product] = live;
       products[product] = itemFromRecord(product, live, observationState(live.observedAt, now(), config.maxAgeMs, false));
@@ -319,7 +313,7 @@ export async function getSpaceWeatherSnapshot(options: {
         const state = observationState(retained.observedAt, now(), config.maxAgeMs, true);
         products[product] = itemFromRecord(product, retained, state);
       } else {
-        products[product] = { product, state: 'unavailable', source: product === 'ssn' ? SILSO_SOURCE : SOURCE, error: error instanceof Error ? error.message : `${product === 'ssn' ? 'SILSO' : 'NOAA'} source unavailable` };
+        products[product] = { product, state: 'unavailable', source: SOURCE, error: error instanceof Error ? error.message : 'NOAA source unavailable' };
       }
     }
   }));
