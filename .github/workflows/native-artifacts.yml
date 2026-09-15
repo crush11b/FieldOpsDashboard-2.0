@@ -2,7 +2,12 @@ name: Native artifacts
 
 on:
   push:
-    branches: [main, feature/2.4-field-tools-coordinate-workspace, feature/2.7-connected-operations, feature/3.0-05-visual-system, feature/3.0-06-maidenhead-calculator]
+    branches:
+      - main
+      - feature/2.4-field-tools-coordinate-workspace
+      - feature/2.7-connected-operations
+      - feature/3.0-05-visual-system
+      - feature/3.0-06-maidenhead-calculator
   workflow_dispatch:
     inputs:
       source_revision:
