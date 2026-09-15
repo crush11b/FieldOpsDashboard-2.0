@@ -335,6 +335,7 @@ Every candidate receives a documented disposition during V3.0, but implementatio
 | Contest/award tracking | Decide whether it belongs in FieldOps |
 | Automatic recommendations | Require evidence and operator-trust design |
 | Diagnostic history/export | Implement only bounded local evidence needed for current operation |
+| External equipment-data enrichment | Research approved sources, terms, model matching, provenance, caching, conflicts, and operator-confirmed import; defer implementation |
 
 ADR-012 remains controlling: POTA machine-API support is unconfirmed and SOTA access is blocked without explicit approval and authorization.
 
