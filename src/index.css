@@ -1,5 +1,126 @@
 @import "tailwindcss";
 
+/*
+ * V3 semantic visual foundation.
+ *
+ * Components consume role-based tokens so day, dark, and red-light modes can
+ * be evaluated independently without changing the meaning of status colors.
+ */
+:root,
+[data-theme="dark_tactical"] {
+	color-scheme: dark;
+	--fo-canvas: #141311;
+	--fo-surface-1: #1d1b18;
+	--fo-surface-2: #27231f;
+	--fo-surface-raised: #302a24;
+	--fo-text-primary: #f4eee4;
+	--fo-text-secondary: #d0c5b6;
+	--fo-text-muted: #9e9488;
+	--fo-border-subtle: #37322c;
+	--fo-border: #50483e;
+	--fo-border-strong: #746657;
+	--fo-action-primary: #bd6e32;
+	--fo-action-primary-hover: #d5813d;
+	--fo-action-secondary: #3c3731;
+	--fo-action-secondary-hover: #4a433b;
+	--fo-focus: #e0a251;
+	--fo-selected: #5b3b24;
+	--fo-disabled: #6f675e;
+	--fo-success: #70a77a;
+	--fo-caution: #d5a243;
+	--fo-danger: #dc6b62;
+	--fo-info: #7e9eac;
+	--fo-evidence-live: #70a77a;
+	--fo-evidence-cached: #d5a243;
+	--fo-evidence-modeled: #a990c4;
+	--fo-evidence-manual: #c58a59;
+	--fo-evidence-observed: #7e9eac;
+	--fo-evidence-unknown: #9e9488;
+}
+
+[data-theme="sunlight"] {
+	color-scheme: light;
+	--fo-canvas: #e8dfd1;
+	--fo-surface-1: #f7f1e7;
+	--fo-surface-2: #fffaf2;
+	--fo-surface-raised: #ffffff;
+	--fo-text-primary: #29251f;
+	--fo-text-secondary: #4d463d;
+	--fo-text-muted: #6b6258;
+	--fo-border-subtle: #d4c5b3;
+	--fo-border: #aa9781;
+	--fo-border-strong: #766450;
+	--fo-action-primary: #a95420;
+	--fo-action-primary-hover: #873f17;
+	--fo-action-secondary: #ded1c0;
+	--fo-action-secondary-hover: #cdbca7;
+	--fo-focus: #743814;
+	--fo-selected: #edcda9;
+	--fo-disabled: #8b8177;
+	--fo-success: #327146;
+	--fo-caution: #8b5b00;
+	--fo-danger: #a5312b;
+	--fo-info: #3c6577;
+	--fo-evidence-live: #327146;
+	--fo-evidence-cached: #8b5b00;
+	--fo-evidence-modeled: #654b7a;
+	--fo-evidence-manual: #874a20;
+	--fo-evidence-observed: #3c6577;
+	--fo-evidence-unknown: #6b6258;
+}
+
+[data-theme="night_vision"] {
+	color-scheme: dark;
+	--fo-canvas: #050303;
+	--fo-surface-1: #0d0707;
+	--fo-surface-2: #160b0b;
+	--fo-surface-raised: #201010;
+	--fo-text-primary: #f08a82;
+	--fo-text-secondary: #cf6c66;
+	--fo-text-muted: #92504c;
+	--fo-border-subtle: #381919;
+	--fo-border: #612828;
+	--fo-border-strong: #8c3936;
+	--fo-action-primary: #9e332f;
+	--fo-action-primary-hover: #bd423d;
+	--fo-action-secondary: #281313;
+	--fo-action-secondary-hover: #3a1a1a;
+	--fo-focus: #ff8b82;
+	--fo-selected: #541e1c;
+	--fo-disabled: #71413e;
+	--fo-success: #d87972;
+	--fo-caution: #e18a70;
+	--fo-danger: #ff655d;
+	--fo-info: #c66b65;
+	--fo-evidence-live: #d87972;
+	--fo-evidence-cached: #e18a70;
+	--fo-evidence-modeled: #bd6f82;
+	--fo-evidence-manual: #c9755f;
+	--fo-evidence-observed: #c66b65;
+	--fo-evidence-unknown: #92504c;
+}
+
+.fo-app-shell { background: var(--fo-canvas); color: var(--fo-text-primary); }
+.fo-surface { background: var(--fo-surface-1); border-color: var(--fo-border); color: var(--fo-text-primary); }
+.fo-surface-subtle { background: var(--fo-surface-2); border-color: var(--fo-border-subtle); color: var(--fo-text-secondary); }
+.fo-control { background: var(--fo-action-secondary); border-color: var(--fo-border); color: var(--fo-text-secondary); }
+.fo-control:hover { background: var(--fo-action-secondary-hover); color: var(--fo-text-primary); }
+.fo-control-primary { background: var(--fo-action-primary); border-color: var(--fo-action-primary); color: #fffaf2; }
+.fo-control-primary:hover { background: var(--fo-action-primary-hover); }
+.fo-control:focus-visible,
+.fo-control-primary:focus-visible { outline: 3px solid var(--fo-focus); outline-offset: 2px; }
+.fo-text-primary { color: var(--fo-text-primary); }
+.fo-text-secondary { color: var(--fo-text-secondary); }
+.fo-text-muted { color: var(--fo-text-muted); }
+.fo-text-accent { color: var(--fo-action-primary-hover); }
+.fo-text-success { color: var(--fo-success); }
+.fo-text-caution { color: var(--fo-caution); }
+.fo-text-danger { color: var(--fo-danger); }
+.fo-text-info { color: var(--fo-info); }
+.fo-status-danger { background: color-mix(in srgb, var(--fo-danger) 14%, var(--fo-surface-1)); border-color: var(--fo-danger); color: var(--fo-danger); }
+.fo-selection::selection,
+.fo-selection *::selection { background: var(--fo-selected); color: var(--fo-text-primary); }
+
 @media print {
 	.no-print,
 	header,
