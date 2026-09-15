@@ -101,7 +101,7 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
     });
   };
 
-  return <section id="operations-readiness" aria-label="Operations Readiness" className="rounded-xl border border-amber-700/70 bg-amber-950/20 p-3 space-y-3">
+  return <section id="operations-readiness" aria-label="Operations Readiness" className="fo-operational-view rounded-xl border border-amber-700/70 bg-amber-950/20 p-3 space-y-3">
     <div className="flex flex-wrap items-start justify-between gap-3">
       <div><h3 className="font-black text-sm uppercase text-amber-300">OPERATIONS READINESS</h3><p className="text-[10px] text-slate-400">Brief-anchored decision support for {brief.activation.reference}</p></div>
       <span className="text-[10px] font-black uppercase text-slate-300">BRIEF {briefId}</span>

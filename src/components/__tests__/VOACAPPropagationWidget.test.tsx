@@ -12,41 +12,39 @@ describe('Regional HF Band Guidance production UI', () => {
 
   it.each(ratings)('%s receives centralized rating presentation', rating => {
     const classes = getBandRatingClasses(rating, 'dark_tactical', false);
-    expect(classes).toContain(rating === 'EXCELLENT' ? 'emerald-400' : rating === 'GOOD' ? 'emerald-600' : rating === 'FAIR' ? 'amber-500' : rating === 'POOR' ? 'red-500' : 'zinc-600');
+    expect(classes).toContain(`fo-rating-${rating.toLowerCase()}`);
   });
 
   it('keeps unavailable neutral and distinct from poor', () => {
-    expect(getBandRatingClasses('UNAVAILABLE', 'dark_tactical', false)).toContain('bg-zinc');
-    expect(getBandRatingClasses('UNAVAILABLE', 'dark_tactical', false)).not.toContain('bg-red');
-    expect(getBandRatingClasses('POOR', 'dark_tactical', false)).toContain('bg-red');
+    expect(getBandRatingClasses('UNAVAILABLE', 'dark_tactical', false)).toContain('fo-rating-unavailable');
+    expect(getBandRatingClasses('UNAVAILABLE', 'dark_tactical', false)).not.toContain('fo-rating-poor');
+    expect(getBandRatingClasses('POOR', 'dark_tactical', false)).toContain('fo-rating-poor');
   });
 
   it('keeps selected excellent and poor cards independently visible', () => {
-    expect(getBandRatingClasses('EXCELLENT', 'dark_tactical', true)).toContain('ring-2 ring-cyan-400');
-    expect(getBandRatingClasses('EXCELLENT', 'dark_tactical', true)).toContain('bg-emerald');
-    expect(getBandRatingClasses('POOR', 'dark_tactical', true)).toContain('ring-2 ring-cyan-400');
-    expect(getBandRatingClasses('POOR', 'dark_tactical', true)).toContain('bg-red');
+    expect(getBandRatingClasses('EXCELLENT', 'dark_tactical', true)).toContain('fo-rating-selected');
+    expect(getBandRatingClasses('EXCELLENT', 'dark_tactical', true)).toContain('fo-rating-excellent');
+    expect(getBandRatingClasses('POOR', 'dark_tactical', true)).toContain('fo-rating-selected');
+    expect(getBandRatingClasses('POOR', 'dark_tactical', true)).toContain('fo-rating-poor');
   });
 
-  it('uses a red-compatible night-vision treatment without normal rating colors', () => {
-    const classes = ratings.map(rating => getBandRatingClasses(rating, 'night_vision', false)).join(' ');
-    expect(classes).toContain('bg-red');
-    expect(classes).not.toContain('emerald');
-    expect(classes).not.toContain('amber');
-    expect(getBandRatingClasses('POOR', 'night_vision', true)).toContain('ring-red-400');
+  it('uses semantic rating roles so each theme controls its own palette', () => {
+    for (const rating of ratings) {
+      expect(getBandRatingClasses(rating, 'night_vision', false)).toBe(getBandRatingClasses(rating, 'sunlight', false));
+    }
+    expect(getBandRatingClasses('POOR', 'night_vision', true)).toContain('fo-rating-selected');
   });
 
-  it('uses readable sunlight-specific variants', () => {
-    expect(getBandRatingClasses('EXCELLENT', 'sunlight', false)).toContain('text-emerald-950');
-    expect(getBandRatingClasses('FAIR', 'sunlight', false)).toContain('text-amber-950');
-    expect(getBandRatingClasses('UNAVAILABLE', 'sunlight', false)).toContain('text-slate-700');
+  it('does not embed palette-specific colors in rating components', () => {
+    const classes = ratings.map(rating => getBandRatingClasses(rating, 'sunlight', false)).join(' ');
+    expect(classes).not.toMatch(/emerald|amber|red|cyan|zinc|slate/);
   });
 
   it('keeps rating colors while a retained result is refreshing', () => {
     const retained = getBandRatingClasses('POOR', 'sunlight', false);
     const refreshing = getBandRatingClasses('POOR', 'sunlight', true);
     expect(refreshing).toContain(retained);
-    expect(refreshing).toContain('ring-2 ring-cyan-400');
+    expect(refreshing).toContain('fo-rating-selected');
   });
 
   it('keeps rating and confidence text labels available to every card', () => {
@@ -84,6 +82,21 @@ describe('Regional HF Band Guidance production UI', () => {
     expect(markup).not.toContain('IONOSONDE');
     expect(markup).not.toContain('Excellent');
     expect(markup).not.toContain('Confidence:');
+  });
+
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('uses semantic propagation surfaces in %s', theme => {
+    const markup = renderToStaticMarkup(
+      <VOACAPPropagationWidget
+        config={INITIAL_CONFIG}
+        operatingLocation={{ coordinates: null, gridSquare: null, provenance: 'unavailable', status: 'unavailable', source: { id: 'test', type: 'gps_acquisition' } }}
+        theme={theme}
+        audioEnabled={false}
+        onPersistConfig={async value => value}
+      />,
+    );
+    expect(markup).toContain(`data-theme="${theme}"`);
+    expect(markup).toContain('fo-surface');
+    expect(markup).toContain('fo-input min-h-11');
   });
 
   it('presents Local/NVIS as an accessible deferred destination without changing supported choices', () => {

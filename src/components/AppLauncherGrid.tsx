@@ -20,9 +20,7 @@ import {
   XCircle, 
   Play,
   Plus, 
-  FolderCheck,
   Edit2,
-  Trash2,
   ExternalLink,
   ChevronUp,
   ChevronDown,
@@ -113,9 +111,6 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
   const [accordionMode, setAccordionMode] = useState<boolean>(true);
   const [collapsedCategories, setCollapsedCategories] = useState<Record<string, boolean>>({});
 
-  const isNight = theme === 'night_vision';
-  const isSunlight = theme === 'sunlight';
-
   const isCategoryCollapsed = (catId: string) => {
     return collapsedCategories[catId] ?? true; // Default to collapsed
   };
@@ -160,31 +155,28 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
     const launchState = launchStates[app.id] ?? 'READY';
     const observation = runtimeObservations[app.id];
     const runtimeStatus = observation?.available ?? 'unknown';
+    const runtimeStatusClass = !observation || runtimeStatus === 'unknown'
+      ? 'fo-status-neutral'
+      : runtimeStatus === 'yes'
+        ? 'fo-status-success'
+        : 'fo-status-danger';
     const relationship = observation?.fieldOpsEvidence?.label ?? (isCatalogTargetConfigured(app.target) ? 'LAUNCHER ONLY' : 'CATALOG ONLY');
     const launching = launchState === 'LAUNCHING';
     return (
       <div
         key={app.id}
-        className={`p-3.5 rounded-2xl border flex flex-col justify-between gap-3 transition-all relative group shadow-md ${
-          isNight
-            ? 'bg-black border-red-900 hover:border-red-600 text-red-500'
-            : isSunlight
-            ? 'bg-white border-amber-400 hover:border-amber-600 text-slate-900'
-            : 'bg-zinc-900/90 hover:bg-zinc-900 border-zinc-800 hover:border-amber-500/60 text-zinc-100'
-        }`}
+        className="fo-surface p-3.5 rounded-2xl border flex flex-col justify-between gap-3 transition-colors relative group shadow-md fo-card-interactive"
       >
         {/* Top Row: Icon, Name, Category, Hotkey, Favorite */}
         <div className="space-y-2.5">
           <div className="flex items-start justify-between gap-2">
             <div className="flex items-center gap-2.5">
-              <div className={`p-2 rounded-xl border shrink-0 ${
-                isNight ? 'border-red-800 bg-red-950 text-red-400' : 'border-amber-500/20 bg-amber-500/10 text-amber-400'
-              }`}>
+              <div className="fo-surface-subtle fo-text-accent p-2 rounded-xl border shrink-0">
                 {getAppIcon(app.iconName, "w-4 h-4")}
               </div>
               <div>
-                <h4 className="font-black text-sm tracking-wide leading-tight text-zinc-100 line-clamp-1">{app.name}</h4>
-                <span className="text-[10px] uppercase font-bold text-zinc-400">
+                <h4 className="fo-text-primary font-black text-sm tracking-wide leading-tight line-clamp-1">{app.name}</h4>
+                <span className="fo-text-muted text-[10px] uppercase font-bold">
                   {app.category}
                 </span>
               </div>
@@ -192,84 +184,79 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
             <div className="flex items-center gap-1 shrink-0">
               {app.hotkey && (
-                <span className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded border ${
-                  isNight ? 'border-red-800 bg-black text-red-400' : 'border-amber-500/40 bg-amber-500/10 text-amber-400'
-                }`}>
+                <span className="fo-badge text-[9px] font-extrabold px-1.5 py-0.5 rounded border">
                   {app.hotkey}
                 </span>
               )}
 
               <button
                 id={`btn-fav-${app.id}`}
+                aria-pressed={app.favorite}
                 onClick={() => {
                   playTacticalClick(audioEnabled);
                   onToggleFavorite(app.id);
                 }}
-                className={`p-1 rounded transition-colors ${
-                  app.favorite ? 'text-amber-400' : 'text-zinc-600 hover:text-amber-300'
-                }`}
+                className="fo-favorite fo-control min-h-11 min-w-11 p-2 rounded-xl border transition-colors flex items-center justify-center"
                 title={app.favorite ? 'Remove from favorites' : 'Add to favorites'}
               >
-                <Star className={`w-3.5 h-3.5 ${app.favorite ? 'fill-amber-400' : ''}`} />
+                <Star className={`w-4 h-4 ${app.favorite ? 'fill-current' : ''}`} />
               </button>
             </div>
           </div>
 
-          <p className="text-[11px] text-zinc-400 leading-snug line-clamp-2 min-h-[2rem]">
+          <p className="fo-text-secondary text-[11px] leading-snug line-clamp-2 min-h-[2rem]">
             {app.description}
           </p>
 
           {/* Durable target state; runtime discovery remains read-only. */}
           <div className={`p-2 rounded-xl border text-[10px] truncate flex items-center justify-between ${
-            isCatalogTargetConfigured(app.target)
-              ? isNight ? 'border-red-950 bg-red-950/30 text-red-400' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
-              : 'border-red-900/60 bg-red-950/30 text-red-300'
+            !app.enabled ? 'fo-status-caution' : isCatalogTargetConfigured(app.target) ? 'fo-status-info' : 'fo-status-neutral'
           }`}>
             <span className="truncate pr-1 font-mono">{app.target.kind === 'native' ? app.target.executablePath : app.target.kind === 'web' ? app.target.url : 'Unsupported target'}</span>
             {!app.enabled ? (
-              <span className="flex items-center gap-1 text-amber-400" title="This catalog record is disabled">
+              <span className="flex items-center gap-1" title="This catalog record is disabled">
                 DISABLED <XCircle className="w-3.5 h-3.5 shrink-0" />
               </span>
             ) : isCatalogTargetConfigured(app.target) ? (
-              <span className="flex items-center gap-1 text-emerald-400" title="Configured only; runtime verification is unavailable">
+              <span className="flex items-center gap-1" title="Configured only; runtime verification is unavailable">
                 CONFIGURED <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />
               </span>
             ) : (
-              <span className="flex items-center gap-1 text-zinc-400" title="No executable path is configured">
+              <span className="flex items-center gap-1" title="No executable path is configured">
                 NOT CONFIGURED <XCircle className="w-3.5 h-3.5 shrink-0" />
               </span>
             )}
           </div>
 
           <div className="grid grid-cols-1 gap-1.5 text-[9px] uppercase tracking-wide">
-            <div className="border border-zinc-800/80 rounded-lg p-2">
-              <div className="text-zinc-500 font-bold">DECLARED APP CAPABILITIES</div>
+            <div className="fo-surface-subtle border rounded-lg p-2">
+              <div className="fo-text-muted font-bold">DECLARED APP CAPABILITIES</div>
               <div className="mt-1 flex flex-wrap gap-1">
-                {app.capabilities.length > 0 ? app.capabilities.map(capability => <span key={capability.id} className="px-1.5 py-0.5 rounded border border-cyan-700/50 text-cyan-300">{capability.label}</span>) : <span className="text-zinc-500">NONE DECLARED</span>}
+                {app.capabilities.length > 0 ? app.capabilities.map(capability => <span key={capability.id} className="fo-status-info px-1.5 py-0.5 rounded border">{capability.label}</span>) : <span className="fo-text-muted">NONE DECLARED</span>}
               </div>
             </div>
-            <div className="border border-zinc-800/80 rounded-lg p-2">
-              <div className="text-zinc-500 font-bold">DEPENDENCIES</div>
+            <div className="fo-surface-subtle border rounded-lg p-2">
+              <div className="fo-text-muted font-bold">DEPENDENCIES</div>
               <div className="mt-1 flex flex-wrap gap-1">
                 {app.dependencies.length > 0 ? app.dependencies.map(dependency => {
                   const state = observation?.dependencyStates.find(candidate => candidate.id === dependency.id);
-                  return <span key={dependency.id} className="px-1.5 py-0.5 rounded border border-sky-700/50 text-sky-300">{dependency.id} {state?.status.toUpperCase() ?? 'UNKNOWN'}{dependency.required ? ' REQUIRED' : ' OPTIONAL'}</span>;
-                }) : <span className="text-zinc-500">NONE DECLARED</span>}
+                  return <span key={dependency.id} className="fo-status-info px-1.5 py-0.5 rounded border">{dependency.id} {state?.status.toUpperCase() ?? 'UNKNOWN'}{dependency.required ? ' REQUIRED' : ' OPTIONAL'}</span>;
+                }) : <span className="fo-text-muted">NONE DECLARED</span>}
               </div>
             </div>
-            <div className="border border-zinc-800/80 rounded-lg p-2">
-              <div className="text-zinc-500 font-bold">FIELDOPS RELATIONSHIP</div>
-              <div className="mt-1 text-amber-300">{relationship}</div>
+            <div className="fo-surface-subtle border rounded-lg p-2">
+              <div className="fo-text-muted font-bold">FIELDOPS RELATIONSHIP</div>
+              <div className="fo-text-accent mt-1">{relationship}</div>
             </div>
-            <div className="border border-zinc-800/80 rounded-lg p-2">
-              <div className="text-zinc-500 font-bold">RUNTIME STATUS</div>
-              <div className="mt-1 text-emerald-300">{observation ? runtimeStatus.toUpperCase() : 'UNKNOWN'}</div>
+            <div className="fo-surface-subtle border rounded-lg p-2">
+              <div className="fo-text-muted font-bold">RUNTIME STATUS</div>
+              <div className={`${runtimeStatusClass} mt-1 inline-flex rounded border px-1.5 py-0.5`}>{observation ? runtimeStatus.toUpperCase() : 'UNKNOWN'}</div>
             </div>
           </div>
         </div>
 
         {/* Action Buttons: Launch, Edit */}
-        <div className="flex items-center gap-2 pt-2 border-t border-zinc-800/80">
+        <div className="flex items-center gap-2 pt-2 border-t" style={{ borderColor: 'var(--fo-border-subtle)' }}>
           <button
             id={`btn-launch-${app.id}`}
             disabled={launching || !app.enabled || !isCatalogTargetConfigured(app.target)}
@@ -278,7 +265,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               onLaunchApp(app.id);
             }}
             title="Launch through the FieldOps Tray"
-            className={`flex-1 py-1.5 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all active:scale-95 ${launching ? 'border-zinc-700 bg-zinc-900 text-zinc-500 cursor-wait' : 'border-emerald-700 bg-emerald-950/40 text-emerald-300 hover:bg-emerald-900/50'}`}
+            className={`flex-1 min-h-11 px-3 rounded-xl font-black text-xs flex items-center justify-center gap-1.5 border transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-60 ${launching ? 'fo-control cursor-wait' : 'fo-control-primary'}`}
           >
             <Play className="w-3.5 h-3.5 fill-current" />
             <span>{launching ? 'LAUNCHING...' : app.enabled && isCatalogTargetConfigured(app.target) ? 'LAUNCH' : 'UNAVAILABLE'}</span>
@@ -291,15 +278,13 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               playTacticalClick(audioEnabled);
               onEditApp(app);
             }}
-            className={`p-1.5 rounded-xl border transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 ${
-              isNight ? 'border-red-950 bg-black text-red-400' : 'border-zinc-800 bg-zinc-950 text-zinc-400 hover:text-zinc-100'
-            }`}
+            className="fo-control min-h-11 min-w-11 p-2 rounded-xl border transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 flex items-center justify-center"
             title={app.policy.editable ? 'Edit App Settings & Paths' : 'This record is protected from editing'}
           >
             <Edit2 className="w-3.5 h-3.5" />
           </button>
         </div>
-        <p id={`launch-status-${app.id}`} className={`text-[9px] ${launchState === 'Launched' || launchState === 'UriOpened' ? 'text-emerald-400' : launchState === 'READY' ? 'text-zinc-500' : 'text-amber-400'}`}>
+        <p id={`launch-status-${app.id}`} className={`text-[9px] ${launchState === 'Launched' || launchState === 'UriOpened' ? 'fo-text-success' : launchState === 'READY' ? 'fo-text-muted' : 'fo-text-caution'}`}>
           {launchState === 'READY' ? 'Launch is handled by the local FieldOps Tray.' : launchState}
         </p>
       </div>
@@ -317,28 +302,24 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
       : 'grid-cols-2 sm:grid-cols-3 md:grid-cols-6';
 
   return (
-    <div className="space-y-4 font-mono">
+    <div className="space-y-4 font-mono" data-theme={theme}>
       {/* Field Applications Catalog Toolbar Header */}
-      <div className={`p-4 rounded-2xl border ${
-        isNight ? 'bg-black border-red-900' : isSunlight ? 'bg-white border-amber-400' : 'bg-zinc-900/90 border-zinc-800'
-      } shadow-xl space-y-3`}>
+      <div className="fo-surface p-4 rounded-2xl border shadow-xl space-y-3">
         
         {/* Top Title & Quick Stats Bar */}
-        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b border-zinc-800/80">
+        <div className="flex flex-wrap items-center justify-between gap-2 pb-3 border-b" style={{ borderColor: 'var(--fo-border-subtle)' }}>
           <div className="flex items-center gap-2.5">
-            <div className={`p-2 rounded-xl border ${
-              isNight ? 'border-red-900 bg-red-950 text-red-400' : 'border-amber-500/30 bg-amber-500/10 text-amber-400'
-            }`}>
+            <div className="fo-surface-subtle fo-text-accent p-2 rounded-xl border">
               <Layers className="w-5 h-5" />
             </div>
             <div>
-              <h3 className="font-black text-sm text-zinc-100 tracking-wider uppercase flex items-center gap-2">
+              <h3 className="fo-text-primary font-black text-sm tracking-wider uppercase flex items-center gap-2">
                 <span>FIELD APPLICATIONS CATALOG</span>
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/15 border border-amber-500/30 text-amber-300">
+                <span className="fo-badge text-[10px] font-bold px-2 py-0.5 rounded border">
                   {apps.length} CATALOG ENTRIES
                 </span>
               </h3>
-              <p className="text-[11px] text-zinc-400 font-mono">
+              <p className="fo-text-secondary text-[11px] font-mono">
                 Organize field tools. Native apps launch through the local FieldOps Tray; web apps open in the browser.
               </p>
             </div>
@@ -346,16 +327,14 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
           <div className="flex items-center gap-2">
             <div className="relative w-48 sm:w-60">
-              <Search className="w-3.5 h-3.5 absolute left-3 top-2.5 text-zinc-500" />
+              <Search className="fo-icon-neutral w-3.5 h-3.5 absolute left-3 top-[15px]" />
               <input
                 id="input-search-apps"
                 type="text"
                 placeholder="Search tools & apps..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className={`w-full pl-8 pr-3 py-1.5 rounded-xl text-xs font-mono border focus:outline-none focus:ring-1 ${
-                  isNight ? 'bg-black border-red-900 text-red-400 focus:ring-red-600' : 'bg-zinc-950 border-zinc-800 text-zinc-100 focus:ring-amber-500'
-                }`}
+                className="fo-input min-h-11 w-full pl-8 pr-3 rounded-xl text-xs font-mono border"
               />
             </div>
 
@@ -363,7 +342,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               id="btn-auto-installer-suite"
               disabled
               aria-describedby="auto-installer-unavailable"
-              className="px-3 py-1.5 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border border-zinc-700 bg-zinc-900 text-zinc-500 cursor-not-allowed opacity-70"
+              className="fo-control min-h-11 px-3 rounded-xl text-xs font-extrabold flex items-center gap-1.5 border cursor-not-allowed opacity-70"
               title="Automatic installation and path verification are not yet implemented"
             >
               <Zap className="w-3.5 h-3.5" />
@@ -376,16 +355,14 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
                 playTacticalClick(audioEnabled);
                 onAddNewApp();
               }}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 border shrink-0 ${
-                isNight ? 'border-red-800 bg-red-950 text-red-300' : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20'
-              }`}
+              className="fo-control-primary min-h-11 px-3 rounded-xl text-xs font-bold flex items-center gap-1.5 active:scale-95 border shrink-0"
             >
               <Plus className="w-3.5 h-3.5" />
               <span className="hidden sm:inline">ADD APP</span>
             </button>
           </div>
         </div>
-        <p id="auto-installer-unavailable" className="text-[10px] text-zinc-500">
+        <p id="auto-installer-unavailable" className="fo-text-muted text-[10px]">
           Installation and executable verification require a future privileged local service.
         </p>
 
@@ -397,21 +374,12 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
               <button
                 id={`btn-cat-${cat.id}`}
                 key={cat.id}
+                aria-pressed={active}
                 onClick={() => {
                   playTacticalClick(audioEnabled);
                   setSelectedCategory(cat.id);
                 }}
-                className={`px-3 py-1.5 rounded-xl text-xs font-bold whitespace-nowrap transition-all active:scale-95 touch-manipulation border ${
-                  active
-                    ? isNight 
-                      ? 'bg-red-800 border-red-600 text-white shadow-md' 
-                      : isSunlight 
-                      ? 'bg-amber-400 border-amber-600 text-slate-950 shadow-md font-extrabold' 
-                      : 'bg-amber-500 border-amber-400 text-black font-extrabold shadow-md'
-                    : isNight 
-                    ? 'border-red-950 bg-black text-red-700 hover:text-red-400' 
-                    : 'border-zinc-800/80 bg-zinc-900/60 text-zinc-400 hover:text-zinc-200'
-                }`}
+                className="fo-theme-choice min-h-11 px-3 rounded-xl text-xs font-bold whitespace-nowrap transition-all active:scale-95 touch-manipulation border border-transparent"
               >
                 {cat.label}
               </button>
@@ -420,7 +388,7 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
         </div>
 
         {/* Filter Summary & View Toggle Footer */}
-        <div className="flex flex-wrap items-center justify-between text-[11px] text-zinc-500 font-mono pt-1 gap-2">
+        <div className="fo-text-muted flex flex-wrap items-center justify-between text-[11px] font-mono pt-1 gap-2">
           <span>SHOWING {filteredApps.length} OF {apps.length} CATALOG RECORDS</span>
           
           <div className="flex items-center gap-2">
@@ -429,14 +397,14 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
                 <button
                   id="btn-expand-all-cats"
                   onClick={() => toggleAllCollapses(false)}
-                  className="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 text-[10px]"
+                  className="fo-control min-h-11 px-2 rounded-xl border text-[10px]"
                 >
                   EXPAND ALL
                 </button>
                 <button
                   id="btn-collapse-all-cats"
                   onClick={() => toggleAllCollapses(true)}
-                  className="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400 hover:text-zinc-200 text-[10px]"
+                  className="fo-control min-h-11 px-2 rounded-xl border text-[10px]"
                 >
                   COLLAPSE ALL
                 </button>
@@ -445,13 +413,12 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
 
             <button
               id="btn-toggle-catalog-view-mode"
+              aria-pressed={accordionMode}
               onClick={() => {
                 playTacticalClick(audioEnabled);
                 setAccordionMode(!accordionMode);
               }}
-              className={`px-2.5 py-1 rounded-lg border font-bold text-[10px] flex items-center gap-1 transition-all active:scale-95 ${
-                accordionMode ? 'border-amber-500/50 bg-amber-500/10 text-amber-300' : 'border-zinc-800 bg-zinc-900 text-zinc-400'
-              }`}
+              className="fo-theme-choice min-h-11 px-2.5 rounded-xl border border-transparent font-bold text-[10px] flex items-center gap-1 transition-all active:scale-95"
             >
               <Layers className="w-3 h-3" />
               <span>{accordionMode ? '📁 GROUPED ACCORDIONS' : '⚡ FULL GRID'}</span>
@@ -469,37 +436,34 @@ export const AppLauncherGrid: React.FC<AppLauncherGridProps> = ({
             const isCollapsed = searchQuery.trim().length === 0 && isCategoryCollapsed(cat.id);
 
             return (
-              <div key={cat.id} className={`rounded-2xl border overflow-hidden transition-all ${
-                isNight ? 'bg-black/90 border-red-900/80' : isSunlight ? 'bg-white border-amber-400' : 'bg-zinc-900/80 border-zinc-800'
-              }`}>
+              <div key={cat.id} className="fo-surface rounded-2xl border overflow-hidden transition-all">
                 {/* Category Accordion Header */}
                 <button
                   id={`btn-toggle-cat-accordion-${cat.id}`}
+                  aria-expanded={!isCollapsed}
                   onClick={() => toggleCategoryCollapse(cat.id)}
-                  className={`w-full p-3.5 flex items-center justify-between text-left transition-colors ${
-                    isNight ? 'hover:bg-red-950/40' : 'hover:bg-zinc-800/40'
-                  }`}
+                  className="fo-card-interactive min-h-11 w-full p-3.5 flex items-center justify-between text-left transition-colors"
                 >
                   <div className="flex items-center gap-2.5">
-                    <span className="p-1.5 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-xs">
+                    <span className="fo-badge p-1.5 rounded-lg border font-bold text-xs">
                       {cat.label}
                     </span>
-                    <span className="text-xs font-bold text-zinc-400 font-mono">
+                    <span className="fo-text-secondary text-xs font-bold font-mono">
                       ({catApps.length} {catApps.length === 1 ? 'TOOL' : 'TOOLS'})
                     </span>
                   </div>
 
-                  <div className="flex items-center gap-2 text-xs font-bold text-zinc-400">
+                  <div className="fo-text-secondary flex items-center gap-2 text-xs font-bold">
                     <span className="text-[10px] hidden sm:inline uppercase opacity-75">
                       {isCollapsed ? 'CLICK TO EXPAND' : 'CLICK TO COLLAPSE'}
                     </span>
-                    {isCollapsed ? <ChevronDown className="w-4 h-4 text-amber-400" /> : <ChevronUp className="w-4 h-4 text-amber-400" />}
+                    {isCollapsed ? <ChevronDown className="fo-text-accent w-4 h-4" /> : <ChevronUp className="fo-text-accent w-4 h-4" />}
                   </div>
                 </button>
 
                 {/* Category App Grid (Expanded) */}
                 {!isCollapsed && (
-                  <div className={`p-3.5 border-t border-zinc-800/80 grid ${gridColClass} gap-3 bg-zinc-950/40`}>
+                  <div className={`fo-surface-subtle p-3.5 border-t grid ${gridColClass} gap-3`}>
                     {catApps.map((app) => renderAppCard(app))}
                   </div>
                 )}

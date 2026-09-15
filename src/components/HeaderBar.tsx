@@ -1,15 +1,12 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  Radio, 
   BatteryCharging, 
   WifiOff,
-  Navigation, 
   Sun, 
   Moon, 
   Eye, 
   Menu, 
   Settings, 
-  Zap,
   MapPin,
   Volume2,
   VolumeX,
@@ -65,25 +62,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
     return () => clearInterval(interval);
   }, []);
 
-  const isNight = theme === 'night_vision';
-  const isSunlight = theme === 'sunlight';
-
-  // Theme-specific color classes
-  const headerBg = isNight
-    ? 'bg-black border-red-900/80 text-red-500'
-    : isSunlight
-    ? 'bg-amber-100/90 border-amber-400 text-slate-900'
-    : 'bg-zinc-900/80 border-zinc-800 text-zinc-100 shadow-2xl';
-
-  const badgeBorder = isNight
-    ? 'border-red-800 bg-red-950/40 text-red-400'
-    : isSunlight
-    ? 'border-slate-400 bg-amber-200 text-slate-950 font-bold'
-    : 'border-zinc-800 bg-zinc-800/60 text-zinc-300';
-
   return (
     <header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
-      <div className={`max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border ${headerBg}`}>
+      <div className="fo-header max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border">
         
         {/* Left: Brand, operator callsign, and release version. */}
         <div className="flex items-center gap-3">
@@ -93,28 +74,24 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               playTacticalClick(audioEnabled);
               onToggleTouchMenu();
             }}
-            className={`p-2 rounded-xl border transition-all active:scale-95 touch-manipulation ${
-              touchMenuOpen
-                ? isNight ? 'bg-red-900 text-black border-red-600' : 'bg-amber-500 text-black border-amber-400 font-bold'
-                : isNight ? 'border-red-900 bg-red-950/50 text-red-400 hover:bg-red-900/40' : 'border-zinc-800 bg-zinc-800/80 text-zinc-200 hover:bg-zinc-700'
-            }`}
-            title="Toggle Tactical Touch Menu"
+            className={`min-h-11 min-w-11 p-2 rounded-xl border transition-all active:scale-95 touch-manipulation ${touchMenuOpen ? 'fo-control-primary' : 'fo-control'}`}
+            aria-pressed={touchMenuOpen}
+            aria-label="Toggle field menu"
+            title="Toggle field menu"
           >
             <Menu className="w-5 h-5" />
           </button>
 
           <div className="flex items-center gap-3">
-            <div className="bg-amber-500 text-black font-black px-2 py-0.5 rounded text-xs tracking-tighter uppercase shrink-0">
+            <div className="fo-brand font-black px-2 py-0.5 rounded text-xs tracking-tighter uppercase shrink-0">
               FieldOps
             </div>
             <div>
               <div className="flex items-center gap-2">
-                <span className="font-mono text-base sm:text-lg font-black tracking-wider uppercase text-zinc-100">
+                <span className="fo-text-primary font-mono text-base sm:text-lg font-black tracking-wider uppercase">
                   {callsign || 'W7FIELD'}
                 </span>
-                <span className={`text-[10px] px-2 py-0.5 rounded border uppercase tracking-widest font-mono font-bold ${
-                  isNight ? 'border-red-900 text-red-400 bg-black' : isSunlight ? 'border-slate-500 bg-amber-300 text-slate-900' : 'border-zinc-700 bg-zinc-800/80 text-amber-400'
-                }`}>
+                <span className="fo-badge text-[10px] px-2 py-0.5 rounded border uppercase tracking-widest font-mono font-bold">
                   {PRODUCT_METADATA.displayVersion}
                 </span>
               </div>
@@ -125,33 +102,33 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
         {/* Center: Dual Clock (Local & UTC), Maidenhead Grid, Battery, Network */}
         <div className="hidden lg:flex items-center gap-3 font-mono">
           {/* Dual Clock Badge */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${badgeBorder}`}>
-            <Clock className="w-4 h-4 text-cyan-400" />
+          <div className="fo-badge flex items-center gap-2 px-3 py-1.5 rounded-xl border">
+            <Clock className="fo-icon-info w-4 h-4" />
             <div className="flex flex-col">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">TIME SYNC (LOCAL / UTC)</span>
-              <span className="text-xs font-black text-cyan-300 tracking-wider">
-                {localTime || '12:00:00'} <span className="text-zinc-500">|</span> {utcTime || '16:00:00 UTC'}
+              <span className="fo-text-muted text-[9px] font-bold uppercase tracking-widest leading-none">TIME SYNC (LOCAL / UTC)</span>
+              <span className="fo-text-info text-xs font-black tracking-wider">
+                {localTime || '12:00:00'} <span className="fo-text-muted">|</span> {utcTime || '16:00:00 UTC'}
               </span>
             </div>
           </div>
 
           {/* Maidenhead Grid Square Badge */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${badgeBorder}`}>
-            <MapPin className="w-4 h-4 text-emerald-400" />
+          <div className="fo-badge flex items-center gap-2 px-3 py-1.5 rounded-xl border">
+            <MapPin className="fo-icon-neutral w-4 h-4" />
             <div className="flex flex-col">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">GRID SQUARE</span>
-              <span className="text-xs font-black tracking-widest text-emerald-400">
+              <span className="fo-text-muted text-[9px] font-bold uppercase tracking-widest leading-none">GRID SQUARE</span>
+              <span className="fo-text-primary text-xs font-black tracking-widest">
                 {gps.gridSquare || '—'}
               </span>
             </div>
           </div>
 
           {/* Dual Battery Status summary */}
-          <div className={`flex items-center gap-2 px-3 py-1.5 rounded-xl border ${badgeBorder}`}>
-            <BatteryCharging className="w-4 h-4 text-amber-400" />
+          <div className="fo-badge flex items-center gap-2 px-3 py-1.5 rounded-xl border">
+            <BatteryCharging className="fo-icon-neutral w-4 h-4" />
             <div className="flex flex-col">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">DUAL BATT</span>
-              <span className="text-xs font-bold text-zinc-200">
+              <span className="fo-text-muted text-[9px] font-bold uppercase tracking-widest leading-none">DUAL BATT</span>
+              <span className="fo-text-primary text-xs font-bold">
                 M:{battery.mainTablet.percent}% | K:{battery.keyboardDock.attached ? `${battery.keyboardDock.percent}%` : 'N/A'}
               </span>
             </div>
@@ -161,14 +138,14 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
             id="header-network-status"
             role="status"
             aria-label={`Network status: ${formatNetworkDisplay(systemTelemetry?.network ?? null)}`}
-            className="flex items-center gap-2 px-3 py-1.5 rounded-xl border border-zinc-700 bg-zinc-900 text-zinc-300"
+            className="fo-badge flex items-center gap-2 px-3 py-1.5 rounded-xl border"
           >
-            <WifiOff className="w-4 h-4 text-zinc-500" />
+            <WifiOff className="fo-icon-neutral w-4 h-4" />
             <div className="flex flex-col text-left">
-              <span className="text-[9px] font-bold text-zinc-500 uppercase tracking-widest leading-none">
+              <span className="fo-text-muted text-[9px] font-bold uppercase tracking-widest leading-none">
                 NETWORK
               </span>
-              <span className="text-xs uppercase font-mono font-bold text-zinc-400">
+              <span className="fo-text-secondary text-xs uppercase font-mono font-bold">
                 {formatNetworkDisplay(systemTelemetry?.network ?? null)}
               </span>
             </div>
@@ -184,33 +161,25 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               playTacticalClick(audioEnabled);
               onOpenRoadmap();
             }}
-            className={`px-3 py-1.5 rounded-xl border text-xs font-bold font-mono flex items-center gap-1.5 transition-all active:scale-95 touch-manipulation ${
-              isNight 
-                ? 'border-red-800 bg-red-950 text-red-400 hover:bg-red-900' 
-                : isSunlight 
-                ? 'border-slate-500 bg-amber-300 text-slate-900 hover:bg-amber-400' 
-                : 'border-amber-500/30 bg-amber-500/10 text-amber-400 hover:bg-amber-500/20'
-            }`}
+            className="fo-control min-h-11 px-3 py-1.5 rounded-xl border text-xs font-bold font-mono flex items-center gap-1.5 transition-all active:scale-95 touch-manipulation"
             title="Launch Field Tools (SmartDeploy, location, distance, and solar tools)"
           >
-            <Sparkles className="w-4 h-4 text-amber-400" />
+            <Sparkles className="fo-icon-neutral w-4 h-4" />
             <span className="hidden md:inline uppercase">FIELD TOOLS</span>
           </button>
 
           {/* Theme Selector Switches */}
-          <div className="flex items-center rounded-xl border p-0.5 bg-zinc-950 border-zinc-800">
+          <div className="fo-theme-group flex items-center rounded-xl border p-0.5" role="group" aria-label="Display theme">
             <button
               id="btn-theme-dark-tactical"
               onClick={() => {
                 playTacticalClick(audioEnabled);
                 onThemeChange('dark_tactical');
               }}
-              className={`p-1.5 rounded-lg transition-all ${
-                theme === 'dark_tactical' 
-                  ? 'bg-amber-500 text-black font-bold shadow' 
-                  : 'text-zinc-400 hover:text-zinc-200'
-              }`}
-              title="Bento Dark Tactical Theme"
+              className="fo-theme-choice min-h-11 min-w-11 p-1.5 rounded-lg transition-all touch-manipulation"
+              aria-pressed={theme === 'dark_tactical'}
+              aria-label="Dark field theme"
+              title="Dark field theme"
             >
               <Moon className="w-4 h-4" />
             </button>
@@ -220,12 +189,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 playTacticalClick(audioEnabled);
                 onThemeChange('night_vision');
               }}
-              className={`p-1.5 rounded-lg transition-all ${
-                theme === 'night_vision' 
-                  ? 'bg-red-800 text-red-100 font-bold shadow' 
-                  : 'text-zinc-400 hover:text-red-400'
-              }`}
-              title="Red Night Vision Mode (Monochromatic)"
+              className="fo-theme-choice min-h-11 min-w-11 p-1.5 rounded-lg transition-all touch-manipulation"
+              aria-pressed={theme === 'night_vision'}
+              aria-label="Red-light field mode"
+              title="Red-light field mode"
             >
               <Eye className="w-4 h-4" />
             </button>
@@ -235,12 +202,10 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 playTacticalClick(audioEnabled);
                 onThemeChange('sunlight');
               }}
-              className={`p-1.5 rounded-lg transition-all ${
-                theme === 'sunlight' 
-                  ? 'bg-amber-400 text-slate-950 font-bold shadow' 
-                  : 'text-zinc-400 hover:text-amber-300'
-              }`}
-              title="Sunlight Readable High-Contrast Light Mode"
+              className="fo-theme-choice min-h-11 min-w-11 p-1.5 rounded-lg transition-all touch-manipulation"
+              aria-pressed={theme === 'sunlight'}
+              aria-label="Sunlight day mode"
+              title="Sunlight day mode"
             >
               <Sun className="w-4 h-4" />
             </button>
@@ -250,11 +215,9 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
           <button
             id="btn-toggle-audio-feedback"
             onClick={onToggleAudio}
-            className={`p-2 rounded-xl border transition-all active:scale-95 touch-manipulation ${
-              audioEnabled 
-                ? isNight ? 'border-red-800 bg-red-950 text-red-400' : 'border-zinc-700 bg-zinc-800 text-amber-400' 
-                : 'border-zinc-800 bg-zinc-900 text-zinc-600'
-            }`}
+            className={`fo-control min-h-11 min-w-11 p-2 rounded-xl border transition-all active:scale-95 touch-manipulation ${audioEnabled ? 'fo-text-caution' : 'fo-text-muted'}`}
+            aria-pressed={audioEnabled}
+            aria-label={audioEnabled ? 'Mute audio feedback' : 'Enable audio feedback'}
             title={audioEnabled ? 'Tactical Audio On' : 'Mute Tactical Audio'}
           >
             {audioEnabled ? <Volume2 className="w-4 h-4" /> : <VolumeX className="w-4 h-4" />}
@@ -267,9 +230,8 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
               playTacticalClick(audioEnabled);
               onOpenConfig();
             }}
-            className={`p-2 rounded-xl border transition-all active:scale-95 touch-manipulation ${
-              isNight ? 'border-red-900 bg-red-950/50 text-red-400 hover:bg-red-900' : 'border-zinc-800 bg-zinc-800 text-zinc-300 hover:bg-zinc-700'
-            }`}
+            className="fo-control min-h-11 min-w-11 p-2 rounded-xl border transition-all active:scale-95 touch-manipulation"
+            aria-label="Open dashboard configuration"
             title="Configure Dashboard & JSON Apps Launcher"
           >
             <Settings className="w-4 h-4" />
@@ -298,11 +260,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
                 window.location.href = "/api/download-project-zip";
               }
             }}
-            className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 touch-manipulation ${
-              isNight 
-                ? 'border-red-700 bg-red-900 text-red-100 hover:bg-red-800' 
-                : 'border-amber-500 bg-amber-500 text-slate-950 hover:bg-amber-400 font-extrabold'
-            }`}
+            className="fo-control-primary min-h-11 px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all active:scale-95 touch-manipulation"
             title="Download full project source code ZIP for Toughbook local deployment"
           >
             <Download className="w-3.5 h-3.5" />

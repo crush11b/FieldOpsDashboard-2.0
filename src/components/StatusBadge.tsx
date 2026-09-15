@@ -24,6 +24,14 @@ const getStatusIcon = (status: TelemetryStatus) => {
   return Activity;
 };
 
+const getStatusClass = (status: TelemetryStatus): string => {
+  if (status === 'ok') return 'fo-text-success';
+  if (status === 'connecting') return 'fo-text-info';
+  if (status === 'cached' || status === 'stale' || status === 'degraded') return 'fo-text-caution';
+  if (status === 'error') return 'fo-text-danger';
+  return 'fo-text-muted';
+};
+
 export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
   const label = STATUS_LABELS[status];
   const StatusIcon = getStatusIcon(status);
@@ -32,7 +40,8 @@ export function StatusBadge({ status, className = '' }: StatusBadgeProps) {
     <div
       role="status"
       aria-label={`Telemetry status: ${label}`}
-      className={`min-h-8 px-2.5 py-1 rounded-lg border border-current/25 bg-black/10 inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${className}`}
+      data-status={status}
+      className={`fo-surface-subtle min-h-8 px-2.5 py-1 rounded-lg border inline-flex items-center gap-1.5 text-[10px] font-bold uppercase tracking-wider ${getStatusClass(status)} ${className}`}
     >
       <StatusIcon
         aria-hidden="true"

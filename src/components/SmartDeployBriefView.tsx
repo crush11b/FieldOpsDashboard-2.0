@@ -148,7 +148,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
   const solar = brief.sections.solar.evidence;
   const observedRf = brief.sections.observedRf;
   const geometry = propagationGeometry(propagation);
-  return <section id="smartdeploy-brief" className="space-y-3" aria-live="polite">
+  return <section id="smartdeploy-brief" className="fo-operational-view space-y-3" aria-live="polite">
     {activeActivations.length > 1 && <div role="alert" className="rounded-xl border border-red-700/70 bg-red-950/30 p-3 space-y-2"><strong className="text-[11px] uppercase text-red-200">AMBIGUOUS ACTIVE ACTIVATION STATE</strong><p className="text-[11px] text-red-100">WSJT-X QSOs are paused until one active Activation is kept. Historical records and QSOs will be preserved; the other active records will be completed.</p><div className="flex flex-wrap gap-2">{activeActivations.map(item => <button key={item.activationId} type="button" onClick={() => void repairActiveActivations(item.activationId)} className="min-h-11 rounded border border-red-500 px-3 py-2 text-[10px] font-bold text-red-100">KEEP {item.reference || item.activationId} ACTIVE</button>)}</div></div>}
     {reconciliationMessage && <p role="status" className="rounded border border-emerald-700/70 bg-emerald-950/30 p-3 text-[11px] text-emerald-200">{reconciliationMessage}</p>}
     <header className="sticky top-0 z-10 rounded-xl border border-cyan-700/70 bg-slate-950/95 p-3 shadow-lg">
@@ -157,7 +157,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
         {activation && <button type="button" className="text-[11px] font-black text-amber-200 underline" onClick={() => setPhase('operate')}>{qsoCount === null ? 'QSOs in OPERATE' : `${qsoCount} QSOs`}</button>}
       </div>
       <nav aria-label="Activation workspace" className="mt-3 grid grid-cols-4 gap-1">
-        {(['plan', 'prepare', 'operate', 'review'] as const).map(item => <button key={item} type="button" aria-current={phase === item ? 'page' : undefined} onClick={() => setPhase(item)} className={`min-h-11 rounded border px-2 text-[10px] font-black uppercase ${phase === item ? 'border-amber-400 bg-amber-400 text-slate-950' : 'border-slate-700 text-slate-300'}`}>{item}</button>)}
+        {(['plan', 'prepare', 'operate', 'review'] as const).map(item => <button key={item} type="button" aria-current={phase === item ? 'page' : undefined} aria-pressed={phase === item} onClick={() => setPhase(item)} className="fo-theme-choice min-h-11 rounded border border-transparent px-2 text-[10px] font-black uppercase">{item}</button>)}
       </nav>
     </header>
     {phase === 'plan' && <>

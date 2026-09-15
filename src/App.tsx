@@ -456,30 +456,20 @@ export default function App() {
 
   if (configBootstrapError) {
     return (
-      <main className="min-h-screen bg-[#0F1115] text-amber-400 flex flex-col items-center justify-center gap-4 p-6 font-mono text-sm text-center">
+      <main data-theme="dark_tactical" className="fo-app-shell fo-selection min-h-screen flex flex-col items-center justify-center gap-4 p-6 font-mono text-sm text-center">
         <p>{configBootstrapError}</p>
-        <button type="button" onClick={() => { setConfigReady(false); setConfigAttempt(attempt => attempt + 1); }} className="border border-amber-400 px-4 py-2 hover:bg-amber-400 hover:text-black">Retry</button>
+        <button type="button" onClick={() => { setConfigReady(false); setConfigAttempt(attempt => attempt + 1); }} className="fo-control-primary border px-4 py-2">Retry</button>
       </main>
     );
   }
   if (!configReady) {
-    return <div className="min-h-screen bg-[#0F1115] text-amber-400 flex items-center justify-center font-mono text-sm">LOADING DASHBOARD CONFIGURATION...</div>;
+    return <div data-theme="dark_tactical" className="fo-app-shell min-h-screen flex items-center justify-center font-mono text-sm">LOADING DASHBOARD CONFIGURATION...</div>;
   }
 
-  // Root class for chosen Theme (Dark Tactical, Red Night Vision, Sunlight High-Contrast)
-  const isNight = config.theme === 'night_vision';
-  const isSunlight = config.theme === 'sunlight';
-
-  const rootBg = isNight
-    ? 'bg-black text-red-500'
-    : isSunlight
-    ? 'bg-amber-100 text-slate-900 font-sans'
-    : 'bg-[#0F1115] text-zinc-100 font-sans';
-
   return (
-    <div className={`min-h-screen ${rootBg} transition-colors flex flex-col selection:bg-amber-500 selection:text-black`}>
+    <div data-theme={config.theme} className="fo-app-shell fo-selection min-h-screen transition-colors flex flex-col font-sans">
       {configPersistenceError && (
-        <div role="alert" className="border-b border-red-700 bg-red-950 px-4 py-2 text-center text-xs font-mono text-red-300">
+        <div role="alert" className="fo-status-danger border-b px-4 py-2 text-center text-xs font-mono">
           {configPersistenceError}
         </div>
       )}
@@ -583,9 +573,7 @@ export default function App() {
       </main>
 
       {/* 4. Bento Task Bar Footer */}
-      <footer className={`border-t py-3.5 px-6 text-xs font-mono tracking-wide ${
-        isNight ? 'border-red-950 text-red-800 bg-black' : isSunlight ? 'border-amber-300 text-slate-700 bg-amber-200/50' : 'border-zinc-800 text-zinc-400 bg-zinc-900/60'
-      }`}>
+      <footer className="fo-surface border-t py-3.5 px-6 text-xs font-mono tracking-wide">
         <div className="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-3">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2 bg-zinc-900/80 border border-zinc-800 px-3 py-1 rounded-lg">

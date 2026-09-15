@@ -9,12 +9,30 @@ import type { AppDiscoveryObservation } from '../../appCatalog/discovery';
 const records = INITIAL_CONFIG.appCatalog.records.map(record => ({ ...record, enabled: record.id !== INITIAL_CONFIG.appCatalog.records[0].id }));
 
 describe('catalog launcher grid', () => {
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('applies semantic theme ownership for %s', theme => {
+    const { container } = render(<AppLauncherGrid apps={[records[1]]} theme={theme} audioEnabled={false} gridColumns={3} onToggleFavorite={vi.fn()} onEditApp={vi.fn()} onAddNewApp={vi.fn()} launchStates={{}} onLaunchApp={vi.fn()} />);
+    expect(container.firstElementChild).toHaveAttribute('data-theme', theme);
+    expect(container.querySelector('.fo-surface')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'ALL APPS' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
   it('shows all seven categories and distinguishes disabled from unconfigured', () => {
     render(<AppLauncherGrid apps={records} theme="dark_tactical" audioEnabled={false} gridColumns={3} onToggleFavorite={vi.fn()} onEditApp={vi.fn()} onAddNewApp={vi.fn()} launchStates={{}} onLaunchApp={vi.fn()} />);
     for (const category of APP_CATALOG_CATEGORIES) expect(screen.getByRole('button', { name: category === 'POTA/SOTA' ? category : category.toUpperCase() })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'EXPAND ALL' }));
+    expect(screen.getByRole('button', { name: /DIGITAL COMMS.*CLICK TO COLLAPSE/ })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.getByText('DISABLED')).toBeInTheDocument();
     expect(screen.getAllByText('CONFIGURED').length).toBeGreaterThan(0);
+  });
+
+  it('does not style unknown runtime evidence as success and keeps touch actions at least 44px high', () => {
+    const wsjtx = { ...INITIAL_CONFIG.appCatalog.records.find(record => record.id === 'wsjtx')!, enabled: true };
+    const { container } = render(<AppLauncherGrid apps={[wsjtx]} theme="sunlight" audioEnabled={false} gridColumns={3} onToggleFavorite={vi.fn()} onEditApp={vi.fn()} onAddNewApp={vi.fn()} launchStates={{}} onLaunchApp={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'EXPAND ALL' }));
+    const runtime = screen.getByText('UNKNOWN', { selector: '.fo-status-neutral' });
+    expect(runtime).not.toHaveClass('fo-status-success');
+    expect(container.querySelector('#btn-launch-wsjtx')).toHaveClass('min-h-11');
+    expect(container.querySelector('#btn-edit-wsjtx')).toHaveClass('min-h-11', 'min-w-11');
   });
 
   it('does not launch disabled records', () => {

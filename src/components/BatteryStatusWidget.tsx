@@ -14,9 +14,6 @@ interface BatteryStatusWidgetProps {
 }
 
 export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ battery, theme, onUpdateBattery, onSystemTelemetry }) => {
-  const isNight = theme === 'night_vision';
-  const isSunlight = theme === 'sunlight';
-
   const [isPolling, setIsPolling] = useState(false);
   const [pollSource, setPollSource] = useState<string>('Initializing Live Auto-Poll...');
   const [showManualCalib, setShowManualCalib] = useState(false);
@@ -168,24 +165,19 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
     return () => clearInterval(interval);
   }, []);
 
-  const cardBg = isNight
-    ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
-    : isSunlight
-    ? 'bg-white border-amber-400 text-slate-900 shadow-sm rounded-2xl p-4 sm:p-5'
-    : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg rounded-2xl p-4 sm:p-5';
-
   const mainPct = battery.mainTablet.percent;
   const kbPct = battery.keyboardDock.percent;
   const mainLow = mainPct !== null && mainPct <= 20;
   const kbLow = battery.keyboardDock.attached === true && kbPct !== null && kbPct <= 20;
+  const pollingUnavailable = pollSource.toLowerCase().includes('unavailable');
 
   return (
-    <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
+    <div data-theme={theme} className="fo-surface border rounded-2xl p-4 sm:p-5 font-mono transition-all space-y-3">
       {/* Widget Header */}
-      <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
+      <div className="flex items-center justify-between pb-3 border-b border-[var(--fo-border-subtle)]">
         <div className="flex items-center gap-2">
-          <Zap className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-amber-400'}`} />
-          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
+          <Zap className="fo-icon-caution w-4 h-4" />
+          <h3 className="fo-text-secondary text-xs font-bold uppercase tracking-widest">
             DUAL-BATTERY SYSTEM (CF-20 / FZ-G1)
           </h3>
         </div>
@@ -195,27 +187,24 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
             onClick={() => fetchHardwareBattery()}
             disabled={isPolling}
             title="Poll Real-Time OS & WMI Hardware Battery Data"
-            className="flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/60 text-cyan-300 transition-colors"
+            className="fo-control min-h-11 flex items-center gap-1.5 text-[10px] font-bold px-2.5 py-1 rounded-md border transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={`w-3 h-3 ${isPolling ? 'animate-spin text-amber-400' : ''}`} />
+            <RefreshCw className={`w-3 h-3 ${isPolling ? 'animate-spin motion-reduce:animate-none fo-text-caution' : ''}`} />
             <span>{isPolling ? 'POLLING...' : 'POLL HARDWARE'}</span>
           </button>
 
           <button
             onClick={() => setShowManualCalib(!showManualCalib)}
             title="Test Presets & Simulator Tools"
-            className={`p-1 px-2 rounded-md border text-[10px] font-bold flex items-center gap-1 transition-colors ${
-              showManualCalib 
-                ? 'bg-amber-500/20 border-amber-500 text-amber-300' 
-                : 'bg-zinc-800 border-zinc-700 text-zinc-400 hover:text-zinc-200'
-            }`}
+            className={`min-h-11 p-1 px-2 rounded-md border text-[10px] font-bold flex items-center gap-1 transition-colors ${showManualCalib ? 'fo-status-caution' : 'fo-control'}`}
+            aria-expanded={showManualCalib}
           >
             <Sliders className="w-3.5 h-3.5" />
             <span className="hidden sm:inline">TESTING TOOLS</span>
           </button>
 
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg bg-zinc-800/80 border border-zinc-700/60 text-zinc-300">
-            <Plug className="w-3.5 h-3.5 text-amber-400" />
+          <div className="fo-badge flex items-center gap-1.5 text-[11px] font-semibold px-2.5 py-1 rounded-lg border">
+            <Plug className="fo-icon-neutral w-3.5 h-3.5" />
             <span>{battery.powerSource}</span>
           </div>
         </div>
@@ -223,21 +212,21 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
 
       {/* Field Testing & Calibration Drawer */}
       {showManualCalib && (
-        <div className="p-3.5 rounded-xl border border-amber-500/40 bg-amber-950/30 space-y-3.5 text-xs">
+        <div className="fo-surface-subtle p-3.5 rounded-xl border space-y-3.5 text-xs">
           <div className="flex items-center justify-between">
-            <span className="font-extrabold text-amber-400 uppercase text-[11px] flex items-center gap-1.5">
+            <span className="fo-text-caution font-extrabold uppercase text-[11px] flex items-center gap-1.5">
               🛠️ FIELD TEST SIMULATOR & POWERSHELL WMI SYNC
             </span>
-            <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold">
+            <span className="fo-status-info text-[10px] px-2 py-0.5 rounded border font-bold">
               AUTO-POLLING ACTIVE
             </span>
           </div>
 
           {/* PowerShell CSV Parser Section */}
-          <div className="bg-black/60 p-3 rounded-lg border border-amber-500/30 space-y-2">
-            <div className="flex items-center justify-between text-amber-300 font-bold text-[11px]">
+          <div className="fo-surface-raised p-3 rounded-lg border space-y-2">
+            <div className="fo-text-secondary flex items-center justify-between font-bold text-[11px]">
               <span>📋 PASTE POWERSHELL / WMI CSV OUTPUT:</span>
-              <span className="text-[10px] text-zinc-400 font-normal">Matches Electron Get-CimInstance Win32_Battery</span>
+              <span className="fo-text-muted text-[10px] font-normal">Matches Electron Get-CimInstance Win32_Battery</span>
             </div>
             <div className="flex gap-2">
               <input
@@ -285,15 +274,15 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                     }, `Parsed WMI CSV (${b1Val}% / ${b2Val ?? 'N/A'}%)`);
                   }
                 }}
-                className="flex-1 px-2.5 py-1.5 bg-zinc-900 border border-zinc-700 rounded text-xs text-zinc-200 placeholder:text-zinc-600 focus:outline-none focus:border-amber-400 font-mono"
+                className="fo-input flex-1 min-h-11 px-2.5 py-1.5 border rounded text-xs font-mono"
               />
             </div>
-            <p className="text-[10px] text-zinc-400 leading-normal">
-              Paste the string from PowerShell: <code className="text-amber-300 font-mono">(Get-CimInstance Win32_Battery) | Select Name,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation</code>
+            <p className="fo-text-muted text-[10px] leading-normal">
+              Paste the string from PowerShell: <code className="fo-text-caution font-mono">(Get-CimInstance Win32_Battery) | Select Name,EstimatedChargeRemaining | ConvertTo-Csv -NoTypeInformation</code>
             </p>
           </div>
 
-          <p className="text-[11px] text-zinc-300 leading-relaxed">
+          <p className="fo-text-secondary text-[11px] leading-relaxed">
             Quickly test threshold alerts or custom configurations. Note: Live automatic polling continues every 10 seconds.
           </p>
 
@@ -305,7 +294,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 mainTablet: { ...battery.mainTablet, percent: 100, timeRemainingMins: 350 },
                 keyboardDock: { ...battery.keyboardDock, percent: 94, attached: true, timeRemainingMins: 420 },
               }, 'Preset (100% / 94%)')}
-              className="px-2.5 py-1 bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/60 rounded text-[11px] font-bold text-amber-300 transition-colors"
+              className="fo-control min-h-11 px-2.5 py-1 border rounded text-[11px] font-bold transition-colors"
             >
               ⚡ 100% Main / 94% Dock
             </button>
@@ -316,7 +305,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 mainTablet: { ...battery.mainTablet, percent: 100, timeRemainingMins: 350 },
                 keyboardDock: { ...battery.keyboardDock, percent: 100, attached: true, timeRemainingMins: 450 },
               }, 'Preset (100% / 100%)')}
-              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded text-[11px] font-bold text-emerald-300 transition-colors"
+              className="fo-control min-h-11 px-2.5 py-1 border rounded text-[11px] font-bold transition-colors"
             >
               🔋 100% / 100% Full
             </button>
@@ -327,7 +316,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 mainTablet: { ...battery.mainTablet, percent: 20, timeRemainingMins: 70 },
                 keyboardDock: { ...battery.keyboardDock, percent: 15, attached: true, timeRemainingMins: 60 },
               }, 'Preset (Low Battery Alert Test)')}
-              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded text-[11px] font-bold text-red-300 transition-colors"
+              className="fo-control fo-text-danger min-h-11 px-2.5 py-1 border rounded text-[11px] font-bold transition-colors"
             >
               🪫 20% / 15% Low Alert Test
             </button>
@@ -338,16 +327,16 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                 mainTablet: { ...battery.mainTablet, percent: 100, timeRemainingMins: 350 },
                 keyboardDock: { ...battery.keyboardDock, percent: 0, attached: false, timeRemainingMins: 0 },
               }, 'Preset (Tablet Only Mode)')}
-              className="px-2.5 py-1 bg-zinc-800 hover:bg-zinc-700 border border-zinc-600 rounded text-[11px] font-bold text-cyan-300 transition-colors"
+              className="fo-control min-h-11 px-2.5 py-1 border rounded text-[11px] font-bold transition-colors"
             >
               💻 Tablet Only Mode
             </button>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 pt-1">
-            <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-700 space-y-2">
+            <div className="fo-surface-raised p-2.5 rounded-lg border space-y-2">
               <div className="flex items-center justify-between">
-                <label className="text-[11px] font-bold text-amber-300">
+                <label className="fo-text-secondary text-[11px] font-bold">
                   BATT 1 (MAIN TABLET %):
                 </label>
                 <input
@@ -367,7 +356,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                       },
                     }, `Simulated Input (${val}%)`);
                   }}
-                  className="w-16 px-2 py-1 bg-black border border-amber-500/50 rounded font-black text-xs text-amber-300 text-center"
+                  className="fo-input w-16 min-h-11 px-2 py-1 border rounded font-black text-xs text-center"
                 />
               </div>
               <input
@@ -385,17 +374,17 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                     },
                   }, `Simulated Slider (${val}%)`);
                 }}
-                className="w-full accent-amber-400 cursor-pointer"
+                className="w-full accent-[var(--fo-action-primary)] cursor-pointer"
               />
             </div>
 
-            <div className="bg-zinc-900/80 p-2.5 rounded-lg border border-zinc-700 space-y-2">
+            <div className="fo-surface-raised p-2.5 rounded-lg border space-y-2">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <label className="text-[11px] font-bold text-cyan-300">
+                  <label className="fo-text-secondary text-[11px] font-bold">
                     BATT 2 (KEYBOARD DOCK %):
                   </label>
-                  <label className="flex items-center gap-1 text-[10px] text-zinc-400 cursor-pointer">
+                  <label className="fo-text-muted flex items-center gap-1 text-[10px] cursor-pointer">
                     <input
                       type="checkbox"
                       checked={battery.keyboardDock.attached}
@@ -407,7 +396,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                           },
                         }, e.target.checked ? 'Dock Attached' : 'Dock Uncoupled');
                       }}
-                      className="accent-cyan-400 rounded"
+                      className="accent-[var(--fo-action-primary)] rounded"
                     />
                     <span>ATTACHED</span>
                   </label>
@@ -430,7 +419,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                       },
                     }, `Simulated Input Dock (${val}%)`);
                   }}
-                  className="w-16 px-2 py-1 bg-black border border-cyan-500/50 rounded font-black text-xs text-cyan-300 text-center disabled:opacity-30"
+                  className="fo-input w-16 min-h-11 px-2 py-1 border rounded font-black text-xs text-center disabled:opacity-30"
                 />
               </div>
               <input
@@ -449,13 +438,13 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                     },
                   }, `Simulated Slider Dock (${val}%)`);
                 }}
-                className="w-full accent-cyan-400 cursor-pointer disabled:opacity-30"
+                className="w-full accent-[var(--fo-action-primary)] cursor-pointer disabled:opacity-30"
               />
             </div>
           </div>
 
-          <div className="p-3 bg-zinc-950 rounded-lg border border-cyan-500/40 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-2 text-[10px] text-cyan-300 font-bold">
+          <div className="fo-surface-raised p-3 rounded-lg border space-y-3">
+            <div className="fo-text-info flex flex-wrap items-center justify-between gap-2 text-[10px] font-bold">
               <span>⚡ LOCAL TOUGHBOOK AUTOMATIC DUAL-BATTERY WMI SYNC SCRIPT</span>
               <div className="flex items-center gap-2">
                 <button
@@ -467,7 +456,7 @@ export const BatteryStatusWidget: React.FC<BatteryStatusWidgetProps> = ({ batter
                     navigator.clipboard.writeText(cmd);
                     alert('PowerShell Battery Sync Command copied! Paste into PowerShell on your ToughBook and press Enter.');
                   }}
-                  className="px-2.5 py-1 bg-cyan-900/80 border border-cyan-400/60 rounded text-cyan-200 hover:bg-cyan-800 transition-colors font-sans flex items-center gap-1"
+                  className="fo-control min-h-11 px-2.5 py-1 border rounded transition-colors font-sans flex items-center gap-1"
                 >
                   📋 Copy Battery Sync Command
                 </button>
@@ -528,20 +517,20 @@ while ($true) {
                     a.click();
                     URL.revokeObjectURL(downloadUrl);
                   }}
-                  className="px-2.5 py-1 bg-amber-900/80 border border-amber-400/60 rounded text-amber-200 hover:bg-amber-800 transition-colors font-sans flex items-center gap-1"
+                  className="fo-control min-h-11 px-2.5 py-1 border rounded transition-colors font-sans flex items-center gap-1"
                 >
                   💾 Download sync_toughbook_battery.ps1
                 </button>
               </div>
             </div>
 
-            <p className="text-[10px] text-zinc-300 font-mono overflow-x-auto whitespace-pre-wrap p-2 bg-black rounded border border-zinc-800 leading-relaxed select-all">
+            <p className="fo-input text-[10px] font-mono overflow-x-auto whitespace-pre-wrap p-2 rounded border leading-relaxed select-all">
               powershell -ExecutionPolicy Bypass -File .\sync_toughbook_battery.ps1
             </p>
 
             {/* Dashboard Updater Section */}
-            <div className="pt-2 border-t border-zinc-800/80 flex flex-wrap items-center justify-between gap-2">
-              <span className="text-[10px] text-emerald-400 font-bold">🚀 DASHBOARD AUTO-UPDATER:</span>
+            <div className="pt-2 border-t border-[var(--fo-border-subtle)] flex flex-wrap items-center justify-between gap-2">
+              <span className="fo-text-secondary text-[10px] font-bold">🚀 DASHBOARD AUTO-UPDATER:</span>
               <div className="flex items-center gap-2">
                 <button
                   type="button"
@@ -549,7 +538,7 @@ while ($true) {
                     navigator.clipboard.writeText('powershell -NoProfile -ExecutionPolicy Bypass -File .\\UpdateDashboard.ps1');
                     alert('Command copied! In PowerShell inside C:\\FieldOpsDashboard, run: powershell -NoProfile -ExecutionPolicy Bypass -File .\\UpdateDashboard.ps1');
                   }}
-                  className="px-2.5 py-1 bg-emerald-900/80 border border-emerald-400/60 rounded text-emerald-200 hover:bg-emerald-800 transition-colors font-sans text-[10px]"
+                  className="fo-control min-h-11 px-2.5 py-1 border rounded transition-colors font-sans text-[10px]"
                 >
                   📋 Copy Updater Command
                 </button>
@@ -557,14 +546,14 @@ while ($true) {
                 <a
                   href="/api/download-project-zip"
                   download={getVersionedDownloadFilename()}
-                  className="px-2.5 py-1 bg-blue-900/80 border border-blue-400/60 rounded text-blue-200 hover:bg-blue-800 transition-colors font-sans text-[10px] flex items-center gap-1"
+                  className="fo-control min-h-11 px-2.5 py-1 border rounded transition-colors font-sans text-[10px] flex items-center gap-1"
                 >
                   📦 Download Complete Project Zip
                 </a>
               </div>
             </div>
-            <p className="text-[10px] text-zinc-400 leading-normal">
-              <strong>Updating on ToughBook:</strong> Double-click <code className="text-emerald-300">UpdateDashboard.bat</code> or run <code className="text-emerald-300">.\UpdateDashboard.ps1</code> in PowerShell. It safely stops active Node processes, downloads the latest code from this server, overwrites files in <code className="text-zinc-300">C:\FieldOpsDashboard</code>, and relaunches automatically.
+            <p className="fo-text-muted text-[10px] leading-normal">
+              <strong>Updating on ToughBook:</strong> Double-click <code className="fo-text-primary">UpdateDashboard.bat</code> or run <code className="fo-text-primary">.\UpdateDashboard.ps1</code> in PowerShell. It safely stops active Node processes, downloads the latest code from this server, overwrites files in <code className="fo-text-primary">C:\FieldOpsDashboard</code>, and relaunches automatically.
             </p>
           </div>
         </div>
@@ -574,86 +563,76 @@ while ($true) {
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         
         {/* Battery 1: Tablet Main */}
-        <div className={`p-3.5 rounded-xl border transition-all ${
-          mainLow 
-            ? isNight ? 'border-red-600 bg-red-950/80 text-red-400 animate-pulse' : 'border-red-500/80 bg-red-950/40 text-red-200'
-            : isNight ? 'border-red-900 bg-red-950/20' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-zinc-800 bg-zinc-800/50'
-        }`}>
+        <div className={`p-3.5 rounded-xl border transition-all ${mainLow ? 'fo-status-danger animate-pulse motion-reduce:animate-none' : 'fo-surface-subtle'}`}>
           <div className="flex items-center justify-between text-xs mb-2">
-            <span className="font-bold flex items-center gap-1.5 text-zinc-300">
-              <Battery className="w-4 h-4 text-amber-400" /> BATT 1 (TABLET MAIN)
+            <span className="fo-text-secondary font-bold flex items-center gap-1.5">
+              <Battery className="fo-icon-neutral w-4 h-4" /> BATT 1 (TABLET MAIN)
             </span>
-            <span className={`font-black text-sm ${mainLow ? 'text-red-400' : 'text-emerald-400'}`}>
+            <span className={`font-black text-sm ${mainLow ? 'fo-text-danger' : mainPct === null ? 'fo-text-muted' : 'fo-text-primary'}`}>
               {mainPct === null ? 'UNAVAILABLE' : `${mainPct}%`}
             </span>
           </div>
 
           {/* Battery level progress bar */}
-          <div className="w-full h-2.5 bg-zinc-950 rounded-full overflow-hidden mb-2 border border-zinc-800">
+          <div className="fo-meter-track w-full h-2.5 rounded-full overflow-hidden mb-2 border" role="progressbar" aria-label="Main tablet battery" aria-valuemin={0} aria-valuemax={100} aria-valuenow={mainPct ?? undefined} aria-valuetext={mainPct === null ? 'Unavailable' : `${mainPct}%`}>
             <div
               className={`h-full transition-all duration-500 ${
                 mainLow
-                  ? 'bg-red-500'
+                  ? 'fo-meter-danger'
                   : mainPct === null
-                  ? 'bg-zinc-700'
+                  ? 'fo-meter-unknown'
                   : mainPct < 50
-                  ? 'bg-amber-400'
-                  : 'bg-emerald-400'
+                  ? 'fo-meter-caution'
+                  : 'fo-meter-success'
               }`}
               style={{ width: mainPct === null ? '0%' : `${mainPct}%` }}
             />
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+          <div className="fo-text-muted flex items-center justify-between text-[10px] font-mono">
             <span>{battery.mainTablet.voltage}V | {battery.mainTablet.tempC}°C</span>
-            <span className="text-zinc-300 font-semibold">{battery.mainTablet.timeRemainingMins === null ? 'UNKNOWN' : `${battery.mainTablet.timeRemainingMins}m REMAINING`}</span>
+            <span className="fo-text-secondary font-semibold">{battery.mainTablet.timeRemainingMins === null ? 'UNKNOWN' : `${battery.mainTablet.timeRemainingMins}m REMAINING`}</span>
           </div>
         </div>
 
         {/* Battery 2: Keyboard Dock / External Aux */}
-        <div className={`p-3.5 rounded-xl border transition-all ${
-          !battery.keyboardDock.attached
-            ? isNight ? 'border-zinc-800 bg-black/60 text-zinc-500' : 'border-zinc-800/80 bg-zinc-950/40 text-zinc-400'
-            : kbLow
-            ? isNight ? 'border-red-600 bg-red-950/80 text-red-400' : 'border-red-500/80 bg-red-950/40 text-red-200'
-            : isNight ? 'border-red-900 bg-red-950/20' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-zinc-800 bg-zinc-800/50'
-        }`}>
+        <div className={`p-3.5 rounded-xl border transition-all ${!battery.keyboardDock.attached ? 'fo-status-neutral' : kbLow ? 'fo-status-danger' : 'fo-surface-subtle'}`}>
           <div className="flex items-center justify-between text-xs mb-2">
-            <span className="font-bold flex items-center gap-1.5 text-zinc-300">
-              <BatteryCharging className="w-4 h-4 text-cyan-400" /> BATT 2 (KEYBOARD DOCK)
+            <span className="fo-text-secondary font-bold flex items-center gap-1.5">
+              <BatteryCharging className="fo-icon-neutral w-4 h-4" /> BATT 2 (KEYBOARD DOCK)
             </span>
             <span className={`font-black text-sm ${
               !battery.keyboardDock.attached
-                ? 'text-zinc-500 font-mono text-xs'
-                : kbLow ? 'text-red-400' : 'text-emerald-400'
+                ? 'fo-text-muted font-mono text-xs'
+                : kbLow ? 'fo-text-danger' : kbPct === null ? 'fo-text-muted' : 'fo-text-primary'
             }`}>
               {!battery.keyboardDock.attached ? 'UNCOUPLED' : kbPct === null ? 'UNAVAILABLE' : `${kbPct}%`}
             </span>
           </div>
 
           {/* Battery level progress bar */}
-          <div className="w-full h-2.5 bg-zinc-950 rounded-full overflow-hidden mb-2 border border-zinc-800">
+          <div className="fo-meter-track w-full h-2.5 rounded-full overflow-hidden mb-2 border" role="progressbar" aria-label="Keyboard dock battery" aria-valuemin={0} aria-valuemax={100} aria-valuenow={battery.keyboardDock.attached ? kbPct ?? undefined : undefined} aria-valuetext={!battery.keyboardDock.attached ? 'Uncoupled' : kbPct === null ? 'Unavailable' : `${kbPct}%`}>
             <div
               className={`h-full transition-all duration-500 ${
                 !battery.keyboardDock.attached
-                  ? 'bg-zinc-800'
+                  ? 'fo-meter-unknown'
                   : kbLow
-                  ? 'bg-red-500'
+                  ? 'fo-meter-danger'
                   : kbPct === null
-                  ? 'bg-zinc-700'
+                  ? 'fo-meter-unknown'
                   : kbPct < 50
-                  ? 'bg-amber-400'
-                  : 'bg-emerald-400'
+                  ? 'fo-meter-caution'
+                  : 'fo-meter-success'
               }`}
               style={{ width: battery.keyboardDock.attached && kbPct !== null ? `${kbPct}%` : '0%' }}
             />
           </div>
 
-          <div className="flex items-center justify-between text-[10px] text-zinc-400 font-mono">
+          <div className="fo-text-muted flex items-center justify-between text-[10px] font-mono">
             {battery.keyboardDock.attached ? (
               <>
                 <span>{battery.keyboardDock.voltage}V | HEALTH: {battery.keyboardDock.health}</span>
-                <span className="text-zinc-300 font-semibold">{battery.keyboardDock.timeRemainingMins}m REMAINING</span>
+                <span className="fo-text-secondary font-semibold">{battery.keyboardDock.timeRemainingMins}m REMAINING</span>
               </>
             ) : (
               <div className="w-full flex items-center justify-between">
@@ -662,7 +641,7 @@ while ($true) {
                   type="button"
                   disabled
                   aria-label="Dock coupling unavailable; hardware detection is required"
-                  className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-700 text-zinc-500 font-bold text-[9px] cursor-not-allowed opacity-70"
+                  className="fo-control min-h-11 px-2 py-0.5 rounded border font-bold text-[9px] cursor-not-allowed opacity-70"
                 >
                   HARDWARE DETECTION REQUIRED
                 </button>
@@ -674,14 +653,14 @@ while ($true) {
       </div>
 
       {/* Hardware Polling Source Footer Status */}
-      <div className="pt-1.5 flex flex-wrap items-center justify-between text-[10px] text-zinc-400 border-t border-zinc-800/60 font-mono">
+      <div className="fo-text-muted pt-1.5 flex flex-wrap items-center justify-between text-[10px] border-t border-[var(--fo-border-subtle)] font-mono">
         <div className="flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-          <span className="font-bold text-zinc-300">LINK:</span>
-          <span className="text-cyan-300">{pollSource}</span>
+          <span className={`w-1.5 h-1.5 rounded-full ${pollingUnavailable ? 'fo-meter-unknown' : 'fo-meter-success animate-ping motion-reduce:animate-none'}`} aria-hidden="true"></span>
+          <span className="fo-text-secondary font-bold">LINK:</span>
+          <span className={pollingUnavailable ? 'fo-text-muted' : 'fo-text-info'}>{pollSource}</span>
         </div>
         {lastPolledTime && (
-          <span className="text-zinc-400">LAST POLLED: {lastPolledTime}</span>
+          <span className="fo-text-muted">LAST POLLED: {lastPolledTime}</span>
         )}
       </div>
     </div>

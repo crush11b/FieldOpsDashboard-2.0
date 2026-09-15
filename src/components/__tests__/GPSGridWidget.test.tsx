@@ -11,6 +11,23 @@ import { recoverGnss } from '../../gnssRecoveryApi';
 vi.mock('../../gnssRecoveryApi', () => ({ recoverGnss: vi.fn() }));
 
 describe('GPS source guardrail presentation', () => {
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('uses semantic location surfaces in %s', theme => {
+    const markup = renderToStaticMarkup(
+      <GPSGridWidget
+        gps={baseGps()}
+        provenance={provenance('ok', 'serial_nmea')}
+        theme={theme}
+        audioEnabled={false}
+        onUpdateGPS={() => undefined}
+      />,
+    );
+
+    expect(markup).toContain(`data-theme="${theme}"`);
+    expect(markup).toContain('fo-surface');
+    expect(markup).toContain('fo-status-success');
+    expect(markup).toMatch(/id="btn-trigger-gps-refresh"[^>]*min-h-11/);
+  });
+
   it('treats the real native SerialNmea observation as current GPS', () => {
     const markup = render(provenance('ok', 'serial_nmea'), {
       lat: 37.4078745833333,
@@ -52,6 +69,7 @@ describe('GPS source guardrail presentation', () => {
     const markup = render(provenance('degraded', 'manual_location'));
 
     expect(markup).toContain('MANUAL OVERRIDE');
+    expect(markup).toContain('fo-status-info');
     expect(markup).not.toContain('SATELLITE AUTO-FIX');
   });
 

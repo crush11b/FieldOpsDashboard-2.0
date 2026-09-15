@@ -16,9 +16,17 @@ const renderModal = (editingApp = nativeRecord, config: DashboardConfig = { ...I
 };
 
 describe('catalog management modal', () => {
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('owns semantic dialog and tabs in %s', theme => {
+    render(<ConfigModal config={{ ...INITIAL_CONFIG, theme }} theme={theme} audioEnabled={false} isOpen onClose={vi.fn()} onSaveConfig={vi.fn(async updated => updated)} onResetToDefaults={vi.fn()} initialTab="general" />);
+    expect(screen.getByRole('dialog', { name: /dashboard configuration/i })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: /general & operator/i })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('button', { name: /close configuration/i })).toHaveClass('min-h-11', 'min-w-11');
+    expect(screen.getByRole('dialog').parentElement).toHaveAttribute('data-theme', theme);
+  });
+
   it('opens Settings on General and Add on a clean Apps Manager form', async () => {
     const { rerender } = render(<ConfigModal config={INITIAL_CONFIG} theme={INITIAL_CONFIG.theme} audioEnabled={false} isOpen onClose={vi.fn()} onSaveConfig={vi.fn(async updated => updated)} onResetToDefaults={vi.fn()} initialTab="general" />);
-    await waitFor(() => expect(screen.getByRole('button', { name: 'GENERAL & OPERATOR' })).toHaveClass('border-amber-400'));
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'GENERAL & OPERATOR' })).toHaveAttribute('aria-selected', 'true'));
     rerender(<ConfigModal config={INITIAL_CONFIG} theme={INITIAL_CONFIG.theme} audioEnabled={false} isOpen onClose={vi.fn()} onSaveConfig={vi.fn(async updated => updated)} onResetToDefaults={vi.fn()} initialTab="apps" />);
     await waitFor(() => expect(screen.getByText('ADD APP')).toBeInTheDocument());
     expect(document.getElementById('input-app-form-name')).toHaveValue('');
@@ -26,7 +34,7 @@ describe('catalog management modal', () => {
 
   it('refreshes modal state for each record and preserves native fields', async () => {
     const { rerender } = renderModal();
-    await waitFor(() => expect(screen.getByRole('button', { name: 'APPS MANAGER (2)' })).toBeInTheDocument());
+    await waitFor(() => expect(screen.getByRole('tab', { name: 'APPS MANAGER (2)' })).toBeInTheDocument());
     await waitFor(() => expect(screen.getByDisplayValue(nativeRecord.target.kind === 'native' ? nativeRecord.target.executablePath : '')).toBeInTheDocument());
 
     rerender(<ConfigModal config={{ ...INITIAL_CONFIG, appCatalog: { ...catalog, records: [nativeRecord, webRecord] } }} theme={INITIAL_CONFIG.theme} audioEnabled={false} isOpen onClose={vi.fn()} onSaveConfig={vi.fn(async updated => updated)} onResetToDefaults={vi.fn()} editingApp={webRecord} initialTab="apps" />);
