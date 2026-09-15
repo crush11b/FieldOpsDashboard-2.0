@@ -200,25 +200,34 @@ describe('misleading action guardrails', () => {
   it('renders a real low battery percentage as low', () => {
     const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: 15 } }} theme="dark_tactical" />);
     expect(markup).toContain('15%');
-    expect(markup).toContain('bg-red-500');
+    expect(markup).toContain('fo-meter-danger');
   });
 
   it('preserves zero percent as a valid low battery value', () => {
     const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: 0 } }} theme="dark_tactical" />);
     expect(markup).toContain('0%');
-    expect(markup).toContain('bg-red-500');
+    expect(markup).toContain('fo-meter-danger');
   });
 
   it('renders null percentage as unavailable without low-battery styling', () => {
     const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: null } }} theme="dark_tactical" />);
     expect(markup).toContain('UNAVAILABLE');
-    expect(markup).not.toContain('bg-red-500');
+    expect(markup).not.toContain('fo-meter-danger');
   });
 
   it('renders physical battery values independently', () => {
     const markup = renderToStaticMarkup(<BatteryStatusWidget battery={{ ...battery, mainTablet: { ...battery.mainTablet, percent: 100 }, keyboardDock: { ...battery.keyboardDock, percent: 89, attached: true } }} theme="dark_tactical" />);
     expect(markup).toContain('100%');
     expect(markup).toContain('89%');
+  });
+
+  it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('uses semantic battery surfaces in %s', theme => {
+    const markup = renderToStaticMarkup(<BatteryStatusWidget battery={battery} theme={theme} />);
+    expect(markup).toContain(`data-theme="${theme}"`);
+    expect(markup).toContain('fo-surface');
+    expect(markup).toContain('role="progressbar"');
+    expect(markup).toContain('aria-label="Main tablet battery"');
+    expect(markup).toContain(`aria-valuetext="${battery.mainTablet.percent}%"`);
   });
 
   it('renders a detached second battery as uncoupled without stale percentage', () => {
