@@ -25,6 +25,29 @@ describe('EquipmentWorkspace', () => {
     expect(payload).toMatchObject({ kind: 'radio', label: 'IC-705', manufacturer: 'Icom', facts: [], limitations: [] });
   });
 
+  it('uses plain-language, equipment-specific specifications and supplies the unit', async () => {
+    const fetcher = vi.fn()
+      .mockImplementationOnce(() => response({ equipment: [] }))
+      .mockImplementationOnce(() => response({ loadouts: [] }))
+      .mockImplementationOnce(() => response({ status: 'succeeded' }))
+      .mockImplementationOnce(() => response({ equipment: [] }))
+      .mockImplementationOnce(() => response({ loadouts: [] }));
+    vi.stubGlobal('fetch', fetcher);
+    render(<EquipmentWorkspace />);
+    await screen.findByText('No equipment or loadouts have been entered.');
+    expect(screen.queryByLabelText('Fact key')).not.toBeInTheDocument();
+    expect(screen.getByText(/Add only values you know/)).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Equipment label'), { target: { value: 'IC-705' } });
+    fireEvent.change(screen.getByLabelText('Specification'), { target: { value: 'max_output_power_watts' } });
+    fireEvent.change(screen.getByLabelText('Specification value'), { target: { value: '10' } });
+    fireEvent.click(screen.getByRole('button', { name: 'ADD SPECIFICATION' }));
+    expect(screen.getByText(/Maximum output power:/)).toBeInTheDocument();
+    expect(screen.getByText(/Requires an external tuner on 30 m/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE EQUIPMENT' }));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledWith('/api/equipment', expect.objectContaining({ method: 'POST' })));
+    expect(JSON.parse(fetcher.mock.calls[2][1].body).facts).toEqual([{ key: 'max_output_power_watts', value: 10, unit: 'W', source: 'operator_entered' }]);
+  });
+
   it('offers only active equipment for new loadouts and discloses readiness limitations', async () => {
     vi.stubGlobal('fetch', vi.fn((url: string) => url === '/api/equipment' ? response({ equipment: [
       { schemaVersion: 1, equipmentId: 'active-radio', kind: 'radio', label: 'Active Radio', facts: [], limitations: [], state: 'active', createdAtUtc: '2026-09-15T18:00:00.000Z', updatedAtUtc: '2026-09-15T18:00:00.000Z' },
