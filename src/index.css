@@ -193,6 +193,19 @@
 .fo-operational-view [class*="border-red-"] { border-color: var(--fo-danger); }
 .fo-operational-view [class*="text-red-"] { color: var(--fo-danger); }
 .fo-operational-view [class*="bg-red-"] { background: color-mix(in srgb, var(--fo-danger) 14%, var(--fo-surface-1)); }
+.fo-operational-view button,
+.fo-operational-view select,
+.fo-operational-view textarea,
+.fo-operational-view input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]) { min-height: 2.75rem; }
+.fo-operational-view input:not([type="checkbox"]):not([type="radio"]):not([type="hidden"]):not([type="file"]),
+.fo-operational-view select,
+.fo-operational-view textarea { background: var(--fo-surface-raised); border-color: var(--fo-border); color: var(--fo-text-primary); }
+.fo-operational-view input:focus-visible,
+.fo-operational-view select:focus-visible,
+.fo-operational-view textarea:focus-visible,
+.fo-operational-view button:focus-visible,
+.fo-operational-view a:focus-visible,
+.fo-operational-view summary:focus-visible { outline: 3px solid var(--fo-focus); outline-offset: 2px; }
 .fo-selection::selection,
 .fo-selection *::selection { background: var(--fo-selected); color: var(--fo-text-primary); }
 
