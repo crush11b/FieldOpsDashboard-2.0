@@ -99,6 +99,10 @@ describe('misleading action guardrails', () => {
     expect(markup).not.toContain('SmartLog+');
     expect(markup).not.toContain('AI Radio Advisor');
     expect(markup).not.toContain('Broadcast alert sent');
+    expect(markup).toContain('role="dialog"');
+    expect(markup).toContain('aria-modal="true"');
+    expect(markup).toContain('data-theme="dark_tactical"');
+    expect(markup).toContain('aria-pressed="true"');
   });
 
   it('keeps SmartDeploy separate from the general antenna calculator', () => {
@@ -125,6 +129,9 @@ describe('misleading action guardrails', () => {
     expect(markup).not.toContain('AI Field Radio Advisor');
     expect(markup).not.toContain('K7POTA');
     expect(markup).not.toContain('W6SOTA');
+    expect(markup).toContain('role="tablist"');
+    expect(markup).toContain('aria-selected="true"');
+    expect(markup).toContain('data-theme="dark_tactical"');
 
     const calculatorMarkup = renderToStaticMarkup(
       <RoadmapToolsModal
@@ -165,7 +172,7 @@ describe('misleading action guardrails', () => {
     expect(view.container.innerHTML).not.toContain('animate-spin-slow');
     expect(view.container.innerHTML).not.toContain('animate-pulse');
 
-    fireEvent.click(screen.getByRole('button', { name: /LOCATION/i }));
+    fireEvent.click(screen.getByRole('tab', { name: /LOCATION/i }));
     expect(screen.getByText('OPERATING LOCATION')).toBeTruthy();
     view.rerender(
       <RoadmapToolsModal
