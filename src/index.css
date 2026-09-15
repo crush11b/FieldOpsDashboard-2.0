@@ -146,6 +146,16 @@
 .fo-meter-caution { background: var(--fo-caution); }
 .fo-meter-danger { background: var(--fo-danger); }
 .fo-meter-unknown { background: var(--fo-disabled); }
+.fo-rating-excellent { background: color-mix(in srgb, var(--fo-success) 20%, var(--fo-surface-1)); border-color: var(--fo-success); color: var(--fo-text-primary); }
+.fo-rating-good { background: color-mix(in srgb, var(--fo-success) 10%, var(--fo-surface-1)); border-color: var(--fo-success); color: var(--fo-text-primary); }
+.fo-rating-fair { background: color-mix(in srgb, var(--fo-caution) 14%, var(--fo-surface-1)); border-color: var(--fo-caution); color: var(--fo-text-primary); }
+.fo-rating-poor { background: color-mix(in srgb, var(--fo-danger) 14%, var(--fo-surface-1)); border-color: var(--fo-danger); color: var(--fo-text-primary); }
+.fo-rating-unavailable { background: var(--fo-surface-2); border-color: var(--fo-border-subtle); color: var(--fo-text-muted); }
+.fo-rating-selected { outline: 3px solid var(--fo-focus); outline-offset: 2px; }
+.fo-evidence-modeled { color: var(--fo-evidence-modeled); border-color: currentColor; }
+.fo-evidence-observed { color: var(--fo-evidence-observed); border-color: currentColor; }
+.fo-evidence-live { color: var(--fo-evidence-live); border-color: currentColor; }
+.fo-evidence-unknown { color: var(--fo-evidence-unknown); border-color: currentColor; }
 .fo-selection::selection,
 .fo-selection *::selection { background: var(--fo-selected); color: var(--fo-text-primary); }
 
