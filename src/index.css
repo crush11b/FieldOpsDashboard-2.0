@@ -164,6 +164,35 @@
 .fo-evidence-observed { color: var(--fo-evidence-observed); border-color: currentColor; }
 .fo-evidence-live { color: var(--fo-evidence-live); border-color: currentColor; }
 .fo-evidence-unknown { color: var(--fo-evidence-unknown); border-color: currentColor; }
+.fo-operational-view [class*="bg-slate-950"],
+.fo-operational-view [class*="bg-zinc-950"] { background: var(--fo-surface-2); }
+.fo-operational-view [class*="bg-slate-900"],
+.fo-operational-view [class*="bg-zinc-900"] { background: var(--fo-surface-raised); }
+.fo-operational-view [class*="border-slate-"],
+.fo-operational-view [class*="border-zinc-"] { border-color: var(--fo-border); }
+.fo-operational-view [class*="text-slate-100"],
+.fo-operational-view [class*="text-zinc-100"] { color: var(--fo-text-primary); }
+.fo-operational-view [class*="text-slate-200"],
+.fo-operational-view [class*="text-slate-300"],
+.fo-operational-view [class*="text-zinc-200"],
+.fo-operational-view [class*="text-zinc-300"] { color: var(--fo-text-secondary); }
+.fo-operational-view [class*="text-slate-400"],
+.fo-operational-view [class*="text-slate-500"],
+.fo-operational-view [class*="text-zinc-400"],
+.fo-operational-view [class*="text-zinc-500"] { color: var(--fo-text-muted); }
+.fo-operational-view [class*="border-cyan-"],
+.fo-operational-view [class*="border-blue-"] { border-color: var(--fo-info); }
+.fo-operational-view [class*="text-cyan-"],
+.fo-operational-view [class*="text-blue-"] { color: var(--fo-info); }
+.fo-operational-view [class*="border-amber-"] { border-color: var(--fo-caution); }
+.fo-operational-view [class*="text-amber-"] { color: var(--fo-caution); }
+.fo-operational-view [class*="bg-amber-"] { background: color-mix(in srgb, var(--fo-caution) 14%, var(--fo-surface-1)); }
+.fo-operational-view [class*="border-emerald-"] { border-color: var(--fo-success); }
+.fo-operational-view [class*="text-emerald-"] { color: var(--fo-success); }
+.fo-operational-view [class*="bg-emerald-"] { background: color-mix(in srgb, var(--fo-success) 12%, var(--fo-surface-1)); }
+.fo-operational-view [class*="border-red-"] { border-color: var(--fo-danger); }
+.fo-operational-view [class*="text-red-"] { color: var(--fo-danger); }
+.fo-operational-view [class*="bg-red-"] { background: color-mix(in srgb, var(--fo-danger) 14%, var(--fo-surface-1)); }
 .fo-selection::selection,
 .fo-selection *::selection { background: var(--fo-selected); color: var(--fo-text-primary); }
 
