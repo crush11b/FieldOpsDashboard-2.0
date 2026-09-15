@@ -17,7 +17,8 @@ import {
   Search, 
   Zap, 
   MapPin,
-  Bot
+  Bot,
+  PackageOpen
 } from 'lucide-react';
 import { LogEntry, UIThemeMode } from '../types';
 import { playTacticalClick } from '../utils/audio';
@@ -30,6 +31,7 @@ import { calculateSolarEvents, type SolarEventName } from '../location/solarEven
 import type { StationProfile } from '../propagation/domain';
 import { SmartDeployPlanner } from './SmartDeployPlanner';
 import { MaidenheadCalculator } from './MaidenheadCalculator';
+import { EquipmentWorkspace } from './EquipmentWorkspace';
 
 interface RoadmapToolsModalProps {
   theme: UIThemeMode;
@@ -245,6 +247,16 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           </button>
 
           <button
+            id="tab-field-equipment"
+            role="tab"
+            aria-selected={activeTab === 'equipment'}
+            onClick={() => setActiveTab('equipment')}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
+          >
+            <PackageOpen className="w-4 h-4" /> EQUIPMENT
+          </button>
+
+          <button
             id="tab-smart-deploy"
             role="tab"
             aria-selected={activeTab === 'smart_deploy'}
@@ -282,6 +294,8 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
           {activeTab === 'sun_twilight' && (
             <SunTwilightTool operatingLocation={operatingLocation} />
           )}
+
+          {activeTab === 'equipment' && <EquipmentWorkspace />}
           
           {/* SmartDeploy activation planning */}
           {activeTab === 'smart_deploy' && (
@@ -514,7 +528,7 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         {/* Footer */}
         <div className="fo-surface-subtle p-4 border-t flex items-center justify-between">
           <span className="fo-text-muted text-[10px]">
-            Location • Maidenhead • Distance / Bearing • Sun / Twilight • SmartDeploy
+            Location • Maidenhead • Distance / Bearing • Sun / Twilight • Equipment • SmartDeploy
           </span>
           <button
             id="btn-close-roadmap-bottom"
