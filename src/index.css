@@ -122,9 +122,13 @@
 .fo-favorite { color: var(--fo-text-muted); }
 .fo-favorite:hover,
 .fo-favorite[aria-pressed="true"] { color: var(--fo-caution); }
+.fo-tab { border-color: transparent; color: var(--fo-text-muted); }
+.fo-tab:hover { color: var(--fo-text-primary); background: var(--fo-action-secondary-hover); }
+.fo-tab[aria-selected="true"] { border-color: var(--fo-action-primary); color: var(--fo-text-primary); background: var(--fo-selected); }
 .fo-control:focus-visible,
 .fo-control-primary:focus-visible,
 .fo-theme-choice:focus-visible { outline: 3px solid var(--fo-focus); outline-offset: 2px; }
+.fo-tab:focus-visible { outline: 3px solid var(--fo-focus); outline-offset: -3px; }
 .fo-text-primary { color: var(--fo-text-primary); }
 .fo-text-secondary { color: var(--fo-text-secondary); }
 .fo-text-muted { color: var(--fo-text-muted); }
