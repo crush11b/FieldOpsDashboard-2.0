@@ -96,8 +96,6 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isNight = theme === 'night_vision';
-
   const persistCatalog = async (catalog: DashboardConfig['appCatalog'], completeConfig?: DashboardConfig): Promise<boolean> => {
     const saved = await onSaveConfig({ ...(completeConfig || config), appCatalog: catalog });
     if (!saved) {
@@ -231,62 +229,61 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-md p-4 font-mono">
-      <div className={`max-w-4xl w-full max-h-[90vh] flex flex-col rounded-2xl border ${
-        isNight ? 'bg-black border-red-900 text-red-400' : 'bg-[#0F1115] border-zinc-800 text-zinc-100'
-      } shadow-2xl overflow-hidden`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 font-mono" data-theme={theme}>
+      <div role="dialog" aria-modal="true" aria-labelledby="config-modal-title" className="fo-surface max-w-4xl w-full max-h-[90vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden">
         
         {/* Header */}
-        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+        <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--fo-border-subtle)' }}>
           <div className="flex items-center gap-2">
-            <Settings className="w-5 h-5 text-amber-400" />
-            <h2 className="font-black text-base uppercase tracking-wider text-zinc-100">
+            <Settings className="fo-icon-caution w-5 h-5" />
+            <h2 id="config-modal-title" className="fo-text-primary font-black text-base uppercase tracking-wider">
               DASHBOARD CONFIGURATION & JSON APPS LAUNCHER
             </h2>
           </div>
 
           <button
             id="btn-close-config-modal"
+            aria-label="Close configuration"
             onClick={onClose}
-            className="p-1.5 rounded-lg border border-zinc-800 hover:bg-zinc-800 active:scale-95 text-zinc-400 hover:text-zinc-100"
+            className="fo-control min-h-11 min-w-11 p-2 rounded-xl border active:scale-95 flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Modal Navigation Tabs */}
-        <div className="flex items-center border-b border-zinc-800 px-4 bg-zinc-950/60">
+        <div role="tablist" aria-label="Configuration sections" className="fo-surface-subtle flex items-center border-b px-4 overflow-x-auto">
           <button
             id="tab-config-general"
+            role="tab"
+            aria-selected={activeTab === 'general'}
             onClick={() => setActiveTab('general')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 transition-all ${
-              activeTab === 'general' ? 'border-amber-400 text-amber-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 transition-all whitespace-nowrap"
           >
             GENERAL & OPERATOR
           </button>
           <button
             id="tab-config-apps"
+            role="tab"
+            aria-selected={activeTab === 'apps'}
             onClick={() => setActiveTab('apps')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 transition-all ${
-              activeTab === 'apps' ? 'border-amber-400 text-amber-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 transition-all whitespace-nowrap"
           >
             APPS MANAGER ({appsList.length})
           </button>
           <button
             id="tab-config-json"
+            role="tab"
+            aria-selected={activeTab === 'json_editor'}
             onClick={() => setActiveTab('json_editor')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 transition-all ${
-              activeTab === 'json_editor' ? 'border-amber-400 text-amber-400' : 'border-transparent text-zinc-400 hover:text-zinc-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 transition-all whitespace-nowrap"
           >
             🛠️ JSON CONFIG EDITOR
           </button>
         </div>
 
         {/* Modal Body */}
-        <div className="p-4 flex-1 overflow-y-auto space-y-4">
+        <div className="fo-operational-view p-4 flex-1 overflow-y-auto space-y-4">
           {jsonError && (
             <div role="alert" className="p-2.5 rounded bg-red-950 border border-red-700 text-red-300 font-mono text-[11px]">
               {jsonError}
@@ -668,14 +665,14 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-current/15 flex items-center justify-between bg-black/40">
-          <span className="text-[10px] text-slate-400">
+        <div className="fo-surface-subtle p-4 border-t flex items-center justify-between">
+          <span className="fo-text-muted text-[10px]">
             {PRODUCT_METADATA.productName} {PRODUCT_METADATA.displayVersion} Config Engine
           </span>
           <button
             id="btn-save-and-close-config"
             onClick={handleSaveGeneral}
-            className="px-5 py-2 rounded bg-cyan-600 hover:bg-cyan-500 text-white font-black text-xs active:scale-95 shadow"
+            className="fo-control-primary min-h-11 px-5 rounded-xl border font-black text-xs active:scale-95 shadow"
           >
             SAVE & CLOSE
           </button>
