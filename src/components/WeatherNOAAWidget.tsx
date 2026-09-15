@@ -77,22 +77,9 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     }
   };
 
-  const isNight = theme === 'night_vision';
-  const isSunlight = theme === 'sunlight';
-
-  const cardBg = isNight
-    ? 'bg-black border-red-900/90 text-red-500 rounded-2xl p-4 sm:p-5 shadow-lg'
-    : isSunlight
-    ? 'bg-white border-amber-400 text-slate-900 shadow-sm rounded-2xl p-4 sm:p-5'
-    : 'bg-zinc-900/50 border-zinc-800 text-zinc-100 shadow-lg rounded-2xl p-4 sm:p-5';
-
   const alertBadgeBg = alertItems.length > 0
-    ? isNight
-      ? 'border-red-600 bg-red-950 text-red-400'
-      : 'border-amber-500/40 bg-amber-500/10 text-amber-400 font-bold'
-    : isNight
-    ? 'border-red-950 text-red-800'
-    : 'border-zinc-800 bg-zinc-800/60 text-zinc-400';
+    ? 'fo-status-caution font-bold'
+    : 'fo-status-neutral';
 
   const weatherStatusLabel = weatherStatus === 'live'
     ? 'LIVE'
@@ -100,21 +87,21 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
     ? 'REFRESHING'
     : 'LAST KNOWN / UPDATE UNAVAILABLE';
   const weatherStatusClass = weatherStatus === 'live'
-    ? 'border-emerald-500/40 bg-emerald-500/10 text-emerald-300'
+    ? 'fo-status-success'
     : weatherStatus === 'loading'
-    ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-300'
-    : 'border-amber-500/40 bg-amber-500/10 text-amber-300';
+    ? 'fo-status-info'
+    : 'fo-status-caution';
 
   const hourlyList = weather?.hourlyForecast?.slice(0, 6) ?? [];
   const operatorTimeZone = resolveOperatorTimeZone();
 
   return (
-    <div className={`border ${cardBg} font-mono transition-all space-y-3`}>
+    <div data-theme={theme} className="fo-surface border rounded-2xl p-4 sm:p-5 font-mono transition-all space-y-3">
       {/* Header & NOAA Badge */}
-      <div className="flex items-center justify-between pb-3 border-b border-zinc-800/80">
+      <div className="flex items-center justify-between pb-3 border-b border-[var(--fo-border-subtle)]">
         <div className="flex items-center gap-2">
-          <CloudRain className={`w-4 h-4 ${isNight ? 'text-red-500' : 'text-sky-400'}`} />
-          <h3 className="text-xs font-bold text-zinc-400 uppercase tracking-widest">
+          <CloudRain className="fo-icon-info w-4 h-4" />
+          <h3 className="fo-text-secondary text-xs font-bold uppercase tracking-widest">
             FIELD WEATHER SNAPSHOT & NOAA ALERTS
           </h3>
           {weather && (
@@ -133,21 +120,22 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
             <button
               id="btn-acknowledge-noaa-alert"
               onClick={handleAcknowledge}
-              className={`px-2.5 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
+              className={`min-h-11 px-2.5 py-1 rounded-md border text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${
                 isAcknowledged
-                  ? 'bg-zinc-800/80 border-zinc-700 text-zinc-400'
-                  : 'bg-amber-500/20 hover:bg-amber-500/30 border-amber-500/60 text-amber-300 animate-pulse'
+                  ? 'fo-status-neutral'
+                  : 'fo-status-caution animate-pulse motion-reduce:animate-none'
               }`}
               title="Stop voice broadcast and mark alert acknowledged"
+              aria-pressed={isAcknowledged}
             >
               {isAcknowledged ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-400" />
+                  <Check className="fo-icon-success w-3.5 h-3.5" />
                   <span>ACKNOWLEDGED</span>
                 </>
               ) : (
                 <>
-                  <VolumeX className="w-3.5 h-3.5 text-amber-400" />
+                  <VolumeX className="fo-icon-caution w-3.5 h-3.5" />
                   <span>ACK / SILENCE VOICE</span>
                 </>
               )}
@@ -163,9 +151,10 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
               }
               setShowAlertsDrawer(!showAlertsDrawer);
             }}
-            className={`px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${alertBadgeBg}`}
+            className={`min-h-11 px-2 py-1 rounded border text-[11px] font-bold flex items-center gap-1.5 transition-all active:scale-95 ${alertBadgeBg}`}
+            aria-expanded={showAlertsDrawer}
           >
-            <ShieldAlert className="w-3.5 h-3.5 text-amber-400" />
+            <ShieldAlert className="w-3.5 h-3.5" />
             <span>{effectiveAlertsStatus === 'loading'
               ? 'CHECKING NOAA'
               : effectiveAlertsStatus === 'unavailable'
@@ -182,36 +171,36 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 text-xs">
         
         {/* Temperature & Condition */}
-        <div className={`p-2 rounded-lg border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
+        <div className="fo-surface-subtle p-2 rounded-lg border">
           <div className="flex items-center justify-between text-[10px] text-current/70 mb-0.5">
             <span>TEMP / CONDITION</span>
-            <Thermometer className="w-3.5 h-3.5 text-amber-400" />
+            <Thermometer className="fo-icon-neutral w-3.5 h-3.5" />
           </div>
-          <div className="font-black text-base text-amber-300">
+          <div className="fo-text-primary font-black text-base">
             {weather.tempF}°F ({weather.tempC}°C)
           </div>
           <span className="text-[10px] opacity-80">{weather.condition}</span>
         </div>
 
         {/* Barometric Pressure */}
-        <div className={`p-2 rounded-lg border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
+        <div className="fo-surface-subtle p-2 rounded-lg border">
           <div className="flex items-center justify-between text-[10px] text-current/70 mb-0.5">
             <span>BARO PRESSURE</span>
-            <span className="text-cyan-400 font-bold">inHg</span>
+            <span className="fo-text-muted font-bold">inHg</span>
           </div>
-          <div className="font-black text-base text-cyan-300">
+          <div className="fo-text-primary font-black text-base">
             {weather.pressureInHg} inHg
           </div>
           <span className="text-[10px] opacity-80">{weather.pressureHpa} hPa (SURFACE)</span>
         </div>
 
         {/* Wind Speed & Direction */}
-        <div className={`p-2 rounded-lg border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
+        <div className="fo-surface-subtle p-2 rounded-lg border">
           <div className="flex items-center justify-between text-[10px] text-current/70 mb-0.5">
             <span>WIND / MAST RISK</span>
-            <Wind className="w-3.5 h-3.5 text-emerald-400" />
+            <Wind className="fo-icon-neutral w-3.5 h-3.5" />
           </div>
-          <div className="font-black text-base text-emerald-400">
+          <div className="fo-text-primary font-black text-base">
             {weather.windMph} MPH {weather.windDir}
           </div>
           <span className="text-[10px] opacity-80">
@@ -220,10 +209,10 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
         </div>
 
         {/* Humidity & Dew Point */}
-        <div className={`p-2 rounded-lg border ${isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-slate-300 bg-amber-50' : 'border-slate-800 bg-slate-950/60'}`}>
+        <div className="fo-surface-subtle p-2 rounded-lg border">
           <div className="flex items-center justify-between text-[10px] text-current/70 mb-0.5">
             <span>HUMIDITY / DEW</span>
-            <Sun className="w-3.5 h-3.5 text-yellow-400" />
+            <Sun className="fo-icon-neutral w-3.5 h-3.5" />
           </div>
           <div className="font-black text-base">
             {weather.humidity}%
@@ -234,25 +223,23 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
       </div>
 
       {/* 6-Hour Tactical Operational Forecast Row */}
-      <div className={`p-2.5 rounded-xl border ${
-        isNight ? 'border-red-950 bg-black' : isSunlight ? 'border-amber-300 bg-amber-50' : 'border-zinc-800 bg-zinc-950/60'
-      } space-y-1.5`}>
-        <div className="flex items-center justify-between text-[10px] uppercase font-bold text-zinc-400">
-          <span className="flex items-center gap-1.5 text-cyan-300">
-            <Clock className="w-3 h-3 text-cyan-400" /> 6-HOUR OPERATIONAL WEATHER OUTLOOK
+      <div className="fo-surface-subtle p-2.5 rounded-xl border space-y-1.5">
+        <div className="fo-text-secondary flex items-center justify-between text-[10px] uppercase font-bold">
+          <span className="fo-text-info flex items-center gap-1.5">
+            <Clock className="fo-icon-info w-3 h-3" /> 6-HOUR OPERATIONAL WEATHER OUTLOOK
           </span>
-          <span className="text-zinc-500 font-mono">TIME ZONE: {operatorTimeZone}</span>
+          <span className="fo-text-muted font-mono">TIME ZONE: {operatorTimeZone}</span>
         </div>
 
         <div className="grid grid-cols-3 sm:grid-cols-6 gap-2">
           {hourlyList.map((item, idx) => (
-            <div key={idx} className="p-1.5 rounded-lg border border-zinc-800/80 bg-zinc-900/60 text-center space-y-0.5">
-              <span className="text-[10px] font-extrabold text-cyan-300 block">{formatWeatherHour(item.utcTime ?? item.time, operatorTimeZone)}</span>
-              <span className="text-[9px] font-bold leading-tight text-zinc-300 block" title={weatherConditionLabel(item.weatherCode)}>{weatherConditionLabel(item.weatherCode)}</span>
-              <span className="text-xs font-black text-zinc-100 block">{item.tempF}°F</span>
-              <div className="flex items-center justify-center gap-1 text-[9px] text-zinc-400">
+            <div key={idx} className="fo-surface-raised p-1.5 rounded-lg border text-center space-y-0.5">
+              <span className="fo-text-info text-[10px] font-extrabold block">{formatWeatherHour(item.utcTime ?? item.time, operatorTimeZone)}</span>
+              <span className="fo-text-secondary text-[9px] font-bold leading-tight block" title={weatherConditionLabel(item.weatherCode)}>{weatherConditionLabel(item.weatherCode)}</span>
+              <span className="fo-text-primary text-xs font-black block">{item.tempF}°F</span>
+              <div className="fo-text-muted flex items-center justify-center gap-1 text-[9px]">
                 <span>{item.windMph}mph</span>
-                <span className="text-sky-400 font-bold" aria-label={`Precipitation ${item.precipProb}%`}>💧{item.precipProb}%</span>
+                <span className="fo-text-info font-bold" aria-label={`Precipitation ${item.precipProb}%`}>💧{item.precipProb}%</span>
               </div>
             </div>
           ))}
@@ -260,89 +247,89 @@ export const WeatherNOAAWidget: React.FC<WeatherNOAAWidgetProps> = ({
       </div>
       </>
       ) : (
-        <div className="min-h-36 rounded-xl border border-zinc-800 bg-zinc-950/60 flex items-center justify-center text-center p-5">
+        <div className="fo-surface-subtle min-h-36 rounded-xl border flex items-center justify-center text-center p-5">
           <div>
             <span className="block text-base font-black">—</span>
-            <span className="block text-xs font-bold uppercase text-zinc-400">
+            <span className="fo-text-secondary block text-xs font-bold uppercase">
               {weatherStatus === 'loading' ? 'Loading field weather' : 'Weather unavailable'}
             </span>
-            <span className="block text-[10px] text-zinc-500 mt-1">No fallback conditions are being displayed.</span>
+            <span className="fo-text-muted block text-[10px] mt-1">No fallback conditions are being displayed.</span>
           </div>
         </div>
       )}
 
       {/* NOAA Alert Details Drawer */}
       {showAlertsDrawer && (
-        <div className="mt-3 p-3 rounded-xl border border-amber-500/40 bg-amber-950/40 text-amber-200 space-y-3 text-xs font-mono">
-          <div className="flex flex-wrap items-center justify-between gap-2 font-bold border-b border-amber-500/30 pb-2">
-            <span className="flex items-center gap-1.5 text-amber-300 uppercase font-black">
-              <AlertOctagon className="w-4 h-4 text-amber-400" /> NOAA WEATHER MONITORING ({weather?.locationName ?? (effectiveAlertsStatus === 'unavailable' ? 'LOCATION UNAVAILABLE' : 'SELECTED OPERATING LOCATION')})
+        <div className="fo-status-caution mt-3 p-3 rounded-xl border space-y-3 text-xs font-mono">
+          <div className="flex flex-wrap items-center justify-between gap-2 font-bold border-b border-current/30 pb-2">
+            <span className="flex items-center gap-1.5 uppercase font-black">
+              <AlertOctagon className="w-4 h-4" /> NOAA WEATHER MONITORING ({weather?.locationName ?? (effectiveAlertsStatus === 'unavailable' ? 'LOCATION UNAVAILABLE' : 'SELECTED OPERATING LOCATION')})
             </span>
             <div className="flex items-center gap-1.5">
               <button
                 onClick={handleAcknowledge}
                 disabled={effectiveAlertsStatus !== 'live' || alertItems.length === 0}
-                className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/50 text-amber-300 font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="fo-control min-h-11 px-2 py-1 rounded border font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={alertItems.length > 0 ? 'Silence active text-to-speech reading' : 'No active alert is available to acknowledge'}
               >
-                <VolumeX className="w-3 h-3 text-amber-400" />
+                <VolumeX className="w-3 h-3" />
                 <span>SILENCE / ACK</span>
               </button>
               <button
                 onClick={() => handleTestVoiceAlert(false)}
                 disabled={effectiveAlertsStatus !== 'live' || alertItems.length === 0}
-                className="px-2 py-1 rounded bg-amber-500/20 hover:bg-amber-500/30 border border-amber-500/40 text-amber-300 font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="fo-control min-h-11 px-2 py-1 rounded border font-mono font-bold text-[10px] flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
                 title={alertItems.length > 0 ? 'Speak concise alert title and area' : 'No active alert is available to speak'}
               >
-                <Volume2 className="w-3 h-3 text-amber-400" />
+                <Volume2 className="w-3 h-3" />
                 <span>SPEAK TYPE ONLY</span>
               </button>
             </div>
           </div>
 
           {effectiveAlertsStatus === 'unavailable' ? (
-            <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
+            <div className="fo-status-neutral p-3 rounded-lg border text-xs font-mono">
               <span className="font-black block">NOAA ALERT STATUS UNAVAILABLE</span>
-              <span className="text-[10px] text-zinc-400">The dashboard could not confirm whether active alerts exist.</span>
+              <span className="text-[10px]">The dashboard could not confirm whether active alerts exist.</span>
             </div>
           ) : effectiveAlertsStatus === 'loading' ? (
-            <div className="p-3 rounded-lg bg-zinc-950/60 border border-zinc-700 text-zinc-300 text-xs font-mono">
+            <div className="fo-status-info p-3 rounded-lg border text-xs font-mono">
               Checking NOAA alerts for the selected operating location…
             </div>
           ) : alertItems.length === 0 ? (
-            <div className="p-3 rounded-lg bg-emerald-950/40 border border-emerald-500/30 text-emerald-300 text-xs font-mono flex items-center justify-between">
+            <div className="fo-status-success p-3 rounded-lg border text-xs font-mono flex items-center justify-between">
               <div>
-                <span className="font-black text-emerald-400 block">✅ ALL CLEAR — NO ACTIVE NOAA WEATHER ADVISORIES</span>
-                <span className="text-[10px] text-emerald-300/80">Location: {weather?.locationName ?? 'Selected operating location'} • Direct NWS point API scan clear.</span>
+                <span className="font-black block">✅ ALL CLEAR — NO ACTIVE NOAA WEATHER ADVISORIES</span>
+                <span className="text-[10px] opacity-80">Location: {weather?.locationName ?? 'Selected operating location'} • Direct NWS point API scan clear.</span>
               </div>
             </div>
           ) : (
             alertItems.map((alt) => (
-              <div key={alt.id} className="space-y-1.5 p-2.5 rounded-lg bg-zinc-950/60 border border-amber-500/30">
+              <div key={alt.id} className="fo-surface-subtle space-y-1.5 p-2.5 rounded-lg border">
                 <div className="flex items-center justify-between flex-wrap gap-2">
-                  <h4 className="font-black text-amber-300 text-xs flex items-center gap-1.5">
-                    <ShieldAlert className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                  <h4 className="fo-text-caution font-black text-xs flex items-center gap-1.5">
+                    <ShieldAlert className="w-3.5 h-3.5 shrink-0" />
                     <span>{alt.title} — {alt.area}</span>
                   </h4>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => speakNOAAAlert(alt.title, alt.area, true)}
-                      className="text-[10px] font-bold text-amber-400 hover:text-amber-200 flex items-center gap-1 underline"
+                      className="fo-text-caution text-[10px] font-bold flex items-center gap-1 underline"
                       title="Speak type and location only"
                     >
                       <Volume2 className="w-3 h-3" /> Speak Type
                     </button>
                     <button
                       onClick={() => speakNOAAAlertFull(alt.title, alt.description, true)}
-                      className="text-[10px] font-bold text-amber-400/80 hover:text-amber-200 flex items-center gap-1 underline"
+                      className="fo-text-caution text-[10px] font-bold flex items-center gap-1 underline opacity-90"
                       title="Read full warning text"
                     >
                       Read Full
                     </button>
                   </div>
                 </div>
-                <p className="text-[11px] leading-relaxed text-zinc-300 font-sans">{alt.description}</p>
-                <div className="text-[10px] text-amber-400/80 flex items-center justify-between pt-1 font-mono border-t border-amber-500/10">
+                <p className="fo-text-secondary text-[11px] leading-relaxed font-sans">{alt.description}</p>
+                <div className="fo-text-caution text-[10px] flex items-center justify-between pt-1 font-mono border-t border-current/20 opacity-90">
                   <span>ISSUED: {alt.issued}</span>
                   <span>EXPIRES: {alt.expires}</span>
                 </div>
