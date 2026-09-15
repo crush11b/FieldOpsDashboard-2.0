@@ -138,6 +138,14 @@
 .fo-status-caution { background: color-mix(in srgb, var(--fo-caution) 12%, var(--fo-surface-1)); border-color: var(--fo-caution); color: var(--fo-caution); }
 .fo-status-info { background: color-mix(in srgb, var(--fo-info) 12%, var(--fo-surface-1)); border-color: var(--fo-info); color: var(--fo-info); }
 .fo-status-neutral { background: var(--fo-surface-2); border-color: var(--fo-border-subtle); color: var(--fo-text-muted); }
+.fo-input { background: var(--fo-surface-raised); border-color: var(--fo-border); color: var(--fo-text-primary); }
+.fo-input::placeholder { color: var(--fo-text-muted); }
+.fo-input:focus-visible { outline: 3px solid var(--fo-focus); outline-offset: 1px; }
+.fo-meter-track { background: var(--fo-surface-raised); border-color: var(--fo-border-subtle); }
+.fo-meter-success { background: var(--fo-success); }
+.fo-meter-caution { background: var(--fo-caution); }
+.fo-meter-danger { background: var(--fo-danger); }
+.fo-meter-unknown { background: var(--fo-disabled); }
 .fo-selection::selection,
 .fo-selection *::selection { background: var(--fo-selected); color: var(--fo-text-primary); }
 
