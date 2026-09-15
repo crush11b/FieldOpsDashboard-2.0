@@ -62,6 +62,8 @@ import { createActivationReviewRouter } from './server/activationReviewApi';
 import { ActivationStore, getDefaultActivationPath } from './server/activationStore';
 import { createQsoRouter } from './server/qsoApi';
 import { QsoStore, getDefaultQsoPath } from './server/qsoStore';
+import { createEquipmentRouter } from './server/equipmentApi';
+import { EquipmentStore, getDefaultEquipmentPaths } from './server/equipmentStore';
 import { createOperationsReadinessRouter } from './server/operationsReadinessApi';
 import { createClockRouter } from './server/clockApi';
 import { createGnssRecoveryRouter } from './server/gnssRecoveryApi';
@@ -138,6 +140,8 @@ async function startServer() {
     return config.kind === 'loaded' ? config.config.callsign : null;
   } });
   const qsoStore = new QsoStore(getDefaultQsoPath());
+  const equipmentPaths = getDefaultEquipmentPaths();
+  const equipmentStore = new EquipmentStore(equipmentPaths.inventory, equipmentPaths.loadouts);
   const wsjtxQsoRouter = new WsjtxQsoRouter({ activationStore, qsoStore });
   const dashboardConfig = dashboardConfigStore.read();
   const wsjtxConfiguration = resolveWsjtxConfiguration(dashboardConfig.kind === 'loaded' ? dashboardConfig.config : INITIAL_CONFIG);
@@ -161,6 +165,7 @@ async function startServer() {
   app.use(createActivationRouter({ briefStore: smartDeployBriefStore, store: activationStore, notesStore: activationNotesStore, onCompleted: activation => operationalIntelligenceStore.closeActivation(activation), onReconciled: activation => operationalIntelligenceStore.closeActivation(activation) }));
   app.use(createOperationalIntelligenceRouter({ store: operationalIntelligenceStore, activationStore, observedRf: observedRfService }));
   app.use(createQsoRouter({ activationStore, store: qsoStore }));
+  app.use(createEquipmentRouter(equipmentStore));
   app.use(createActivationReviewRouter({ activationStore, briefStore: smartDeployBriefStore, notesStore: activationNotesStore, forecastStore: missionForecastStore, spaceWeatherStore: spaceWeatherSnapshotStore, qsoStore }));
   app.use(createSpaceWeatherSnapshotRouter({ briefStore: smartDeployBriefStore, store: spaceWeatherSnapshotStore, service: spaceWeatherService }));
   app.use(createOperationsReadinessRouter({
