@@ -8,7 +8,7 @@ The synthesis keeps three evidence channels independent:
 
 - **ITU-R P.533 model evidence**: regional BCR median and spread, SNR range, successful and total samples, model timestamp, revision, engine provenance, and reference antenna assumptions.
 - **Observed RF evidence**: PSKReporter report, path, remote-callsign, direction, exact-mode, SNR, and observation-window data. This is digital-only evidence and does not establish SSB usability or the physical propagation mechanism.
-- **Space-weather evidence**: NOAA F10.7, SSN, Kp, R-scale, and GOES flare-class products, each retaining source state and timestamps.
+- **Space-weather evidence**: NOAA F10.7, Kp, R-scale, and GOES flare-class products plus SILSO Version 2.0 daily SSN, each retaining its own source state and timestamps. NOAA observed/predicted smoothed monthly SSN remains a separate P.533 model input.
 
 An optional ionosphere input is represented as a future contract only. No ionosonde source or integration is implemented in 5H-A.
 

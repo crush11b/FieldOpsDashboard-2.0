@@ -18,6 +18,16 @@ function jsonResponse(body: unknown, ok = true): Response {
   return new Response(JSON.stringify(body), { status: ok ? 200 : 503, headers: { 'content-type': 'application/json' } });
 }
 
+function responseFor(url: string, ok = true): Response {
+  if (url.includes('SN_d_tot_V2.0.csv')) {
+    return new Response('2026;08;14;2026.616;92;10.2;32;0\n2026;08;16;2026.622;118;11.4;28;0\n', {
+      status: ok ? 200 : 503,
+      headers: { 'content-type': 'text/csv' },
+    });
+  }
+  return jsonResponse(payloadFor(url), ok);
+}
+
 function payloadFor(url: string): unknown {
   if (url.includes('f107')) return [{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: '2026-08-16T22:00:00', flux: 122 }];
   if (url.includes('predicted-solar-cycle')) return [{ 'time-tag': '2026-09', predicted_ssn: 91.2 }];
@@ -31,10 +41,11 @@ afterEach(() => {
   for (const directory of temporaryDirectories.splice(0)) fs.rmSync(directory, { recursive: true, force: true });
 });
 
-describe('NOAA space-weather evidence', () => {
+describe('space-weather evidence', () => {
   it('selects the newest valid observation and rejects malformed products', () => {
     expect(parseF107([{ time_tag: '2026-08-16T20:00:00', flux: 129 }, { time_tag: 'bad', flux: 900 }])).toMatchObject({ value: 129 });
-    expect(parseSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83 }])).toMatchObject({ value: 106.83 });
+    expect(parseSsn('2026;08;14;2026.616;92;10.2;32;0\n2026;08;16;2026.622;118;11.4;28;0\n')).toMatchObject({ value: 118, observedAt: '2026-08-16T12:00:00.000Z' });
+    expect(parseSsn('2026;02;30;2026.166;9001;0;0;0\n')).toBeNull();
     expect(parseModelSsn([{ 'time-tag': '2026-06', ssn: 114, observed_swpc_ssn: 106.83, smoothed_ssn: 109.5 }])).toMatchObject({ value: 109.5 });
     expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }, { 'time-tag': '2026-07', smoothed_ssn: -1 }])).toMatchObject({ value: 109.5, observedAt: '2026-06-01T00:00:00.000Z', modelBasis: 'observed_smoothed', effectiveMonth: '2026-06' });
     expect(parseModelSsn([{ 'time-tag': '2026-06', smoothed_ssn: 109.5 }], new Date('2026-07-10T00:00:00Z'))).toBeNull();
@@ -46,14 +57,31 @@ describe('NOAA space-weather evidence', () => {
   });
 
   it('classifies fresh and old successful HTTP observations by source age', async () => {
-    const fresh = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => jsonResponse(payloadFor(String(input))) });
+    const fresh = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => responseFor(String(input)) });
     expect(fresh.products.f107.state).toBe('live');
-    expect(fresh.products.ssn.state).toBe('live');
+    expect(fresh.products.ssn).toMatchObject({ state: 'live', value: 118, observedAt: '2026-08-16T12:00:00.000Z', source: { name: 'SILSO' } });
 
     const stale = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => jsonResponse(
       String(input).includes('f107') ? [{ time_tag: '2026-07-01T20:00:00', flux: 122 }] : payloadFor(String(input)),
     ) });
     expect(stale.products.f107).toMatchObject({ state: 'stale', observedAt: '2026-07-01T20:00:00.000Z' });
+  });
+
+  it('keeps a recently observed daily SILSO SSN live in the middle of the month', async () => {
+    const result = await getSpaceWeatherSnapshot({
+      cachePath: cachePath(),
+      now: () => new Date('2026-09-15T00:30:00.000Z'),
+      fetcher: async input => String(input).includes('SN_d_tot_V2.0.csv')
+        ? new Response('2026;09;14;2026.704;123;10.2;32;0\n')
+        : jsonResponse(payloadFor(String(input))),
+    });
+
+    expect(result.products.ssn).toMatchObject({
+      value: 123,
+      state: 'live',
+      observedAt: '2026-09-14T12:00:00.000Z',
+      source: { id: 'silso', name: 'SILSO' },
+    });
   });
 
   it('uses a month-aligned predicted R12 during the definitive smoothing gap', async () => {
@@ -62,7 +90,7 @@ describe('NOAA space-weather evidence', () => {
       cachePath: cachePath(),
       now: () => modelDate,
       modelDate,
-      fetcher: async input => jsonResponse(payloadFor(String(input))),
+      fetcher: async input => responseFor(String(input)),
     });
 
     expect(result.modelSsn).toMatchObject({
@@ -80,7 +108,7 @@ describe('NOAA space-weather evidence', () => {
   it('bases retained model-input freshness on receipt age and never substitutes another month', async () => {
     const filePath = cachePath();
     const modelDate = new Date('2026-09-14T12:00:00.000Z');
-    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => modelDate, modelDate, fetcher: async input => jsonResponse(payloadFor(String(input))) });
+    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => modelDate, modelDate, fetcher: async input => responseFor(String(input)) });
 
     const cached = await getSpaceWeatherSnapshot({
       cachePath: filePath,
@@ -110,7 +138,7 @@ describe('NOAA space-weather evidence', () => {
   it('keeps valid products live when one NOAA product fails', async () => {
     const result = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => {
       const url = String(input);
-      return url.includes('planetary') ? jsonResponse({}, false) : jsonResponse(payloadFor(url));
+      return url.includes('planetary') ? jsonResponse({}, false) : responseFor(url);
     } });
 
     expect(result.products.f107).toMatchObject({ state: 'live', value: 122 });
@@ -121,7 +149,7 @@ describe('NOAA space-weather evidence', () => {
 
   it('retains a truthful cached observation and marks it stale by observation age', async () => {
     const filePath = cachePath();
-    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => NOW, fetcher: async input => jsonResponse(payloadFor(String(input))) });
+    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => NOW, fetcher: async input => responseFor(String(input)) });
     const later = new Date('2026-08-20T03:00:00.000Z');
     const result = await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => later, fetcher: async () => { throw new Error('offline'); } });
 
@@ -131,16 +159,16 @@ describe('NOAA space-weather evidence', () => {
 
   it('classifies a fresh retained observation as cached after HTTP failure', async () => {
     const filePath = cachePath();
-    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => NOW, fetcher: async input => jsonResponse(payloadFor(String(input))) });
+    await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => NOW, fetcher: async input => responseFor(String(input)) });
     const result = await getSpaceWeatherSnapshot({ cachePath: filePath, now: () => new Date('2026-08-17T04:00:00.000Z'), fetcher: async () => { throw new Error('offline'); } });
     expect(result.products.f107).toMatchObject({ state: 'cached', observedAt: '2026-08-16T22:00:00.000Z' });
   });
 
   it('reports honest overall snapshot status without collapsing product states', async () => {
-    const live = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => jsonResponse(payloadFor(String(input))) });
+    const live = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => responseFor(String(input)) });
     expect(live.status).toBe('live');
 
-    const partial = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => String(input).includes('planetary') ? jsonResponse({}, false) : jsonResponse(payloadFor(String(input))) });
+    const partial = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async input => String(input).includes('planetary') ? jsonResponse({}, false) : responseFor(String(input)) });
     expect(partial.status).toBe('partial');
 
     const unavailable = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async () => { throw new Error('offline'); } });
@@ -151,10 +179,13 @@ describe('NOAA space-weather evidence', () => {
     const requests: Array<{ url: string; userAgent: string | undefined }> = [];
     const result = await getSpaceWeatherSnapshot({ cachePath: cachePath(), now: () => NOW, fetcher: async (input, init) => {
       requests.push({ url: String(input), userAgent: new Headers(init?.headers).get('User-Agent') ?? undefined });
-      return jsonResponse(payloadFor(String(input)));
+      return responseFor(String(input));
     } });
     expect(requests).toHaveLength(6);
-    expect(requests.every(request => request.userAgent === getProductUserAgent('NOAA SWPC'))).toBe(true);
+    expect(requests.filter(request => request.url.includes('sidc.be'))).toEqual([
+      expect.objectContaining({ userAgent: getProductUserAgent('SILSO') }),
+    ]);
+    expect(requests.filter(request => !request.url.includes('sidc.be')).every(request => request.userAgent === getProductUserAgent('NOAA SWPC'))).toBe(true);
     expect(result.products.xray).toMatchObject({ value: 'C2.1', evidenceType: 'latest_goes_xray_flare_class' });
     expect(result.modelSsn).toMatchObject({ value: 109.5, state: 'live', modelInput: { semanticBasis: 'noaa_smoothed_monthly_ssn' } });
   });
@@ -165,7 +196,7 @@ describe('NOAA space-weather evidence', () => {
     const service = new SpaceWeatherService({ cachePath: cachePath(), now: () => now, fetcher: async input => {
       calls += 1;
       await Promise.resolve();
-      return jsonResponse(payloadFor(String(input)));
+      return responseFor(String(input));
     } }, 15 * 60 * 1000);
     const [first, second] = await Promise.all([service.getSnapshot(), service.getSnapshot()]);
     expect(first).toBe(second);
