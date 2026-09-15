@@ -90,8 +90,6 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
 
   if (!isOpen) return null;
 
-  const isNight = theme === 'night_vision';
-
   const totalFeet = (468 / freqMHz) * velocityFactor;
   const legFeet = antennaType === 'dipole' ? totalFeet / 2 : totalFeet;
   const totalMeters = totalFeet * 0.3048;
@@ -181,77 +179,76 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 font-mono">
-      <div className={`max-w-4xl w-full max-h-[90vh] flex flex-col rounded-2xl border ${
-        isNight ? 'bg-black border-red-900 text-red-400' : 'bg-[#0F1115] border-zinc-800 text-zinc-100'
-      } shadow-2xl overflow-hidden`}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 font-mono" data-theme={theme}>
+      <div role="dialog" aria-modal="true" aria-labelledby="roadmap-tools-title" className="fo-surface max-w-4xl w-full max-h-[90vh] flex flex-col rounded-2xl border shadow-2xl overflow-hidden">
         
         {/* Header */}
-        <div className="p-4 border-b border-zinc-800 flex items-center justify-between">
+        <div className="p-4 border-b flex items-center justify-between" style={{ borderColor: 'var(--fo-border-subtle)' }}>
           <div className="flex items-center gap-2">
-            <Sparkles className="w-5 h-5 text-amber-400" />
-            <h2 className="font-black text-base uppercase tracking-wider text-zinc-100">
+            <Sparkles className="fo-icon-caution w-5 h-5" />
+            <h2 id="roadmap-tools-title" className="fo-text-primary font-black text-base uppercase tracking-wider">
               ROADMAP SMART MODULES ({PRODUCT_METADATA.displayVersion})
             </h2>
           </div>
 
           <button
             id="btn-close-roadmap-modal"
+            aria-label="Close field tools"
             onClick={onClose}
-            className="p-1.5 rounded-lg border border-zinc-800 hover:bg-zinc-800 active:scale-95 text-zinc-400 hover:text-zinc-100"
+            className="fo-control min-h-11 min-w-11 p-2 rounded-xl border active:scale-95 flex items-center justify-center"
           >
             <X className="w-5 h-5" />
           </button>
         </div>
 
         {/* Roadmap Module Tabs */}
-        <div className="flex items-center border-b border-zinc-800 px-4 bg-zinc-950/60 overflow-x-auto">
+        <div role="tablist" aria-label="Field tools" className="fo-surface-subtle flex items-center border-b px-4 overflow-x-auto">
           <button
             id="tab-field-location"
+            role="tab"
+            aria-selected={activeTab === 'coordinate'}
             onClick={() => setActiveTab('coordinate')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'coordinate' ? 'border-cyan-400 text-cyan-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
           >
             <MapPin className="w-4 h-4" /> LOCATION
           </button>
 
           <button
             id="tab-field-distance-bearing"
+            role="tab"
+            aria-selected={activeTab === 'distance_bearing'}
             onClick={() => setActiveTab('distance_bearing')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'distance_bearing' ? 'border-emerald-400 text-emerald-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
           >
             <Compass className="w-4 h-4" /> DISTANCE / BEARING
           </button>
 
           <button
             id="tab-field-sun-twilight"
+            role="tab"
+            aria-selected={activeTab === 'sun_twilight'}
             onClick={() => setActiveTab('sun_twilight')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'sun_twilight' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
           >
             <Sun className="w-4 h-4" /> SUN / TWILIGHT
           </button>
 
           <button
             id="tab-smart-deploy"
+            role="tab"
+            aria-selected={activeTab === 'smart_deploy'}
             onClick={() => setActiveTab('smart_deploy')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'smart_deploy' ? 'border-amber-400 text-amber-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
           >
             <Wrench className="w-4 h-4" /> SmartDeploy
           </button>
 
           <button
             id="tab-antenna-calculator"
+            role="tab"
+            aria-selected={activeTab === 'antenna_calculator'}
             onClick={() => setActiveTab('antenna_calculator')}
-            className={`py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all ${
-              activeTab === 'antenna_calculator' ? 'border-emerald-400 text-emerald-300' : 'border-transparent text-slate-400 hover:text-slate-200'
-            }`}
+            className="fo-tab min-h-11 py-2.5 px-4 font-bold text-xs border-b-2 flex items-center gap-1.5 whitespace-nowrap transition-all"
           >
             <Calculator className="w-4 h-4" /> ANTENNA CALCULATOR
           </button>
@@ -500,14 +497,14 @@ export const RoadmapToolsModal: React.FC<RoadmapToolsModalProps> = ({
         </div>
 
         {/* Footer */}
-        <div className="p-4 border-t border-current/15 flex items-center justify-between bg-black/40">
-          <span className="text-[10px] text-slate-400">
+        <div className="fo-surface-subtle p-4 border-t flex items-center justify-between">
+          <span className="fo-text-muted text-[10px]">
             Location • Distance / Bearing • Sun / Twilight • SmartDeploy
           </span>
           <button
             id="btn-close-roadmap-bottom"
             onClick={onClose}
-            className="px-5 py-1.5 rounded bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-xs active:scale-95 shadow"
+            className="fo-control min-h-11 px-5 rounded-xl border font-black text-xs active:scale-95 shadow"
           >
             CLOSE SUITE
           </button>
