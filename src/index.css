@@ -134,6 +134,10 @@
 .fo-icon-success { color: var(--fo-success); }
 .fo-icon-caution { color: var(--fo-caution); }
 .fo-status-danger { background: color-mix(in srgb, var(--fo-danger) 14%, var(--fo-surface-1)); border-color: var(--fo-danger); color: var(--fo-danger); }
+.fo-status-success { background: color-mix(in srgb, var(--fo-success) 12%, var(--fo-surface-1)); border-color: var(--fo-success); color: var(--fo-success); }
+.fo-status-caution { background: color-mix(in srgb, var(--fo-caution) 12%, var(--fo-surface-1)); border-color: var(--fo-caution); color: var(--fo-caution); }
+.fo-status-info { background: color-mix(in srgb, var(--fo-info) 12%, var(--fo-surface-1)); border-color: var(--fo-info); color: var(--fo-info); }
+.fo-status-neutral { background: var(--fo-surface-2); border-color: var(--fo-border-subtle); color: var(--fo-text-muted); }
 .fo-selection::selection,
 .fo-selection *::selection { background: var(--fo-selected); color: var(--fo-text-primary); }
 
