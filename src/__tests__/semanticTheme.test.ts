@@ -70,6 +70,9 @@ describe('V3 semantic theme contract', () => {
     expect(css).toContain('[data-theme="sunlight"]');
     expect(css).toContain('[data-theme="night_vision"]');
     expect(css).toContain('.fo-app-shell { background: var(--fo-canvas); color: var(--fo-text-primary); }');
+    expect(css).toContain('.fo-operational-view [class*="bg-slate-950"]');
+    expect(css).toContain('.fo-operational-view [class*="text-amber-"]');
+    expect(css).toContain('.fo-operational-view [class*="text-red-"]');
   });
 
   it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('%s meets AA contrast for semantic text and status roles', theme => {
