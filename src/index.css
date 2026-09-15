@@ -107,6 +107,7 @@
 .fo-surface { background: var(--fo-surface-1); border-color: var(--fo-border); color: var(--fo-text-primary); }
 .fo-surface-subtle { background: var(--fo-surface-2); border-color: var(--fo-border-subtle); color: var(--fo-text-secondary); }
 .fo-surface-raised { background: var(--fo-surface-raised); border-color: var(--fo-border); color: var(--fo-text-primary); }
+.fo-card-interactive:hover { background: var(--fo-surface-raised); border-color: var(--fo-border-strong); }
 .fo-header { background: color-mix(in srgb, var(--fo-surface-1) 94%, transparent); border-color: var(--fo-border); box-shadow: 0 12px 30px rgb(0 0 0 / 20%); }
 .fo-badge { background: var(--fo-surface-2); border-color: var(--fo-border-subtle); color: var(--fo-text-secondary); }
 .fo-brand { background: var(--fo-action-primary); color: #fffaf2; }
@@ -118,6 +119,9 @@
 .fo-theme-choice { color: var(--fo-text-muted); }
 .fo-theme-choice:hover { background: var(--fo-action-secondary-hover); color: var(--fo-text-primary); }
 .fo-theme-choice[aria-pressed="true"] { background: var(--fo-selected); color: var(--fo-text-primary); box-shadow: inset 0 0 0 1px var(--fo-border-strong); }
+.fo-favorite { color: var(--fo-text-muted); }
+.fo-favorite:hover,
+.fo-favorite[aria-pressed="true"] { color: var(--fo-caution); }
 .fo-control:focus-visible,
 .fo-control-primary:focus-visible,
 .fo-theme-choice:focus-visible { outline: 3px solid var(--fo-focus); outline-offset: 2px; }
