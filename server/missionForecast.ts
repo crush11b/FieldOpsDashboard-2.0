@@ -42,11 +42,14 @@ export async function retrieveMissionForecast(brief: SmartDeployBriefV2, options
     let previousProviderStart = Number.NEGATIVE_INFINITY;
     for (let index = 0; index < sourceHourly.time.length; index += 1) {
       const periodStart = typeof sourceHourly.time[index] === 'string' ? parseProviderTimestamp(sourceHourly.time[index] as string) : Number.NaN;
-      const temperature = sourceHourly.temperature_2m[index]; const precipitation = sourceHourly.precipitation_probability[index]; const windSpeed = sourceHourly.wind_speed_10m[index]; const windDirection = sourceHourly.wind_direction_10m[index]; const weatherCode = sourceHourly.weather_code[index]; const gust = Array.isArray(sourceHourly.wind_gusts_10m) ? sourceHourly.wind_gusts_10m[index] : undefined;
-      if (!Number.isFinite(periodStart) || periodStart % 3_600_000 !== 0 || seenProviderStarts.has(periodStart) || periodStart < previousProviderStart || !finite(temperature) || !finite(precipitation) || !finite(windSpeed) || !finite(windDirection) || !finite(weatherCode) || (gust !== undefined && !finite(gust)) || precipitation < 0 || precipitation > 100 || windSpeed < 0 || windDirection < 0 || windDirection >= 360 || weatherCode < 0 || (gust !== undefined && gust < 0)) return unusable();
+      if (!Number.isFinite(periodStart) || periodStart % 3_600_000 !== 0 || seenProviderStarts.has(periodStart) || periodStart < previousProviderStart) return unusable();
       seenProviderStarts.add(periodStart); previousProviderStart = periodStart;
       const periodEnd = periodStart + 3_600_000;
       if (periodStart >= end || periodEnd <= start) continue;
+      const temperature = sourceHourly.temperature_2m[index]; const precipitation = sourceHourly.precipitation_probability[index]; const windSpeed = sourceHourly.wind_speed_10m[index]; const providerWindDirection = sourceHourly.wind_direction_10m[index]; const weatherCode = sourceHourly.weather_code[index]; const providerGust = Array.isArray(sourceHourly.wind_gusts_10m) ? sourceHourly.wind_gusts_10m[index] : undefined;
+      const gust = providerGust === null ? undefined : providerGust;
+      if (!finite(temperature) || !finite(precipitation) || !finite(windSpeed) || !finite(providerWindDirection) || !finite(weatherCode) || (gust !== undefined && !finite(gust)) || precipitation < 0 || precipitation > 100 || windSpeed < 0 || providerWindDirection < 0 || providerWindDirection > 360 || weatherCode < 0 || (gust !== undefined && gust < 0)) return unusable();
+      const windDirection = providerWindDirection === 360 ? 0 : providerWindDirection;
       hourly.push({ startsAtUtc: new Date(periodStart).toISOString(), endsAtUtc: new Date(periodEnd).toISOString(), missionApplicable: true, temperatureF: temperature, precipitationProbability: precipitation, windSpeedMph: windSpeed, windDirectionDegrees: windDirection, windDirection: directionLabel(windDirection), ...(gust === undefined ? {} : { windGustMph: gust }), weatherCode, condition: conditionLabel(weatherCode) });
     }
     if (hourly.length === 0) return { status: 'outside_provider_horizon', record: null, message: 'The mission window is outside the terrestrial forecast provider horizon.' };

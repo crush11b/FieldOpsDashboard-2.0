@@ -35,6 +35,30 @@ describe('mission forecast adapter', () => {
     expect(result.record?.periods[0].windSpeedMph).toBe(4);
   });
 
+  it('ignores unusable weather values outside the mission window', async () => {
+    const result = await retrieveMissionForecast(brief(), { fetcher: vi.fn(async () => providerResponse({
+      time: ['2026-08-19T01:00', '2026-08-19T12:00', '2026-08-19T18:00'],
+      temperature_2m: [null, 72, null],
+      precipitation_probability: [null, 20, null],
+      wind_speed_10m: [null, 5, null],
+      wind_direction_10m: [null, 180, null],
+      wind_gusts_10m: [null, 8, null],
+      weather_code: [null, 2, null],
+    })) as typeof fetch });
+    expect(result.status).toBe('live');
+    expect(result.record?.hourly).toHaveLength(1);
+    expect(result.record?.hourly[0]).toMatchObject({ temperatureF: 72, precipitationProbability: 20 });
+  });
+
+  it('normalizes a provider north wind reported as 360 degrees', async () => {
+    const result = await retrieveMissionForecast(brief(), { fetcher: vi.fn(async () => providerResponse({
+      time: ['2026-08-19T12:00'], temperature_2m: [72], precipitation_probability: [0],
+      wind_speed_10m: [5], wind_direction_10m: [360], wind_gusts_10m: [8], weather_code: [0],
+    })) as typeof fetch });
+    expect(result.status).toBe('live');
+    expect(result.record?.hourly[0]).toMatchObject({ windDirectionDegrees: 0, windDirection: 'N' });
+  });
+
   it('requests a valid future same-day mission date explicitly', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => { expect(String(input)).toContain('start_date=2026-08-26&end_date=2026-08-26'); return providerResponse({ time: ['2026-08-26T16:00', '2026-08-26T17:00'], temperature_2m: [72, 73], precipitation_probability: [0, 10], wind_speed_10m: [4, 5], wind_direction_10m: [180, 200], wind_gusts_10m: [6, 7], weather_code: [0, 1] }); });
     const result = await retrieveMissionForecast(brief({ missionWindow: { start: '2026-08-26T16:30:00.000Z', midpoint: '2026-08-26T17:30:00.000Z', end: '2026-08-26T19:30:00.000Z' } }), { fetcher: fetcher as typeof fetch, now: new Date('2026-08-26T11:30:00.000Z') });
