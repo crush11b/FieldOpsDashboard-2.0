@@ -4,6 +4,7 @@ import { ACTIVATION_OBJECTIVE_SELECTIONS, ACTIVATION_STATUSES, ACTIVATION_TYPES,
 import type { ActivationStore, ActivationStoreReadResult } from './activationStore';
 import type { ActivationNotesStore } from './activationNotesStore';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
+import { createActivationEntity, normalizeEntityState } from './operationEntities';
 
 export interface ActivationApiOptions { readonly store: ActivationStore; readonly briefStore: SmartDeployBriefStore; readonly notesStore: ActivationNotesStore; readonly logger?: Pick<Console, 'warn'>; readonly now?: () => Date; readonly onCompleted?: (activation: Activation) => void; readonly onReconciled?: (activation: Activation) => void; }
 
@@ -70,6 +71,19 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
     if (issues.length) { response.status(400).json(error('invalid_objective_selection', issues.join(' '), existing.diagnostics)); return; }
     try { const updated = options.store.updateObjective(request.params.activationId, operatingObjective, objectiveSelection as ActivationObjectiveSelection); response.json({ kind: 'activation', status: 'updated', activation: updated.activation, diagnostics: updated.diagnostics }); }
     catch (updateError) { const message = updateError instanceof Error ? updateError.message : 'The Activation objective could not be updated.'; response.status(message.includes('not found') ? 404 : message.includes('completed') ? 409 : 503).json(error(message.includes('completed') ? 'objective_locked' : message.includes('not found') ? 'not_found' : 'persistence_unavailable', message)); }
+  });
+  router.patch('/api/activations/:activationId/entities', (request, response) => {
+    const existing = options.store.get(request.params.activationId);
+    if (existing.status === 'notFound') { response.status(404).json(error('not_found', 'The Activation was not found.', existing.diagnostics)); return; }
+    if (existing.activation.status === 'completed') { response.status(409).json(error('entities_locked', 'Completed Activations cannot change their entity set.', existing.diagnostics)); return; }
+    try {
+      const now = (options.now ?? (() => new Date()))().toISOString();
+      const current = normalizeEntityState(existing.activation.entityState, { activationId: existing.activation.activationId, type: existing.activation.type, reference: existing.activation.reference, createdAtUtc: existing.activation.createdAtUtc, updatedAtUtc: now });
+      let entityState = request.body?.entityState;
+      if (request.body?.add) { const entity = createActivationEntity(request.body.add, now); entityState = { schemaVersion: 1, entities: [...current.entities, entity], activeEntityIds: [...current.activeEntityIds, entity.entityId] }; }
+      const updated = options.store.updateEntityState(existing.activation.activationId, entityState);
+      response.json({ kind: 'activation', status: 'updated', activation: updated.activation, diagnostics: updated.diagnostics });
+    } catch (cause) { response.status(400).json(error('invalid_entities', cause instanceof Error ? cause.message : 'The Activation entity set is invalid.')); }
   });
   router.post('/api/activations', (request, response) => {
     if (!request.body || typeof request.body !== 'object' || Array.isArray(request.body)) { response.status(400).json(error('invalid_request', 'Activation data must be an object.')); return; }

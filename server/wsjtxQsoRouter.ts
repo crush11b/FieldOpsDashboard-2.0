@@ -2,6 +2,7 @@ import { normalizeQso, type Qso } from './qso';
 import type { ActivationStore } from './activationStore';
 import type { WsjtxLoggedQsoCandidate } from './wsjtx';
 import type { QsoStore } from './qsoStore';
+import { activeAssociations } from './operationEntities';
 
 export type WsjtxQsoRouteResult =
   | { readonly status: 'persisted'; readonly qso: Qso }
@@ -42,6 +43,7 @@ export class WsjtxQsoRouter {
       operatorCallsign: candidate.operatorCallsign,
       stationCallsign: candidate.stationCallsign,
       myGridSquare: candidate.myGridSquare,
+      entityAssociations: active[0].entityState ? activeAssociations(active[0].entityState) : undefined,
       source: candidate.ingestionSource === 'adif_file' ? 'adif_import' as const : 'wsjtx' as const,
     };
     const identity = dedupeIdentity(input);
@@ -51,7 +53,7 @@ export class WsjtxQsoRouter {
     if (recentDuplicate && Math.abs(timestamp - recentDuplicate.timestamp) <= 2_000) return { status: 'duplicate', qso: recentDuplicate.qso };
     const duplicate = existing.qsos.find(qso => dedupeIdentity(qso) === identity && Math.abs(timestamp - Date.parse(qso.qsoDateTimeUtc)) <= 2_000);
     if (duplicate) return { status: 'duplicate', qso: duplicate };
-    const normalized = normalizeQso({ ...input, qsoId: 'diagnostic', schemaVersion: 1, createdAtUtc: candidate.qsoDateTimeUtc, updatedAtUtc: candidate.qsoDateTimeUtc });
+    const normalized = normalizeQso({ ...input, qsoId: 'diagnostic', schemaVersion: 2, createdAtUtc: candidate.qsoDateTimeUtc, updatedAtUtc: candidate.qsoDateTimeUtc });
     if (!normalized.valid || !normalized.qso) return { status: 'unavailable', reason: 'normalization_failed' };
     try {
       const qso = this.options.qsoStore.create(input).qso;

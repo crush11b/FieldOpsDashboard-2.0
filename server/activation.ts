@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
 import { normalizeLoadoutSnapshot, type LoadoutSnapshot } from '../src/equipment/domain';
+import { normalizeEntityState, type ActivationEntityState } from './operationEntities';
 
-export const ACTIVATION_SCHEMA_VERSION = 2 as const;
+export const ACTIVATION_SCHEMA_VERSION = 3 as const;
 export const ACTIVATION_PREVIOUS_SCHEMA_VERSION = 1 as const;
+export const ACTIVATION_V2_SCHEMA_VERSION = 2 as const;
 export const ACTIVATION_TYPES = ['POTA', 'SOTA', 'General'] as const;
 export type ActivationType = typeof ACTIVATION_TYPES[number];
 export const ACTIVATION_STATUSES = ['planned', 'active', 'completed'] as const;
@@ -36,10 +38,11 @@ export interface ActivationOperatingObjective {
   readonly deadlineProvenance?: ActivationDeadlineProvenance;
 }
 export interface Activation {
-  readonly schemaVersion: typeof ACTIVATION_SCHEMA_VERSION;
+  readonly schemaVersion: typeof ACTIVATION_SCHEMA_VERSION | typeof ACTIVATION_V2_SCHEMA_VERSION;
   readonly activationId: string;
   readonly type: ActivationType;
   readonly reference?: string;
+  readonly entityState?: ActivationEntityState;
   readonly title?: string;
   readonly plannedLocation?: ActivationLocation;
   readonly missionWindow?: ActivationMissionWindow;
@@ -56,7 +59,7 @@ export interface Activation {
   readonly notesCollectionId?: string;
   readonly loadoutSnapshot?: LoadoutSnapshot;
 }
-export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly objectiveSelection?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; readonly loadoutSnapshot?: unknown; }
+export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly entityState?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly objectiveSelection?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; readonly loadoutSnapshot?: unknown; }
 
 export function canonicalProgramObjective(type: ActivationType): ActivationOperatingObjective | undefined {
   if (type === 'POTA') return { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' };
@@ -111,14 +114,14 @@ export function normalizeActivation(value: unknown): ActivationNormalizationResu
 function normalizeActivationValue(value: unknown, allowHistorical: boolean): ActivationNormalizationResult {
   const issues: string[] = [];
   if (!isRecord(value)) return invalid(['activation must be an object.']);
-  if (value.schemaVersion !== ACTIVATION_SCHEMA_VERSION && value.schemaVersion !== ACTIVATION_PREVIOUS_SCHEMA_VERSION) issues.push('schemaVersion is unsupported.');
+  if (value.schemaVersion !== ACTIVATION_SCHEMA_VERSION && value.schemaVersion !== ACTIVATION_V2_SCHEMA_VERSION && value.schemaVersion !== ACTIVATION_PREVIOUS_SCHEMA_VERSION) issues.push('schemaVersion is unsupported.');
   const activationId = id(value.activationId, 'activationId', issues);
   const briefId = optionalId(value.briefId, 'briefId', issues);
   const notesCollectionId = optionalId(value.notesCollectionId, 'notesCollectionId', issues);
   let loadoutSnapshot: LoadoutSnapshot | undefined;
   if (value.loadoutSnapshot !== undefined) { try { loadoutSnapshot = normalizeLoadoutSnapshot(value.loadoutSnapshot); } catch { issues.push('loadoutSnapshot is invalid.'); } }
-  const type = typeof value.type === 'string' && (ACTIVATION_TYPES as readonly string[]).includes(value.type.trim()) ? value.type.trim() as ActivationType : null;
-  if (!type) issues.push('type is unsupported.');
+  let type = typeof value.type === 'string' && (ACTIVATION_TYPES as readonly string[]).includes(value.type.trim()) ? value.type.trim() as ActivationType : null;
+  if (!type && value.schemaVersion !== ACTIVATION_SCHEMA_VERSION) issues.push('type is unsupported.');
   const reference = bounded(value.reference, 'reference', ACTIVATION_MAX_REFERENCE_LENGTH, issues);
   const title = bounded(value.title, 'title', ACTIVATION_MAX_TITLE_LENGTH, issues);
   const plannedLocation = location(value.plannedLocation, issues);
@@ -127,12 +130,16 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   if (!status) issues.push('status is unsupported.');
   const createdAtUtc = timestamp(value.createdAtUtc, 'createdAtUtc', issues);
   const updatedAtUtc = timestamp(value.updatedAtUtc, 'updatedAtUtc', issues);
+  let entityState: ActivationEntityState | undefined;
+  if (activationId && createdAtUtc && updatedAtUtc) { try { entityState = normalizeEntityState(value.entityState, { activationId, type: type ?? 'General', reference: value.reference, createdAtUtc, updatedAtUtc }); } catch (error) { issues.push(error instanceof Error ? error.message : 'entityState is invalid.'); } }
   const startedAtUtc = optionalTimestamp(value.startedAtUtc, 'startedAtUtc', issues);
   const endedAtUtc = optionalTimestamp(value.endedAtUtc, 'endedAtUtc', issues);
   const actualTimingStatus = value.actualTimingStatus === undefined ? undefined : enumValue(value.actualTimingStatus, ACTIVATION_TIMING_STATUSES, 'actualTimingStatus', issues);
   const operatingObjective = objective(value.operatingObjective, issues);
   const objectiveSelection = enumValue(value.objectiveSelection, ACTIVATION_OBJECTIVE_SELECTIONS, 'objectiveSelection', issues);
-  if (type && objectiveSelection) issues.push(...validateObjectiveSelection(type, objectiveSelection, operatingObjective));
+  const effectiveType = entityState?.entities[0]?.program ?? type ?? (value.schemaVersion === ACTIVATION_SCHEMA_VERSION ? 'General' : null);
+  if (!type && effectiveType) type = effectiveType;
+  if (effectiveType && objectiveSelection) issues.push(...validateObjectiveSelection(effectiveType, objectiveSelection, operatingObjective));
   if (status === 'planned' && (startedAtUtc || endedAtUtc)) issues.push('planned Activations cannot have actual operating timestamps.');
   if (status === 'planned' && actualTimingStatus) issues.push('planned Activations cannot have actual timing status.');
   if (status === 'active' && !startedAtUtc && !(allowHistorical && (value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION || actualTimingStatus === 'unknown_historical'))) issues.push('active Activations require startedAtUtc.');
@@ -143,12 +150,13 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   if (endedAtUtc && !startedAtUtc) issues.push('endedAtUtc requires startedAtUtc.');
   if (startedAtUtc && endedAtUtc && Date.parse(endedAtUtc) < Date.parse(startedAtUtc)) issues.push('endedAtUtc cannot precede startedAtUtc.');
   if (createdAtUtc && updatedAtUtc && Date.parse(updatedAtUtc) < Date.parse(createdAtUtc)) issues.push('updatedAtUtc cannot precede createdAtUtc.');
-  if (issues.length || !activationId || !type || !status || !createdAtUtc || !updatedAtUtc) return invalid(issues);
+  if (issues.length || !activationId || !effectiveType || !status || !createdAtUtc || !updatedAtUtc || !entityState) return invalid(issues);
   const migratedUnknown = allowHistorical && value.schemaVersion === ACTIVATION_PREVIOUS_SCHEMA_VERSION && (status === 'active' || status === 'completed') && (!startedAtUtc || !endedAtUtc);
   const unknown = migratedUnknown || actualTimingStatus === 'unknown_historical';
   if (status === 'completed' && unknown && !allowHistorical) issues.push('historical unknown timing is not valid for current input.');
   if (issues.length) return invalid(issues);
-  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), ...(objectiveSelection ? { objectiveSelection } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}), ...(loadoutSnapshot ? { loadoutSnapshot } : {}) }, issues: [] };
+  const primary = entityState.entities[0];
+  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type: primary?.program ?? type, ...(primary ? { reference: primary.reference } : reference ? { reference } : {}), entityState, ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), ...(objectiveSelection ? { objectiveSelection } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}), ...(loadoutSnapshot ? { loadoutSnapshot } : {}) }, issues: [] };
 }
 
 function location(value: unknown, issues: string[]): ActivationLocation | undefined {
