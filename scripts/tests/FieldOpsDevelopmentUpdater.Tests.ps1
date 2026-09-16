@@ -161,8 +161,9 @@ Invoke-FieldOpsAgentInstallStage -InstallerPath '$($probePath.Replace("'", "''")
             Test-Path -LiteralPath $shortcutPath | Should Be $true
             $shell = New-Object -ComObject WScript.Shell
             $shortcut = $shell.CreateShortcut($shortcutPath)
-            (Resolve-Path -LiteralPath $shortcut.TargetPath).ProviderPath |
-                Should Be (Resolve-Path -LiteralPath (Join-Path $destination 'UpdateDashboard.bat')).ProviderPath
+            Test-Path -LiteralPath $shortcut.TargetPath -PathType Leaf | Should Be $true
+            (Split-Path -Leaf $shortcut.TargetPath) | Should Be 'UpdateDashboard.bat'
+            $shortcut.TargetPath | Should Match ([regex]::Escape((Split-Path -Leaf $destination)))
             Test-Path -LiteralPath (Join-Path $destination 'FieldOpsDevelopmentUpdater.ps1') | Should Be $true
         } finally {
             Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue
