@@ -5,6 +5,7 @@ import type { SmartDeployExecutionRequest } from '../../src/planning/smartDeploy
 import type { MissionWindowPropagationResult } from '../missionWindowPropagation';
 import type { ObservedRfSnapshot } from '../../src/propagation/observedRf';
 import { latLonGrid4 } from '../../src/propagation/observedRf';
+import type { LoadoutSnapshot } from '../../src/equipment/domain';
 
 const operatingCoordinates = { lat: 37.4, lon: -77.4 };
 const targetCoordinates = { lat: 38, lon: -78 };
@@ -44,12 +45,19 @@ function observed(status: ObservedRfSnapshot['status'] = 'live'): ObservedRfSnap
   };
 }
 
-function brief(overrides: { propagation?: MissionWindowPropagationResult; observedRf?: ObservedRfSnapshot | null } = {}) {
+function brief(overrides: { propagation?: MissionWindowPropagationResult; observedRf?: ObservedRfSnapshot | null; loadoutSnapshot?: LoadoutSnapshot } = {}) {
   const request = planning();
-  return generateSmartDeployBrief({ planningRequest: request, missionEvidence: composeMissionEvidence({ planningRequest: request, propagation: overrides.propagation ?? propagation(), observedRf: overrides.observedRf === undefined ? observed() : overrides.observedRf }) }, { now: () => new Date('2026-08-18T12:30:00.000Z'), createBriefId: () => 'brief-test-1' });
+  return generateSmartDeployBrief({ planningRequest: request, missionEvidence: composeMissionEvidence({ planningRequest: request, propagation: overrides.propagation ?? propagation(), observedRf: overrides.observedRf === undefined ? observed() : overrides.observedRf }), loadoutSnapshot: overrides.loadoutSnapshot }, { now: () => new Date('2026-08-18T12:30:00.000Z'), createBriefId: () => 'brief-test-1' });
 }
 
 describe('SmartDeploy operations brief', () => {
+  it('retains the exact operator-selected loadout snapshot', () => {
+    const loadoutSnapshot = {
+      schemaVersion: 1, loadoutId: 'loadout-portable', loadoutName: 'Portable', capturedAtUtc: '2026-08-18T12:30:00.000Z', provenance: 'operator_committed',
+      items: [{ item: { equipmentId: 'radio-1', role: 'primary radio', quantity: 1 }, equipment: { schemaVersion: 1, equipmentId: 'radio-1', kind: 'radio', label: 'IC-705', facts: [], limitations: [], state: 'active', createdAtUtc: '2026-08-01T00:00:00.000Z', updatedAtUtc: '2026-08-01T00:00:00.000Z' } }], limitations: [],
+    } satisfies LoadoutSnapshot;
+    expect(brief({ loadoutSnapshot }).loadoutSnapshot).toEqual(loadoutSnapshot);
+  });
   it('creates a versioned deterministic identity and snapshots the normalized mission', () => {
     const result = brief();
     expect(result).toMatchObject({ schemaVersion: 2, briefId: 'brief-test-1', generatedAtUtc: '2026-08-18T12:30:00.000Z', status: 'complete' });

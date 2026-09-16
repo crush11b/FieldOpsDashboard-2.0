@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeLoadoutSnapshot, type LoadoutSnapshot } from '../src/equipment/domain';
 
 export const ACTIVATION_SCHEMA_VERSION = 2 as const;
 export const ACTIVATION_PREVIOUS_SCHEMA_VERSION = 1 as const;
@@ -53,8 +54,9 @@ export interface Activation {
   readonly updatedAtUtc: string;
   readonly briefId?: string;
   readonly notesCollectionId?: string;
+  readonly loadoutSnapshot?: LoadoutSnapshot;
 }
-export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly objectiveSelection?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; }
+export interface CreateActivationInput { readonly type: string; readonly reference?: unknown; readonly title?: unknown; readonly plannedLocation?: unknown; readonly missionWindow?: unknown; readonly status?: unknown; readonly startedAtUtc?: unknown; readonly endedAtUtc?: unknown; readonly operatingObjective?: unknown; readonly objectiveSelection?: unknown; readonly briefId?: unknown; readonly notesCollectionId?: unknown; readonly loadoutSnapshot?: unknown; }
 
 export function canonicalProgramObjective(type: ActivationType): ActivationOperatingObjective | undefined {
   if (type === 'POTA') return { goal: 'secure_activation', label: 'Qualify POTA', requiredQsoCount: 10, thresholdProvenance: 'program_default' };
@@ -77,7 +79,7 @@ export function validateObjectiveSelection(type: ActivationType, selection: Acti
 export function createActivation(input: CreateActivationInput, options: { readonly now?: () => Date; readonly createId?: () => string } = {}): Activation {
   const now = utcNow(options.now);
   const status = input.status ?? 'planned';
-  const candidate = { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId: options.createId?.() ?? randomUUID(), type: input.type, reference: input.reference, title: input.title, plannedLocation: input.plannedLocation, missionWindow: input.missionWindow, status, actualTimingStatus: status === 'planned' ? undefined : 'recorded' as const, startedAtUtc: input.startedAtUtc ?? (status === 'planned' ? undefined : now), endedAtUtc: input.endedAtUtc ?? (status === 'completed' ? now : undefined), operatingObjective: input.operatingObjective, objectiveSelection: input.objectiveSelection, createdAtUtc: now, updatedAtUtc: now, briefId: input.briefId, notesCollectionId: input.notesCollectionId };
+  const candidate = { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId: options.createId?.() ?? randomUUID(), type: input.type, reference: input.reference, title: input.title, plannedLocation: input.plannedLocation, missionWindow: input.missionWindow, status, actualTimingStatus: status === 'planned' ? undefined : 'recorded' as const, startedAtUtc: input.startedAtUtc ?? (status === 'planned' ? undefined : now), endedAtUtc: input.endedAtUtc ?? (status === 'completed' ? now : undefined), operatingObjective: input.operatingObjective, objectiveSelection: input.objectiveSelection, createdAtUtc: now, updatedAtUtc: now, briefId: input.briefId, notesCollectionId: input.notesCollectionId, loadoutSnapshot: input.loadoutSnapshot };
   const normalized = normalizeActivationValue(candidate, false);
   if (!normalized.valid || !normalized.activation) throw new Error(`The activation value is invalid: ${normalized.issues.join(' ')}`);
   return normalized.activation;
@@ -113,6 +115,8 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   const activationId = id(value.activationId, 'activationId', issues);
   const briefId = optionalId(value.briefId, 'briefId', issues);
   const notesCollectionId = optionalId(value.notesCollectionId, 'notesCollectionId', issues);
+  let loadoutSnapshot: LoadoutSnapshot | undefined;
+  if (value.loadoutSnapshot !== undefined) { try { loadoutSnapshot = normalizeLoadoutSnapshot(value.loadoutSnapshot); } catch { issues.push('loadoutSnapshot is invalid.'); } }
   const type = typeof value.type === 'string' && (ACTIVATION_TYPES as readonly string[]).includes(value.type.trim()) ? value.type.trim() as ActivationType : null;
   if (!type) issues.push('type is unsupported.');
   const reference = bounded(value.reference, 'reference', ACTIVATION_MAX_REFERENCE_LENGTH, issues);
@@ -144,7 +148,7 @@ function normalizeActivationValue(value: unknown, allowHistorical: boolean): Act
   const unknown = migratedUnknown || actualTimingStatus === 'unknown_historical';
   if (status === 'completed' && unknown && !allowHistorical) issues.push('historical unknown timing is not valid for current input.');
   if (issues.length) return invalid(issues);
-  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), ...(objectiveSelection ? { objectiveSelection } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}) }, issues: [] };
+  return { valid: true, activation: { schemaVersion: ACTIVATION_SCHEMA_VERSION, activationId, type, ...(reference ? { reference } : {}), ...(title ? { title } : {}), ...(plannedLocation ? { plannedLocation } : {}), ...(missionWindow ? { missionWindow } : {}), status, ...(startedAtUtc ? { startedAtUtc } : {}), ...(endedAtUtc ? { endedAtUtc } : {}), ...(unknown ? { actualTimingStatus: 'unknown_historical' as const, actualTimingOrigin: 'schema_v1' as const } : actualTimingStatus ? { actualTimingStatus } : {}), ...(operatingObjective ? { operatingObjective } : {}), ...(objectiveSelection ? { objectiveSelection } : {}), createdAtUtc, updatedAtUtc, ...(briefId ? { briefId } : {}), ...(notesCollectionId ? { notesCollectionId } : {}), ...(loadoutSnapshot ? { loadoutSnapshot } : {}) }, issues: [] };
 }
 
 function location(value: unknown, issues: string[]): ActivationLocation | undefined {

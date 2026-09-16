@@ -186,7 +186,7 @@ async function startServer() {
   app.use(createGnssRecoveryRouter());
   app.use(createDashboardReadinessRouter({ distPath, baseUrl: `http://127.0.0.1:${PORT}` }));
   app.use(createSmartDeployRouter({
-    service: new SmartDeployService({ store: smartDeployBriefStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
+    service: new SmartDeployService({ store: smartDeployBriefStore, equipmentStore, sotaResolver, spaceWeather: spaceWeatherService, observedRf: observedRfService }),
     store: smartDeployBriefStore,
   }));
   const propagationGuidanceService = new PropagationGuidanceService(

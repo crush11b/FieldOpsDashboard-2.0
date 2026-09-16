@@ -10,6 +10,8 @@ import { SotaActivationTargetResolver, type SotaTargetResolution } from './sotaT
 import { SpaceWeatherService } from './spaceWeather';
 import { ObservedRfService } from './observedRf';
 import { generateSmartDeployBrief, type SmartDeployBrief } from './smartDeployBrief';
+import { createLoadoutSnapshot } from '../src/equipment/domain';
+import type { EquipmentStore } from './equipmentStore';
 import {
   SmartDeployBriefStore,
   type SmartDeployBriefStoreReadResult,
@@ -26,6 +28,7 @@ export interface SmartDeployGenerationRequest {
   readonly propagationObjective: unknown;
   readonly equipment: unknown;
   readonly objective?: unknown;
+  readonly loadoutId?: unknown;
 }
 
 export interface SmartDeployGenerationSuccess {
@@ -39,7 +42,7 @@ export interface SmartDeployGenerationSuccess {
 
 export interface SmartDeployGenerationFailure {
   readonly kind: 'smartdeploy_error';
-  readonly code: 'invalid_request' | 'unsupported_target_program' | 'pota_invalid' | 'pota_unknown' | 'pota_unavailable' | 'sota_invalid' | 'sota_unknown' | 'sota_unavailable' | 'generation_failed';
+  readonly code: 'invalid_request' | 'unsupported_target_program' | 'pota_invalid' | 'pota_unknown' | 'pota_unavailable' | 'sota_invalid' | 'sota_unknown' | 'sota_unavailable' | 'loadout_unavailable' | 'generation_failed';
   readonly message: string;
   readonly issues?: readonly { readonly path: string; readonly code: string; readonly message: string }[];
   readonly pota?: Pick<PotaTargetResolution, 'status' | 'reference' | 'refreshAttemptedAtUtc'>;
@@ -61,10 +64,11 @@ export interface SmartDeployServiceOptions {
   readonly spaceWeather?: SpaceWeatherService;
   readonly observedRf?: ObservedRfService;
   readonly store: SmartDeployBriefStore;
+  readonly equipmentStore?: Pick<EquipmentStore, 'loadInventory' | 'loadLoadouts'>;
   readonly now?: () => Date;
   readonly propagate?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly ssn: number }) => Promise<MissionWindowPropagationResult>;
   readonly compose?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly propagation: MissionWindowPropagationResult; readonly observedRf: ReturnType<ObservedRfService['getSnapshot']> | null }, now: () => Date) => MissionEvidence;
-  readonly generate?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly missionEvidence: MissionEvidence }, now: () => Date) => SmartDeployBrief;
+  readonly generate?: (request: { readonly planningRequest: SmartDeployExecutionRequest; readonly missionEvidence: MissionEvidence; readonly loadoutSnapshot?: ReturnType<typeof createLoadoutSnapshot> }, now: () => Date) => SmartDeployBrief;
 }
 
 export class SmartDeployService {
@@ -91,6 +95,18 @@ export class SmartDeployService {
   async generateBrief(input: unknown): Promise<SmartDeployGenerationSuccess | SmartDeployGenerationFailure> {
     if (!isRecord(input)) return invalidFailure('Request must be an object.');
     const request = input as unknown as SmartDeployGenerationRequest;
+    const loadoutId = typeof request.loadoutId === 'string' && request.loadoutId.trim() ? request.loadoutId.trim() : undefined;
+    if (request.loadoutId !== undefined && !loadoutId) return invalidFailure('Selected loadout ID is invalid.');
+    let loadoutSnapshot: ReturnType<typeof createLoadoutSnapshot> | undefined;
+    if (loadoutId) {
+      if (!this.options.equipmentStore) return { kind: 'smartdeploy_error', code: 'loadout_unavailable', message: 'Loadout records are unavailable; no plan was generated.' };
+      const inventory = this.options.equipmentStore.loadInventory();
+      const loadouts = this.options.equipmentStore.loadLoadouts();
+      const selected = loadouts.loadouts.find(item => item.loadoutId === loadoutId && item.state === 'active');
+      if ((inventory.status !== 'loaded' && inventory.status !== 'missing') || (loadouts.status !== 'loaded' && loadouts.status !== 'missing') || !selected) return { kind: 'smartdeploy_error', code: 'loadout_unavailable', message: 'The selected loadout is unavailable or no longer active; no plan was generated.' };
+      try { loadoutSnapshot = createLoadoutSnapshot(selected, inventory.equipment, this.now()); }
+      catch { return { kind: 'smartdeploy_error', code: 'loadout_unavailable', message: 'The selected loadout could not be snapshotted; no plan was generated.' }; }
+    }
     const targetRequest = normalizeActivationTargetRequest(request.targetRequest)
       ?? (request.potaReference !== undefined ? normalizeActivationTargetRequest({ program: 'POTA', reference: request.potaReference }) : null);
     if (!targetRequest) return invalidFailure('A target program and reference are required.');
@@ -150,7 +166,7 @@ export class SmartDeployService {
           ...(resolution.status === 'stale' ? [targetRequest.program === 'SOTA' ? 'SOTA summit data is stale and was used from the local dataset.' : 'POTA target data is stale and was used without a successful refresh.'] : []),
         ],
       };
-      const brief = this.generate({ planningRequest: executionRequest, missionEvidence }, this.now);
+      const brief = this.generate({ planningRequest: executionRequest, missionEvidence, ...(loadoutSnapshot ? { loadoutSnapshot } : {}) }, this.now);
       try {
         this.options.store.save(brief);
         return { kind: 'smartdeploy_generation', status: brief.status, brief, persistence: { status: 'saved' }, ...resolutionMetadata };

@@ -53,7 +53,8 @@ export function createActivationRouter(options: ActivationApiOptions): Router {
       else if (source.type !== 'General') notesCollectionId = options.notesStore.create({ briefId, activation: { program: source.type, reference: source.reference ?? '', ...(source.title ? { displayName: source.title } : {}) } }).collection.collectionId;
       const operatingObjective = request.body?.operatingObjective;
       const objectiveSelection = request.body?.objectiveSelection;
-      const created = options.store.create({ ...source, briefId, ...(notesCollectionId ? { notesCollectionId } : {}), ...(operatingObjective === undefined ? {} : { operatingObjective }), ...(objectiveSelection === undefined ? {} : { objectiveSelection }) });
+      const loadoutSnapshot = briefResult.brief.schemaVersion === 2 ? briefResult.brief.loadoutSnapshot : undefined;
+      const created = options.store.create({ ...source, briefId, ...(notesCollectionId ? { notesCollectionId } : {}), ...(loadoutSnapshot ? { loadoutSnapshot } : {}), ...(operatingObjective === undefined ? {} : { operatingObjective }), ...(objectiveSelection === undefined ? {} : { objectiveSelection }) });
       try { notifyReconciled(options, created.reconciledActivationIds); } catch { response.status(503).json(error('closure_unavailable', 'The Activation was saved, but a reconciled TX Context could not be closed.', created.diagnostics)); return; } response.status(201).json({ kind: 'activation', status: 'created', activation: created.activation, diagnostics: [...briefResult.diagnostics, ...created.diagnostics] });
     } catch (error) { options.logger?.warn('Activation creation failed.'); response.status(422).json(errorPayload('invalid_brief', error instanceof Error ? error.message : 'The SmartDeploy brief could not initialize an Activation.')); }
   });

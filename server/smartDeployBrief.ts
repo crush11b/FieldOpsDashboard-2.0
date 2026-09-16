@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import type { SmartDeployExecutionRequest } from '../src/planning/smartDeployPlanning';
 import { getPropagationRegion } from '../src/propagation/regionalDestinations';
 import type { MissionEvidence } from './missionEvidence';
+import type { LoadoutSnapshot } from '../src/equipment/domain';
 
 export const SMART_DEPLOY_BRIEF_SCHEMA_VERSION = 2 as const;
 export const SMART_DEPLOY_BRIEF_V1_SCHEMA_VERSION = 1 as const;
@@ -98,6 +99,7 @@ export interface SmartDeployBriefV2 {
   readonly propagationObjective: SmartDeployBriefV2PropagationObjective;
   readonly missionWindow: SmartDeployBriefV2MissionWindow;
   readonly station: SmartDeployBriefV2Station;
+  readonly loadoutSnapshot?: LoadoutSnapshot;
   readonly objective?: string;
   readonly sections: SmartDeployBriefV2Sections;
   readonly limitations: readonly SmartDeployBriefLimitation[];
@@ -109,6 +111,7 @@ export type SmartDeployBrief = SmartDeployBriefV1 | SmartDeployBriefV2;
 export interface GenerateSmartDeployBriefRequest {
   readonly planningRequest: SmartDeployExecutionRequest;
   readonly missionEvidence: MissionEvidence;
+  readonly loadoutSnapshot?: LoadoutSnapshot;
 }
 
 export interface GenerateSmartDeployBriefOptions {
@@ -162,6 +165,7 @@ export function generateSmartDeployBrief(
     propagationObjective,
     missionWindow,
     station,
+    ...(request.loadoutSnapshot ? { loadoutSnapshot: request.loadoutSnapshot } : {}),
     ...(planning.objective !== undefined ? { objective: planning.objective } : {}),
     sections,
     limitations,

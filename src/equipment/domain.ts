@@ -56,6 +56,19 @@ export function createLoadoutSnapshot(loadout: LoadoutRecord, equipment: readonl
   return freeze({ schemaVersion: 1, loadoutId: loadout.loadoutId, loadoutName: loadout.name, capturedAtUtc: timestamp(now.toISOString(), 'capturedAtUtc'), provenance: 'operator_committed', items, limitations: loadout.limitations });
 }
 
+export function normalizeLoadoutSnapshot(input: unknown): LoadoutSnapshot {
+  const value = record(input, 'Loadout snapshot');
+  if (value.schemaVersion !== 1 || value.provenance !== 'operator_committed') throw new Error('Loadout snapshot schema is unsupported.');
+  const rawItems = array(value.items, 'Loadout snapshot items');
+  const equipment = rawItems.map(raw => normalizeEquipment(record(raw, 'Loadout snapshot item').equipment));
+  const items = rawItems.map(raw => {
+    const itemValue = record(raw, 'Loadout snapshot item');
+    return freeze({ item: normalizeLoadoutItem(itemValue.item), equipment: normalizeEquipment(itemValue.equipment) });
+  });
+  const loadout = normalizeLoadout({ schemaVersion: 1, loadoutId: value.loadoutId, name: value.loadoutName, items: items.map(entry => entry.item), limitations: value.limitations, state: 'active', createdAtUtc: value.capturedAtUtc, updatedAtUtc: value.capturedAtUtc }, equipment, { allowDeletedReferences: true });
+  return freeze({ schemaVersion: 1, loadoutId: loadout.loadoutId, loadoutName: loadout.name, capturedAtUtc: timestamp(value.capturedAtUtc, 'capturedAtUtc'), provenance: 'operator_committed', items, limitations: loadout.limitations });
+}
+
 function normalizeFact(input: unknown): EquipmentFact { const value = record(input, 'Equipment fact'); const key = typeof value.key === 'string' ? value.key.trim().toLowerCase() : ''; if (!FACT_KEY.test(key)) throw new Error('Equipment fact key is invalid.'); if (!['string', 'number', 'boolean'].includes(typeof value.value) || (typeof value.value === 'number' && !Number.isFinite(value.value)) || (typeof value.value === 'string' && (!value.value.trim() || value.value.length > 500))) throw new Error(`Equipment fact ${key} has an invalid value.`); if (!FACT_SOURCES.has(value.source as FactSource)) throw new Error(`Equipment fact ${key} has an invalid source.`); return freeze({ key, value: typeof value.value === 'string' ? value.value.trim() : value.value as number | boolean, ...optionalTextFields(value, ['unit'], 40), source: value.source as FactSource, ...optionalTextFields(value, ['notes'], 500) }); }
 function normalizeLoadoutItem(input: unknown): LoadoutItem { const value = record(input, 'Loadout item'); const quantity = value.quantity; if (!Number.isInteger(quantity) || (quantity as number) < 1 || (quantity as number) > 99) throw new Error('Loadout item quantity must be an integer from 1 to 99.'); const configuration = value.configuration === undefined ? undefined : configurationRecord(value.configuration); return freeze({ equipmentId: stableId(value.equipmentId, 'equipmentId'), role: text(value.role, 'role', 120), quantity: quantity as number, ...(configuration ? { configuration } : {}), ...optionalTextFields(value, ['notes'], 500) }); }
 function configurationRecord(input: unknown): Readonly<Record<string, FactValue>> { const value = record(input, 'Loadout configuration'); const output: Record<string, FactValue> = {}; for (const [key, item] of Object.entries(value).sort(([a], [b]) => a.localeCompare(b))) { if (!FACT_KEY.test(key) || !['string', 'number', 'boolean'].includes(typeof item) || (typeof item === 'number' && !Number.isFinite(item))) throw new Error('Loadout configuration is invalid.'); output[key] = typeof item === 'string' ? text(item, key, 500) : item as number | boolean; } return freeze(output); }

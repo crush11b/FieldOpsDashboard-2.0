@@ -421,6 +421,8 @@ Implement entity management, active entity sets, QSO association editing, WSJT-X
 
 Implement versioned inventory, delete/restore, reusable loadouts, Activation/brief association, and immutable retained snapshots.
 
+Implementation disposition: the inventory and reusable-loadout stores are operator-managed and local. SmartDeploy may optionally select one active loadout; the Express backend resolves it and freezes the loadout plus referenced equipment facts into the retained brief. An Activation opened from that brief receives the same immutable snapshot. Historical briefs and Activations without a loadout remain valid, and unavailable or deleted loadouts block snapshot creation rather than producing invented evidence.
+
 ### V3.0-08 — Workflow context consolidation
 
 Carry one authoritative mission/operation context through PLAN, PREPARE, OPERATE, and REVIEW; remove duplicate primary data entry without creating a universal framework.
