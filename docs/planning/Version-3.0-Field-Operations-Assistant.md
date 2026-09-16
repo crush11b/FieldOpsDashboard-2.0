@@ -441,6 +441,8 @@ Resource-aware guidance disposition: PLAN evaluates the immutable loadout snapsh
 
 Complete the decision matrix. Implement only separately approved concrete capabilities.
 
+Decision disposition: [`Version-3.0-Integration-Decision-Closure.md`](Version-3.0-Integration-Decision-Closure.md) closes every candidate as shipped foundation, research candidate, deferred, bounded-current-only, or excluded. V3.0 does not add a SmartFrequency recommendation engine, Local/NVIS evaluator, true path prediction, direct APRS/Direwolf/Meshtastic/Winlink/DigiPi/WSPR integration, external log synchronization, contest scoring, or award tracking. Existing launchers remain launchers. Bounded current diagnostics remain; generalized history/export and equipment-data enrichment are deferred. Reopening any item requires a new bounded proposal and explicit approval.
+
 ### V3.0-11 — Workflow and punch-list closure
 
 Review the complete workflow, remove internal terminology from primary UI, confirm authoritative data homes, finish documentation, and disposition all unresolved items.
