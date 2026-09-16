@@ -4,7 +4,8 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { createQso, normalizeQso, qsoFingerprint } from '../qso';
 import { QsoStore } from '../qsoStore';
-import { exportQsos, parseAdif } from '../qsoAdif';
+import { createEntityAdifExports, exportQsos, parseAdif } from '../qsoAdif';
+import { createActivation } from '../activation';
 
 const dirs: string[] = [];
 const now = () => new Date('2026-08-25T12:00:00.000Z');
@@ -23,5 +24,6 @@ describe('ADIF QSO interoperability', () => {
   const adif = '<ADIF_VER:5>3.1.0<EOH>\n<QSO_DATE:8>20260825<TIME_ON:6>120000<CALL:5>W1AW <BAND:3>20M<FREQ:6>14.074<MODE:3>FT8<SUBMODE:3>FT8<RST_SENT:3>-10<RST_RCVD:3>-12<GRIDSQUARE:6>FN31pr<EOR>\n<QSO_DATE:8>20260825<TIME_ON:6>120100<CALL:5>K1ABC<BAND:3>20M<MODE:3>SSB<EOR>';
   it('parses multiple Ham2K or WSJT-X style records and optional fields', () => { const parsed = parseAdif(adif); expect(parsed.recordsFound).toBe(2); expect(parsed.records).toHaveLength(2); expect(parsed.records[0]).toMatchObject({ callsign: 'W1AW', mode: 'FT8', submode: 'FT8', gridSquare: 'FN31pr' }); });
   it('reports malformed records while retaining usable records', () => { const parsed = parseAdif(`${adif}<QSO_DATE:8>bad<CALL:3>BAD<EOR>`); expect(parsed.records).toHaveLength(2); expect(parsed.errors.length).toBeGreaterThan(0); });
-  it('exports standards-shaped UTC records and Activation metadata', () => { const qso = createQso({ ...input, potaRef: undefined }, { now, createId: () => 'qso-1' }); const output = exportQsos([qso], { type: 'POTA', reference: 'US-0182', myGridSquare: 'FM17gj' }); expect(output).toContain('<QSO_DATE:8>20260825'); expect(output).toContain('<TIME_ON:6>115900'); expect(output).toContain('<CALL:4>W1AW'); expect(output).toContain('<MODE:3>FT8'); expect(output).toContain('<POTA_REF:7>US-0182'); expect(qsoFingerprint(qso)).toContain('W1AW'); });
+  it('exports standards-shaped UTC records and Activation metadata', () => { const qso = createQso({ ...input, potaRef: undefined }, { now, createId: () => 'qso-1' }); const output = exportQsos([qso], { type: 'POTA', reference: 'US-0182', myGridSquare: 'FM17gj' }); expect(output).toContain('<QSO_DATE:8>20260825'); expect(output).toContain('<TIME_ON:6>115900'); expect(output).toContain('<CALL:4>W1AW'); expect(output).toContain('<MODE:3>FT8'); expect(output).toContain('<MY_SIG_INFO:7>US-0182'); expect(qsoFingerprint(qso)).toContain('W1AW'); });
+  it('creates one entity-specific file per associated POTA or SOTA reference', () => { const activation = createActivation({ type: 'POTA', reference: 'US-9935', status: 'active' }, { now, createId: () => 'activation-1' }); const qso = createQso({ ...input, entityAssociations: { schemaVersion: 1, entities: [{ program: 'POTA', reference: 'US-9935', source: 'active_operation' }, { program: 'POTA', reference: 'US-0182', source: 'active_operation' }, { program: 'SOTA', reference: 'W4V/SH-001', source: 'active_operation' }] } }, { now, createId: () => 'qso-1' }); const files = createEntityAdifExports([qso], activation); expect(files.map(file => file.filename)).toEqual(['US-0182 08252026.adif', 'US-9935 08252026.adif', 'W4V-SH-001 08252026.adif']); expect(files[0].content).toContain('<MY_SIG:4>POTA'); expect(files[0].content).toContain('<MY_SIG_INFO:7>US-0182'); expect(files[0].content).not.toContain('US-9935'); expect(files[2].content).toContain('<MY_SOTA_REF:10>W4V/SH-001'); expect(files[2].content).not.toContain('<MY_SIG:'); expect(files.every(file => file.qsoCount === 1)).toBe(true); });
 });

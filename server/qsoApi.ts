@@ -1,7 +1,7 @@
 import express, { type Router } from 'express';
 import type { ActivationStore } from './activationStore';
 import { qsoFingerprint, updateQso, isValidQsoId, type CreateQsoInput } from './qso';
-import { exportQsos, parseAdif } from './qsoAdif';
+import { createEntityAdifExports, exportQsos, parseAdif } from './qsoAdif';
 import type { QsoStore } from './qsoStore';
 import { activeAssociations, normalizeAssociations } from './operationEntities';
 
@@ -33,6 +33,13 @@ export function createQsoRouter(options: QsoApiOptions): Router {
     const parsed = parseAdif(content); const existing = options.store.listByActivation(request.params.activationId).qsos; const byFingerprint = new Map(existing.map(qso => [qsoFingerprint(qso), qso])); let imported = 0; let duplicates = 0; const errors = [...parsed.errors];
     for (const input of parsed.records) { try { const importedAssociations = normalizeAssociations(undefined, { potaRef: input.potaRef, sotaRef: input.sotaRef }); const associations = importedAssociations.entities.length ? { schemaVersion: 1 as const, entities: importedAssociations.entities.map(item => ({ ...item, source: 'adif_import' as const })) } : activation.activation.entityState ? activeAssociations(activation.activation.entityState, 'adif_import') : importedAssociations; const candidate = { ...input, activationId: request.params.activationId, entityAssociations: associations }; const diagnostic = options.store.create(candidate); const fingerprint = qsoFingerprint(diagnostic.qso); const duplicate = byFingerprint.get(fingerprint); if (duplicate) { options.store.delete(diagnostic.qso.qsoId); const merged = normalizeAssociations({ schemaVersion: 1, entities: [...duplicate.entityAssociations.entities, ...diagnostic.qso.entityAssociations.entities] }); if (JSON.stringify(merged) !== JSON.stringify(duplicate.entityAssociations)) options.store.save({ ...duplicate, entityAssociations: merged, updatedAtUtc: (options.now ?? (() => new Date()))().toISOString() }); duplicates++; } else { byFingerprint.set(fingerprint, diagnostic.qso); imported++; } } catch (cause) { errors.push(cause instanceof Error ? cause.message : 'A record could not be imported.'); } }
     return response.json({ kind: 'qso_import', recordsFound: parsed.recordsFound, imported, skipped: parsed.recordsFound - imported - duplicates, duplicates, errors });
+  });
+  router.get('/api/activations/:activationId/qsos/export/files', (request, response) => {
+    const activation = options.activationStore.get(request.params.activationId); if (activation.status === 'notFound') return response.status(404).json(error('not_found', 'The Activation was not found.'));
+    const result = options.store.listByActivation(request.params.activationId); if (io(result.diagnostics)) return response.status(503).json(error('persistence_unavailable', 'QSOs are temporarily unavailable.', result.diagnostics));
+    if (!result.qsos.length) return response.status(409).json(error('empty_log', 'There are no QSOs to export.'));
+    const files = createEntityAdifExports(result.qsos, activation.activation);
+    return response.json({ kind: 'qso_export_files', files });
   });
   router.get('/api/activations/:activationId/qsos/export', (request, response) => {
     const activationResult = options.activationStore.get(request.params.activationId); if (activationResult.status === 'notFound') return response.status(404).json(error('not_found', 'The Activation was not found.'));

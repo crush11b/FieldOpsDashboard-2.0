@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Activation } from '../../server/activation';
 import type { Qso } from '../../server/qso';
-import { createQso, deleteQso, importAdif, listQsos, updateQso } from '../qsoApi';
+import { createQso, deleteQso, getAdifExportFiles, importAdif, listQsos, updateQso } from '../qsoApi';
 import { AMATEUR_BAND_OPTIONS, getConventionalFrequencyMHz, OPERATING_MODE_OPTIONS } from '../qsoOperatingVocabulary';
 import { createManualCurrentStationState, type CurrentStationState } from '../currentStationState';
 import { aggregateQsoEvidence, type QsoEvidence } from '../../server/qsoEvidence';
@@ -40,6 +40,7 @@ const QsoLoggerCore: React.FC<Props> = ({ activation, initialStationState = null
     const orderedFields = ['CALLSIGN', 'RST SENT', 'RST RECEIVED'];
     orderedFields.forEach((label, index) => { const field = formElement.querySelector<HTMLElement>(`[aria-label="${label}"]`); if (field) field.tabIndex = index + 1; });
   }, []);
+  useEffect(() => { const link = document.querySelector<HTMLAnchorElement>(`a[href="/api/activations/${encodeURIComponent(activation.activationId)}/qsos/export"]`); if (!link) return; const exportFiles = async (event: Event) => { event.preventDefault(); setBusy(true); setMessage(null); try { const result = await getAdifExportFiles(activation.activationId); if (result.kind === 'qso_error') { setMessage(result.message); return; } for (const file of result.files) { const url = URL.createObjectURL(new Blob([file.content], { type: 'text/plain;charset=utf-8' })); const download = document.createElement('a'); download.href = url; download.download = file.filename; document.body.appendChild(download); download.click(); download.remove(); URL.revokeObjectURL(url); } setMessage(`Exported ${result.files.length} ADIF file${result.files.length === 1 ? '' : 's'}. Your browser may ask permission for multiple downloads.`); } catch { setMessage('ADIF export failed.'); } finally { setBusy(false); } }; link.addEventListener('click', exportFiles); return () => link.removeEventListener('click', exportFiles); }, [activation.activationId]);
   const markFormEdited = () => { formTouched.current = true; };
   useEffect(() => { if (form.callsign || form.rstSent || form.rstReceived) formTouched.current = true; }, [form.callsign, form.rstReceived, form.rstSent]);
   useEffect(() => { onOperatingContextChange?.(createManualCurrentStationState(form)); }, [form.band, form.frequencyMHz, form.mode, onOperatingContextChange]);
