@@ -1,7 +1,8 @@
 # Version 3.0-11 Workflow and Punch-List Audit
 
-- Status: **OPEN — committed production gap identified**
-- Audit baseline: `e7bed0be2e30812e74b5c53f5a65586dad0397da`
+- Status: **CLOSED — committed workflow scope implemented and field accepted**
+- Initial audit baseline: `e7bed0be2e30812e74b5c53f5a65586dad0397da`
+- Closure baseline: `5edf5e73fe0e9e7ed77056c25426b4444918b583`
 - Scope: PLAN → PREPARE → OPERATE → REVIEW, authoritative data homes, primary terminology, committed V3.0 requirements, and remaining release gates
 - Release effect: this record does not authorize merge, deployment, version change, tag, or publication
 
@@ -9,9 +10,9 @@
 
 The unified workflow is coherent and has one shared context strip across PLAN, PREPARE, OPERATE, and REVIEW. Planned facts, lifecycle facts, canonical QSOs, evidence, notes, checklist state, inventory, and historical loadout snapshots have identifiable owners. The audit found and corrects a small set of primary-UI terminology leaks.
 
-The audit also found one material committed V3.0 gap: **multi-entity POTA/SOTA operation and QSO association is not connected to the production runtime**. `server/v3DomainMigration.ts` and its tests define a V3 migration representation, but the production `Activation` and `Qso` types/stores remain schema v2/v1 with singular `type/reference`, `potaRef`, and `sotaRef` fields. The migration function is referenced only by its tests. There is no production editor for multiple active entities, no canonical QSO association editing, no WSJT-X inheritance of an active entity set, and no multi-reference import/export implementation.
+The initial audit found one material committed V3.0 gap: multi-entity POTA/SOTA operation and QSO association had not been connected to the production runtime. V3.0-11B and V3.0-11C closed that gap. Production Activation and QSO persistence now performs compatibility reads and writes current entity/association schemas; the operator can add POTA and SOTA entities, choose the active set, and edit retained QSO associations without changing canonical QSO identity or totals. Manual and WSJT-X creation snapshot the active set. Duplicate ADIF import merges association evidence rather than adding another canonical QSO.
 
-This is a release blocker because it is committed V3.0 scope. It cannot be closed as documentation-only work or silently deferred.
+Entity export is intentionally an artifact projection rather than a persistence duplication. FieldOps produces one `.adif` file per associated activating entity. POTA artifacts identify the applicable park with `MY_SIG`, `MY_SIG_INFO`, and `MY_POTA_REF`; SOTA artifacts use `MY_SOTA_REF`. The same canonical QSO may therefore appear in multiple program artifacts while remaining one stored QSO and one result in FieldOps.
 
 ## 2. Authoritative data homes
 
@@ -21,8 +22,8 @@ This is a release blocker because it is committed V3.0 scope. It cannot be close
 | Current inventory and reusable loadout definitions | Equipment inventory/loadout stores | PLAN selection and Equipment workspace | **Pass** — operator-managed current facts. |
 | Historical mission loadout | Immutable loadout snapshot in brief and Activation | PLAN through REVIEW | **Pass** — later inventory edits do not rewrite history. |
 | Activation status, actual start/end, objective and deadline | Activation store | PREPARE, OPERATE, REVIEW | **Pass** — lifecycle authority remains the Activation. |
-| Canonical QSO contact | QSO store | OPERATE logger and REVIEW totals | **Pass for single-reference model** — one QSO is not duplicated by presentation totals. |
-| POTA/SOTA entity set and QSO/entity associations | Intended V3 Activation/QSO records | PLAN, OPERATE, REVIEW, import/export | **BLOCKED/OPEN** — contracts exist but production paths remain singular. |
+| Canonical QSO contact | QSO store | OPERATE logger and REVIEW totals | **Pass** — entity associations and export projections do not duplicate canonical contacts or inflate totals. |
+| POTA/SOTA entity set and QSO/entity associations | V3 Activation/QSO records | PLAN, OPERATE, REVIEW, import/export | **Pass** — production persistence, active-set inheritance, editing, duplicate-safe import, and per-entity export are implemented. |
 | Operator notes | Activation Notes collection | OPERATE and REVIEW | **Pass**. |
 | Field checklist | Checklist persistence keyed to brief/Activation workflow | PREPARE and retained operation | **Pass**. |
 | Mission forecast and space weather | Retained evidence stores keyed by brief | PLAN and REVIEW | **Pass** — live refresh does not erase prior retained evidence on failure. |
@@ -35,10 +36,10 @@ This is a release blocker because it is committed V3.0 scope. It cannot be close
 
 | Phase | Primary operator purpose | Result |
 | --- | --- | --- |
-| PLAN | Confirm site/window/station/loadout, retained forecast/space weather, duration-aware propagation, and resource-aware guidance. | **Pass**, subject to the multi-entity blocker. |
+| PLAN | Confirm site/window/station/loadout, retained forecast/space weather, duration-aware propagation, and resource-aware guidance. | **Pass**. |
 | PREPARE | Confirm readiness, objective/deadline, checklist, offline evidence, live planned-site conditions, location/clock, and start decision. | **Pass**. Raw brief identity is removed from the primary header and remains in evidence details. |
-| OPERATE | Maintain the active lifecycle, TX context, QSO log, station-specific evidence, and notes without radio control. | **Pass for single-reference operations; blocked for multi-entity inheritance/editing.** |
-| REVIEW | Read the completed operation, retained plan/evidence, actual results, notes, and retrospective comparisons without live-provider mutation. | **Pass for existing records; blocked for multi-entity association review/export.** |
+| OPERATE | Maintain the active lifecycle, TX context, QSO log, station-specific evidence, and notes without radio control. | **Pass** — active entity selection, inherited associations, and QSO association editing are available without radio control. |
+| REVIEW | Read the completed operation, retained plan/evidence, actual results, notes, and retrospective comparisons without live-provider mutation. | **Pass** — retained associations remain attached to canonical QSOs and export as entity-specific artifacts. |
 
 ## 4. Primary terminology corrections
 
@@ -62,7 +63,7 @@ Technical identifiers, provenance, schema, source states, and diagnostics remain
 | Agent-owned Wi-Fi SSID and header fallbacks | **Implemented and field accepted** |
 | Semantic day/night visual system | **Implemented**; optional red-light mode deferred; operator-requested blue/green direction preserved instead of the rejected brown palette |
 | Standalone offline Maidenhead calculator | **Implemented and field accepted**; distance/bearing remains in the existing separate location tool by accepted operator choice rather than duplicating it in the Maidenhead tab |
-| Multiple POTA/SOTA entities and canonical multi-association logging | **BLOCKED/OPEN — production implementation required** |
+| Multiple POTA/SOTA entities and canonical multi-association logging | **Implemented and field accepted** at `5edf5e73fe0e9e7ed77056c25426b4444918b583`; two POTA plus one SOTA produced three entity-specific ADIF files while retaining one canonical QSO set |
 | Persistent inventory, reusable loadouts, snapshots, mission association | **Implemented and field accepted** |
 | Unified workflow context | **Implemented and field accepted** |
 | Duration-aware propagation | **Implemented and field accepted** |
@@ -71,9 +72,9 @@ Technical identifiers, provenance, schema, source states, and diagnostics remain
 
 ## 6. Remaining items by terminal state
 
-### Open release blocker
+### Closed committed blocker
 
-1. Complete the production multi-entity Activation/QSO model, migration wiring, active entity editor, manual and WSJT-X inheritance, association editing, deduplicated totals, and researched ADIF/program-specific import/export behavior.
+1. Production multi-entity Activation/QSO persistence, active-set editing, manual and WSJT-X inheritance, association editing, duplicate-safe import, and entity-specific export are complete. Focused V3.0-11C validation passed 32/32 tests, and the CF-20 update verified exact source/native parity and a running Dashboard before the operator accepted the two-POTA/one-SOTA export workflow.
 
 ### Release-gated, not defects
 
@@ -87,6 +88,6 @@ Technical identifiers, provenance, schema, source states, and diagnostics remain
 
 The terminal decisions in `docs/planning/Version-3.0-Integration-Decision-Closure.md` govern SmartFrequency recommendations, Local/NVIS, true path prediction, APRS, Direwolf, Meshtastic, Winlink, DigiPi, WSPR, external log synchronization, contest scoring, award tracking, broad diagnostic history/export, and external equipment enrichment. CAT/PTT/tuning/transmit control, automatic spotting/submission, arbitrary installation/shell access, cloud/fleet/enterprise scope, and broad privileged APIs remain excluded without separate approval.
 
-## 7. Required next slice
+## 7. Closure and next slice
 
-V3.0-11 cannot be marked closed yet. The next bounded implementation slice is **V3.0-11B — Production Multi-Entity Operations and Logging**. After its focused automated validation and CF-20 field acceptance, this audit must be updated to a final closure record. Only then may V3.0-12 integration and release closure begin.
+V3.0-11 is closed. No committed workflow feature remains open from this audit. V3.0-12 may begin the full integration, real-data migration, rollback, CF-20 acceptance, version reconciliation, and release-closure process. This closure does not claim those gates have passed and does not authorize version change, merge, final deployment, reboot, tag, native publication, or stable release.

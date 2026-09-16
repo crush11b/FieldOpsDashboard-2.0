@@ -447,7 +447,7 @@ Decision disposition: [`Version-3.0-Integration-Decision-Closure.md`](Version-3.
 
 Review the complete workflow, remove internal terminology from primary UI, confirm authoritative data homes, finish documentation, and disposition all unresolved items.
 
-Audit status: [`Version-3.0-11-Workflow-Punch-List-Audit.md`](../validation/Version-3.0-11-Workflow-Punch-List-Audit.md) confirms the shared workflow and authoritative data homes but identifies the production multi-entity Activation/QSO path as an open committed-scope blocker. The V3 domain migration contract is not wired into the production stores or UI. V3.0-11 remains open pending a bounded multi-entity implementation and field acceptance; it must not be paper-closed or silently deferred.
+Closure status: [`Version-3.0-11-Workflow-Punch-List-Audit.md`](../validation/Version-3.0-11-Workflow-Punch-List-Audit.md) confirms the shared workflow and authoritative data homes and records closure of the production multi-entity blocker. V3.0-11B connected entity/association schemas, active-set editing, manual and WSJT-X inheritance, association editing, migration compatibility, and duplicate-safe import. V3.0-11C added one entity-specific ADIF artifact per associated POTA or SOTA entity without duplicating canonical QSOs or totals. The CF-20 verified exact source/native parity and the operator accepted a two-POTA/one-SOTA export producing three files. V3.0-11 is closed; V3.0-12 release gates remain open.
 
 ### V3.0-12 — Integration, CF-20 acceptance, and release closure
 

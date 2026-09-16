@@ -27,7 +27,7 @@ The historical roadmap and engineering backlogs remain inputs only after reconci
 
 The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-List-Closure.md`](validation/Version-2.9-08-Punch-List-Closure.md). It records evidence and final dispositions for every inventoried punch-list item while preserving the historical V2.8 boundary.
 
-The V3.0 workflow audit is [`validation/Version-3.0-11-Workflow-Punch-List-Audit.md`](validation/Version-3.0-11-Workflow-Punch-List-Audit.md). It records authoritative data homes, primary terminology corrections, completed/deferred/release-gated work, and the open production multi-entity blocker that must close before V3.0 integration/release.
+The closed V3.0 workflow audit is [`validation/Version-3.0-11-Workflow-Punch-List-Audit.md`](validation/Version-3.0-11-Workflow-Punch-List-Audit.md). It records authoritative data homes, primary terminology corrections, completed/deferred/release-gated work, and field acceptance of production multi-entity logging and per-entity ADIF export. V3.0-12 integration and release gates remain open.
 
 The authoritative V2.9-09 automated-integration evidence is [`validation/Version-2.9-09-Automated-Integration-Gate.md`](validation/Version-2.9-09-Automated-Integration-Gate.md). It records the passed automated gate and completed V2.9-09 evidence boundary.
 
