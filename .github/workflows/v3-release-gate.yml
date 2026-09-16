@@ -40,14 +40,19 @@ jobs:
       - name: Vitest shard 1 of 4
         run: npx --no-install vitest run --shard=1/4 --maxWorkers=1
       - name: Vitest shard 2 of 4
+        if: always()
         run: npx --no-install vitest run --shard=2/4 --maxWorkers=1
       - name: Vitest shard 3 of 4
+        if: always()
         run: npx --no-install vitest run --shard=3/4 --maxWorkers=1
       - name: Vitest shard 4 of 4
+        if: always()
         run: npx --no-install vitest run --shard=4/4 --maxWorkers=1
       - name: Test Agent solution
+        if: always()
         run: dotnet test agent/FieldOps.Agent.sln --configuration Release
       - name: Test PowerShell scripts with Pester 3.4
+        if: always()
         shell: powershell
         run: |
           Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
@@ -62,6 +67,7 @@ jobs:
             throw "Pester reported $($result.FailedCount) failed tests."
           }
       - name: Check whitespace
+        if: always()
         shell: pwsh
         run: git diff --check
       - name: Upload test report
