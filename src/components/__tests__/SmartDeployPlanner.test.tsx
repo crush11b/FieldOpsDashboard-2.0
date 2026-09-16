@@ -557,6 +557,30 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getAllByText(/provider Open-Meteo/).length).toBeGreaterThan(0);
   });
 
+  it('presents intervening P.533 samples and bounds transition claims to sampled endpoints', async () => {
+    const times = ['12:00', '14:00', '16:00', '18:00', '20:00'];
+    const bands = ['40m', '40m', '20m', '20m', '40m'];
+    const propagation = {
+      ...v2Brief.sections.propagation.evidence,
+      generatedAtUtc: '2026-08-18T11:00:00.000Z',
+      samples: times.map((time, index) => ({ position: index === 0 ? 'start' : index === 2 ? 'midpoint' : index === 4 ? 'end' : 'intermediate', modelDateTimeUtc: `2026-08-18T${time}:00.000Z`, status: 'complete', stationProfile: { mode: 'SSB' }, bands: [] })),
+      summary: {
+        successfulSampleCount: 5, failedSampleCount: 0, consistentStrongestBand: null, limitations: [],
+        strongestBandBySample: times.map((time, index) => ({ position: index === 0 ? 'start' : index === 2 ? 'midpoint' : index === 4 ? 'end' : 'intermediate', modelDateTimeUtc: `2026-08-18T${time}:00.000Z`, band: bands[index] })),
+        transitions: times.slice(1).map((time, index) => ({ fromUtc: `2026-08-18T${times[index]}:00.000Z`, toUtc: `2026-08-18T${time}:00.000Z`, fromBand: bands[index], toBand: bands[index + 1], status: bands[index] === bands[index + 1] ? 'stable' : 'changed' })),
+        sampling: { strategy: 'adaptive_interval', targetIntervalHours: 2, sampleCount: 5, largestGapMinutes: 120, continuous: false },
+      },
+    };
+    const durationBrief = { ...v2Brief, sections: { ...v2Brief.sections, propagation: { status: 'complete', evidence: propagation } } } as unknown as SmartDeployBriefV2;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input) === '/api/activations' ? { ok: true, json: async () => ({ activations: [] }) } : { ok: true, json: async () => ({ record: null }) }));
+    render(<SmartDeployBriefView brief={durationBrief} />);
+    expect(screen.getByText(/5 discrete samples · largest gap 2 hr/)).toBeTruthy();
+    expect(screen.getAllByText(/INTERVENING SAMPLE/)).toHaveLength(2);
+    const transitions = screen.getByLabelText('Modeled band transitions');
+    expect(transitions).toHaveTextContent('strongest modeled band changes from 40m to 20m');
+    expect(screen.getByText(/not the exact transition time/)).toBeTruthy();
+  });
+
   it('keeps retained evidence visible and marks an explicit failed refresh distinctly', async () => {
     const forecast = { schemaVersion: 2, briefId: v2Brief.briefId, provider: { name: 'Open-Meteo' }, retrievedAtUtc: '2026-08-18T11:00:00.000Z', updatedAtUtc: '2026-08-18T11:00:00.000Z', missionWindow: v2Brief.missionWindow, freshness: 'retained', coverageStatus: 'complete', presentation: { mode: 'hourly' }, periods: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', condition: 'Clear Sky', temperatureF: 70, precipitationProbability: 0, windSpeedMph: 2, windDirection: 'N', windGustMph: 4 }], hourly: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', condition: 'Clear Sky', temperatureF: 70, precipitationProbability: 0, windSpeedMph: 2, windDirection: 'N', windGustMph: 4 }] };
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => { if (String(input).includes('/mission-forecast/brief/') && init?.method === 'POST') return { ok: false, json: async () => ({ message: 'Provider unavailable.' }) }; if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) }; if (String(input).includes('/space-weather/brief/')) return { ok: true, json: async () => ({ record: null }) }; return { ok: true, json: async () => ({ activations: [] }) }; }));

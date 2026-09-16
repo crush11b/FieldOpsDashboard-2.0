@@ -30,6 +30,19 @@ describe('mission-window propagation adapter', () => {
     expect(missionSampleTimes({ start: '2026-08-18T00:00:00Z', end: '2026-08-18T00:00:05Z' }).map(sample => sample.modelDateTimeUtc)).toEqual(['2026-08-18T00:00:00.000Z', '2026-08-18T00:00:02.500Z', '2026-08-18T00:00:05.000Z']);
   });
 
+  it('adds bounded intervening samples for longer missions and always retains midpoint', () => {
+    const twelveHours = missionSampleTimes({ start: '2026-08-18T00:00:00Z', end: '2026-08-18T12:00:00Z' });
+    expect(twelveHours).toHaveLength(7);
+    expect(twelveHours.map(sample => sample.position)).toEqual(['start', 'intermediate', 'intermediate', 'midpoint', 'intermediate', 'intermediate', 'end']);
+    expect(twelveHours.map(sample => sample.modelDateTimeUtc)).toEqual([
+      '2026-08-18T00:00:00.000Z', '2026-08-18T02:00:00.000Z', '2026-08-18T04:00:00.000Z', '2026-08-18T06:00:00.000Z',
+      '2026-08-18T08:00:00.000Z', '2026-08-18T10:00:00.000Z', '2026-08-18T12:00:00.000Z',
+    ]);
+    const multiDay = missionSampleTimes({ start: '2026-08-18T00:00:00Z', end: '2026-08-20T00:00:00Z' });
+    expect(multiDay).toHaveLength(9);
+    expect(multiDay[4]).toMatchObject({ position: 'midpoint', modelDateTimeUtc: '2026-08-19T00:00:00.000Z' });
+  });
+
   it('discloses representative samples rather than continuous multi-day coverage', async () => {
     const result = await executeMissionWindowPropagation({ planningRequest: { ...planningRequest, missionWindow: { start: '2026-08-18T00:00:00Z', end: '2026-08-25T00:00:00Z' } }, ssn: 100 }, undefined, async request => success(request));
     expect(result.summary.limitations).toContain(MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION);
@@ -84,5 +97,8 @@ describe('mission-window propagation adapter', () => {
     const result = await executeMissionWindowPropagation({ planningRequest, ssn: 100 }, undefined, executeCircuit);
     expect(result.summary.strongestBandBySample.map(item => item.band)).toEqual(['40m', '20m', '40m']);
     expect(result.summary.consistentStrongestBand).toBeNull();
+    expect(result.summary.sampling).toEqual({ strategy: 'adaptive_interval', targetIntervalHours: 2, sampleCount: 3, largestGapMinutes: 120, continuous: false });
+    expect(result.summary.transitions.map(item => item.status)).toEqual(['changed', 'changed']);
+    expect(result.summary.transitions[0]).toMatchObject({ fromBand: '40m', toBand: '20m', fromUtc: '2026-08-18T14:00:00.000Z', toUtc: '2026-08-18T16:00:00.000Z' });
   });
 });

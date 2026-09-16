@@ -6,8 +6,10 @@ import { executeRegionalP533, type RegionalP533Executor } from './regionalP533';
 import type { RegionalP533Result } from '../src/propagation/regionalP533';
 import { executeP533Circuit } from './p533Engine';
 
-export const MISSION_WINDOW_SAMPLE_POSITIONS = ['start', 'midpoint', 'end'] as const;
-export const MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION = 'P.533 results are representative samples at mission start, midpoint, and end; they do not provide continuous multi-day coverage or a continuous propagation forecast.';
+export const MISSION_WINDOW_SAMPLE_POSITIONS = ['start', 'intermediate', 'midpoint', 'end'] as const;
+export const MISSION_WINDOW_TARGET_INTERVAL_HOURS = 2;
+export const MISSION_WINDOW_MAX_SAMPLE_COUNT = 9;
+export const MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION = 'P.533 results are discrete mission-window samples; they do not provide continuous coverage, true path prediction, or a continuous propagation forecast.';
 export type MissionWindowSamplePosition = (typeof MISSION_WINDOW_SAMPLE_POSITIONS)[number];
 export type MissionWindowPropagationStatus = 'complete' | 'partial' | 'unavailable';
 
@@ -17,7 +19,7 @@ export interface MissionWindowPropagationRequest {
 }
 
 export type MissionWindowP533Executor = RegionalP533Executor;
-type MissionWindowPropagationSampleTuple = readonly [MissionWindowPropagationSample, MissionWindowPropagationSample, MissionWindowPropagationSample];
+type MissionWindowPropagationSamples = readonly MissionWindowPropagationSample[];
 
 export interface MissionWindowPropagationBandSample {
   readonly band: P533SupportedBand;
@@ -46,8 +48,23 @@ export interface MissionWindowPropagationSummary {
   readonly failedSampleCount: number;
   readonly strongestBandBySample: readonly {
     readonly position: MissionWindowSamplePosition;
+    readonly modelDateTimeUtc?: string;
     readonly band: P533SupportedBand | null;
   }[];
+  readonly transitions?: readonly {
+    readonly fromUtc: string;
+    readonly toUtc: string;
+    readonly fromBand: P533SupportedBand | null;
+    readonly toBand: P533SupportedBand | null;
+    readonly status: 'stable' | 'changed' | 'unavailable';
+  }[];
+  readonly sampling?: {
+    readonly strategy: 'adaptive_interval';
+    readonly targetIntervalHours: number;
+    readonly sampleCount: number;
+    readonly largestGapMinutes: number;
+    readonly continuous: false;
+  };
   readonly consistentStrongestBand: P533SupportedBand | null;
   readonly limitations: readonly string[];
 }
@@ -56,7 +73,7 @@ export interface MissionWindowPropagationResult {
   readonly status: MissionWindowPropagationStatus;
   readonly missionWindow: MissionWindow;
   readonly generatedAtUtc: string;
-  readonly samples: readonly [MissionWindowPropagationSample, MissionWindowPropagationSample, MissionWindowPropagationSample];
+  readonly samples: MissionWindowPropagationSamples;
   readonly summary: MissionWindowPropagationSummary;
   readonly error?: string;
 }
@@ -81,7 +98,7 @@ export async function executeMissionWindowPropagation(
   const status: MissionWindowPropagationStatus = successfulSampleCount === 0
     ? 'unavailable'
     : successfulSampleCount === samples.length && samples.every(sample => sample.status === 'complete') ? 'complete' : 'partial';
-  return buildResult(status, planning.missionWindow, generatedAtUtc, [samples[0], samples[1], samples[2]], status === 'unavailable' ? 'All mission-window model samples were unavailable.' : undefined);
+  return buildResult(status, planning.missionWindow, generatedAtUtc, samples, status === 'unavailable' ? 'All mission-window model samples were unavailable.' : undefined);
 }
 
 function unavailableSamples(
@@ -89,27 +106,21 @@ function unavailableSamples(
   stationProfile: StationProfile | null,
   modes: readonly PropagationMode[],
   error: string,
-): MissionWindowPropagationSampleTuple {
-  return [
-    unavailableSample(sampleTimes[0].position, sampleTimes[0].modelDateTimeUtc, stationProfile, modes, error),
-    unavailableSample(sampleTimes[1].position, sampleTimes[1].modelDateTimeUtc, stationProfile, modes, error),
-    unavailableSample(sampleTimes[2].position, sampleTimes[2].modelDateTimeUtc, stationProfile, modes, error),
-  ];
+): MissionWindowPropagationSamples {
+  return sampleTimes.map(sample => unavailableSample(sample.position, sample.modelDateTimeUtc, stationProfile, modes, error));
 }
 
-export function missionSampleTimes(window: MissionWindow): readonly [
-  { readonly position: 'start'; readonly modelDateTimeUtc: string },
-  { readonly position: 'midpoint'; readonly modelDateTimeUtc: string },
-  { readonly position: 'end'; readonly modelDateTimeUtc: string },
-] {
+export function missionSampleTimes(window: MissionWindow): readonly { readonly position: MissionWindowSamplePosition; readonly modelDateTimeUtc: string }[] {
   const startMs = Date.parse(window.start);
   const endMs = Date.parse(window.end);
-  const midpointMs = startMs + Math.floor((endMs - startMs) / 2);
-  return [
-    { position: 'start', modelDateTimeUtc: new Date(startMs).toISOString() },
-    { position: 'midpoint', modelDateTimeUtc: new Date(midpointMs).toISOString() },
-    { position: 'end', modelDateTimeUtc: new Date(endMs).toISOString() },
-  ];
+  const durationMs = endMs - startMs;
+  let intervalCount = Math.max(2, Math.ceil(durationMs / (MISSION_WINDOW_TARGET_INTERVAL_HOURS * 60 * 60 * 1000)));
+  if (intervalCount % 2 !== 0) intervalCount += 1;
+  intervalCount = Math.min(MISSION_WINDOW_MAX_SAMPLE_COUNT - 1, intervalCount);
+  return Array.from({ length: intervalCount + 1 }, (_, index) => ({
+    position: index === 0 ? 'start' : index === intervalCount ? 'end' : index === intervalCount / 2 ? 'midpoint' : 'intermediate',
+    modelDateTimeUtc: new Date(startMs + Math.floor((durationMs * index) / intervalCount)).toISOString(),
+  }));
 }
 
 function validateMissionPropagationRequest(request: MissionWindowPropagationRequest, stationProfile: StationProfile | null): string | null {
@@ -179,8 +190,13 @@ function buildResult(
   error?: string,
 ): MissionWindowPropagationResult {
   const successful = samples.filter(sample => sample.status !== 'unavailable');
-  const strongestBandBySample = samples.map(sample => ({ position: sample.position, band: strongestBand(sample) }));
+  const strongestBandBySample = samples.map(sample => ({ position: sample.position, modelDateTimeUtc: sample.modelDateTimeUtc, band: strongestBand(sample) }));
   const strongestBands = strongestBandBySample.map(item => item.band).filter((band): band is P533SupportedBand => band !== null);
+  const transitions = strongestBandBySample.slice(1).map((sample, index) => {
+    const previous = strongestBandBySample[index];
+    return { fromUtc: previous.modelDateTimeUtc, toUtc: sample.modelDateTimeUtc, fromBand: previous.band, toBand: sample.band, status: previous.band === null || sample.band === null ? 'unavailable' as const : previous.band === sample.band ? 'stable' as const : 'changed' as const };
+  });
+  const largestGapMinutes = samples.slice(1).reduce((largest, sample, index) => Math.max(largest, (Date.parse(sample.modelDateTimeUtc) - Date.parse(samples[index].modelDateTimeUtc)) / 60000), 0);
   return {
     status,
     missionWindow,
@@ -190,6 +206,8 @@ function buildResult(
       successfulSampleCount: successful.length,
       failedSampleCount: samples.length - successful.length,
       strongestBandBySample,
+      transitions,
+      sampling: { strategy: 'adaptive_interval', targetIntervalHours: MISSION_WINDOW_TARGET_INTERVAL_HOURS, sampleCount: samples.length, largestGapMinutes, continuous: false },
       consistentStrongestBand: strongestBands.length === samples.length && new Set(strongestBands).size === 1 ? strongestBands[0] : null,
       limitations: [
         MISSION_WINDOW_REPRESENTATIVE_SAMPLE_LIMITATION,
