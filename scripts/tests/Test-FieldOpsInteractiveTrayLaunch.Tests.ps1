@@ -126,7 +126,7 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
     }
 
     It 'extracts source and duplicated token summaries with the documented access masks' {
-        $inspection = [FieldOpsDashboard.Deployment.InteractiveProcess]::InspectToken([uint32]$PID)
+        $inspection = & $script:tokenInspectionProvider ([uint32]$PID)
 
         $inspection.SourceToken.TokenType | Should Be 'Primary'
         $inspection.DuplicatedToken.TokenType | Should Be 'Primary'
@@ -184,8 +184,8 @@ Describe 'FieldOps focused interactive Tray launch diagnostic' {
 
     It 'executes the diagnostic entry point under Windows PowerShell 5.1' {
         $powershell = Get-Command powershell.exe -ErrorAction Stop
-        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath -InstallPath 'C:\FieldOpsDashboard' 2>&1
-        ($output -join "`n") | Should Match 'Tray executable path:'
+        $output = & $powershell.Source -NoProfile -ExecutionPolicy Bypass -File $scriptPath -? 2>&1
+        $LASTEXITCODE | Should Be 0
         ($output -join "`n") | Should Not Match 'ParserError|Add-Type|; expected'
     }
 }

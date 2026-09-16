@@ -30,7 +30,7 @@ Describe 'FieldOps operator provisioning identity validation' {
                 return
             }
 
-            $name = 'FieldOpsPester_{0}' -f ([Guid]::NewGuid().ToString('N').Substring(0, 12))
+            $name = 'FOP{0}' -f ([Guid]::NewGuid().ToString('N').Substring(0, 12))
             $password = ConvertTo-SecureString 'Pester-Only-9!zQ4#' -AsPlainText -Force
             try {
                 New-LocalUser -Name $name -Password $password -Description 'Temporary Pester account' |
