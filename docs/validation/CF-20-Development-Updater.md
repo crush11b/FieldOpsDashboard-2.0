@@ -46,3 +46,17 @@ UpdateDashboard.bat 20ec56a120d4f38f4e39dd9fc676dcbdbfcf5972
 
 The launcher labels this source as `Explicit revision` and skips branch resolution. No PowerShell
 or Git command is normally required after the one-time setup.
+
+## Controlled rollback validation
+
+Successful development updates refresh two Desktop shortcuts: `Deploy FieldOps Development` and
+`Validate FieldOps Rollback`. The rollback shortcut records the currently installed source/native
+revision, selects a different validated parent revision when `main` already matches the installed
+revision, and invokes the updater's deliberate pre-copy failure seam. The updater must restore the
+original installation and runtime state. The launcher reports
+`FIELDOPS DEVELOPMENT ROLLBACK VERIFIED` only when the restored Dashboard is running and its source
+and native revisions both match the pre-test revision.
+
+Rollback validation is destructive to the staged candidate by design, but it must not change the
+accepted installed revision or operator data. It is a development/field-acceptance function, not a
+general downgrade mechanism or release updater.

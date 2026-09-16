@@ -21,15 +21,21 @@ foreach ($file in $launcherFiles) {
     Copy-Item -LiteralPath $source -Destination (Join-Path $desktop $file) -Force
 }
 
-$shortcutPath = Join-Path $desktop 'Deploy FieldOps Development.lnk'
 $batPath = Join-Path $desktop 'UpdateDashboard.bat'
 $shell = New-Object -ComObject WScript.Shell
-$shortcut = $shell.CreateShortcut($shortcutPath)
-$shortcut.TargetPath = $batPath
-$shortcut.WorkingDirectory = $desktop
-$shortcut.Description = 'FieldOps CF-20 development updater; resolves and verifies one exact Git revision.'
-$shortcut.IconLocation = "$env:SystemRoot\System32\SHELL32.dll,3"
-$shortcut.Save()
+$shortcutDefinitions = @(
+    @{ Name = 'Deploy FieldOps Development.lnk'; Arguments = ''; Description = 'FieldOps CF-20 development updater; resolves and verifies one exact Git revision.' },
+    @{ Name = 'Validate FieldOps Rollback.lnk'; Arguments = '-ValidateRollback'; Description = 'Safely exercise FieldOps transactional rollback and verify the current installation is restored.' }
+)
+foreach ($definition in $shortcutDefinitions) {
+    $shortcut = $shell.CreateShortcut((Join-Path $desktop $definition.Name))
+    $shortcut.TargetPath = $batPath
+    $shortcut.Arguments = $definition.Arguments
+    $shortcut.WorkingDirectory = $desktop
+    $shortcut.Description = $definition.Description
+    $shortcut.IconLocation = "$env:SystemRoot\System32\SHELL32.dll,3"
+    $shortcut.Save()
+}
 
-Write-Host "Installed 'Deploy FieldOps Development' on $desktop."
-Write-Host 'The shortcut tracks the Version 2.7 development branch and verifies an exact revision before deployment.'
+Write-Host "Installed FieldOps development update and rollback-validation shortcuts on $desktop."
+Write-Host 'The update shortcut tracks main and verifies an exact revision before deployment.'

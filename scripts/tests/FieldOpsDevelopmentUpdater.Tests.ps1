@@ -76,6 +76,16 @@ Describe 'FieldOps CF-20 development updater' {
         $script:launcher | Should Match 'exit 1'
     }
 
+    It 'exposes controlled rollback validation and verifies the restored revision' {
+        $script:launcher | Should Match '\[switch\]\$ValidateRollback'
+        $script:launcher | Should Match 'Resolve-ParentRevision -RepositoryName \$Repository -RevisionValue \$baselineSource'
+        $script:launcher | Should Match 'requires a candidate revision different from the installed revision'
+        $script:launcher | Should Match '\$updaterArguments \+= ''-SimulateCopyFailure'''
+        $script:launcher | Should Match 'FIELDOPS DEVELOPMENT ROLLBACK VERIFIED'
+        $script:launcher | Should Match 'Get-InstalledVersion -ExpectedRevision \(\[string\]\$rollbackBaseline\.sourceRevision\)'
+        $script:launcher | Should Match 'Rollback validation failed because the controlled deployment failure did not occur'
+    }
+
     It 'enables CF-20 recovery only through the explicit deployment switch' {
         $updater = Get-Content -LiteralPath (Join-Path $PSScriptRoot '..\..\UpdateDashboard.ps1') -Raw
         $script:launcher | Should Match '-EnableCf20GnssRecovery'
@@ -143,9 +153,11 @@ Invoke-FieldOpsAgentInstallStage -InstallerPath '$($probePath.Replace("'", "''")
         $script:batch | Should Match 'exit /b'
     }
 
-    It 'keeps the BAT as the only deployment entry point and installs one obvious desktop shortcut' {
+    It 'keeps the BAT as the only deployment entry point and installs explicit update and rollback shortcuts' {
         $script:batch | Should Match 'FieldOpsDevelopmentUpdater\.ps1'
         $script:setup | Should Match "Deploy FieldOps Development\.lnk"
+        $script:setup | Should Match "Validate FieldOps Rollback\.lnk"
+        $script:setup | Should Match "Arguments = '-ValidateRollback'"
         $script:setup | Should Match 'UpdateDashboard\.bat'
         $script:setup | Should Match 'SHELL32\.dll'
         $script:setup | Should Not Match 'Deploy-ToughBook\.ps1'
@@ -164,6 +176,11 @@ Invoke-FieldOpsAgentInstallStage -InstallerPath '$($probePath.Replace("'", "''")
             Test-Path -LiteralPath $shortcut.TargetPath -PathType Leaf | Should Be $true
             (Split-Path -Leaf $shortcut.TargetPath) | Should Be 'UpdateDashboard.bat'
             $shortcut.TargetPath | Should Match ([regex]::Escape((Split-Path -Leaf $destination)))
+            $rollbackShortcutPath = Join-Path $destination 'Validate FieldOps Rollback.lnk'
+            Test-Path -LiteralPath $rollbackShortcutPath | Should Be $true
+            $rollbackShortcut = $shell.CreateShortcut($rollbackShortcutPath)
+            $rollbackShortcut.TargetPath | Should Be $shortcut.TargetPath
+            $rollbackShortcut.Arguments | Should Be '-ValidateRollback'
             Test-Path -LiteralPath (Join-Path $destination 'FieldOpsDevelopmentUpdater.ps1') | Should Be $true
         } finally {
             Remove-Item -LiteralPath $destination -Recurse -Force -ErrorAction SilentlyContinue

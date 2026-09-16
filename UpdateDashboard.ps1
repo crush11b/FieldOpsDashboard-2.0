@@ -32,6 +32,9 @@ $requiredPackageFiles = @(
     'scripts\FieldOps.RuntimeReadiness.psm1',
     'scripts\FieldOps.RuntimeRollback.psm1',
     'scripts\FieldOps.BackupRetention.psm1',
+    'scripts\Install-FieldOpsDevelopmentUpdater.ps1',
+    'FieldOpsDevelopmentUpdater.ps1',
+    'UpdateDashboard.bat',
     'p533-assets\manifest.json'
 )
 $requiredDeploymentFiles = @(
@@ -586,6 +589,12 @@ try {
             Write-Host '[OK] Recovery backups: none require cleanup.' -ForegroundColor Green
         } else {
             Write-Host "[OK] Recovery backups: retained $($cleanup.RetainedCount), removed $($cleanup.RemovedCount)." -ForegroundColor Green
+        }
+        try {
+            & (Join-Path $resolvedInstallPath 'scripts\Install-FieldOpsDevelopmentUpdater.ps1') -RepositoryRoot $resolvedInstallPath
+            Write-Host '[OK] Desktop update and rollback-validation shortcuts refreshed.' -ForegroundColor Green
+        } catch {
+            Write-Host "[!] Desktop shortcut refresh was not completed: $($_.Exception.Message)" -ForegroundColor Yellow
         }
         Write-Host '[OK] FieldOps Dashboard update complete.' -ForegroundColor Green
         $deploymentStarted = $false
