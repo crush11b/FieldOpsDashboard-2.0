@@ -27,6 +27,23 @@ export function formatWeatherHour(
   }).format(date);
 }
 
+export function formatWeatherDateTime(
+  utcTimestamp: string,
+  timeZone: string = resolveOperatorTimeZone(),
+  locale = 'en-US',
+): string {
+  const date = new Date(utcTimestamp);
+  if (Number.isNaN(date.getTime()) || !isSupportedTimeZone(timeZone)) return utcTimestamp;
+  return new Intl.DateTimeFormat(locale, {
+    timeZone,
+    month: 'short',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    timeZoneName: 'short',
+  }).format(date);
+}
+
 
 export function weatherConditionLabel(code: number): string {
   if (!Number.isInteger(code)) return 'Unknown';

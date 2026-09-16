@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatWeatherHour, isSupportedTimeZone, weatherConditionLabel } from '../weatherTime';
+import { formatWeatherDateTime, formatWeatherHour, isSupportedTimeZone, weatherConditionLabel } from '../weatherTime';
 
 describe('weather presentation time', () => {
   it('converts UTC into America/New_York standard time', () => {
@@ -18,6 +18,11 @@ describe('weather presentation time', () => {
   it('is independent of the test runner host timezone when an IANA zone is supplied', () => {
     expect(formatWeatherHour('2026-09-14T18:00:00.000Z', 'America/New_York')).toBe('2:00 PM');
     expect(formatWeatherHour('2026-09-14T18:00:00.000Z', 'UTC')).toBe('6:00 PM');
+  });
+
+  it('formats PLAN forecast timestamps in the selected operator timezone with DST disclosure', () => {
+    expect(formatWeatherDateTime('2026-01-15T18:00:00.000Z', 'America/New_York')).toBe('Jan 15, 1:00 PM EST');
+    expect(formatWeatherDateTime('2026-07-15T18:00:00.000Z', 'America/New_York')).toBe('Jul 15, 2:00 PM EDT');
   });
 
   it('does not relabel invalid timestamps or accept invalid zones', () => {
