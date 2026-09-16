@@ -8,6 +8,11 @@ const qso = { schemaVersion: 1, qsoId: 'qso-1', activationId: 'activation-1', qs
 afterEach(() => { vi.useRealTimers(); vi.restoreAllMocks(); });
 
 describe('QsoLoggerPanel', () => {
+  it('downloads one ADIF file per entity without navigating to an API error', async () => {
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async input => String(input).endsWith('/export/files') ? new Response(JSON.stringify({ kind: 'qso_export_files', files: [{ filename: 'US-0182 08252026.adif', content: 'one' }, { filename: 'US-9935 08252026.adif', content: 'two' }, { filename: 'W4V-SH-001 08252026.adif', content: 'three' }] }), { status: 200 }) : new Response(JSON.stringify({ kind: 'qsos', qsos: [] }), { status: 200 }));
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: vi.fn(() => 'blob:test') }); Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: vi.fn() }); const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => undefined);
+    render(<QsoLoggerPanel activation={activation} />); await waitFor(() => expect(screen.getByText('EXPORT ADIF')).toBeInTheDocument()); fireEvent.click(screen.getByText('EXPORT ADIF')); await waitFor(() => expect(screen.getByText('Exported 3 ADIF files. Your browser may ask permission for multiple downloads.')).toBeInTheDocument()); expect(click).toHaveBeenCalledTimes(3);
+  });
   it('republishes current band and mode with a polling refresh', async () => {
     vi.useFakeTimers();
     const evidenceChanges: any[] = [];

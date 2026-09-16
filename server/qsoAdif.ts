@@ -1,5 +1,7 @@
 import { createActivationAdifExport } from '../src/utils/adif';
 import { createQso, type CreateQsoInput, type Qso } from './qso';
+import type { Activation } from './activation';
+import type { OperationProgram } from './operationEntities';
 
 export interface AdifParseResult { readonly recordsFound: number; readonly records: readonly CreateQsoInput[]; readonly errors: readonly string[]; }
 export interface AdifActivationContext { readonly type: 'POTA' | 'SOTA' | 'General'; readonly reference?: string; readonly stationCallsign?: string; readonly operatorCallsign?: string; readonly myGridSquare?: string; }
@@ -17,5 +19,15 @@ export function parseAdif(input: string): AdifParseResult {
   return { recordsFound, records, errors };
 }
 export const exportQsos = createActivationAdifExport;
+export interface EntityAdifExport { readonly program: OperationProgram | 'General'; readonly reference: string | null; readonly filename: string; readonly qsoCount: number; readonly content: string; }
+export function createEntityAdifExports(qsos: readonly Qso[], activation: Activation): readonly EntityAdifExport[] {
+  const byEntity = new Map<string, { program: OperationProgram; reference: string; qsos: Qso[] }>();
+  for (const qso of qsos) for (const association of qso.entityAssociations.entities) { const key = `${association.program}|${association.reference}`; const entry = byEntity.get(key) ?? { program: association.program, reference: association.reference, qsos: [] }; entry.qsos.push(qso); byEntity.set(key, entry); }
+  const date = exportDate(qsos, activation);
+  if (!byEntity.size) return [{ program: 'General', reference: null, filename: `${safeName(activation.title || activation.activationId)} ${date}.adif`, qsoCount: qsos.length, content: createActivationAdifExport(qsos, { type: 'General', myGridSquare: activation.plannedLocation?.gridSquare }) }];
+  return [...byEntity.values()].sort((left, right) => left.program.localeCompare(right.program) || left.reference.localeCompare(right.reference)).map(entry => ({ program: entry.program, reference: entry.reference, filename: `${safeName(entry.reference)} ${date}.adif`, qsoCount: entry.qsos.length, content: createActivationAdifExport(entry.qsos, { type: entry.program, reference: entry.reference, entity: { program: entry.program, reference: entry.reference }, myGridSquare: activation.plannedLocation?.gridSquare }) }));
+}
+function exportDate(qsos: readonly Qso[], activation: Activation): string { const iso = activation.startedAtUtc ?? [...qsos].sort((a,b) => a.qsoDateTimeUtc.localeCompare(b.qsoDateTimeUtc))[0]?.qsoDateTimeUtc ?? activation.createdAtUtc; return `${iso.slice(5,7)}${iso.slice(8,10)}${iso.slice(0,4)}`; }
+function safeName(value: string): string { return value.replaceAll('/', '-').replace(/[^A-Za-z0-9._-]+/g, '_').slice(0, 80) || 'FieldOps'; }
 function parseFields(input: string, errors: string[], record: number): Record<string, string> { const fields: Record<string, string> = {}; const pattern = /<([A-Z0-9_]+)\s*:\s*(\d+)(?:\s*:[^>]+)?\s*>([\s\S]*?)/gi; let match: RegExpExecArray | null; while ((match = pattern.exec(input))) { const length = Number(match[2]); const start = pattern.lastIndex; const value = input.slice(start, start + length); if (value.length !== length) errors.push(`Record ${record} contains a truncated ${match[1]} field.`); else fields[match[1].toUpperCase()] = value.trim(); pattern.lastIndex = start + length; } return fields; }
 function toUtc(date: string, time: string): string | undefined { if (!/^\d{8}$/.test(date) || !/^\d{4,6}(?:\.\d+)?$/.test(time)) return undefined; const normalized = time.split('.')[0].padEnd(6, '0'); const value = new Date(`${date.slice(0,4)}-${date.slice(4,6)}-${date.slice(6,8)}T${normalized.slice(0,2)}:${normalized.slice(2,4)}:${normalized.slice(4,6)}Z`); return Number.isNaN(value.getTime()) ? undefined : value.toISOString(); }
