@@ -293,7 +293,7 @@ describe('SmartDeploy brief rendering', () => {
     render(<SmartDeployBriefView brief={v2Brief} />);
     await waitFor(() => expect(screen.getByText(/Retained forecast, 70°F/)).toBeTruthy());
     expect(screen.getByText('Retained solar conditions.')).toBeTruthy();
-    expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2);
+    await waitFor(() => expect(fetcher.mock.calls.filter(([, init]) => init?.method === 'POST')).toHaveLength(2));
     await waitFor(() => expect(screen.getAllByRole('button', { name: 'LOADING...' })).toHaveLength(2));
     expect(screen.getAllByRole('button', { name: 'LOADING...' })[0]).toBeDisabled();
     fireEvent.click(screen.getAllByRole('button', { name: 'LOADING...' })[0]);
@@ -579,6 +579,17 @@ describe('SmartDeploy brief rendering', () => {
     const transitions = screen.getByLabelText('Modeled band transitions');
     expect(transitions).toHaveTextContent('strongest modeled band changes from 40m to 20m');
     expect(screen.getByText(/not the exact transition time/)).toBeTruthy();
+  });
+
+  it('renders resource-aware findings with visible basis and uncertainty', async () => {
+    const forecast = { freshness: 'retained', hourly: [{ startsAtUtc: '2026-08-18T12:00:00.000Z', endsAtUtc: '2026-08-18T13:00:00.000Z', condition: 'Thunderstorms', temperatureF: 65, precipitationProbability: 85, windSpeedMph: 12, windDirection: 'W', windGustMph: 31 }] };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => { if (String(input) === '/api/activations') return { ok: true, json: async () => ({ activations: [] }) }; if (String(input).includes('/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: forecast }) }; return { ok: true, json: async () => ({ record: null }) }; }));
+    render(<SmartDeployBriefView brief={v2Brief} />);
+    expect(screen.getByText('RESOURCE-AWARE MISSION GUIDANCE')).toBeTruthy();
+    expect(screen.getByText(/No retained loadout is available for mission suitability review/)).toBeTruthy();
+    await waitFor(() => expect(screen.getByText(/85% precipitation probability, 31 mph gusts/)).toBeTruthy());
+    expect(screen.getAllByText(/Basis \(/).length).toBeGreaterThan(0);
+    expect(screen.getByText(/Manufacturer\/model names are never used to invent capabilities/)).toBeTruthy();
   });
 
   it('keeps retained evidence visible and marks an explicit failed refresh distinctly', async () => {

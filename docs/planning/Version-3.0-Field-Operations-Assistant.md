@@ -435,6 +435,8 @@ Implement sampled mission-window presentation and bounded deterministic equipmen
 
 Duration-aware propagation disposition: P.533 is sampled adaptively across the retained mission window at a target interval of two hours, with a maximum of nine samples and start/midpoint/end always retained. The UI reports sample coverage, the largest unmodeled gap, and changes between adjacent sampled endpoints. It never infers the exact transition time, fills an unmodeled interval, or describes these results as continuous or true path prediction. Older retained three-sample briefs remain readable. Modeled evidence remains separate from observed RF evidence, and disagreement is presented as context rather than a confidence score or guarantee.
 
+Resource-aware guidance disposition: PLAN evaluates the immutable loadout snapshot, mission duration, deployment settings, and retained forecast with deterministic rules. Loadout coverage is based only on recorded equipment kinds. Station endurance is calculated only when numeric `usable_capacity_wh` and `expected_average_draw_w` operator facts are present; model names, voltage, amp-hours, and intended transmit power are not substituted. Weather thresholds are planning prompts rather than hazard declarations. Every finding reports its source state, basis, limitation, and reconsideration condition; missing facts remain unknown and FieldOps does not invent substitute equipment or contingencies.
+
 ### V3.0-10 — SmartFrequency and integration decisions
 
 Complete the decision matrix. Implement only separately approved concrete capabilities.
