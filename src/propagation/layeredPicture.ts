@@ -70,7 +70,7 @@ export function assembleLayeredPropagationPicture(input: LayeredPropagationInput
       timing: input.modeledAtUtc ?? 'Unavailable',
       applicability: input.missionWindow ? `${input.missionWindow.start} to ${input.missionWindow.end}${input.destinationLabel ? ` / ${input.destinationLabel}` : ''}` : 'Mission applicability unavailable',
       summary: modelAvailable ? `Representative strongest bands: ${modeledBands.join(' / ') || 'Unavailable'}.` : 'Modeled propagation evidence is unavailable.',
-      limitations: ['Representative start/midpoint/end path samples are not continuous coverage or a guarantee.'],
+      limitations: ['Discrete mission-window path samples are not continuous coverage, an exact transition time, or a guarantee.'],
     },
     {
       id: 'environmental', label: 'ENVIRONMENT', state: forecastAvailable && spaceAvailable ? 'retained' : forecastAvailable || spaceAvailable ? 'partial' : 'unavailable',

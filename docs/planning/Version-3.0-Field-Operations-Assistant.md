@@ -433,6 +433,8 @@ Implementation disposition: the retained SmartDeploy brief is authoritative for 
 
 Implement sampled mission-window presentation and bounded deterministic equipment, power, weather, antenna/deployment, contingency, and limitation findings.
 
+Duration-aware propagation disposition: P.533 is sampled adaptively across the retained mission window at a target interval of two hours, with a maximum of nine samples and start/midpoint/end always retained. The UI reports sample coverage, the largest unmodeled gap, and changes between adjacent sampled endpoints. It never infers the exact transition time, fills an unmodeled interval, or describes these results as continuous or true path prediction. Older retained three-sample briefs remain readable. Modeled evidence remains separate from observed RF evidence, and disagreement is presented as context rather than a confidence score or guarantee.
+
 ### V3.0-10 — SmartFrequency and integration decisions
 
 Complete the decision matrix. Implement only separately approved concrete capabilities.
