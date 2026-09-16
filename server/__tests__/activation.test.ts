@@ -204,14 +204,15 @@ describe('Activation API', () => {
 
   it('initializes once from a SmartDeploy brief and associates notes', async () => {
     const { activation, notes } = stores();
-    const brief = { schemaVersion: 2, briefId: 'brief-1', activation: { program: 'POTA', reference: 'US-1', displayName: 'Test Park' }, plannedOperatingSite: { location: { coordinates: { lat: 10, lon: 20 }, gridSquare: 'FN20' } }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' } } as any;
+    const loadoutSnapshot = { schemaVersion: 1, loadoutId: 'loadout-1', loadoutName: 'Portable', capturedAtUtc: '2026-08-25T09:00:00.000Z', provenance: 'operator_committed', items: [], limitations: [] };
+    const brief = { schemaVersion: 2, briefId: 'brief-1', activation: { program: 'POTA', reference: 'US-1', displayName: 'Test Park' }, plannedOperatingSite: { location: { coordinates: { lat: 10, lon: 20 }, gridSquare: 'FN20' } }, missionWindow: { start: '2026-08-25T10:00:00Z', end: '2026-08-25T11:00:00Z' }, loadoutSnapshot } as any;
     const app = express(); app.use(express.json()); app.use(createActivationRouter({ store: activation, notesStore: notes, briefStore: { get: () => ({ status: 'found', brief, diagnostics: [] }) } as any, now }));
     const server = await new Promise<ReturnType<typeof app.listen>>(resolve => { const listener = app.listen(0, () => resolve(listener)); });
     try {
       const address = server.address() as { port: number };
       const response = await fetch(`http://127.0.0.1:${address.port}/api/activations/from-brief`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId: 'brief-1' }) });
       const payload = await response.json() as any;
-      expect(response.status).toBe(201); expect(payload.activation.type).toBe('POTA'); expect(payload.activation.briefId).toBe('brief-1'); expect(payload.activation.notesCollectionId).toBe('notes-1');
+      expect(response.status).toBe(201); expect(payload.activation.type).toBe('POTA'); expect(payload.activation.briefId).toBe('brief-1'); expect(payload.activation.notesCollectionId).toBe('notes-1'); expect(payload.activation.loadoutSnapshot).toEqual(loadoutSnapshot);
       const existing = await fetch(`http://127.0.0.1:${address.port}/api/activations/from-brief`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ briefId: 'brief-1' }) });
       expect(existing.status).toBe(200);
       const transition = await fetch(`http://127.0.0.1:${address.port}/api/activations/activation-1/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'completed' }) });

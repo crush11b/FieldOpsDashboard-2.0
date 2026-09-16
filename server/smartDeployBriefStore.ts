@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import type { SmartDeployBrief, SmartDeployBriefV1, SmartDeployBriefV2 } from './smartDeployBrief';
+import { normalizeLoadoutSnapshot } from '../src/equipment/domain';
 import { SMART_DEPLOY_BRIEF_SCHEMA_VERSION, SMART_DEPLOY_BRIEF_V1_SCHEMA_VERSION } from './smartDeployBrief';
 
 export const SMART_DEPLOY_BRIEF_STORE_VERSION = 1 as const;
@@ -224,6 +225,7 @@ function isV2Brief(input: unknown): input is SmartDeployBriefV2 {
     || !input.station.selectedModes.every(mode => typeof mode === 'string') || (input.station.modeledMode !== null && typeof input.station.modeledMode !== 'string')
     || typeof input.station.transmitPowerWatts !== 'number' || !Number.isFinite(input.station.transmitPowerWatts)
     || !isV2Sections(input.sections)) return false;
+  if (input.loadoutSnapshot !== undefined) { try { normalizeLoadoutSnapshot(input.loadoutSnapshot); } catch { return false; } }
   return input.currentDeviceLocation === undefined || isRecord(input.currentDeviceLocation);
 }
 

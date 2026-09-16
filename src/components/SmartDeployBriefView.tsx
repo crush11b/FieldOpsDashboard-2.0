@@ -170,6 +170,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
         <PrimaryField label="PLANNED SITE" value={brief.plannedOperatingSite.location.gridSquare || formatCoordinates(brief.plannedOperatingSite.location.coordinates)} detail={brief.plannedOperatingSite.description} />
         <PrimaryField label="RF TARGET" value={brief.propagationObjective.regionLabel} detail="Regional propagation objective" />
         <PrimaryField label="STATION" value={`${brief.station.radio.name} - ${brief.station.antenna.name || brief.station.antenna.type} - ${brief.station.transmitPowerWatts} W`} detail={`${brief.station.selectedModes.join(' / ')}${brief.station.modeledMode ? ` | Modeled: ${brief.station.modeledMode}` : ''}`} />
+        <PrimaryField label="RETAINED LOADOUT" value={brief.loadoutSnapshot?.loadoutName || 'None selected'} detail={brief.loadoutSnapshot ? `${brief.loadoutSnapshot.items.length} equipment record(s), captured ${formatUtc(brief.loadoutSnapshot.capturedAtUtc)}` : 'No reusable loadout was associated with this plan.'} />
         <PrimaryField label="RF PATH RANGE" value={geometry} detail="Across representative regional paths" />
       </div>
     </div>

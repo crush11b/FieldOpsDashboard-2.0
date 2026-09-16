@@ -63,6 +63,20 @@ function service(options: Partial<ConstructorParameters<typeof SmartDeployServic
 }
 
 describe('SmartDeploy orchestration', () => {
+  it('rejects an unavailable selected loadout instead of inventing a snapshot', async () => {
+    const equipmentStore = { loadInventory: vi.fn(() => ({ status: 'loaded', equipment: [], diagnostics: [] })), loadLoadouts: vi.fn(() => ({ status: 'loaded', loadouts: [], diagnostics: [] })) } as any;
+    const result = await service({ equipmentStore }).generateBrief(request({ loadoutId: 'loadout-missing' }));
+    expect(result).toMatchObject({ kind: 'smartdeploy_error', code: 'loadout_unavailable' });
+  });
+
+  it('captures the selected loadout before generation so later inventory edits cannot rewrite the brief', async () => {
+    const equipment = { schemaVersion: 1, equipmentId: 'radio-1', kind: 'radio', label: 'IC-705', facts: [], limitations: [], state: 'active', createdAtUtc: '2026-08-01T00:00:00.000Z', updatedAtUtc: '2026-08-01T00:00:00.000Z' };
+    const loadout = { schemaVersion: 1, loadoutId: 'loadout-portable', name: 'Portable', items: [{ equipmentId: 'radio-1', role: 'primary radio', quantity: 1 }], limitations: [], state: 'active', createdAtUtc: '2026-08-01T00:00:00.000Z', updatedAtUtc: '2026-08-01T00:00:00.000Z' };
+    const generate = vi.fn((_request: any, _now: () => Date) => brief);
+    const equipmentStore = { loadInventory: vi.fn(() => ({ status: 'loaded', equipment: [equipment], diagnostics: [] })), loadLoadouts: vi.fn(() => ({ status: 'loaded', loadouts: [loadout], diagnostics: [] })) } as any;
+    await service({ equipmentStore, generate }).generateBrief(request({ loadoutId: 'loadout-portable' }));
+    expect(generate.mock.calls[0]![0].loadoutSnapshot).toMatchObject({ loadoutId: 'loadout-portable', loadoutName: 'Portable', capturedAtUtc: '2026-08-18T11:00:00.000Z', items: [{ equipment: { label: 'IC-705' } }] });
+  });
   it('resolves POTA, validates the canonical request, generates, and persists the brief', async () => {
     const save = vi.fn();
     const result = await service({ store: store(save) }).generateBrief(request());
