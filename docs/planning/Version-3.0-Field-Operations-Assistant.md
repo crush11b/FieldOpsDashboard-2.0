@@ -447,6 +447,8 @@ Decision disposition: [`Version-3.0-Integration-Decision-Closure.md`](Version-3.
 
 Review the complete workflow, remove internal terminology from primary UI, confirm authoritative data homes, finish documentation, and disposition all unresolved items.
 
+Audit status: [`Version-3.0-11-Workflow-Punch-List-Audit.md`](../validation/Version-3.0-11-Workflow-Punch-List-Audit.md) confirms the shared workflow and authoritative data homes but identifies the production multi-entity Activation/QSO path as an open committed-scope blocker. The V3 domain migration contract is not wired into the production stores or UI. V3.0-11 remains open pending a bounded multi-entity implementation and field acceptance; it must not be paper-closed or silently deferred.
+
 ### V3.0-12 — Integration, CF-20 acceptance, and release closure
 
 Run the complete automated gate, migrate real V2.9.1 data, verify update and rollback, complete reboot/sign-in field acceptance, and prepare release closure. Publication remains separately authorized.

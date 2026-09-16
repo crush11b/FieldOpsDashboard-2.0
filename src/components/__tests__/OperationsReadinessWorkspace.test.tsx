@@ -57,7 +57,7 @@ describe('OperationsReadinessWorkspace', () => {
     const onSaveObjective = vi.fn(async () => undefined);
     const first = render(<OperationsReadinessWorkspace brief={{ ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2} onSaveObjective={onSaveObjective} />);
     await waitFor(() => expect(screen.getByText(/PROPOSED PROGRAM DEFAULT: starting or saving/)).toBeTruthy());
-    expect(screen.getByText('Selection provenance: Proposed program default.')).toBeTruthy();
+    expect(screen.getByText('Objective choice: Proposed program default.')).toBeTruthy();
     expect(screen.getByRole('button', { name: 'ACCEPT PROPOSED DEFAULT' })).toBeTruthy();
     expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy();
     first.unmount();
@@ -66,7 +66,7 @@ describe('OperationsReadinessWorkspace', () => {
     unmount();
     const legacy = { ...brief, activation: { ...brief.activation, program: 'POTA' } } as SmartDeployBriefV2;
     render(<OperationsReadinessWorkspace brief={legacy} initialActivation={{ activationId: 'legacy-1', type: 'POTA', status: 'active', operatingObjective: { goal: 'secure_activation', label: 'Legacy objective' } } as any} onSaveObjective={onSaveObjective} />);
-    await waitFor(() => expect(screen.getByText(/Selection provenance: Objective selection provenance unavailable for legacy record\./)).toBeTruthy());
+    await waitFor(() => expect(screen.getByText(/Objective choice: Choice unavailable for this older record\./)).toBeTruthy());
     expect(screen.getByRole('button', { name: 'SAVE OBJECTIVE' })).toBeDisabled();
   });
 
@@ -252,11 +252,11 @@ describe('OperationsReadinessWorkspace', () => {
     }));
     vi.stubGlobal('fetch', fetcher);
     const { rerender: rerenderView } = render(<OperationsReadinessWorkspace brief={brief} />);
-    const secondBrief = { ...brief, briefId: 'brief-readiness-2' } as SmartDeployBriefV2;
+    const secondBrief = { ...brief, briefId: 'brief-readiness-2', activation: { ...brief.activation, reference: 'US-5678' } } as SmartDeployBriefV2;
     rerenderView(<OperationsReadinessWorkspace brief={secondBrief} />);
     resolveFirst(response('not_requested', summary, {}, brief.briefId));
     resolveSecond(response('not_requested', summary, {}, secondBrief.briefId));
-    await waitFor(() => expect(screen.getByText('BRIEF brief-readiness-2')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('Pre-operation checks for US-5678')).toBeTruthy());
     expect(fetcher).toHaveBeenCalledTimes(2);
   });
 
