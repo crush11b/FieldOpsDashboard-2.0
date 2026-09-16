@@ -14,11 +14,11 @@ const candidate: WsjtxLoggedQsoCandidate = { qsoDateTimeUtc: '2026-08-27T17:42:0
 const adifCandidate: WsjtxLoggedQsoCandidate = { ...candidate, eventType: 12, submode: 'FT8' };
 afterEach(() => { for (const directory of directories.splice(0)) fs.rmSync(directory, { recursive: true, force: true }); });
 
-function setup(status: Activation['status'] = 'active') {
+function setup(status: Activation['status'] = 'active', operation: { type: 'General' | 'POTA'; reference?: string } = { type: 'General' }) {
   const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-qso-'));
   directories.push(directory);
   const activationStore = new ActivationStore(path.join(directory, 'activations.json'), { now, createId: () => 'activation-1' });
-  const created = activationStore.create({ type: 'General' }).activation;
+  const created = activationStore.create(operation).activation;
   if (status !== 'planned') activationStore.save(updateActivationStatus(created, 'active', now));
   if (status === 'completed') activationStore.save(updateActivationStatus(activationStore.get(created.activationId).status === 'found' ? (activationStore.get(created.activationId) as any).activation : created, 'completed', now));
   const activationPath = path.join(directory, 'activations.json');
@@ -30,10 +30,11 @@ function setup(status: Activation['status'] = 'active') {
 
 describe('WSJT-X QSO routing', () => {
   it('persists the complete candidate against the active Activation', () => {
-    const stores = setup();
+    const stores = setup('active', { type: 'POTA', reference: 'US-0182' });
     const result = new WsjtxQsoRouter(stores).route(candidate);
     expect(result.status).toBe('persisted');
     expect((result as any).qso).toMatchObject({ activationId: 'activation-1', source: 'wsjtx', callsign: 'W1AW', band: '20m', frequencyMHz: 14.074, mode: 'FT8', rstSent: '-10', rstReceived: '-12', gridSquare: 'FN31', operatorCallsign: 'N0CALL', stationCallsign: 'N0CALL', myGridSquare: 'FM17' });
+    expect((result as any).qso.entityAssociations.entities).toMatchObject([{ program: 'POTA', reference: 'US-0182', source: 'active_operation' }]);
   });
 
   it('does not create a second record for same-process or reconstructed delivery', () => {

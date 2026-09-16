@@ -1,6 +1,8 @@
 import { randomUUID } from 'node:crypto';
+import { normalizeAssociations, type QsoEntityAssociations } from './operationEntities';
 
-export const QSO_SCHEMA_VERSION = 1 as const;
+export const QSO_SCHEMA_VERSION = 2 as const;
+export const QSO_PREVIOUS_SCHEMA_VERSION = 1 as const;
 export const QSO_MAX_ID_LENGTH = 128;
 export const QSO_MAX_CALLSIGN_LENGTH = 32;
 export const QSO_MAX_TEXT_LENGTH = 500;
@@ -26,13 +28,14 @@ export interface Qso {
   readonly gridSquare?: string;
   readonly potaRef?: string;
   readonly sotaRef?: string;
+  readonly entityAssociations: QsoEntityAssociations;
   readonly notes?: string;
   readonly source: QsoSource;
   readonly createdAtUtc: string;
   readonly updatedAtUtc: string;
 }
 
-export interface CreateQsoInput { readonly activationId: unknown; readonly qsoDateTimeUtc: unknown; readonly callsign: unknown; readonly band?: unknown; readonly frequencyMHz?: unknown; readonly mode: unknown; readonly submode?: unknown; readonly rstSent?: unknown; readonly rstReceived?: unknown; readonly stationCallsign?: unknown; readonly operatorCallsign?: unknown; readonly myGridSquare?: unknown; readonly gridSquare?: unknown; readonly potaRef?: unknown; readonly sotaRef?: unknown; readonly notes?: unknown; readonly source?: unknown; }
+export interface CreateQsoInput { readonly activationId: unknown; readonly qsoDateTimeUtc: unknown; readonly callsign: unknown; readonly band?: unknown; readonly frequencyMHz?: unknown; readonly mode: unknown; readonly submode?: unknown; readonly rstSent?: unknown; readonly rstReceived?: unknown; readonly stationCallsign?: unknown; readonly operatorCallsign?: unknown; readonly myGridSquare?: unknown; readonly gridSquare?: unknown; readonly potaRef?: unknown; readonly sotaRef?: unknown; readonly entityAssociations?: unknown; readonly notes?: unknown; readonly source?: unknown; }
 export interface QsoNormalizationResult { readonly valid: boolean; readonly qso: Qso | null; readonly issues: readonly string[]; }
 
 export function createQso(input: CreateQsoInput, options: { readonly now?: () => Date; readonly createId?: () => string } = {}): Qso {
@@ -46,7 +49,7 @@ export function normalizeQso(input: unknown): QsoNormalizationResult {
   const issues: string[] = [];
   if (!isRecord(input)) return invalid(['QSO must be an object.']);
   const schemaVersion = input.schemaVersion === undefined ? QSO_SCHEMA_VERSION : input.schemaVersion;
-  if (schemaVersion !== QSO_SCHEMA_VERSION) issues.push('schemaVersion is unsupported.');
+  if (schemaVersion !== QSO_SCHEMA_VERSION && schemaVersion !== QSO_PREVIOUS_SCHEMA_VERSION) issues.push('schemaVersion is unsupported.');
   const qsoId = id(input.qsoId, 'qsoId', issues); const activationId = id(input.activationId, 'activationId', issues);
   const qsoDateTimeUtc = timestamp(input.qsoDateTimeUtc, 'qsoDateTimeUtc', issues); const callsign = callsignValue(input.callsign, issues);
   const mode = text(input.mode, 'mode', 32, issues, true)?.toUpperCase();
@@ -57,7 +60,8 @@ export function normalizeQso(input: unknown): QsoNormalizationResult {
   if (band && frequencyMHz !== undefined && !isCompatibleBand(band, frequencyMHz)) issues.push('frequencyMHz contradicts band.');
   const source = input.source === undefined ? 'manual' : input.source;
   if (source !== 'manual' && source !== 'adif_import' && source !== 'wsjtx') issues.push('source is unsupported.');
-  const result: Qso = { schemaVersion: QSO_SCHEMA_VERSION, qsoId: qsoId!, activationId: activationId!, qsoDateTimeUtc: qsoDateTimeUtc!, callsign: callsign!, band: band!, ...(frequencyMHz === undefined ? {} : { frequencyMHz }), mode: mode as QsoMode, ...optionalText(input, issues), source: source as QsoSource, createdAtUtc: timestamp(input.createdAtUtc, 'createdAtUtc', issues)!, updatedAtUtc: timestamp(input.updatedAtUtc, 'updatedAtUtc', issues)! };
+  let entityAssociations: QsoEntityAssociations = { schemaVersion: 1, entities: [] }; try { entityAssociations = normalizeAssociations(input.entityAssociations, { potaRef: input.potaRef, sotaRef: input.sotaRef }); } catch (error) { issues.push(error instanceof Error ? error.message : 'entityAssociations is invalid.'); }
+  const result: Qso = { schemaVersion: QSO_SCHEMA_VERSION, qsoId: qsoId!, activationId: activationId!, qsoDateTimeUtc: qsoDateTimeUtc!, callsign: callsign!, band: band!, ...(frequencyMHz === undefined ? {} : { frequencyMHz }), mode: mode as QsoMode, ...optionalText(input, issues), entityAssociations, source: source as QsoSource, createdAtUtc: timestamp(input.createdAtUtc, 'createdAtUtc', issues)!, updatedAtUtc: timestamp(input.updatedAtUtc, 'updatedAtUtc', issues)! };
   return issues.length || !qsoId || !activationId || !qsoDateTimeUtc || !callsign || !band || !result.createdAtUtc || !result.updatedAtUtc ? invalid(issues) : { valid: true, qso: result, issues: [] };
 }
 export function validateQso(input: unknown): input is Qso { return normalizeQso(input).valid; }

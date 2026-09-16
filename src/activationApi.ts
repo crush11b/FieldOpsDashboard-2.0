@@ -1,4 +1,5 @@
 import type { Activation, ActivationObjectiveSelection, ActivationOperatingObjective, ActivationStatus } from '../server/activation';
+import type { ActivationEntityState, OperationProgram } from '../server/operationEntities';
 
 export type ActivationApiResult = { readonly kind: 'activation'; readonly status?: 'created' | 'existing' | 'updated' | 'reconciled'; readonly activation: Activation; readonly diagnostics?: readonly unknown[]; readonly reconciledActivationIds?: readonly string[] } | { readonly kind: 'activation_error'; readonly code: string; readonly message: string };
 
@@ -14,6 +15,7 @@ export async function updateActivationObjective(activationId: string, operatingO
   const response = await fetch(`/api/activations/${encodeURIComponent(activationId)}/objective`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ objectiveSelection, ...(operatingObjective ? { operatingObjective } : {}) }) });
   return readResult(response, 'The Activation objective could not be updated.');
 }
+export async function updateActivationEntities(activationId: string, input: { entityState?: ActivationEntityState; add?: { program: OperationProgram; reference: string; displayName?: string } }): Promise<ActivationApiResult> { const response = await fetch(`/api/activations/${encodeURIComponent(activationId)}/entities`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(input) }); return readResult(response, 'The Activation entities could not be updated.'); }
 export async function reconcileActiveActivation(keepActivationId: string): Promise<ActivationApiResult> {
   const response = await fetch('/api/activations/reconcile', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keepActivationId }) });
   return readResult(response, 'The active Activations could not be reconciled.');
