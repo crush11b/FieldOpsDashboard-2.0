@@ -1,0 +1,73 @@
+name: V3 release gate
+
+on:
+  pull_request:
+    branches:
+      - main
+    paths-ignore:
+      - '.github/agents/**'
+  push:
+    branches:
+      - integration/3.0-12-release-gate
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.x
+          cache: npm
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Install dependencies and P.533 runtime
+        shell: pwsh
+        run: |
+          npm ci
+          npm run p533:provision
+          npm run p533:verify
+      - name: Verify metadata
+        run: npm run metadata:check
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build
+        run: npm run build
+      - name: Vitest shard 1 of 4
+        run: npx --no-install vitest run --shard=1/4 --maxWorkers=1
+      - name: Vitest shard 2 of 4
+        run: npx --no-install vitest run --shard=2/4 --maxWorkers=1
+      - name: Vitest shard 3 of 4
+        run: npx --no-install vitest run --shard=3/4 --maxWorkers=1
+      - name: Vitest shard 4 of 4
+        run: npx --no-install vitest run --shard=4/4 --maxWorkers=1
+      - name: Test Agent solution
+        run: dotnet test agent/FieldOps.Agent.sln --configuration Release
+      - name: Test PowerShell scripts with Pester 3.4
+        shell: powershell
+        run: |
+          Set-ExecutionPolicy -Scope Process -ExecutionPolicy Bypass -Force
+          Import-Module Pester -RequiredVersion 3.4.0 -Force
+          $tests = @(
+            Get-ChildItem scripts/tests, agent/scripts/tests -Filter '*.Tests.ps1' -File |
+              Sort-Object FullName |
+              ForEach-Object FullName
+          )
+          $result = Invoke-Pester -Script $tests -PassThru -OutputFormat NUnitXml -OutputFile testResults.xml
+          if ($result.FailedCount -ne 0) {
+            throw "Pester reported $($result.FailedCount) failed tests."
+          }
+      - name: Check whitespace
+        shell: pwsh
+        run: git diff --check
+      - name: Upload test report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: v3-release-gate-test-results-${{ github.sha }}
+          path: testResults.xml
+          if-no-files-found: ignore
