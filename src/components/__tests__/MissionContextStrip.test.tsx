@@ -32,7 +32,7 @@ describe('MissionContextStrip', () => {
     for (const phase of ['plan', 'prepare', 'operate', 'review'] as const) {
       rerender(<MissionContextStrip brief={brief} activation={activation} phase={phase} qsoCount={3} />);
       const context = screen.getByRole('region', { name: 'Mission and operation context' });
-      expect(context).toHaveTextContent(`${phase} · retained mission context`);
+      expect(context).toHaveTextContent(`${phase} · operation context`);
       expect(context).toHaveTextContent('FM17');
       expect(context).toHaveTextContent('IC-705 · EFHW · 10 W');
       expect(context).toHaveTextContent('Portable · 2 items');
