@@ -25,7 +25,7 @@ Describe 'FieldOps CF-20 development updater' {
     It 'uses the resolved SHA for updater download, invocation, and identity verification' {
         $script:launcher | Should Match 'raw\.githubusercontent\.com/\$RepositoryName/\$ResolvedRevision/\$\(\$relativePath\.Replace'
         $script:launcher | Should Match 'FieldOps\.BackupRetention\.psm1'
-        $script:launcher | Should Match '-Revision \$resolvedRevision'
+        $script:launcher | Should Match '''-Revision'', \$resolvedRevision'
         $script:launcher | Should Match 'Get-InstalledVersion -ExpectedRevision \$resolvedRevision'
         $script:launcher | Should Match 'sourceRevision.*ExpectedRevision'
         $script:launcher | Should Match 'nativeRevision.*ExpectedRevision'

@@ -134,6 +134,6 @@ Describe 'UpdateDashboard desktop rollback-validation entry point' {
     It 'retains the deliberate pre-copy failure seam used by rollback validation' {
         $source = Get-Content -LiteralPath $updaterPath -Raw
         $source | Should Match '\[switch\]\$SimulateCopyFailure'
-        $source | Should Match 'if \(\$SimulateCopyFailure\).*Simulated deployment failure'
+        $source | Should Match 'if \(\$SimulateCopyFailure\)[\s\S]*Simulated deployment failure'
     }
 }
