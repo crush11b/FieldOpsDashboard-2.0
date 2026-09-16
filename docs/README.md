@@ -9,6 +9,7 @@ The `planning/` directory contains the development roadmap, engineering backlog,
 The active product strategy is defined by:
 
 - [`planning/Version-3.0-Field-Operations-Assistant.md`](planning/Version-3.0-Field-Operations-Assistant.md) - authoritative V3.0 scope, architecture, migration, sequencing, and acceptance contract
+- [`planning/Version-3.0-Integration-Decision-Closure.md`](planning/Version-3.0-Integration-Decision-Closure.md) - final V3.0 dispositions for SmartFrequency, Local/NVIS, communications, logbook, scoring, diagnostic, and equipment-enrichment decision tracks
 - [`planning/FieldOpsDashboard_Project_Rebaseline_2026.md`](planning/FieldOpsDashboard_Project_Rebaseline_2026.md)
 - [`architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md`](architecture/decisions/ADR-007-Single-Operator-MVP-and-Proportionate-Engineering.md)
 - [`architecture/decisions/ADR-013-Operating-Context-and-Multi-Entity-QSO-Associations.md`](architecture/decisions/ADR-013-Operating-Context-and-Multi-Entity-QSO-Associations.md) - accepted V3.0 operating-context and QSO-association contract
