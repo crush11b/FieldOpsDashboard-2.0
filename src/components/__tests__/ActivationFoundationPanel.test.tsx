@@ -7,6 +7,9 @@ import { ActivationFoundationPanel, WSJTX_DIAGNOSTICS_POLL_INTERVAL_MS, WSJTX_DI
 const brief = {
   briefId: 'brief-start',
   activation: { program: 'POTA', reference: 'K-1234', displayName: 'Test Park' },
+  plannedOperatingSite: { location: { coordinates: { lat: 37.4, lon: -77.4 }, gridSquare: 'FM17' }, description: 'Retained plan' },
+  missionWindow: { start: '2026-08-26T11:00:00.000Z', midpoint: '2026-08-26T12:00:00.000Z', end: '2026-08-26T13:00:00.000Z' },
+  station: { radio: { name: 'IC-705' }, antenna: { type: 'EFHW' }, selectedModes: ['SSB'], transmitPowerWatts: 10 },
 } as any;
 const plannedActivation = {
   activationId: 'activation-start',
@@ -25,6 +28,13 @@ const activeActivation = { ...plannedActivation, status: 'active', startedAtUtc:
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 
 describe('ActivationFoundationPanel', () => {
+  it('shows authoritative planned facts from the retained brief rather than copied Activation fields', () => {
+    render(<ActivationFoundationPanel brief={brief} initialActivation={plannedActivation} showReview={false} />);
+    expect(screen.getByText('PLANNED LOCATION').parentElement).toHaveTextContent('FM17');
+    expect(screen.getByText('PLANNED MISSION WINDOW').parentElement).toHaveTextContent('2026-08-26 11:00:00 UTC to 2026-08-26 13:00:00 UTC');
+    expect(screen.queryByText('FM18')).toBeNull();
+  });
+
   it('starts a planned activation, exposes the logger, and keeps IDs in technical details', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
       if (String(input).includes('/status')) return { ok: true, json: async () => ({ kind: 'activation', activation: activeActivation }) };

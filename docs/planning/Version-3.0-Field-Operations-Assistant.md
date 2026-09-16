@@ -427,6 +427,8 @@ Implementation disposition: the inventory and reusable-loadout stores are operat
 
 Carry one authoritative mission/operation context through PLAN, PREPARE, OPERATE, and REVIEW; remove duplicate primary data entry without creating a universal framework.
 
+Implementation disposition: the retained SmartDeploy brief is authoritative for planned identity, site, mission window, station, and immutable loadout snapshot. The Activation is authoritative for lifecycle status, actual operating times, operator objective, QSOs, notes, and retained results. Compatibility copies on an Activation do not become competing planned truth; mismatches are disclosed while the retained brief remains authoritative. A shared context strip carries these facts through PLAN, PREPARE, OPERATE, and REVIEW without adding another data-entry screen or a generalized mission framework.
+
 ### V3.0-09 — Mission reasoning and duration-aware propagation
 
 Implement sampled mission-window presentation and bounded deterministic equipment, power, weather, antenna/deployment, contingency, and limitation findings.

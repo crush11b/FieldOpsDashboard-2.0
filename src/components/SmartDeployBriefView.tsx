@@ -9,6 +9,7 @@ import { ActivationReviewPanel } from './ActivationReviewPanel';
 import { listQsos } from '../qsoApi';
 import { reconcileActiveActivation, startActivationFromBrief, updateActivationObjective } from '../activationApi';
 import { LiveBandActivityPanel } from './LiveBandActivityPanel';
+import { MissionContextStrip } from './MissionContextStrip';
 
 interface SmartDeployBriefViewProps {
   brief: SmartDeployBrief;
@@ -152,10 +153,7 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     {activeActivations.length > 1 && <div role="alert" className="rounded-xl border border-red-700/70 bg-red-950/30 p-3 space-y-2"><strong className="text-[11px] uppercase text-red-200">AMBIGUOUS ACTIVE ACTIVATION STATE</strong><p className="text-[11px] text-red-100">WSJT-X QSOs are paused until one active Activation is kept. Historical records and QSOs will be preserved; the other active records will be completed.</p><div className="flex flex-wrap gap-2">{activeActivations.map(item => <button key={item.activationId} type="button" onClick={() => void repairActiveActivations(item.activationId)} className="min-h-11 rounded border border-red-500 px-3 py-2 text-[10px] font-bold text-red-100">KEEP {item.reference || item.activationId} ACTIVE</button>)}</div></div>}
     {reconciliationMessage && <p role="status" className="rounded border border-emerald-700/70 bg-emerald-950/30 p-3 text-[11px] text-emerald-200">{reconciliationMessage}</p>}
     <header className="sticky top-0 z-10 rounded-xl border border-cyan-700/70 bg-slate-950/95 p-3 shadow-lg">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div><h3 className="font-black text-sm uppercase text-cyan-200">{brief.activation.reference}{brief.activation.displayName ? ` · ${brief.activation.displayName}` : ''}</h3><p className="text-[10px] text-slate-400">{brief.activation.program} · {brief.activation.gridSquare || 'Grid unavailable'} · {formatUtc(brief.missionWindow.start)} to {formatUtc(brief.missionWindow.end)} · {activation?.status || 'PLANNED'}</p></div>
-        {activation && <button type="button" className="text-[11px] font-black text-amber-200 underline" onClick={() => setPhase('operate')}>{qsoCount === null ? 'QSOs in OPERATE' : `${qsoCount} QSOs`}</button>}
-      </div>
+      <MissionContextStrip brief={brief} activation={activation} phase={phase} qsoCount={qsoCount} onOpenOperate={() => setPhase('operate')} />
       <nav aria-label="Activation workspace" className="mt-3 grid grid-cols-4 gap-1">
         {(['plan', 'prepare', 'operate', 'review'] as const).map(item => <button key={item} type="button" aria-current={phase === item ? 'page' : undefined} aria-pressed={phase === item} onClick={() => setPhase(item)} className="fo-theme-choice min-h-11 rounded border border-transparent px-2 text-[10px] font-black uppercase">{item}</button>)}
       </nav>
