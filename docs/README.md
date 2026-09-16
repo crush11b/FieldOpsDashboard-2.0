@@ -29,6 +29,8 @@ The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-Li
 
 The closed V3.0 workflow audit is [`validation/Version-3.0-11-Workflow-Punch-List-Audit.md`](validation/Version-3.0-11-Workflow-Punch-List-Audit.md). It records authoritative data homes, primary terminology corrections, completed/deferred/release-gated work, and field acceptance of production multi-entity logging and per-entity ADIF export. V3.0-12 integration and release gates remain open.
 
+The V3.0-12 automated-integration evidence is [`validation/Version-3.0-12-Automated-Integration-Gate.md`](validation/Version-3.0-12-Automated-Integration-Gate.md). It records the complete supported Windows gate and exact totals. CF-20 migration, rollback, reboot/sign-in acceptance, final identity reconciliation, and release authorization remain open.
+
 The authoritative V2.9-09 automated-integration evidence is [`validation/Version-2.9-09-Automated-Integration-Gate.md`](validation/Version-2.9-09-Automated-Integration-Gate.md). It records the passed automated gate and completed V2.9-09 evidence boundary.
 
 The authoritative V2.9-09 live update and CF-20 acceptance evidence is [`validation/Version-2.9-09-Field-CF20-Acceptance.md`](validation/Version-2.9-09-Field-CF20-Acceptance.md). It records the updater correction, successful running-Dashboard update and reboot verification.
