@@ -35,7 +35,7 @@ Decision-track dispositions are authoritative in `Version-3.0-Integration-Decisi
 - The supported Windows automated integration gate passed with four sequential single-worker Vitest shards, the complete Agent solution, Windows PowerShell Pester 3.4.0, metadata, build, P.533, and whitespace gates.
 - Subsequent release-candidate PR gates also passed after rollback support and deleted-record presentation were added.
 - [`Version-3.0-12-CF20-Field-Acceptance.md`](Version-3.0-12-CF20-Field-Acceptance.md) records running-Dashboard update, source/native parity, runtime hash, controlled rollback, reboot/sign-in survival, Agent/Tray readiness, retained-data checks, multi-entity export, and field-correction acceptance.
-- Final exact totals and the approved release commit will be added after this branch's complete supported Windows gate passes.
+- PR #99 Windows release gate run `35182192965` passed for release-head commit `a9cce91947cd2c23a35439da2d9fb3b4988958d0` (GitHub PR merge test commit `148ee261fef6d2acff005c617e656b12ce4254c6`): 1,360 Vitest tests across four sequential single-worker shards, 483 Agent solution tests, and 178 Pester 3.4.0 tests passed with zero failures. Metadata, typecheck, production build, P.533 verification, and whitespace checks also passed. The durable test-report artifact is `v3-release-gate-test-results-148ee261fef6d2acff005c617e656b12ce4254c6`, SHA-256 `70e9e751e2770a0f031e802f1dd51a6b2da3dbbd5cc8784a9b841f802be3edfe`.
 
 ## Known evidence limitation
 
