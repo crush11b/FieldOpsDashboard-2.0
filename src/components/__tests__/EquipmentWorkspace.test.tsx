@@ -55,6 +55,12 @@ describe('EquipmentWorkspace', () => {
     ] }) : response({ loadouts: [] })));
     render(<EquipmentWorkspace />);
     await screen.findByText('Active Radio');
+    expect(screen.queryByText('Deleted Radio')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'SHOW DELETED (1)' }));
+    expect(screen.getByText('Deleted Radio')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'RESTORE' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'HIDE DELETED' }));
+    expect(screen.queryByText('Deleted Radio')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('tab', { name: /LOADOUTS/ }));
     expect(screen.getByRole('option', { name: 'Active Radio' })).toBeInTheDocument();
     expect(screen.queryByRole('option', { name: 'Deleted Radio' })).not.toBeInTheDocument();
