@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ---
 
+## [3.0.0] - Field Operations Assistant
+
+Version 3.0.0 turns the existing dashboard, Activation workspace, App Catalog, SmartDeploy tools, evidence sources, and logging functions into a cohesive single-operator field-operations workflow.
+
+### Added
+- **Unified mission context**: Planning target, operating window, location, station/loadout, modes, power, evidence, active operation, and retained review share bounded versioned contracts.
+- **Multi-entity logging**: Activations and canonical QSOs support multiple POTA and SOTA associations, active-set inheritance, association editing, duplicate-safe import, and one entity-specific ADIF file per reference.
+- **Equipment inventory and loadouts**: Stable local records retain operator-entered facts, limitations, reusable loadouts, activation associations, and historical snapshots. Deleted records are hidden by default and remain recoverable.
+- **Field Operations Assistant guidance**: Deterministic resource, power, weather, propagation, and deployment findings disclose sources, freshness, limitations, and unknown values.
+- **Duration-aware propagation**: Mission-window periods distinguish start, intervening, midpoint, and end evidence without claiming continuous or true-path prediction.
+- **Field tools and correctness**: Offline Maidenhead conversion, local-time/DST weather presentation, weather-condition and precipitation context, and Agent-owned connected Wi-Fi SSID presentation.
+- **Rollback validation**: A supported Desktop action exercises transactional rollback and verifies restoration of Dashboard, Agent, Tray, and exact source/native identity.
+
+### Changed
+- **Workflow consolidation**: PLAN, PREPARE, OPERATE, and REVIEW carry mission and evidence context through one operator-controlled lifecycle.
+- **Visual semantics**: Day/night presentation uses deliberate semantic status treatment, improved hierarchy, touch targets, focus states, and CF-20 landscape readability while retaining the accepted operator-preferred palette.
+- **Evidence integrity**: Daily/current SSN, modeled P.533 SSN, weather, propagation, and observed RF remain separately sourced and truthfully labeled.
+
+### Validation
+- Complete supported Windows release gates, CF-20 exact-revision updates, controlled rollback, reboot/sign-in survival, source/native parity, runtime identity, and retained operator-data checks are recorded in the V3.0 validation and release-closure documents.
+- Stable tag and GitHub release publication remain separately authorized.
+
 ## [2.9.1] - Deployment identity and rollback safety patch
 
 Version 2.9.1 hardens the V2.9.0 deployment path without changing product scope or native artifact behavior.
