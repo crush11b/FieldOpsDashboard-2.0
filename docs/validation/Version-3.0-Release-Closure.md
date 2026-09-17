@@ -4,7 +4,7 @@
 - Release branch: `release/3.0.0-closure`
 - Product version: **3.0.0**
 - Release name: **Field Operations Assistant**
-- Status: **Release candidate preparation; stable publication not authorized**
+- Status: **RELEASED — stable publication completed**
 
 ## Product boundary
 
@@ -41,6 +41,18 @@ Decision-track dispositions are authoritative in `Version-3.0-Integration-Decisi
 
 The real CF-20 advanced incrementally from V2.9.1 through V3.0 development. A separate complete all-store pre-V3 backup manifest was not retained before the first V3 write and cannot be recreated retroactively. The repository tests prove the backup/hash/restore contract, and the operator verified real record continuity across updates, rollback, and reboot. This closure records that limitation rather than inventing a missing artifact.
 
-## Publication boundary
+## Final release identity
 
-This document does not authorize merge, deployment, reboot, creation of the annotated `v3.0.0` tag, or publication of the stable GitHub release. After the release branch passes its complete gate, the exact approved merge commit must produce a matching immutable native artifact and receive final CF-20 identity verification. Each irreversible action remains separately authorized.
+- Approved merge and release commit: `33345ca48b3ac58017338ae44ba0fcd0918edd8e`.
+- Stable source tag and release: [`v3.0.0`](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v3.0.0).
+- Native asset: `fieldops-native-win-x64.zip`, 239,724,804 bytes.
+- Native asset SHA-256: `3d88d1fb3f951bbedaf503a0c9aca7a27c905dcd3a6e6eb805f03fa1d3e87444`.
+- Final CF-20 source/native revisions: `33345ca48b3ac58017338ae44ba0fcd0918edd8e` / `33345ca48b3ac58017338ae44ba0fcd0918edd8e`.
+- Final CF-20 informational version: `3.0.0+33345ca48b3ac58017338ae44ba0fcd0918edd8e`.
+- Final CF-20 runtime-bundle SHA-256: `e3615b33ac356fd92425e902b7f9b9f499f741a040cb9115ef3c2df86a10dedc`.
+
+## Publication record
+
+The operator separately authorized merge, exact-revision native publication, CF-20 deployment, reboot validation, tag creation, and stable GitHub publication. The stable release was published only after source/native parity, runtime identity, retained records, Agent startup, Tray startup, and Dashboard readiness were verified on the CF-20.
+
+The release procedure called for an annotated tag. During publication, the operator explicitly approved using the existing lightweight lowercase `v3.0.0` tag at the exact release commit. This is the accepted release deviation; it does not change the commit or artifact identity.
