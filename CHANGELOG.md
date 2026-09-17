@@ -27,7 +27,7 @@ Version 3.0.0 turns the existing dashboard, Activation workspace, App Catalog, S
 
 ### Validation
 - Complete supported Windows release gates, CF-20 exact-revision updates, controlled rollback, reboot/sign-in survival, source/native parity, runtime identity, and retained operator-data checks are recorded in the V3.0 validation and release-closure documents.
-- Stable tag and GitHub release publication remain separately authorized.
+- Stable release [`v3.0.0`](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v3.0.0) was published from commit `33345ca48b3ac58017338ae44ba0fcd0918edd8e` with the matching immutable Windows native artifact.
 
 ## [2.9.1] - Deployment identity and rollback safety patch
 
