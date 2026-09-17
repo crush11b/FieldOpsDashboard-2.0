@@ -2,8 +2,8 @@
 
 > A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-[![Version 2.9.1](https://img.shields.io/badge/version-2.9.1-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v2.9.1)
-[![Status](https://img.shields.io/badge/status-2.9.1%20accepted-C47F00?style=for-the-badge)](#current-release)
+[![Version 3.0.0](https://img.shields.io/badge/version-3.0.0-005B96?style=for-the-badge)](#current-release)
+[![Status](https://img.shields.io/badge/status-3.0.0%20release%20candidate-C47F00?style=for-the-badge)](#current-release)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
 
 ## What it is
@@ -20,9 +20,9 @@ The project prioritizes practical single-operator field usefulness, trustworthy 
 
 ## Current release
 
-**Version 2.9.1 — Deployment Identity and Rollback Safety**
+**Version 3.0.0 — Field Operations Assistant**
 
-This release completes Operational Intelligence on top of the dependable Windows Local Agent and Tray baseline. It is designed for single-operator ToughBook use with local and offline operation, honest source and freshness states, retained activation evidence, mission-aware guidance, and separate modeled, environmental, observed-RF, and station-specific evidence.
+V3.0 connects planning, reusable equipment/loadout facts, mission evidence, SmartDeploy guidance, active operations, multi-entity logging, and retained review into one local-first single-operator workflow. It preserves the Windows Agent/Tray security boundary and keeps live, cached, stale, unavailable, manual, modeled, and observed evidence distinct.
 
 Operations Assistant includes:
 
@@ -37,11 +37,16 @@ Operations Assistant includes:
 - **Mission-window evidence**: Retained terrestrial forecasts, brief-scoped space-weather evidence, and an offline P.533 band outlook remain available across restart and offline use; forecasts and propagation are not guarantees.
 - **Activation lifecycle**: PLAN, PREPARE, OPERATE, and REVIEW support activation start, QSO logging, Activation Notes, completion, and retained evidence review.
 - **QSO Logger and ADIF**: Activation-owned contacts support manual logging, bounded ADIF import, and ADIF export.
+- **Multi-entity operations**: One operation and one canonical QSO can carry multiple POTA and SOTA associations; export produces one entity-specific ADIF artifact without inflating QSO totals.
+- **Equipment and loadouts**: Versioned local inventory, reusable loadouts, retained snapshots, limitations, and operator-entered facts support repeatable field preparation.
+- **Field Operations Assistant guidance**: Mission, loadout, weather, propagation, power, and evidence context produce bounded, explainable guidance without inventing missing facts or controlling the radio.
+- **Duration-aware propagation**: Start, intervening, midpoint, and end mission-window evidence is presented without claiming continuous or true-path prediction.
+- **Field correctness tools**: Local-time weather presentation, condition/precipitation context, Agent-owned Wi-Fi SSID, and an offline Maidenhead calculator address field-observed needs.
 - **WSJT-X Connected Operations**: Current Station consumes read-only WSJT-X state, and type 5/type 12 logged-QSO events share one provenance-aware ingestion path with conservative duplicate suppression.
 - **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [Version 2.9 changelog](CHANGELOG.md), the [V2.9 Field Product Completion contract](docs/planning/Version-2.9-Field-Product-Completion.md), and the [V2.9.1 release-closure record](docs/validation/Version-2.9.1-Release-Closure.md). V2.9.1 is the accepted production baseline for V3.0 planning.
+See the [changelog](CHANGELOG.md), the [V3.0 Field Operations Assistant contract](docs/planning/Version-3.0-Field-Operations-Assistant.md), and the [V3.0 release-closure record](docs/validation/Version-3.0-Release-Closure.md). Tagging and stable publication remain separately authorized.
 
 ## What works today
 
@@ -84,9 +89,9 @@ CAT/direct radio control, PTT/transmit control, spotting, equipment/loadout prof
 
 ## SmartDeploy and activation-support scope
 
-The current SmartDeploy and activation-support workflow is the bounded V2.9.1 capability: retained offline POTA/SOTA planning briefs, mission-window context, modeled propagation, environmental and space-weather evidence, Activation Notes, readiness checks, activation lifecycle, QSO logging, and review. These capabilities remain evidence-grounded and do not provide radio control or guaranteed path prediction.
+The current SmartDeploy and activation-support workflow is the bounded V3.0 capability: retained offline POTA/SOTA planning briefs, mission-window context, selected loadouts, modeled propagation, environmental and space-weather evidence, explainable guidance, Activation Notes, readiness checks, multi-entity activation lifecycle, QSO logging, and review. These capabilities remain evidence-grounded and do not provide radio control or guaranteed path prediction.
 
-The future concept is:
+The implemented workflow is:
 
 ```text
 Equipment Inventory
@@ -98,9 +103,9 @@ Equipment Inventory
         -> Active Mission
 ```
 
-Future SmartDeploy work may synthesize POTA/SOTA mission context, an operating window, selected equipment and loadout, weather forecasts and hazards, space-weather outlooks, propagation modeling, antenna deployment considerations, power/endurance considerations, contingencies, and evidence-grounded operational recommendations.
+SmartDeploy synthesizes bounded POTA/SOTA mission context, an operating window, selected equipment and loadout, weather forecasts and hazards, space-weather outlooks, propagation modeling, antenna deployment considerations, power/endurance considerations, contingencies, and evidence-grounded operational recommendations.
 
-The retained brief workflow is available in the accepted V2.9.1 product. Persistent equipment inventory, reusable loadouts, resource-aware guidance, richer mission reasoning, multi-entity logging, and duration-aware propagation are governed by the [V3.0 Field Operations Assistant contract](docs/planning/Version-3.0-Field-Operations-Assistant.md).
+Persistent equipment inventory, reusable loadouts, resource-aware guidance, multi-entity logging, per-entity ADIF export, and duration-aware propagation are governed by the [V3.0 Field Operations Assistant contract](docs/planning/Version-3.0-Field-Operations-Assistant.md).
 
 ## Architecture at a glance
 
@@ -193,7 +198,7 @@ The supported native artifact publisher and release mechanics are documented wit
 
 ## Project status
 
-FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 2.9.1 is the accepted production baseline. Version 3.0 planning is governed by the Field Operations Assistant contract; implementation, merge, deployment, tagging, and publication remain separately authorized. Local/NVIS and other conditional integration tracks remain uncommitted unless separately approved.
+FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 3.0.0 is the completed Field Operations Assistant release candidate for the supported single-operator CF-20 deployment. Tagging and stable publication remain separately authorized. Local/NVIS and other conditional integration tracks remain deferred unless separately approved.
 
 Some integrations require local hardware, installed radio applications, configured credentials, or live external services. Modeled, cached, stale, unavailable, and manual values should be interpreted according to their displayed status.
 

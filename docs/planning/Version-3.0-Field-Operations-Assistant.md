@@ -453,7 +453,7 @@ Closure status: [`Version-3.0-11-Workflow-Punch-List-Audit.md`](../validation/Ve
 
 Run the complete automated gate, migrate real V2.9.1 data, verify update and rollback, complete reboot/sign-in field acceptance, and prepare release closure. Publication remains separately authorized.
 
-Automated-gate status: [`Version-3.0-12-Automated-Integration-Gate.md`](../validation/Version-3.0-12-Automated-Integration-Gate.md) records the passed supported Windows gate at `b61e6fddd6c08e92f27216211638c1daa43fef8f`: 1,360 Vitest tests, 483 Agent solution tests, and 175 Pester tests passed with zero failures. CF-20 migration, rollback, reboot/sign-in acceptance, final release identity, and publication remain open.
+Automated-gate status: [`Version-3.0-12-Automated-Integration-Gate.md`](../validation/Version-3.0-12-Automated-Integration-Gate.md) records the passed supported Windows gate at `b61e6fddd6c08e92f27216211638c1daa43fef8f`: 1,360 Vitest tests, 483 Agent solution tests, and 175 Pester tests passed with zero failures. [`Version-3.0-12-CF20-Field-Acceptance.md`](../validation/Version-3.0-12-CF20-Field-Acceptance.md) records subsequent running-update, rollback, reboot/sign-in, exact identity, retained-data, multi-entity export, and field-correction acceptance. [`Version-3.0-Release-Closure.md`](../validation/Version-3.0-Release-Closure.md) prepares the 3.0.0 release candidate; final exact-revision deployment, tagging, and stable publication remain separately authorized.
 
 ## 19. Dependencies
 

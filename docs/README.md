@@ -27,9 +27,9 @@ The historical roadmap and engineering backlogs remain inputs only after reconci
 
 The authoritative V2.9-08 closure record is [`validation/Version-2.9-08-Punch-List-Closure.md`](validation/Version-2.9-08-Punch-List-Closure.md). It records evidence and final dispositions for every inventoried punch-list item while preserving the historical V2.8 boundary.
 
-The closed V3.0 workflow audit is [`validation/Version-3.0-11-Workflow-Punch-List-Audit.md`](validation/Version-3.0-11-Workflow-Punch-List-Audit.md). It records authoritative data homes, primary terminology corrections, completed/deferred/release-gated work, and field acceptance of production multi-entity logging and per-entity ADIF export. V3.0-12 integration and release gates remain open.
+The closed V3.0 workflow audit is [`validation/Version-3.0-11-Workflow-Punch-List-Audit.md`](validation/Version-3.0-11-Workflow-Punch-List-Audit.md). It records authoritative data homes, primary terminology corrections, completed/deferred/release-gated work, and field acceptance of production multi-entity logging and per-entity ADIF export.
 
-The V3.0-12 automated-integration evidence is [`validation/Version-3.0-12-Automated-Integration-Gate.md`](validation/Version-3.0-12-Automated-Integration-Gate.md). It records the complete supported Windows gate and exact totals. CF-20 migration, rollback, reboot/sign-in acceptance, final identity reconciliation, and release authorization remain open.
+The V3.0-12 automated-integration evidence is [`validation/Version-3.0-12-Automated-Integration-Gate.md`](validation/Version-3.0-12-Automated-Integration-Gate.md). CF-20 update, rollback, reboot/sign-in, runtime identity, and retained-data evidence is recorded in [`validation/Version-3.0-12-CF20-Field-Acceptance.md`](validation/Version-3.0-12-CF20-Field-Acceptance.md). The final release-candidate boundary and publication controls are recorded in [`validation/Version-3.0-Release-Closure.md`](validation/Version-3.0-Release-Closure.md).
 
 The authoritative V2.9-09 automated-integration evidence is [`validation/Version-2.9-09-Automated-Integration-Gate.md`](validation/Version-2.9-09-Automated-Integration-Gate.md). It records the passed automated gate and completed V2.9-09 evidence boundary.
 
