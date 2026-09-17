@@ -3,8 +3,8 @@
 - Date: **2026-09-17**
 - Supported target: one locally operated Panasonic ToughBook CF-20
 - Accepted V2.9.1 baseline: `7e67ed7a1820ce5fa11b57b89cf33808fb07aa3c`
-- Final pre-release field revision: `9c4dd6571e1b4124d818315fa27a12bb8450946e`
-- Status: **PASSED for the implemented V3.0 product; final 3.0.0 identity deployment remains a release gate**
+- Final release revision: `33345ca48b3ac58017338ae44ba0fcd0918edd8e`
+- Status: **PASSED — final V3.0.0 release accepted**
 
 ## Data continuity and migration
 
@@ -27,6 +27,13 @@ The post-reboot `/api/version` response reported:
 - runtime bundle SHA-256: `b49f2d02433d8938b177272c77d227bfa3aff7ef1a34d9eea1bed5afff77db0c`.
 
 The final pre-release field correction then updated successfully to `9c4dd6571e1b4124d818315fa27a12bb8450946e` with matched source/native identity and a running Dashboard. The operator accepted deleted equipment/loadouts hidden by default, explicit `Show Deleted` recovery, preserved active records, and intact Activation loadout associations.
+
+The exact stable-release revision then updated successfully. The final `/api/version` response reported:
+
+- source revision: `33345ca48b3ac58017338ae44ba0fcd0918edd8e`;
+- native revision: `33345ca48b3ac58017338ae44ba0fcd0918edd8e`;
+- informational version: `3.0.0+33345ca48b3ac58017338ae44ba0fcd0918edd8e`;
+- runtime bundle SHA-256: `e3615b33ac356fd92425e902b7f9b9f499f741a040cb9115ef3c2df86a10dedc`.
 
 ## Controlled rollback
 
@@ -56,6 +63,6 @@ After an explicitly authorized reboot and normal operator sign-in:
 
 The operator also accepted the V3.0 field corrections through the incremental candidate cycle: actual connected Wi-Fi SSID and fallbacks, local-time weather/DST behavior, condition and precipitation context, offline Maidenhead calculation, day/night presentation, mission evidence, loadout association behavior, duration-aware propagation, current/model SSN separation, multi-entity logging, and per-entity ADIF export.
 
-## Remaining release gate
+## Final release acceptance
 
-The exact approved `3.0.0` metadata/closure commit must pass the complete Windows gate, produce a matching immutable native artifact, and be deployed once to the CF-20 for final version/source/native/runtime identity verification. Tagging and stable release publication require separate explicit authorization.
+The exact `3.0.0` release commit passed the supported Windows gate, produced a matching immutable native artifact, and was deployed to the CF-20. After reboot, the operator verified Agent and Tray startup, Dashboard readiness, exact source/native identity, runtime-bundle identity, App Catalog continuity, and retained operational records. The operator accepted the field result and separately authorized stable publication.
