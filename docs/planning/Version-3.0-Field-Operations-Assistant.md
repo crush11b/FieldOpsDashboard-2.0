@@ -447,13 +447,13 @@ Decision disposition: [`Version-3.0-Integration-Decision-Closure.md`](Version-3.
 
 Review the complete workflow, remove internal terminology from primary UI, confirm authoritative data homes, finish documentation, and disposition all unresolved items.
 
-Closure status: [`Version-3.0-11-Workflow-Punch-List-Audit.md`](../validation/Version-3.0-11-Workflow-Punch-List-Audit.md) confirms the shared workflow and authoritative data homes and records closure of the production multi-entity blocker. V3.0-11B connected entity/association schemas, active-set editing, manual and WSJT-X inheritance, association editing, migration compatibility, and duplicate-safe import. V3.0-11C added one entity-specific ADIF artifact per associated POTA or SOTA entity without duplicating canonical QSOs or totals. The CF-20 verified exact source/native parity and the operator accepted a two-POTA/one-SOTA export producing three files. V3.0-11 is closed; V3.0-12 release gates remain open.
+Closure status: [`Version-3.0-11-Workflow-Punch-List-Audit.md`](../validation/Version-3.0-11-Workflow-Punch-List-Audit.md) confirms the shared workflow and authoritative data homes and records closure of the production multi-entity blocker. V3.0-11B connected entity/association schemas, active-set editing, manual and WSJT-X inheritance, association editing, migration compatibility, and duplicate-safe import. V3.0-11C added one entity-specific ADIF artifact per associated POTA or SOTA entity without duplicating canonical QSOs or totals. The CF-20 verified exact source/native parity and the operator accepted a two-POTA/one-SOTA export producing three files. V3.0-11 and the dependent V3.0-12 release gates are closed.
 
 ### V3.0-12 — Integration, CF-20 acceptance, and release closure
 
-Run the complete automated gate, migrate real V2.9.1 data, verify update and rollback, complete reboot/sign-in field acceptance, and prepare release closure. Publication remains separately authorized.
+Run the complete automated gate, migrate real V2.9.1 data, verify update and rollback, complete reboot/sign-in field acceptance, and prepare release closure. Publication requires separate authorization.
 
-Automated-gate status: [`Version-3.0-12-Automated-Integration-Gate.md`](../validation/Version-3.0-12-Automated-Integration-Gate.md) records the passed supported Windows gate at `b61e6fddd6c08e92f27216211638c1daa43fef8f`: 1,360 Vitest tests, 483 Agent solution tests, and 175 Pester tests passed with zero failures. [`Version-3.0-12-CF20-Field-Acceptance.md`](../validation/Version-3.0-12-CF20-Field-Acceptance.md) records subsequent running-update, rollback, reboot/sign-in, exact identity, retained-data, multi-entity export, and field-correction acceptance. [`Version-3.0-Release-Closure.md`](../validation/Version-3.0-Release-Closure.md) prepares the 3.0.0 release candidate; final exact-revision deployment, tagging, and stable publication remain separately authorized.
+Closure status: [`Version-3.0-12-Automated-Integration-Gate.md`](../validation/Version-3.0-12-Automated-Integration-Gate.md) records the initial passed supported Windows integration gate: 1,360 Vitest tests, 483 Agent solution tests, and 175 Pester tests passed with zero failures. The final release-candidate gate subsequently passed 1,360 Vitest, 483 Agent, and 178 Pester tests with zero failures. [`Version-3.0-12-CF20-Field-Acceptance.md`](../validation/Version-3.0-12-CF20-Field-Acceptance.md) records running-update, rollback, reboot/sign-in, exact identity, retained-data, multi-entity export, and field-correction acceptance. [`Version-3.0-Release-Closure.md`](../validation/Version-3.0-Release-Closure.md) records final exact-revision deployment, accepted tag deviation, artifact identity, and stable `v3.0.0` publication. V3.0-12 is closed.
 
 ## 19. Dependencies
 
@@ -556,6 +556,8 @@ After all implementation and acceptance work is merged:
 9. Deploy that exact revision to the CF-20.
 10. Verify parity, migration, runtime identity, Agent, Tray, Dashboard, and reboot survival.
 11. Record final field acceptance.
+
+Completion record: V3.0.0 was released from commit `33345ca48b3ac58017338ae44ba0fcd0918edd8e`. The operator explicitly approved the existing lightweight lowercase `v3.0.0` tag as a deviation from step 6's annotated-tag requirement after verifying that it pointed at the exact approved commit. The immutable native asset and final CF-20 runtime identity are recorded in the release-closure document.
 
 Automated success does not authorize merge, publication, tagging, deployment, reboot, or release. Each irreversible action requires explicit operator authorization.
 
