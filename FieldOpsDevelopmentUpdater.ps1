@@ -5,7 +5,8 @@ param(
     [string]$InstallPath = 'C:\FieldOpsDashboard',
     [string]$OperatorAccount = '.\stick',
     [string]$Repository = 'crush11b/FieldOpsDashboard-2.0',
-    [string]$Branch = 'main'
+    [string]$Branch = 'main',
+    [switch]$ValidateRollback
 )
 
 $runAsScript = $MyInvocation.InvocationName -ne '.'
@@ -47,6 +48,25 @@ function Resolve-DevelopmentRevision {
 
     try { $response = ($body -join [Environment]::NewLine) | ConvertFrom-Json } catch { throw "GitHub returned invalid JSON while resolving branch '$BranchName'." }
     return Assert-FullSha -Value ([string]$response.sha) -Description "GitHub revision for branch '$BranchName'"
+}
+
+function Resolve-ParentRevision {
+    param(
+        [Parameter(Mandatory = $true)][string]$RepositoryName,
+        [Parameter(Mandatory = $true)][string]$RevisionValue
+    )
+    $apiUrl = "https://api.github.com/repos/$RepositoryName/commits/$RevisionValue"
+    $body = & curl.exe --fail --silent --show-error --location --connect-timeout 10 --max-time 30 `
+        -H 'Accept: application/vnd.github+json' `
+        -H 'User-Agent: FieldOpsDashboard-Development-Updater' `
+        $apiUrl
+    if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($body -join ''))) {
+        throw "Could not resolve the parent of revision '$RevisionValue' from GitHub."
+    }
+    try { $response = ($body -join [Environment]::NewLine) | ConvertFrom-Json } catch { throw "GitHub returned invalid JSON for revision '$RevisionValue'." }
+    $parents = @($response.parents)
+    if ($parents.Count -lt 1) { throw "Revision '$RevisionValue' has no parent available for rollback validation." }
+    return Assert-FullSha -Value ([string]$parents[0].sha) -Description "Parent of revision '$RevisionValue'"
 }
 
 function Assert-DownloadedUpdater {
@@ -99,11 +119,16 @@ function Invoke-DevelopmentBootstrapDownload {
     return @(Get-DevelopmentBootstrapFiles | ForEach-Object { Join-Path $BootstrapRoot $_ })
 }
 
-function Get-InstalledVersion {
-    param([Parameter(Mandatory = $true)][string]$ExpectedRevision)
+function Get-InstalledVersionSnapshot {
     $response = & curl.exe --fail --silent --show-error --location --connect-timeout 5 --max-time 10 http://127.0.0.1:3000/api/version
     if ($LASTEXITCODE -ne 0 -or [string]::IsNullOrWhiteSpace(($response -join ''))) { throw 'Dashboard /api/version could not be reached after deployment.' }
     try { $version = ($response -join [Environment]::NewLine) | ConvertFrom-Json } catch { throw 'Dashboard /api/version returned invalid JSON.' }
+    return $version
+}
+
+function Get-InstalledVersion {
+    param([Parameter(Mandatory = $true)][string]$ExpectedRevision)
+    $version = Get-InstalledVersionSnapshot
     if ([string]$version.sourceRevision -ne $ExpectedRevision) { throw "Dashboard sourceRevision '$($version.sourceRevision)' does not match expected revision '$ExpectedRevision'." }
     if ([string]$version.nativeRevision -ne $ExpectedRevision) { throw "Dashboard nativeRevision '$($version.nativeRevision)' does not match expected revision '$ExpectedRevision'." }
     return $version
@@ -127,6 +152,7 @@ $ProgressPreference = 'SilentlyContinue'
 $tempRoot = Join-Path $env:TEMP ('FieldOpsDevelopmentUpdater-' + [Guid]::NewGuid().ToString('N'))
 $downloadedUpdater = Join-Path $tempRoot 'UpdateDashboard.ps1'
 $sourceDescription = 'Explicit revision'
+$rollbackBaseline = $null
 try {
     if (-not (Test-Path -LiteralPath $InstallPath -PathType Container)) { throw "APP_DIR '$InstallPath' does not exist." }
     Assert-Tool -Name 'curl'
@@ -135,6 +161,17 @@ try {
 
     $resolvedRevision = Resolve-DevelopmentRevision -RepositoryName $Repository -BranchName $Branch -ExplicitRevision $Revision
     if ([string]::IsNullOrWhiteSpace($Revision)) { $sourceDescription = "Development branch '$Branch'" }
+    if ($ValidateRollback) {
+        $rollbackBaseline = Get-InstalledVersionSnapshot
+        $baselineSource = Assert-FullSha -Value ([string]$rollbackBaseline.sourceRevision) -Description 'Installed source revision'
+        $baselineNative = Assert-FullSha -Value ([string]$rollbackBaseline.nativeRevision) -Description 'Installed native revision'
+        if ($baselineSource -ne $baselineNative) { throw "Rollback validation requires matching installed source/native revisions; observed '$baselineSource' and '$baselineNative'." }
+        if ($resolvedRevision -eq $baselineSource) {
+            $resolvedRevision = Resolve-ParentRevision -RepositoryName $Repository -RevisionValue $baselineSource
+            $sourceDescription = "Parent of installed revision '$baselineSource'"
+        }
+        if ($resolvedRevision -eq $baselineSource) { throw 'Rollback validation requires a candidate revision different from the installed revision.' }
+    }
     Write-Host '============================================================' -ForegroundColor Cyan
     Write-Host ' FIELDOPS DEVELOPMENT UPDATE' -ForegroundColor Cyan
     Write-Host '============================================================' -ForegroundColor Cyan
@@ -142,18 +179,41 @@ try {
     Write-Host "Resolved revision:   $resolvedRevision"
     Write-Host "Source:              $sourceDescription"
     Write-Host '============================================================' -ForegroundColor Cyan
-    $confirmation = Read-Host 'Deploy this revision? [Y/N]'
+    $confirmationPrompt = if ($ValidateRollback) { 'Exercise transactional rollback and restore the current installation? [Y/N]' } else { 'Deploy this revision? [Y/N]' }
+    $confirmation = Read-Host $confirmationPrompt
     if ($confirmation -notmatch '^(?i:y|yes)$') { throw 'Deployment cancelled by operator.' }
 
     $bootstrapFiles = Invoke-DevelopmentBootstrapDownload -RepositoryName $Repository -ResolvedRevision $resolvedRevision -BootstrapRoot $tempRoot
     $downloadedUpdater = $bootstrapFiles[0]
     Write-Host "[OK] Validated exact-revision bootstrap set ($($bootstrapFiles.Count) files)." -ForegroundColor Green
 
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File $downloadedUpdater `
-        -InstallPath $InstallPath -OperatorAccount $OperatorAccount -Repository $Repository -Revision $resolvedRevision `
-        -NativeArtifactUrl "https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip" `
-        -EnableCf20GnssRecovery
-    if ($LASTEXITCODE -ne 0) { throw "UpdateDashboard.ps1 failed with exit code $LASTEXITCODE." }
+    $updaterArguments = @(
+        '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', $downloadedUpdater,
+        '-InstallPath', $InstallPath, '-OperatorAccount', $OperatorAccount, '-Repository', $Repository,
+        '-Revision', $resolvedRevision,
+        '-NativeArtifactUrl', "https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip",
+        '-EnableCf20GnssRecovery'
+    )
+    if ($ValidateRollback) { $updaterArguments += '-SimulateCopyFailure' }
+    & powershell.exe @updaterArguments
+    $updaterExitCode = $LASTEXITCODE
+
+    if ($ValidateRollback) {
+        if ($updaterExitCode -eq 0) { throw 'Rollback validation failed because the controlled deployment failure did not occur.' }
+        $version = Get-InstalledVersion -ExpectedRevision ([string]$rollbackBaseline.sourceRevision)
+        Write-Host ''
+        Write-Host '============================================================' -ForegroundColor Green
+        Write-Host ' FIELDOPS DEVELOPMENT ROLLBACK VERIFIED' -ForegroundColor Green
+        Write-Host '============================================================' -ForegroundColor Green
+        Write-Host "Attempted revision:    $resolvedRevision"
+        Write-Host "Restored revision:     $($version.sourceRevision)"
+        Write-Host 'Source revision:       MATCHED' -ForegroundColor Green
+        Write-Host 'Native revision:       MATCHED' -ForegroundColor Green
+        Write-Host 'Dashboard:             RUNNING' -ForegroundColor Green
+        Write-Host '============================================================' -ForegroundColor Green
+        exit 0
+    }
+    if ($updaterExitCode -ne 0) { throw "UpdateDashboard.ps1 failed with exit code $updaterExitCode." }
 
     $version = Get-InstalledVersion -ExpectedRevision $resolvedRevision
     Write-Host ''

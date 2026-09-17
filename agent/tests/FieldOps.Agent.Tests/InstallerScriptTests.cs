@@ -167,7 +167,7 @@ public sealed class InstallerScriptTests
         Assert.Contains("C:\\FieldOpsDashboard", updater);
         Assert.Contains("Set-Location -LiteralPath $installParent", updater);
         var developmentUpdater = File.ReadAllText(Path.Combine(GetRepositoryRoot(), "FieldOpsDevelopmentUpdater.ps1"));
-        Assert.Contains("-NativeArtifactUrl \"https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip\"", developmentUpdater);
+        Assert.Contains("'-NativeArtifactUrl', \"https://github.com/$Repository/releases/download/native-$resolvedRevision/fieldops-native-win-x64.zip\"", developmentUpdater);
         Assert.Contains("-EnableCf20GnssRecovery", developmentUpdater);
     }
 

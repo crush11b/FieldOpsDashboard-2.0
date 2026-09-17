@@ -119,3 +119,21 @@ Describe 'UpdateDashboard runtime shutdown ordering' {
         $wrapperCleanup | Should BeGreaterThan $runtimeShutdown
     }
 }
+
+Describe 'UpdateDashboard desktop rollback-validation entry point' {
+    It 'refreshes the supported Desktop tools only after runtime readiness succeeds' {
+        $source = Get-Content -LiteralPath $updaterPath -Raw
+        $readinessPassed = $source.IndexOf("if (`$readiness.Status -eq 'Passed')")
+        $shortcutSetup = $source.IndexOf("Install-FieldOpsDevelopmentUpdater.ps1') -RepositoryRoot `$resolvedInstallPath")
+        $deploymentComplete = $source.IndexOf("Write-Host '[OK] FieldOps Dashboard update complete.'")
+        $readinessPassed | Should BeGreaterThan -1
+        $shortcutSetup | Should BeGreaterThan $readinessPassed
+        $deploymentComplete | Should BeGreaterThan $shortcutSetup
+    }
+
+    It 'retains the deliberate pre-copy failure seam used by rollback validation' {
+        $source = Get-Content -LiteralPath $updaterPath -Raw
+        $source | Should Match '\[switch\]\$SimulateCopyFailure'
+        $source | Should Match 'if \(\$SimulateCopyFailure\)[\s\S]*Simulated deployment failure'
+    }
+}
