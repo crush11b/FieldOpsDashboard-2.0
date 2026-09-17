@@ -2,8 +2,8 @@
 
 > A locally operated, field-first amateur-radio operations platform for portable and rugged deployments.
 
-[![Version 3.0.0](https://img.shields.io/badge/version-3.0.0-005B96?style=for-the-badge)](#current-release)
-[![Status](https://img.shields.io/badge/status-3.0.0%20release%20candidate-C47F00?style=for-the-badge)](#current-release)
+[![Version 3.0.0](https://img.shields.io/badge/version-3.0.0-005B96?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v3.0.0)
+[![Status](https://img.shields.io/badge/status-3.0.0%20stable-2E7D32?style=for-the-badge)](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v3.0.0)
 [![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-1F6FEB?style=for-the-badge&logo=windows&logoColor=white)](#supported-environment)
 
 ## What it is
@@ -46,7 +46,7 @@ Operations Assistant includes:
 - **CF-20 field acceptance**: Sustained WSJT-X multicast, Current Station tracking, simultaneous FieldOps plus Otto consumption, and real over-the-air QSO ingestion passed on the Panasonic ToughBook CF-20 Mk2.
 - **ToughBook runtime semantics**: GNSS clock readiness, Dashboard runtime replacement, revision/runtime parity, and interactive Tray restoration are validated for deployment.
 
-See the [changelog](CHANGELOG.md), the [V3.0 Field Operations Assistant contract](docs/planning/Version-3.0-Field-Operations-Assistant.md), and the [V3.0 release-closure record](docs/validation/Version-3.0-Release-Closure.md). Tagging and stable publication remain separately authorized.
+Download the stable release from [GitHub Releases](https://github.com/crush11b/FieldOpsDashboard-2.0/releases/tag/v3.0.0). See the [changelog](CHANGELOG.md), the [V3.0 Field Operations Assistant contract](docs/planning/Version-3.0-Field-Operations-Assistant.md), and the [V3.0 release-closure record](docs/validation/Version-3.0-Release-Closure.md).
 
 ## What works today
 
@@ -198,7 +198,7 @@ The supported native artifact publisher and release mechanics are documented wit
 
 ## Project status
 
-FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 3.0.0 is the completed Field Operations Assistant release candidate for the supported single-operator CF-20 deployment. Tagging and stable publication remain separately authorized. Local/NVIS and other conditional integration tracks remain deferred unless separately approved.
+FieldOps Dashboard is actively developed for controlled local deployment and field evaluation. Version 3.0.0 is the accepted stable Field Operations Assistant release for the supported single-operator CF-20 deployment. Local/NVIS and other conditional integration tracks remain deferred unless separately approved.
 
 Some integrations require local hardware, installed radio applications, configured credentials, or live external services. Modeled, cached, stale, unavailable, and manual values should be interpreted according to their displayed status.
 
