@@ -82,7 +82,7 @@ const verifyP533Assets = async () => { await execFileAsync(process.execPath, ['s
 
 async function startServer() {
   const app = express();
-  const PORT = 3000;
+  const PORT = Number(process.env.PORT) || 3000;
   const distPath = path.join(process.cwd(), 'dist');
   const runtimeBundleSha256 = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex');
   const runtimeDeploymentIdentity = loadDeploymentIdentity(process.env.FIELDOPS_DEPLOYMENT_MANIFEST_PATH, __filename);
@@ -154,6 +154,7 @@ async function startServer() {
     multicastInterface: wsjtxConfiguration.multicastInterface,
     onLoggedQso: routeWsjtxQso,
     adifWatcher: wsjtxAdifWatcher,
+    logger: console,
   });
   wsjtxListener.start();
   wsjtxAdifWatcher.start();

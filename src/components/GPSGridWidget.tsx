@@ -26,7 +26,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   theme,
   audioEnabled,
   onUpdateGPS,
-  comPort = 'COM6 (GPS Receiver)',
+  comPort = 'AUTO_DETECT',
   baudRate = 9600,
   onSelectComPort,
   clockEvidence,
@@ -289,12 +289,12 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
         <div className="flex items-center gap-2">
           <button
             id="btn-trigger-gps-refresh"
-            aria-label="Request native GPS fix"
+            aria-label="Refresh GPS status"
             onClick={handleRequestNativeGpsFix}
             className="fo-control min-h-11 px-2 rounded border text-[10px] font-bold flex items-center gap-1 active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed"
-            title="Request coordinates from native NMEA GNSS"
+            title="Refresh status from native NMEA GNSS"
           >
-            <RefreshCw className="w-3 h-3" /> GPS FIX
+            <RefreshCw className="w-3 h-3" /> REFRESH STATUS
           </button>
           
           <button
@@ -481,7 +481,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                   <span>LAST GPS SYNC: {formatEvidenceTime(clockEvidence?.lastSuccessfulSynchronizationUtc)}</span>
                   <span>CALCULATED OFFSET: {typeof (clockEvidence?.currentOffsetSeconds ?? clockEvidence?.offsetBeforeSynchronizationSeconds) === 'number' ? `${(clockEvidence.currentOffsetSeconds ?? clockEvidence.offsetBeforeSynchronizationSeconds)!.toFixed(3)} s` : 'Not available'}</span>
                   <span>LAST REQUEST: {clockEvidence?.windowsSetAttempted ? clockEvidence.windowsSetAccepted ? clockEvidence.verificationPerformed ? clockEvidence.status === 'Error' ? 'SET ACCEPTED / VERIFICATION FAILED' : clockEvidence.status === 'Degraded' ? 'SET ACCEPTED / DEGRADED' : 'SET ACCEPTED / VERIFIED' : 'SET ACCEPTED / NOT VERIFIED' : 'SET REJECTED' : clockEvidence?.requestAccepted ? clockEvidence.status === 'Synchronized' ? 'NO-OP / READY' : 'REQUEST ACCEPTED / NO SET' : 'NOT ACCEPTED'}</span>
-                  <span>SOURCE: FieldOps Agent / COM6</span>
+                  <span>SOURCE: FieldOps Agent / {gps.comPort || comPort}</span>
                 </div>
                 {onSynchronizeClock && <div className="mt-2 flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-1 text-[10px]"><input type="checkbox" checked={clockConfirmed} onChange={event => setClockConfirmed(event.currentTarget.checked)} /> CONFIRM WINDOWS CLOCK SYNC</label>
@@ -512,7 +512,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             }}
             className="fo-input min-h-11 px-2 py-0.5 border rounded font-bold text-[11px]"
           >
-            <option value="COM6 (GPS Receiver)">COM6 (Configured GNSS Port)</option>
+            <option value="AUTO_DETECT">AUTO-DETECT (available GNSS port)</option>
             <option value="COM6">COM6 (Standard Serial)</option>
             <option value="COM1">COM1 (Standard System Serial)</option>
             <option value="COM2">COM2 (Serial Port 2)</option>

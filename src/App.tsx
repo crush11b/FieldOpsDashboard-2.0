@@ -312,9 +312,7 @@ export default function App() {
       weatherTimersRef.current = { weather: null, alerts: null };
       weatherControllersRef.current.weather?.abort();
       weatherControllersRef.current.alerts?.abort();
-      setWeather(null);
       setWeatherStatus('unavailable');
-      setNoaaAlerts(null);
       setAlertsStatus('unavailable');
       void refreshSolar();
       return;

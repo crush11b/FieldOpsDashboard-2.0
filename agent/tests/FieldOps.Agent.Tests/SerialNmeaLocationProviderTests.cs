@@ -289,6 +289,16 @@ public sealed class SerialNmeaLocationProviderTests
     [Fact] public async Task LaterInvalidRmcMakesGgaCycleNoFix() { var result = await Run(new FakeReader(Gga, "$GPRMC,123519.00,V,4807.038,N,01131.000,E,0,0,230394,,,A")); Assert.Equal(LocationStatus.NoFix, result.Status); }
     [Fact] public async Task LaterInvalidGgaMakesRmcCycleNoFix() { var result = await Run(new FakeReader(Rmc, Gga.Replace(",1,08,", ",0,08,"))); Assert.Equal(LocationStatus.NoFix, result.Status); }
     [Fact] public async Task InvalidThenValidProducesAvailable() { var result = await Run(new FakeReader("$GPRMC,123519.00,V,4807.038,N,01131.000,E,0,0,230394,,,A", Gga)); Assert.Equal(LocationStatus.Available, result.Status); }
+    [Fact]
+    public async Task AutoDetectChoosesTheReceiverProducingValidNmeaWhenInternalAndUsbArePresent()
+    {
+        var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "AUTO_DETECT", 9600, TimeSpan.FromMilliseconds(1), portEnumerator: () => new[] { "COM6", "COM12" }, candidateReaderFactory: (port, _) => port == "COM12" ? new FakeReader(Gga) : new FakeReader("garbage"), noDataTimeout: TimeSpan.FromMilliseconds(20));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().PortName == "COM12");
+        await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available);
+        Assert.Equal("COM12", provider.GetDiagnostics().PortName);
+        await provider.StopAsync(CancellationToken.None);
+    }
 
     private static SerialNmeaLocationProvider Provider(INmeaSerialReader reader, TimeSpan? noDataTimeout = null) => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(80), () => reader, noDataTimeout);
     private static async Task<LocationObservation> Run(FakeReader fake)

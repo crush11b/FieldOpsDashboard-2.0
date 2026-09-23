@@ -7,6 +7,6 @@
   "majorCapabilities": [
     "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ],
-  "version": "3.0.0",
-  "releaseName": "Field Operations Assistant"
+  "version": "3.0.1",
+  "releaseName": "Multicast QSO and Activation Repair"
 }

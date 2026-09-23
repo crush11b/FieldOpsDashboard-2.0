@@ -1,7 +1,7 @@
 {
   "name": "fieldops-dashboard",
   "private": true,
-  "version": "3.0.0",
+  "version": "3.0.1",
   "type": "module",
   "scripts": {
     "metadata:sync": "node scripts/sync-product-metadata.mjs",

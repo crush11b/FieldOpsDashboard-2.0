@@ -15,6 +15,8 @@ const WSJTX_STATUS_MESSAGE = 1;
 const WSJTX_QSO_LOGGED_MESSAGE = 5;
 const WSJTX_LOGGED_ADIF_MESSAGE = 12;
 
+export type WsjtxLogger = Pick<Console, 'info' | 'warn' | 'error'>;
+
 export interface WsjtxObservation {
   readonly state: CurrentStationState;
   readonly receivedAtUtc: string;
@@ -189,7 +191,7 @@ export class WsjtxListener {
   private lastCurrentRequestId: number | null = null;
   private lastCurrentRequestReceivedAtUtc: string | null = null;
   private lastCurrentResponseProducedAtUtc: string | null = null;
-  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void; readonly adifWatcher?: WsjtxAdifWatcher } = {}) {}
+  constructor(private readonly options: { readonly host?: string; readonly port?: number; readonly multicastAddress?: string; readonly multicastInterface?: string; readonly networkInterfaces?: () => NodeJS.Dict<os.NetworkInterfaceInfo[]>; readonly now?: () => Date; readonly onLoggedQso?: (candidate: WsjtxLoggedQsoCandidate) => string | void; readonly adifWatcher?: WsjtxAdifWatcher; readonly logger?: WsjtxLogger } = {}) {}
 
   start(): void {
     if (this.socket || this.recoveryTimer) return;
@@ -208,7 +210,12 @@ export class WsjtxListener {
     const bindHost = this.options.multicastAddress ? '0.0.0.0' : this.options.host ?? WSJTX_DEFAULT_HOST;
     this.socket = socket;
     socket.bind(this.options.port ?? WSJTX_DEFAULT_PORT, bindHost, () => {
-      if (!this.options.multicastAddress) { this.listenerState = 'active'; this.lastError = null; return; }
+      if (!this.options.multicastAddress) {
+        this.listenerState = 'active';
+        this.lastError = null;
+        this.options.logger?.info(`[WSJT-X] listener started bind=${bindHost}:${this.options.port ?? WSJTX_DEFAULT_PORT} mode=unicast joinedInterfaces=none`);
+        return;
+      }
       const interfaces = this.options.multicastInterface ? [this.options.multicastInterface] : this.getEligibleMulticastInterfaces();
       const failures: string[] = [];
       for (const networkInterface of interfaces) {
@@ -220,6 +227,8 @@ export class WsjtxListener {
       if (failures.length) this.lastSocketError = this.lastError;
       this.listenerState = 'active';
       this.recoveryAttempts = 0;
+      this.options.logger?.info(`[WSJT-X] listener started bind=${bindHost}:${this.options.port ?? WSJTX_DEFAULT_PORT} mode=multicast group=${this.options.multicastAddress} joinedInterfaces=${[...this.joinedMulticastInterfaces].join(',')}`);
+      for (const failure of failures) this.options.logger?.warn(`[WSJT-X] multicast membership failed group=${this.options.multicastAddress} detail=${failure}`);
     });
   }
 
@@ -240,6 +249,7 @@ export class WsjtxListener {
       this.lastLoggedQsoBand = loggedQso.band;
       this.lastLoggedQsoMode = loggedQso.mode;
       this.lastLoggedQsoFrequencyMHz = loggedQso.frequencyMHz;
+      this.options.logger?.info(`[WSJT-X] LoggedQso accepted eventType=${loggedQso.eventType ?? 5} callsign=${loggedQso.callsign} band=${loggedQso.band ?? 'unknown'} mode=${loggedQso.mode} frequencyMHz=${loggedQso.frequencyMHz}`);
       setImmediate(() => {
         try {
           const result = this.options.onLoggedQso?.(loggedQso);
@@ -252,10 +262,13 @@ export class WsjtxListener {
             this.lastImportFailureStage = separator < 0 ? outcome : outcome.slice(0, separator);
             this.lastImportFailureReason = separator < 0 ? null : outcome.slice(separator + 1);
           }
+          const logOutcome = outcome === 'dedupe:duplicate' ? 'duplicate' : outcome;
+          this.options.logger?.info(`[WSJT-X] LoggedQso routing status=${logOutcome} callsign=${loggedQso.callsign}`);
         } catch {
           this.lastLoggedQsoResult = 'handler_error';
           this.lastImportFailureStage = 'handler';
           this.lastImportFailureReason = 'The Logged QSO handler failed.';
+          this.options.logger?.error(`[WSJT-X] LoggedQso routing status=handler_error callsign=${loggedQso.callsign}`);
         }
       });
     } else if (isLoggedQsoPacket(packet)) {
@@ -303,7 +316,7 @@ export class WsjtxListener {
     const addresses = new Set<string>();
     for (const entries of Object.values(this.options.networkInterfaces?.() ?? os.networkInterfaces())) {
       for (const entry of entries ?? []) {
-        if (entry.family === 'IPv4') addresses.add(entry.address);
+        if (entry.family === 'IPv4' && entry.address !== '0.0.0.0') addresses.add(entry.address);
       }
     }
     return [...addresses].sort();

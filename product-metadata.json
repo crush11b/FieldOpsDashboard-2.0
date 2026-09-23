@@ -2,7 +2,7 @@
   "productName": "FieldOps Dashboard",
   "productId": "FieldOpsDashboard",
   "packageName": "fieldops-dashboard",
-  "version": "3.0.0",
-  "releaseName": "Field Operations Assistant",
+  "version": "3.0.1",
+  "releaseName": "Multicast QSO and Activation Repair",
   "repository": "crush11b/FieldOpsDashboard-2.0"
 }

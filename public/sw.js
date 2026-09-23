@@ -1,5 +1,5 @@
-// FieldOps Dashboard 3.0.0 — Field Operations Assistant - Offline Field Service Worker
-const CACHE_NAME = 'fieldops-3.0.0-shell-v1';
+// FieldOps Dashboard 3.0.1 — Multicast QSO and Activation Repair - Offline Field Service Worker
+const CACHE_NAME = 'fieldops-3.0.1-shell-v1';
 
 const PRECACHE_URLS = [
   '/',

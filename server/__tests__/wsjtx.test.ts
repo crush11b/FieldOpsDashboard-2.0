@@ -18,8 +18,22 @@ const loggedAdifPacket = (adif = '<CALL:4>W1AW<QSO_DATE:8>20260827<TIME_ON:6>174
 const fixedLoggedQsoFixture = Uint8Array.from(Buffer.from('adbccbda00000002000000050000000657534a542d580000000000258e6003cd7ed801000000045731415700000004464e33310000000000d6c09000000003465438000000032d3130000000032d3132000000033530570000000000000005416c6963650000000000258e6003cc4a4001000000034f5031000000034d593100000004464e3230ffffffffffffffff00000003465438', 'hex'));
 const clock = (value: string) => () => new Date(value);
 const sockets: WsjtxListener[] = [];
+const udpSockets: dgram.Socket[] = [];
 const directories: string[] = [];
-afterEach(() => { sockets.splice(0).forEach(listener => listener.stop()); directories.splice(0).forEach(directory => fs.rmSync(directory, { recursive: true, force: true })); vi.restoreAllMocks(); });
+afterEach(() => { sockets.splice(0).forEach(listener => listener.stop()); udpSockets.splice(0).forEach(socket => { try { socket.close(); } catch { /* already closed */ } }); directories.splice(0).forEach(directory => fs.rmSync(directory, { recursive: true, force: true })); vi.restoreAllMocks(); });
+const bindUdpSocket = async (host = '127.0.0.1') => {
+  const socket = dgram.createSocket('udp4');
+  udpSockets.push(socket);
+  await new Promise<void>((resolve, reject) => { socket.once('error', reject); socket.bind(0, host, () => { socket.removeListener('error', reject); resolve(); }); });
+  return socket;
+};
+const waitFor = async (condition: () => boolean, timeoutMs = 2_000) => {
+  const startedAt = Date.now();
+  while (!condition()) {
+    if (Date.now() - startedAt >= timeoutMs) throw new Error('Timed out waiting for WSJT-X UDP assertion.');
+    await new Promise(resolve => setTimeout(resolve, 10));
+  }
+};
 
 describe('WSJT-X protocol and listener', () => {
   it('parses Status frequency and normalizes supported station context', () => {
@@ -111,6 +125,43 @@ describe('WSJT-X protocol and listener', () => {
     listener.start(); listener.start();
     await new Promise(resolve => setTimeout(resolve, 10));
     expect(createSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('accepts a real unicast datagram through the bound listener socket', async () => {
+    const listener = new WsjtxListener({ port: 0, host: '127.0.0.1' });
+    sockets.push(listener);
+    listener.start();
+    await waitFor(() => listener.getDiagnostics().listenerState === 'active');
+    const sender = await bindUdpSocket();
+    const port = (listener as any).socket.address().port as number;
+    await new Promise<void>((resolve, reject) => sender.send(statusPacket(7_074_000, 'FT4'), port, '127.0.0.1', error => error ? reject(error) : resolve()));
+    await waitFor(() => listener.getDiagnostics().statusPacketsAccepted === 1);
+    expect(listener.getDiagnostics()).toMatchObject({ listenerMode: 'unicast', packetsReceived: 1, statusPacketsAccepted: 1 });
+  });
+
+  it('accepts a real loopback multicast Logged QSO and persists it through routing', async ({ skip }) => {
+    const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'fieldops-wsjtx-multicast-'));
+    directories.push(directory);
+    const activationStore = new ActivationStore(path.join(directory, 'activations.json'), { createId: () => 'activation-1' });
+    const planned = activationStore.create({ type: 'General' }).activation;
+    activationStore.save(updateActivationStatus(planned, 'active'));
+    const qsoStore = new QsoStore(path.join(directory, 'qsos.json'), { createId: () => 'qso-1' });
+    const router = new WsjtxQsoRouter({ activationStore, qsoStore });
+    const logs: string[] = [];
+    const listener = new WsjtxListener({ port: 0, multicastAddress: '239.255.0.0', multicastInterface: '127.0.0.1', onLoggedQso: candidate => router.route(candidate).status === 'persisted' ? 'persisted' : 'unexpected', logger: { info: message => logs.push(message), warn: message => logs.push(message), error: message => logs.push(message) } });
+    sockets.push(listener);
+    listener.start();
+    try { await waitFor(() => listener.getDiagnostics().listenerState === 'active'); } catch (error) { if (listener.getDiagnostics().lastSocketError) skip(`Loopback multicast unavailable: ${listener.getDiagnostics().lastSocketError}`); throw error; }
+    const sender = await bindUdpSocket();
+    sender.setMulticastInterface('127.0.0.1');
+    sender.setMulticastLoopback(true);
+    const port = (listener as any).socket.address().port as number;
+    await new Promise<void>((resolve, reject) => sender.send(loggedQsoPacket(), port, '239.255.0.0', error => error ? reject(error) : resolve()));
+    await waitFor(() => listener.getDiagnostics().lastLoggedQsoResult === 'persisted');
+    expect(listener.getDiagnostics()).toMatchObject({ listenerMode: 'multicast', multicastJoined: true, multicastInterfaces: ['127.0.0.1'], loggedQsoPacketsAccepted: 1, lastLoggedQsoCallsign: 'W1AW' });
+    expect(qsoStore.listByActivation('activation-1').qsos).toHaveLength(1);
+    expect(logs.some(message => message.includes('mode=FT8') && message.includes('frequencyMHz=14.074'))).toBe(true);
+    expect(logs.some(message => message.includes('status=persisted') && !message.includes('packet'))).toBe(true);
   });
 
   it('joins configured multicast and accepts packets without creating duplicate sockets', () => {

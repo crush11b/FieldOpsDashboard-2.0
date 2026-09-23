@@ -14,9 +14,9 @@ const root = path.resolve(import.meta.dirname, '../..');
 describe('centralized product metadata', () => {
   it('exposes the canonical release identity and valid semantic version', () => {
     expect(PRODUCT_METADATA.productName).toBe('FieldOps Dashboard');
-    expect(PRODUCT_METADATA.version).toBe('3.0.0');
+    expect(PRODUCT_METADATA.version).toBe('3.0.1');
     expect(PRODUCT_METADATA.version).toMatch(/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
-    expect(PRODUCT_METADATA.releaseName).toBe('Field Operations Assistant');
+    expect(PRODUCT_METADATA.releaseName).toBe('Multicast QSO and Activation Repair');
   });
 
   it('keeps package and lock metadata synchronized with the authority', () => {
@@ -32,15 +32,15 @@ describe('centralized product metadata', () => {
   });
 
   it('derives user-agent, ZIP, ADIF, and sanitized diagnostic metadata', () => {
-    expect(getProductUserAgent()).toBe('FieldOpsDashboard/3.0.0');
-    expect(getProductUserAgent('NOAA/NWS')).toBe('FieldOpsDashboard/3.0.0 (NOAA/NWS)');
-    expect(getVersionedDownloadFilename()).toBe('FieldOpsDashboard-3.0.0.zip');
+    expect(getProductUserAgent()).toBe('FieldOpsDashboard/3.0.1');
+    expect(getProductUserAgent('NOAA/NWS')).toBe('FieldOpsDashboard/3.0.1 (NOAA/NWS)');
+    expect(getVersionedDownloadFilename()).toBe('FieldOpsDashboard-3.0.1.zip');
     expect(PRODUCT_METADATA.adifProgramId).toBe('FieldOpsDashboard');
-    expect(PRODUCT_METADATA.adifProgramVersion).toBe('3.0.0');
+    expect(PRODUCT_METADATA.adifProgramVersion).toBe('3.0.1');
     expect(getDiagnosticProductMetadata()).toEqual({
       product: 'FieldOps Dashboard',
-      version: '3.0.0',
-      release: 'Field Operations Assistant',
+      version: '3.0.1',
+      release: 'Multicast QSO and Activation Repair',
     });
   });
 

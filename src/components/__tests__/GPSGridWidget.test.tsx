@@ -52,7 +52,7 @@ describe('GPS source guardrail presentation', () => {
     expect(markup).not.toContain('37.5407');
     expect(markup).not.toContain('FM17hd');
     expect(markup).toMatch(/id="btn-trigger-gps-refresh"[^>]*disabled/);
-    expect(markup).toContain('aria-label="Request native GPS fix"');
+    expect(markup).toContain('aria-label="Refresh GPS status"');
   });
 
   it('keeps valid zero-valued cached coordinates visible as last-known data', () => {

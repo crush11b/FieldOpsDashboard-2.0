@@ -135,7 +135,7 @@ describe('SmartDeploy orchestration', () => {
         targetRequest: { program: 'SOTA', reference: 'w4v/sh-001' }, potaReference: undefined,
         activationTarget: undefined, plannedOperatingLocation: undefined,
       }));
-      expect(result).toMatchObject({ kind: 'smartdeploy_generation', sota: { status: 'cached', reference: 'W4V/SH-001' } });
+      expect(result).toMatchObject({ kind: 'smartdeploy_generation', sota: { status: 'stale', reference: 'W4V/SH-001' } });
       expect(network).not.toHaveBeenCalled();
       expect(propagate).toHaveBeenCalledOnce();
     } finally {
