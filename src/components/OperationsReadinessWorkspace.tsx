@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import type { OperationsReadinessDisplayEvidence } from '../../server/operationsReadinessDisplayEvidence';
 import type { OperationsReadinessSummary, ReadinessFinding, ReadinessStatus } from '../../server/operationsReadiness';
 import type { SmartDeployBriefV2 } from '../../server/smartDeployBrief';
+import type { MissionForecastRecord } from '../../server/missionForecast';
 import { getOperationsReadinessForBrief, OperationsReadinessApiError } from '../operationsReadinessApi';
 import { synchronizeClock } from '../clockApi';
 import { prepareForOfflineOperation, type OfflinePreparationResult } from '../offlinePreparationApi';
@@ -9,12 +10,15 @@ import type { Activation, ActivationObjectiveSelection, ActivationOperatingObjec
 import type { ClockSynchronizationEvidence } from '../../server/locationTelemetryPipe';
 import { defaultActivationObjective, localDateTimeToUtc, normalizeActivationObjective, type ActivationObjectiveDraft } from '../operations/activationObjective';
 
-interface OperationsReadinessWorkspaceProps { readonly brief: SmartDeployBriefV2; readonly initialActivation?: Activation | null; readonly onStartActivation?: (objective: ActivationOperatingObjective | undefined, selection: ActivationObjectiveSelection) => Promise<void>; readonly onSaveObjective?: (objective: ActivationOperatingObjective | undefined, selection: ActivationObjectiveSelection) => Promise<void>; }
+interface OperationsReadinessWorkspaceProps { readonly brief: SmartDeployBriefV2; readonly retainedForecast?: MissionForecastRecord | null; readonly initialActivation?: Activation | null; readonly onStartActivation?: (objective: ActivationOperatingObjective | undefined, selection: ActivationObjectiveSelection) => Promise<void>; readonly onSaveObjective?: (objective: ActivationOperatingObjective | undefined, selection: ActivationObjectiveSelection) => Promise<void>; }
 type LoadState = 'loading' | 'ready' | 'error' | 'unsupported';
 type ObjectiveSelectionState = ActivationObjectiveSelection | 'proposed_program_default' | 'legacy_unavailable';
 
-export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspaceProps> = ({ brief, initialActivation = null, onStartActivation, onSaveObjective }) => {
+export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspaceProps> = ({ brief, retainedForecast = null, initialActivation = null, onStartActivation, onSaveObjective }) => {
   const briefId = brief.briefId;
+  const [forecast, setForecast] = useState<MissionForecastRecord | null>(validForecastForBrief(retainedForecast, brief) ? retainedForecast : null);
+  const [forecastLoading, setForecastLoading] = useState(false);
+  const [forecastError, setForecastError] = useState<string | null>(null);
   const [summary, setSummary] = useState<OperationsReadinessSummary | null>(null);
   const [displayEvidence, setDisplayEvidence] = useState<OperationsReadinessDisplayEvidence | null>(null);
   const [loadState, setLoadState] = useState<LoadState>('loading');
@@ -57,6 +61,21 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
     };
   }, [briefId]);
 
+  useEffect(() => {
+    const controller = new AbortController();
+    setForecast(validForecastForBrief(retainedForecast, brief) ? retainedForecast : null);
+    setForecastError(null);
+    void fetch(`/api/mission-forecast/brief/${encodeURIComponent(briefId)}`, { signal: controller.signal }).then(async response => {
+      const payload = await response.json() as { readonly record?: unknown; readonly message?: string };
+      if (!response.ok) throw new Error(payload.message || 'Retained mission forecast is unavailable.');
+      if (controller.signal.aborted) return;
+      setForecast(validForecastForBrief(payload.record, brief) ? payload.record : null);
+    }).catch(error => {
+      if (!controller.signal.aborted) setForecastError(error instanceof Error ? error.message : 'Retained mission forecast is unavailable.');
+    });
+    return () => controller.abort();
+  }, [briefId, brief, retainedForecast]);
+
   const loadLiveWeather = async () => {
     if (!summary || liveLoading) return;
     const sequence = ++liveSequence.current;
@@ -75,6 +94,28 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
       setMessage(formatReadinessError(error, true));
     } finally {
       if (sequence === liveSequence.current) setLiveLoading(false);
+    }
+  };
+
+  const refreshForecast = async () => {
+    if (forecastLoading) return;
+    setForecastLoading(true);
+    setForecastError(null);
+    try {
+      const response = await fetch(`/api/mission-forecast/brief/${encodeURIComponent(briefId)}/refresh`, { method: 'POST' });
+      const payload = await response.json() as { readonly record?: unknown; readonly message?: string };
+      const returned = validForecastForBrief(payload.record, brief) ? payload.record : null;
+      if (!response.ok) {
+        setForecastError(payload.message || 'Mission forecast refresh failed; prior retained evidence is preserved.');
+        if (returned) setForecast(returned);
+        return;
+      }
+      if (returned) setForecast(returned);
+      else setForecastError('Mission forecast refresh returned no valid record; prior retained evidence is preserved.');
+    } catch (error) {
+      setForecastError(error instanceof Error ? error.message : 'Mission forecast refresh failed; prior retained evidence is preserved.');
+    } finally {
+      setForecastLoading(false);
     }
   };
 
@@ -108,12 +149,15 @@ export const OperationsReadinessWorkspace: React.FC<OperationsReadinessWorkspace
     {loadState === 'loading' && <p role="status" className="text-[11px] text-slate-400">Loading local Operations Readiness...</p>}
     {loadState === 'unsupported' && <p role="status" className="text-[11px] text-amber-200">This retained brief uses an unsupported legacy schema for Operations Readiness.</p>}
     {loadState === 'error' && <div role="alert" className="space-y-2"><p className="text-[11px] text-red-200">{message}</p><button type="button" onClick={retry} className="px-3 py-2 rounded border border-amber-700 text-amber-200 text-[10px] font-bold">RETRY LOCAL READINESS</button></div>}
-    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} initialActivation={initialActivation} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} clockAttempt={clockAttempt} onLoadLiveWeather={() => void loadLiveWeather()} onSynchronizeClock={async () => { setMessage(null); try { const result = await synchronizeClock(true); setClockAttempt(result); setMessage(result.attemptMessage); } catch (error) { setMessage(error instanceof Error ? error.message : 'Clock synchronization failed.'); } }} onStartActivation={onStartActivation ? async (objective, selection) => { if (starting) return; setStarting(true); setMessage(null); try { await onStartActivation(objective, selection); } catch (error) { setMessage(error instanceof Error ? error.message : 'Activation could not be started.'); } finally { setStarting(false); } } : undefined} onSaveObjective={onSaveObjective ? async (objective, selection) => { if (starting) return; setStarting(true); setMessage(null); try { await onSaveObjective(objective, selection); } catch (error) { setMessage(error instanceof Error ? error.message : 'Activation objective could not be saved.'); } finally { setStarting(false); } } : undefined} starting={starting} />}
+    {loadState === 'ready' && summary && displayEvidence && <ReadinessContent key={briefId} brief={brief} retainedForecast={forecast} forecastError={forecastError} forecastLoading={forecastLoading} initialActivation={initialActivation} summary={summary} displayEvidence={displayEvidence} liveLoading={liveLoading} message={message} clockAttempt={clockAttempt} onLoadLiveWeather={() => void loadLiveWeather()} onRefreshForecast={() => void refreshForecast()} onSynchronizeClock={async () => { setMessage(null); try { const result = await synchronizeClock(true); setClockAttempt(result); setMessage(result.attemptMessage); } catch (error) { setMessage(error instanceof Error ? error.message : 'Clock synchronization failed.'); } }} onStartActivation={onStartActivation ? async (objective, selection) => { if (starting) return; setStarting(true); setMessage(null); try { await onStartActivation(objective, selection); } catch (error) { setMessage(error instanceof Error ? error.message : 'Activation could not be started.'); } finally { setStarting(false); } } : undefined} onSaveObjective={onSaveObjective ? async (objective, selection) => { if (starting) return; setStarting(true); setMessage(null); try { await onSaveObjective(objective, selection); } catch (error) { setMessage(error instanceof Error ? error.message : 'Activation objective could not be saved.'); } finally { setStarting(false); } } : undefined} starting={starting} />}
   </section>;
 };
 
 const ReadinessContent: React.FC<{
   brief: SmartDeployBriefV2;
+  retainedForecast: MissionForecastRecord | null;
+  forecastError: string | null;
+  forecastLoading: boolean;
   initialActivation: Activation | null;
   summary: OperationsReadinessSummary;
   displayEvidence: OperationsReadinessDisplayEvidence;
@@ -121,11 +165,12 @@ const ReadinessContent: React.FC<{
   message: string | null;
   clockAttempt: ClockSynchronizationEvidence | null;
   onLoadLiveWeather: () => void;
+  onRefreshForecast: () => void;
   onSynchronizeClock: () => void;
   onStartActivation?: (objective: ActivationOperatingObjective | undefined, selection: ActivationObjectiveSelection) => Promise<void>;
   onSaveObjective?: (objective: ActivationOperatingObjective | undefined, selection: ActivationObjectiveSelection) => Promise<void>;
   starting: boolean;
-}> = ({ brief, initialActivation, summary, displayEvidence, liveLoading, message, clockAttempt, onLoadLiveWeather, onSynchronizeClock, onStartActivation, onSaveObjective, starting }) => {
+}> = ({ brief, retainedForecast, forecastError, forecastLoading, initialActivation, summary, displayEvidence, liveLoading, message, clockAttempt, onLoadLiveWeather, onRefreshForecast, onSynchronizeClock, onStartActivation, onSaveObjective, starting }) => {
   const checklist = summary.findings.find(finding => finding.id === 'field-readiness-checklist');
   const findingSummary = summarizeFindingStatuses(summary.findings);
   const findingsId = 'operations-readiness-findings';
@@ -172,7 +217,7 @@ const ReadinessContent: React.FC<{
       <EvidenceSection title="STATION / ANTENNA"><Detail label="RADIO" value={brief.station.radio.name} /><Detail label="ANTENNA" value={brief.station.antenna.name || brief.station.antenna.type} /><Detail label="MODES / POWER" value={`${brief.station.selectedModes.join(' / ') || 'Unavailable'} / ${brief.station.transmitPowerWatts} W`} /><Detail label="MODELED MODE" value={brief.station.modeledMode || 'Unavailable'} /></EvidenceSection>
     </div>
 
-    <WeatherEvidence evidence={displayEvidence} evaluatedAtUtc={summary.evaluatedAtUtc} loading={liveLoading} onLoad={onLoadLiveWeather} />
+    <WeatherEvidence evidence={displayEvidence} retainedForecast={retainedForecast} forecastError={forecastError} forecastLoading={forecastLoading} evaluatedAtUtc={summary.evaluatedAtUtc} loading={liveLoading} onLoad={onLoadLiveWeather} onRefreshForecast={onRefreshForecast} />
     <EvidenceSection title="OFFLINE PREPARATION">{offlinePreparation && <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">{offlinePreparation.checks.map(check => <Detail key={check.id} label={check.id.replaceAll('-', ' ')} value={`${check.status}: ${check.message}`} />)}</div>}</EvidenceSection>
     <EvidenceSection title="PROPAGATION"><p className="text-[11px] text-slate-200">{findingMessage(summary, 'propagation-evidence')}</p><p className="text-[10px] text-slate-400">Retained mission-window propagation and observed RF evidence remain authoritative in the SmartDeploy brief. Modeling is not a guarantee; observed RF is not a forecast.</p><a href="#smartdeploy-brief" className="text-[10px] text-cyan-300 underline">Review SmartDeploy propagation details</a></EvidenceSection>
 
@@ -194,7 +239,7 @@ const ReadinessContent: React.FC<{
   </>;
 };
 
-const WeatherEvidence: React.FC<{ evidence: OperationsReadinessDisplayEvidence; evaluatedAtUtc: string; loading: boolean; onLoad: () => void }> = ({ evidence, evaluatedAtUtc, loading, onLoad }) => {
+const WeatherEvidence: React.FC<{ evidence: OperationsReadinessDisplayEvidence; retainedForecast: MissionForecastRecord | null; forecastError: string | null; forecastLoading: boolean; evaluatedAtUtc: string; loading: boolean; onLoad: () => void; onRefreshForecast: () => void }> = ({ evidence, retainedForecast, forecastError, forecastLoading, evaluatedAtUtc, loading, onLoad, onRefreshForecast }) => {
   const weather = evidence.weather;
   const alerts = evidence.alerts;
   return <EvidenceSection title="DAY-OF LIVE CONDITIONS / PLANNED SITE WEATHER / ALERTS">
@@ -203,11 +248,13 @@ const WeatherEvidence: React.FC<{ evidence: OperationsReadinessDisplayEvidence; 
     {weather.status === 'live' && weather.data ? <div className="grid grid-cols-2 sm:grid-cols-4 gap-2"><Detail label="CURRENT" value={`${weather.data.tempF}°F / ${weather.data.condition}`} /><Detail label="HUMIDITY / WIND" value={`${weather.data.humidity}% / ${weather.data.windMph} mph ${weather.data.windDir}${weather.data.windGustMph === undefined ? '' : ` / gust ${weather.data.windGustMph} mph`}`} /><Detail label="PRESSURE / UV" value={`${weather.data.pressureInHg} inHg / ${weather.data.uvIndex}`} /><Detail label="LOCATION" value={weather.data.locationName} /></div> : <p className="text-[11px] text-slate-300">{weather.status === 'not_requested' ? 'Current weather and alerts are not loaded; readiness is using local retained evidence only.' : 'Live weather for the retained planned site is unavailable. Local readiness evidence is preserved.'}</p>}
     {weather.status === 'live' && <p className="text-[10px] text-slate-400">Hourly forecast (Local): {weather.data?.hourlyForecast && weather.data.hourlyForecast.length > 0 ? weather.data.hourlyForecast.slice(0, 3).map(item => `${formatLocalWeatherTime(item.utcTime || item.time)} ${item.tempF}°F, ${item.precipProb}% rain`).join(' | ') : 'Unavailable'} <span className="text-slate-500">UTC retrieval: {formatUtc(weather.retrievedAtUtc || evaluatedAtUtc)}</span></p>}
     {alerts.status === 'live' ? <div className="space-y-2">{alerts.active.length === 0 ? <p className="text-[11px] text-emerald-200">No active weather alerts are present in the available alert set.</p> : alerts.active.map(alert => <div key={alert.id} className="rounded border border-amber-700/60 bg-amber-950/20 p-2 text-[10px] space-y-1"><strong className="block text-amber-200">{alert.severity}: {alert.title}</strong><span className="block text-slate-300">{alert.description}</span><span className="block text-slate-400">{alert.area} / issued {alert.issued} / expires {alert.expires}</span></div>)}</div> : alerts.status === 'unavailable' ? <p className="text-[11px] text-slate-300">Live weather-alert evidence is unavailable. Local readiness evidence is preserved.</p> : null}
+    {retainedForecast && <div className="space-y-1 rounded border border-cyan-800/60 bg-cyan-950/20 p-2"><strong className="block text-[10px] uppercase text-cyan-200">Retained mission forecast ({forecastFreshness(retainedForecast, new Date())})</strong><span className="block text-[10px] text-slate-300">{retainedForecast.missionWindow.start} to {retainedForecast.missionWindow.end} / {retainedForecast.coverageStatus} coverage / retrieved {formatUtc(retainedForecast.retrievedAtUtc)}</span>{retainedForecast.operatingPeriods.slice(0, 3).map(period => <span key={period.periodId} className="block text-[10px] text-slate-300">{period.label}: {period.significantCondition || 'No significant condition'}, gust max {period.windGustMaxMph ?? 'Unavailable'} mph{period.windGustMaxMph !== undefined && period.windGustMaxMph > 30 ? ' / WIND GUST ALERT' : ''}</span>)}</div>}
+    {forecastError && <p role="alert" className="text-[10px] text-amber-200">Mission forecast refresh failed; retained evidence is preserved. {forecastError}</p>}
     <p className="text-[10px] text-slate-400">Weather alerts are advisory evidence and do not constitute a universal operational block.</p>
     {weather.status === 'live' && <p className="text-[10px] text-slate-400">FieldOps evaluation time: {formatUtc(evaluatedAtUtc)}</p>}
     <EvidenceMetadata label="Weather" source={weather.source} retrievedAtUtc={weather.retrievedAtUtc} limitation={weather.limitation} />
     <EvidenceMetadata label="Alerts" source={alerts.source} retrievedAtUtc={alerts.retrievedAtUtc} limitation={alerts.limitation} />
-    <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={onLoad} disabled={loading} className="px-3 py-2 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold disabled:opacity-50">{loading ? 'LOADING PLANNED-SITE WEATHER...' : 'LOAD LIVE WEATHER FOR PLANNED SITE'}</button><span className="text-[10px] text-slate-500">Explicit request only; current-device location is never used as a fallback.</span></div>
+    <div className="flex flex-wrap items-center gap-2"><button type="button" onClick={onLoad} disabled={loading} className="px-3 py-2 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold disabled:opacity-50">{loading ? 'LOADING PLANNED-SITE WEATHER...' : 'LOAD LIVE WEATHER FOR PLANNED SITE'}</button><button type="button" onClick={onRefreshForecast} disabled={forecastLoading} className="px-3 py-2 rounded border border-cyan-700 text-cyan-200 text-[10px] font-bold disabled:opacity-50">{forecastLoading ? 'REFRESHING MISSION FORECAST...' : 'REFRESH MISSION FORECAST'}</button><span className="text-[10px] text-slate-500">Explicit requests use the retained planned site; current-device location is never used as a fallback.</span></div>
   </EvidenceSection>;
 };
 
@@ -232,6 +279,8 @@ function formatUtc(value: string): string { const date = new Date(value); return
 function formatCoordinates(value: { lat: number; lon: number } | null | undefined): string { return value ? `${value.lat.toFixed(5)}, ${value.lon.toFixed(5)}` : 'Unavailable'; }
 function formatLocalWeatherTime(value: string): string { const date = new Date(value); return Number.isNaN(date.getTime()) ? value : new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' }).format(date); }
 function formatReadinessError(error: unknown, live: boolean): string { if (error instanceof OperationsReadinessApiError && error.code === 'brief_not_found') return 'This SmartDeploy brief is no longer retained.'; if (error instanceof OperationsReadinessApiError && error.code === 'unsupported_brief_schema') return 'This retained brief uses an unsupported legacy schema for Operations Readiness.'; if (!live && error instanceof OperationsReadinessApiError && error.code === 'readiness_unavailable') return 'Local readiness evidence is temporarily unavailable. The retained SmartDeploy brief remains available.'; return live ? 'Live weather and alerts could not be loaded for the planned site. Local readiness evidence is preserved.' : 'Operations Readiness could not be loaded from the local server.'; }
+function validForecastForBrief(value: unknown, brief: SmartDeployBriefV2): value is MissionForecastRecord { const candidate = value as Partial<MissionForecastRecord> | null; return Boolean(candidate && candidate.briefId === brief.briefId && candidate.activation?.program === brief.activation.program && candidate.activation.reference === brief.activation.reference && candidate.missionWindow?.start === brief.missionWindow.start && candidate.missionWindow?.end === brief.missionWindow.end && Array.isArray(candidate.operatingPeriods)); }
+function forecastFreshness(record: MissionForecastRecord, now: Date): 'retained' | 'stale' { return Date.parse(record.missionWindow.end) < now.getTime() ? 'stale' : 'retained'; }
 function formatSource(source: { id: string; type: string; name?: string }): string { return source.name ? `${source.name} (${source.type})` : `${source.id} (${source.type})`; }
 function draftFromObjective(objective: ActivationOperatingObjective): ActivationObjectiveDraft { return { goal: objective.goal, label: objective.label, requiredQsoCount: objective.requiredQsoCount === undefined ? '' : String(objective.requiredQsoCount), thresholdProvenance: objective.thresholdProvenance || 'operator_entered', deadlineLocal: objective.deadlineUtc ? toLocalDateTimeInput(objective.deadlineUtc) : '' }; }
 function initialObjectiveSelection(activation: Activation | null, type: SmartDeployBriefV2['activation']['program']): ObjectiveSelectionState { if (activation?.objectiveSelection) return activation.objectiveSelection; if (activation) return 'legacy_unavailable'; return type === 'General' ? 'explicitly_absent' : 'proposed_program_default'; }

@@ -7,7 +7,8 @@ import type { SmartDeployBriefV2 } from '../../../server/smartDeployBrief';
 
 const brief = {
   briefId: 'brief-readiness',
-  activation: { reference: 'US-1234', displayName: 'Test Park' },
+  activation: { program: 'POTA', reference: 'US-1234', displayName: 'Test Park' },
+  missionWindow: { start: '2026-08-21T05:00:00.000Z', end: '2026-08-21T08:00:00.000Z' },
   plannedOperatingSite: { description: 'Planned park site', source: 'provider_reference_default', location: { coordinates: { lat: 38, lon: -78 }, gridSquare: 'FM18', planningSemantics: 'provider_reference_default' } },
   currentDeviceLocation: { coordinates: { lat: 37, lon: -77 }, gridSquare: 'FM17' },
   station: { radio: { name: 'Field Radio' }, antenna: { type: 'EFHW' }, selectedModes: ['SSB'], modeledMode: 'SSB', transmitPowerWatts: 10 },
@@ -52,6 +53,54 @@ const response = (weatherStatus: 'not_requested' | 'live' | 'unavailable' = 'not
 afterEach(() => vi.unstubAllGlobals());
 
 describe('OperationsReadinessWorkspace', () => {
+  it('preserves retained PLAN forecast evidence in PREPARE', async () => {
+    const retainedForecast = {
+      briefId: brief.briefId,
+      activation: { program: 'POTA', reference: 'US-1234' },
+      missionWindow: { start: brief.missionWindow.start, end: brief.missionWindow.end },
+      retrievedAtUtc: '2026-08-21T04:01:00.000Z',
+      coverageStatus: 'complete',
+      operatingPeriods: [{ periodId: 'period-1', label: 'Morning (UTC)', significantCondition: 'Clear Sky', windGustMaxMph: 31 }],
+    } as any;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/mission-forecast/brief/')
+      ? { ok: true, json: async () => ({ record: retainedForecast }) }
+      : { ok: true, json: async () => response() }));
+    render(<OperationsReadinessWorkspace brief={brief} retainedForecast={retainedForecast} />);
+    await waitFor(() => expect(screen.getByText(/Retained mission forecast/)).toBeInTheDocument());
+    expect(screen.getByText(/gust max 31 mph/)).toBeInTheDocument();
+    expect(screen.getByText(/2026-08-21T05:00:00.000Z to 2026-08-21T08:00:00.000Z/)).toBeInTheDocument();
+    expect(screen.getByText(/WIND GUST ALERT/)).toBeInTheDocument();
+  });
+
+  it('restores persisted forecast evidence when PREPARE mounts without a prop', async () => {
+    const persisted = { briefId: brief.briefId, activation: { program: 'POTA', reference: 'US-1234' }, missionWindow: brief.missionWindow, retrievedAtUtc: '2026-08-21T04:01:00.000Z', coverageStatus: 'complete', operatingPeriods: [{ periodId: 'period-1', label: 'Morning (UTC)', significantCondition: 'Rain', windGustMaxMph: 32 }] } as any;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/mission-forecast/brief/') ? { ok: true, json: async () => ({ record: persisted }) } : { ok: true, json: async () => response() }));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText(/Rain, gust max 32 mph/)).toBeInTheDocument());
+  });
+
+  it('keeps retained forecast visible and reports a failed refresh separately', async () => {
+    const persisted = { briefId: brief.briefId, activation: { program: 'POTA', reference: 'US-1234' }, missionWindow: brief.missionWindow, retrievedAtUtc: '2026-08-21T04:01:00.000Z', coverageStatus: 'complete', operatingPeriods: [{ periodId: 'period-1', label: 'Morning (UTC)', significantCondition: 'Wind', windGustMaxMph: 35 }] } as any;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (String(input).includes('/api/mission-forecast/brief/') && init?.method === 'POST') return { ok: false, json: async () => ({ message: 'Forecast provider unavailable.' }) };
+      return String(input).includes('/api/mission-forecast/brief/') ? { ok: true, json: async () => ({ record: persisted }) } : { ok: true, json: async () => response() };
+    }));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText(/Wind, gust max 35 mph/)).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'REFRESH MISSION FORECAST' }));
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent(/Forecast provider unavailable/));
+    expect(screen.getByText(/Wind, gust max 35 mph/)).toBeInTheDocument();
+  });
+
+  it('does not display a forecast whose brief or activation identity does not match', async () => {
+    const other = { briefId: 'other-brief', activation: { program: 'POTA', reference: 'US-9999' }, missionWindow: brief.missionWindow, retrievedAtUtc: '2026-08-21T04:01:00.000Z', coverageStatus: 'complete', operatingPeriods: [{ periodId: 'period-1', label: 'Morning (UTC)', significantCondition: 'Other activation', windGustMaxMph: 40 }] } as any;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/mission-forecast/brief/') ? { ok: true, json: async () => ({ record: other }) } : { ok: true, json: async () => response() }));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText('Current weather and alerts are not loaded; readiness is using local retained evidence only.')).toBeInTheDocument());
+    expect(screen.queryByText(/Other activation/)).toBeNull();
+    expect(screen.queryByText(/gust max 40 mph/)).toBeNull();
+  });
+
   it('shows proposed POTA defaults, keeps General without a default action, and preserves legacy provenance', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => ({ ok: true, json: async () => response() })));
     const onSaveObjective = vi.fn(async () => undefined);
@@ -126,13 +175,14 @@ describe('OperationsReadinessWorkspace', () => {
 
   it('loads local readiness by brief and only requests live weather explicitly', async () => {
     const fetcher = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/mission-forecast/brief/')) return { ok: true, json: async () => ({ record: null }) };
       expect(String(input)).toBe('/api/operations-readiness/brief-readiness');
       return { ok: true, json: async () => response() };
     });
     vi.stubGlobal('fetch', fetcher);
     render(<OperationsReadinessWorkspace brief={brief} />);
     await waitFor(() => expect(screen.getByText('Current weather and alerts are not loaded; readiness is using local retained evidence only.')).toBeTruthy());
-    expect(fetcher).toHaveBeenCalledTimes(1);
+    expect(fetcher).toHaveBeenCalledTimes(2);
     fireEvent.click(screen.getByRole('button', { name: 'LOAD LIVE WEATHER FOR PLANNED SITE' }));
     await waitFor(() => expect(fetcher).toHaveBeenLastCalledWith('/api/operations-readiness/brief-readiness?includeLiveWeather=true', expect.anything()));
   });
@@ -257,7 +307,7 @@ describe('OperationsReadinessWorkspace', () => {
     resolveFirst(response('not_requested', summary, {}, brief.briefId));
     resolveSecond(response('not_requested', summary, {}, secondBrief.briefId));
     await waitFor(() => expect(screen.getByText('Pre-operation checks for US-5678')).toBeTruthy());
-    expect(fetcher).toHaveBeenCalledTimes(2);
+    expect(fetcher).toHaveBeenCalledTimes(4);
   });
 
   it('aborts pending local and live requests on unmount', async () => {
@@ -265,7 +315,7 @@ describe('OperationsReadinessWorkspace', () => {
     const fetcher = vi.fn((_input: RequestInfo | URL, init?: RequestInit) => { localSignals.push(init?.signal as AbortSignal); return new Promise(() => undefined); });
     vi.stubGlobal('fetch', fetcher);
     const view = render(<OperationsReadinessWorkspace brief={brief} />);
-    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(fetcher).toHaveBeenCalledTimes(2));
     view.unmount();
     expect(localSignals[0].aborted).toBe(true);
   });
