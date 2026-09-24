@@ -55,6 +55,30 @@ public sealed class SerialInventoryPipeServerTests
         await run;
     }
 
+    [Fact]
+    public async Task HandlerFailureReturnsStructuredErrorAndListenerRecovers()
+    {
+        var pipe = "FieldOps.SerialInventory.Test." + Guid.NewGuid().ToString("N");
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var expected = new SerialPortInventory(DateTimeOffset.UtcNow, SerialInventoryStatus.Ok, Array.Empty<SerialPortInfo>(), null);
+        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), new ThrowingLocationProviderInventory(), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10), TestSecurity);
+        var run = server.RunAsync(stop.Token);
+
+        using (var failedClient = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous))
+        {
+            await failedClient.ConnectAsync(1000);
+            await WriteLiteralAsync(failedClient, "{\"command\":\"GetSerialPortInventory\"}", stop.Token);
+            var error = await NativeHealthMessageFraming.ReadAsync<JsonDocument>(failedClient, stop.Token);
+            Assert.Equal("Error", error.RootElement.GetProperty("status").GetString());
+            Assert.Equal("Serial inventory request failed.", error.RootElement.GetProperty("error").GetString());
+            Assert.Equal(0, error.RootElement.GetProperty("ports").GetArrayLength());
+            Assert.Equal(0, error.RootElement.GetProperty("locationProviders").GetArrayLength());
+        }
+
+        stop.Cancel();
+        await run;
+    }
+
     private sealed class FakeEnumerator(SerialPortInventory result) : ISerialPortEnumerator
     {
         public SerialPortInventory Enumerate(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return result; }
@@ -67,6 +91,11 @@ public sealed class SerialInventoryPipeServerTests
             cancellationToken.ThrowIfCancellationRequested();
             return new(DateTimeOffset.UtcNow, Array.Empty<LocationProviderDescriptor>(), null);
         }
+    }
+
+    private sealed class ThrowingLocationProviderInventory : ILocationProviderInventory
+    {
+        public LocationProviderInventory Enumerate(CancellationToken cancellationToken) => throw new InvalidOperationException("provider enumeration failed");
     }
 
     private static async Task WriteLiteralAsync(Stream stream, string json, CancellationToken cancellationToken)

@@ -31,9 +31,10 @@ internal sealed class SerialInventoryPipeServer(
     {
         while (!cancellationToken.IsCancellationRequested)
         {
+            NamedPipeServerStream? pipe = null;
             try
             {
-                using var pipe = NamedPipeServerStreamAcl.Create(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, securityFactory?.Invoke() ?? authorizationPolicy.CreateSecurity());
+                pipe = NamedPipeServerStreamAcl.Create(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Message, PipeOptions.Asynchronous, NativeHealthProtocol.MaximumMessageBytes, NativeHealthProtocol.MaximumMessageBytes, securityFactory?.Invoke() ?? authorizationPolicy.CreateSecurity());
                 await pipe.WaitForConnectionAsync(cancellationToken);
                 using var clientTimeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
                 clientTimeout.CancelAfter(effectiveClientTimeout);
@@ -55,8 +56,28 @@ internal sealed class SerialInventoryPipeServer(
             catch (OperationCanceledException) { logger.LogWarning("Serial inventory pipe client timed out."); if (!await DelayBeforeRetryAsync(cancellationToken)) break; }
             catch (InvalidDataException exception) { logger.LogWarning("Serial inventory pipe rejected malformed or unsupported request: {Message}", exception.Message); if (!await DelayBeforeRetryAsync(cancellationToken)) break; }
             catch (Exception exception) when (exception is IOException or UnauthorizedAccessException) { logger.LogWarning("Serial inventory pipe ownership or transport failure: {Message}", exception.Message); if (!await DelayBeforeRetryAsync(cancellationToken)) break; }
+            catch (Exception exception)
+            {
+                logger.LogError(exception, "Serial inventory pipe request failed; returning a structured error response.");
+                try
+                {
+                    if (pipe?.IsConnected == true) await WriteErrorResponseAsync(pipe, cancellationToken);
+                }
+                catch (Exception responseException) when (responseException is IOException or OperationCanceledException)
+                {
+                    logger.LogWarning(responseException, "Serial inventory pipe could not return the structured error response.");
+                }
+                if (!await DelayBeforeRetryAsync(cancellationToken)) break;
+            }
+            finally
+            {
+                pipe?.Dispose();
+            }
         }
     }
+
+    private static Task WriteErrorResponseAsync(Stream pipe, CancellationToken cancellationToken) =>
+        NativeHealthMessageFraming.WriteAsync(pipe, new SerialInventoryWireResponse(DateTimeOffset.UtcNow, SerialInventoryStatus.Error.ToString(), Array.Empty<SerialPortInfo>(), Array.Empty<LocationProviderDescriptor>(), "Serial inventory request failed."), cancellationToken);
 
     private async Task<bool> DelayBeforeRetryAsync(CancellationToken cancellationToken)
     {

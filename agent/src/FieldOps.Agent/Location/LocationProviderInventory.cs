@@ -52,7 +52,7 @@ public sealed class WindowsLocationProviderInventory : ILocationProviderInventor
                 var pnp = item["PNPDeviceID"]?.ToString();
                 if (string.IsNullOrWhiteSpace(pnp) || !pnp.Contains(UbloxIdentity, StringComparison.OrdinalIgnoreCase)) continue;
                 var present = string.Equals(item["Status"]?.ToString(), "OK", StringComparison.OrdinalIgnoreCase)
-                    && Convert.ToInt32(item["ConfigManagerErrorCode"] ?? 0) == 0;
+                    && ReadConfigManagerErrorCode(item["ConfigManagerErrorCode"]) == 0;
                 var instanceId = pnp!.ToUpperInvariant();
                 providers.Add(new(
                     LocationProviderType.WindowsSensor,
@@ -66,11 +66,14 @@ public sealed class WindowsLocationProviderInventory : ILocationProviderInventor
             }
             return new(DateTimeOffset.UtcNow, providers, null);
         }
-        catch (Exception exception) when (exception is ManagementException or IOException or InvalidOperationException)
+        catch (Exception exception) when (exception is ManagementException or IOException or InvalidOperationException or UnauthorizedAccessException)
         {
             return new(DateTimeOffset.UtcNow, providers, "Windows location sensor inventory unavailable.");
         }
     }
+
+    private static int ReadConfigManagerErrorCode(object? value) =>
+        value is null || int.TryParse(value.ToString(), out var errorCode) is false ? -1 : errorCode;
 
     internal static LocationProviderDescriptor Sierra(string portName, int baudRate, string? deviceInstanceId = null) => new(
         LocationProviderType.SerialNmea,
