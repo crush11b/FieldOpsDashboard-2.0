@@ -1,4 +1,5 @@
 using FieldOps.Agent.Location;
+using FieldOps.Agent.Serial;
 using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldOps.Agent.Tests;
@@ -298,6 +299,74 @@ public sealed class SerialNmeaLocationProviderTests
         await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available);
         Assert.Equal("COM12", provider.GetDiagnostics().PortName);
         await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task ConfigureCom7At115200PersistsAndReloadsAfterProviderRestart()
+    {
+        var directory = Directory.CreateTempSubdirectory("fieldops-gnss-");
+        var settingsPath = Path.Combine(directory.FullName, "agent-location.json");
+        try
+        {
+            var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "AUTO_DETECT", 9600, TimeSpan.FromMilliseconds(1), () => new FakeReader(Gga), portEnumerator: () => new[] { "COM7" }, settingsPathOverride: settingsPath);
+            var configured = await provider.ConfigureAsync("COM7", 115200, CancellationToken.None);
+            Assert.Equal("COM7", configured.PortName);
+            Assert.Equal(115200, configured.BaudRate);
+            await provider.StopAsync(CancellationToken.None);
+
+            Assert.Equal("{\"deviceIdentity\":null,\"port\":\"COM7\",\"baud\":115200}", File.ReadAllText(settingsPath));
+
+            var restarted = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "AUTO_DETECT", 9600, TimeSpan.FromMilliseconds(1), () => new FakeReader(Gga), portEnumerator: () => new[] { "COM7" }, settingsPathOverride: settingsPath);
+            Assert.Equal("COM7", restarted.GetDiagnostics().PortName);
+            Assert.Equal(115200, restarted.GetDiagnostics().BaudRate);
+            await restarted.StartAsync(CancellationToken.None);
+            await Eventually(() => restarted.GetDiagnostics().PortName == "COM7");
+            await restarted.StopAsync(CancellationToken.None);
+        }
+        finally { directory.Delete(true); }
+    }
+
+    [Fact]
+    public void PersistedIdentityRemapsCom7ToCom6BeforeStart()
+    {
+        var directory = Directory.CreateTempSubdirectory("fieldops-gnss-");
+        var settingsPath = Path.Combine(directory.FullName, "agent-location.json");
+        try
+        {
+            File.WriteAllText(settingsPath, "{\"deviceIdentity\":{\"deviceInstanceId\":\"USB\\\\VID_1199&PID_9071&MI_02\\\\INSTANCE\",\"interfaceIdentity\":\"VID_1199&PID_9071&MI_02\",\"friendlyName\":\"Sierra LTE-A NMEA\"},\"port\":null,\"baud\":115200}");
+            var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "AUTO_DETECT", 9600, TimeSpan.FromMilliseconds(1), () => new FakeReader(Gga), portEnumerator: () => new[] { "COM6" }, settingsPathOverride: settingsPath, inventoryReader: () => new[] { new SerialPortInfo("COM6", "Sierra LTE-A NMEA", null, "Sierra Wireless", null, "USB\\VID_1199&PID_9071&MI_02\\INSTANCE", "1199", "9071", null, "VID_1199&PID_9071&MI_02", "USB\\VID_1199&PID_9071&MI_02\\INSTANCE", true) });
+            Assert.Equal("COM6", provider.GetDiagnostics().PortName);
+            Assert.Equal(115200, provider.GetDiagnostics().BaudRate);
+        }
+        finally { directory.Delete(true); }
+    }
+
+    [Fact]
+    public async Task AutoDetectExhaustionReportsSerialSilenceAndLeavesOpeningLoopRecoverable()
+    {
+        var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "AUTO_DETECT", 9600, TimeSpan.FromMilliseconds(1), portEnumerator: () => new[] { "COM7" }, candidateReaderFactory: (_, _) => new FakeReader(new IOException("no NMEA")));
+        await provider.StartAsync(CancellationToken.None);
+        await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.SerialSilence);
+        var diagnostics = provider.GetDiagnostics();
+        Assert.Contains(diagnostics.State, new[] { GnssSerialState.OpenFailed, GnssSerialState.Reconnecting });
+        Assert.Equal(GnssSerialFailureCategory.SerialSilence, diagnostics.LastFailureCategory);
+        Assert.Contains("AUTO_DETECT", diagnostics.LastFailureMessage);
+        await provider.StopAsync(CancellationToken.None);
+    }
+
+    [Fact]
+    public async Task InvalidOrUnavailableConfigurationDoesNotOverwriteLastValidStore()
+    {
+        var directory = Directory.CreateTempSubdirectory("fieldops-gnss-");
+        var settingsPath = Path.Combine(directory.FullName, "agent-location.json");
+        try
+        {
+            File.WriteAllText(settingsPath, "{\"port\":\"COM7\",\"baud\":115200}");
+            var provider = new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "AUTO_DETECT", 9600, TimeSpan.FromMilliseconds(1), portEnumerator: () => new[] { "COM7" }, settingsPathOverride: settingsPath);
+            await Assert.ThrowsAsync<ArgumentException>(() => provider.ConfigureAsync("COM8", 115200, CancellationToken.None));
+            Assert.Equal("{\"port\":\"COM7\",\"baud\":115200}", File.ReadAllText(settingsPath));
+        }
+        finally { directory.Delete(true); }
     }
 
     private static SerialNmeaLocationProvider Provider(INmeaSerialReader reader, TimeSpan? noDataTimeout = null) => new(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(80), () => reader, noDataTimeout);

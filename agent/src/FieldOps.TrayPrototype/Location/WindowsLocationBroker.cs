@@ -238,7 +238,22 @@ internal sealed class WindowsLocationBroker(
 
     public async Task<LocationBrokerResponse> GetLocationAsync(CancellationToken cancellationToken)
     {
-        if (api.Status == WindowsLocationPlatformStatus.Disabled)
+        WindowsLocationPlatformStatus platformStatus;
+        try
+        {
+            platformStatus = api.Status;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            permission = WindowsLocationPermission.Denied;
+            return LocationBrokerResponse.WithoutTelemetry(LocationBrokerStatus.PermissionDenied);
+        }
+        catch
+        {
+            return LocationBrokerResponse.WithoutTelemetry(LocationBrokerStatus.Unavailable);
+        }
+
+        if (platformStatus == WindowsLocationPlatformStatus.Disabled)
         {
             return LocationBrokerResponse.WithoutTelemetry(LocationBrokerStatus.Disabled);
         }
@@ -248,7 +263,7 @@ internal sealed class WindowsLocationBroker(
             return LocationBrokerResponse.WithoutTelemetry(LocationBrokerStatus.PermissionDenied);
         }
 
-        var status = api.Status switch
+        var status = platformStatus switch
         {
             WindowsLocationPlatformStatus.Initializing => LocationBrokerStatus.Initializing,
             WindowsLocationPlatformStatus.NoData => LocationBrokerStatus.NoFix,

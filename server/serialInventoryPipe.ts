@@ -8,11 +8,23 @@ export type SerialInventory = {
   observedAtUtc: string;
   status: 'Ok' | 'Unavailable' | 'Error';
   ports: unknown[];
+  locationProviders: LocationProviderDescriptor[];
   error: string | null;
+};
+export type LocationProviderDescriptor = {
+  providerType: 'Automatic' | 'SerialNmea' | 'WindowsSensor';
+  displayName: string;
+  stableIdentity: string | null;
+  deviceInstanceId: string | null;
+  portName: string | null;
+  baudRate: number | null;
+  present: boolean;
+  status: string;
+  error?: string | null;
 };
 
 function result(status: SerialInventory['status'], error: string): SerialInventory {
-  return { observedAtUtc: new Date().toISOString(), status, ports: [], error };
+  return { observedAtUtc: new Date().toISOString(), status, ports: [], locationProviders: [], error };
 }
 
 function validResponse(value: unknown): value is SerialInventory {
@@ -21,6 +33,7 @@ function validResponse(value: unknown): value is SerialInventory {
   return typeof body.observedAtUtc === 'string'
     && (body.status === 'Ok' || body.status === 'Unavailable' || body.status === 'Error')
     && Array.isArray(body.ports)
+    && Array.isArray(body.locationProviders)
     && (body.error === null || typeof body.error === 'string');
 }
 

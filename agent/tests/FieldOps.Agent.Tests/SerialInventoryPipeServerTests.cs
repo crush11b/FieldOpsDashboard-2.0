@@ -1,6 +1,7 @@
 using System.IO.Pipes;
 using FieldOps.Agent.Health;
 using FieldOps.Agent.Serial;
+using FieldOps.Agent.Location;
 using FieldOps.NativeHealth;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Security.AccessControl;
@@ -19,7 +20,7 @@ public sealed class SerialInventoryPipeServerTests
         var pipe = "FieldOps.SerialInventory.Test." + Guid.NewGuid().ToString("N");
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var expected = new SerialPortInventory(DateTimeOffset.UtcNow, SerialInventoryStatus.Ok, Array.Empty<SerialPortInfo>(), null);
-        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10), TestSecurity);
+        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), new FakeLocationProviderInventory(), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10), TestSecurity);
         var run = server.RunAsync(stop.Token);
         using var client = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(1000);
@@ -38,7 +39,7 @@ public sealed class SerialInventoryPipeServerTests
         var pipe = "FieldOps.SerialInventory.Test." + Guid.NewGuid().ToString("N");
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var expected = new SerialPortInventory(DateTimeOffset.UtcNow, SerialInventoryStatus.Ok, Array.Empty<SerialPortInfo>(), null);
-        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(10), TestSecurity);
+        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), new FakeLocationProviderInventory(), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(10), TestSecurity);
         var run = server.RunAsync(stop.Token);
         using (var silent = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous))
         {
@@ -57,6 +58,15 @@ public sealed class SerialInventoryPipeServerTests
     private sealed class FakeEnumerator(SerialPortInventory result) : ISerialPortEnumerator
     {
         public SerialPortInventory Enumerate(CancellationToken cancellationToken) { cancellationToken.ThrowIfCancellationRequested(); return result; }
+    }
+
+    private sealed class FakeLocationProviderInventory : ILocationProviderInventory
+    {
+        public LocationProviderInventory Enumerate(CancellationToken cancellationToken)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            return new(DateTimeOffset.UtcNow, Array.Empty<LocationProviderDescriptor>(), null);
+        }
     }
 
     private static async Task WriteLiteralAsync(Stream stream, string json, CancellationToken cancellationToken)

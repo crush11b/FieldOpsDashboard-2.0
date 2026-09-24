@@ -11,6 +11,26 @@ import { recoverGnss } from '../../gnssRecoveryApi';
 vi.mock('../../gnssRecoveryApi', () => ({ recoverGnss: vi.fn() }));
 
 describe('GPS source guardrail presentation', () => {
+  it('forwards an explicit COM7 selection at the configured baud rate', () => {
+    const onSelectComPort = vi.fn();
+    renderDom(<GPSGridWidget gps={baseGps()} provenance={provenance('connecting', 'gps_acquisition')} theme="dark_tactical" audioEnabled={false} onUpdateGPS={() => undefined} comPort="AUTO_DETECT" baudRate={115200} onSelectComPort={onSelectComPort} />);
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'COM7' } });
+    expect(onSelectComPort).toHaveBeenCalledWith('COM7', 115200);
+  });
+
+  it('shows the live Agent source and rejects failed selection without local overwrite', async () => {
+    const onSelectComPort = vi.fn().mockRejectedValue(new Error('The previous configuration remains active.'));
+    const onUpdateGPS = vi.fn();
+    renderDom(<GPSGridWidget gps={baseGps({ comPort: 'COM6' })} provenance={provenance('unavailable', 'serial_nmea')} theme="dark_tactical" audioEnabled={false} onUpdateGPS={onUpdateGPS} comPort="COM6" baudRate={9600} onSelectComPort={onSelectComPort} gnssDiagnostics={{ ...diagnostics('OpenFailed'), portName: 'COM7', baudRate: 115200, lastFailureCategory: 'SerialSilence' }} />);
+    expect(screen.getByText('SOURCE: FieldOps Agent / COM7 @ 115200')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'GNSS Diagnostics' }));
+    fireEvent.change(screen.getByRole('combobox'), { target: { value: 'COM8' } });
+    await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('previous configuration remains active'));
+    expect(onUpdateGPS).not.toHaveBeenCalled();
+    expect(screen.getByRole('combobox')).toHaveValue('COM6');
+    expect(screen.getByRole('button', { name: 'Recover GPS' })).not.toBeDisabled();
+  });
+
   it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('uses semantic location surfaces in %s', theme => {
     const markup = renderToStaticMarkup(
       <GPSGridWidget

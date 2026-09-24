@@ -14,7 +14,7 @@ interface GPSGridWidgetProps {
   onUpdateGPS: (updated: Partial<GPSStatus>, provenance?: GPSProvenance) => void;
   comPort?: string;
   baudRate?: number;
-  onSelectComPort?: (port: string, baud: number) => void;
+  onSelectComPort?: (port: string, baud: number) => void | Promise<void>;
   clockEvidence?: ClockSynchronizationEvidence;
   onSynchronizeClock?: () => Promise<ClockSynchronizationEvidence>;
   gnssDiagnostics?: GnssSerialDiagnostics;
@@ -42,6 +42,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
   const [serialDiagnostics, setSerialDiagnostics] = useState<GnssSerialDiagnostics | null>(gnssDiagnostics ?? null);
   const [recoveryState, setRecoveryState] = useState<GnssRecoveryResult | null>(null);
   const [recoveryInProgress, setRecoveryInProgress] = useState(false);
+  const [portSelectionError, setPortSelectionError] = useState<string | null>(null);
   const gpsUpdateSequence = useRef(0);
   const nativeLocationRequest = useRef<() => Promise<void>>(async () => {});
   const nativeRequestInFlight = useRef<Promise<void> | null>(null);
@@ -481,7 +482,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
                   <span>LAST GPS SYNC: {formatEvidenceTime(clockEvidence?.lastSuccessfulSynchronizationUtc)}</span>
                   <span>CALCULATED OFFSET: {typeof (clockEvidence?.currentOffsetSeconds ?? clockEvidence?.offsetBeforeSynchronizationSeconds) === 'number' ? `${(clockEvidence.currentOffsetSeconds ?? clockEvidence.offsetBeforeSynchronizationSeconds)!.toFixed(3)} s` : 'Not available'}</span>
                   <span>LAST REQUEST: {clockEvidence?.windowsSetAttempted ? clockEvidence.windowsSetAccepted ? clockEvidence.verificationPerformed ? clockEvidence.status === 'Error' ? 'SET ACCEPTED / VERIFICATION FAILED' : clockEvidence.status === 'Degraded' ? 'SET ACCEPTED / DEGRADED' : 'SET ACCEPTED / VERIFIED' : 'SET ACCEPTED / NOT VERIFIED' : 'SET REJECTED' : clockEvidence?.requestAccepted ? clockEvidence.status === 'Synchronized' ? 'NO-OP / READY' : 'REQUEST ACCEPTED / NO SET' : 'NOT ACCEPTED'}</span>
-                  <span>SOURCE: FieldOps Agent / {gps.comPort || comPort}</span>
+                  <span>SOURCE: FieldOps Agent / {serialDiagnostics?.deviceName ? `${serialDiagnostics.deviceName} — ${serialDiagnostics.portName} @ ${serialDiagnostics.baudRate}` : serialDiagnostics?.portName ? `${serialDiagnostics.portName} @ ${serialDiagnostics.baudRate}` : comPort || gps.comPort || 'Unknown'}</span>
                 </div>
                 {onSynchronizeClock && <div className="mt-2 flex flex-wrap items-center gap-2">
                   <label className="flex items-center gap-1 text-[10px]"><input type="checkbox" checked={clockConfirmed} onChange={event => setClockConfirmed(event.currentTarget.checked)} /> CONFIRM WINDOWS CLOCK SYNC</label>
@@ -507,8 +508,12 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             onChange={(e) => {
               playTacticalClick(audioEnabled);
               const newPort = e.target.value;
-              if (onSelectComPort) onSelectComPort(newPort, baudRate);
-              onUpdateGPS({ comPort: newPort, deviceName: `GPS Receiver (${newPort})` });
+              setPortSelectionError(null);
+              if (onSelectComPort) {
+                void Promise.resolve(onSelectComPort(newPort, baudRate)).catch(error => setPortSelectionError(error instanceof Error ? error.message : 'GNSS configuration request failed.'));
+              } else {
+                onUpdateGPS({ comPort: newPort, deviceName: `GPS Receiver (${newPort})` });
+              }
             }}
             className="fo-input min-h-11 px-2 py-0.5 border rounded font-bold text-[11px]"
           >
@@ -534,6 +539,7 @@ export const GPSGridWidget: React.FC<GPSGridWidgetProps> = ({
             <option value="/dev/ttyACM0">/dev/ttyACM0 (Linux USB Modem/GNSS)</option>
             <option value="AUTO_DETECT">⚡ Auto-Detect Satellite Dongle</option>
           </select>
+          {portSelectionError && <span role="alert" className="fo-text-danger">{portSelectionError}</span>}
         </div>
 
         <div className="flex items-center gap-3 text-[10px]">

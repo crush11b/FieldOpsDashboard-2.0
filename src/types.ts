@@ -175,6 +175,8 @@ export interface DashboardConfig {
   appCatalog: AppCatalogConfig;
   gpsComPort?: string;
   gpsBaudRate?: number;
+  gpsProviderType?: 'Automatic' | 'SerialNmea' | 'WindowsSensor';
+  gpsDeviceIdentity?: string | null;
   wsjtx: {
     mode: 'multicast' | 'unicast';
     multicastAddress: string;

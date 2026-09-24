@@ -9,6 +9,9 @@ public sealed class WindowsSensorLocationProvider : ILocationProvider
     private readonly ILogger<WindowsSensorLocationProvider> logger;
     private readonly string pipeName;
     private readonly TimeSpan timeout;
+    private string? lastError;
+
+    public string? LastError => Volatile.Read(ref lastError);
 
     public WindowsSensorLocationProvider(ILogger<WindowsSensorLocationProvider> logger)
         : this(logger, LocationBrokerProtocol.PipeName, LocationBrokerProtocol.OperationTimeout)
@@ -47,7 +50,16 @@ public sealed class WindowsSensorLocationProvider : ILocationProvider
             var response = await NativeHealthMessageFraming.ReadAsync<LocationBrokerResponse>(
                 pipe,
                 timeoutSource.Token);
-            return Normalize(response);
+            var normalized = Normalize(response);
+            Volatile.Write(ref lastError, normalized.Status == LocationStatus.Available ? null : normalized.Status switch
+            {
+                LocationStatus.PermissionDenied => "Windows Location Services permission denied for the broker session.",
+                LocationStatus.Disabled => "Windows Location Services is disabled.",
+                LocationStatus.Unavailable => "Windows Location Services broker is unavailable to the Agent session.",
+                LocationStatus.NoFix => "Windows Location Sensor returned no fix.",
+                _ => "Windows Location Sensor returned no usable position."
+            });
+            return normalized;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -62,6 +74,7 @@ public sealed class WindowsSensorLocationProvider : ILocationProvider
             }
 
             logger.LogWarning("Windows Sensor location provider unavailable.");
+            Volatile.Write(ref lastError, "Windows Location Services broker unavailable or inaccessible to the Agent session.");
             return LocationObservation.WithoutTelemetry(LocationStatus.Unavailable);
         }
         catch (TimeoutException)
@@ -74,11 +87,13 @@ public sealed class WindowsSensorLocationProvider : ILocationProvider
             or InvalidDataException)
         {
             logger.LogWarning("Windows Sensor location provider unavailable.");
+            Volatile.Write(ref lastError, "Windows Location Services request timed out.");
             return LocationObservation.WithoutTelemetry(LocationStatus.Unavailable);
         }
         catch (Exception)
         {
             logger.LogError("Unexpected Windows Sensor location provider failure.");
+            Volatile.Write(ref lastError, "Unexpected Windows Location Services provider failure.");
             return LocationObservation.WithoutTelemetry(LocationStatus.Error);
         }
     }

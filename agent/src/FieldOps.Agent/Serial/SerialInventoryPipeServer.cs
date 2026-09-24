@@ -3,6 +3,7 @@ using System.Security.AccessControl;
 using FieldOps.Agent.Health;
 using FieldOps.NativeHealth;
 using System.Text.Json.Serialization;
+using FieldOps.Agent.Location;
 
 namespace FieldOps.Agent.Serial;
 
@@ -11,10 +12,12 @@ internal sealed record SerialInventoryWireResponse(
     [property: JsonPropertyName("observedAtUtc")] DateTimeOffset ObservedAtUtc,
     [property: JsonPropertyName("status")] string Status,
     [property: JsonPropertyName("ports")] IReadOnlyList<SerialPortInfo> Ports,
+    [property: JsonPropertyName("locationProviders")] IReadOnlyList<LocationProviderDescriptor> LocationProviders,
     [property: JsonPropertyName("error")] string? Error);
 internal sealed class SerialInventoryPipeServer(
     NativeHealthAuthorizationPolicy authorizationPolicy,
     ISerialPortEnumerator enumerator,
+    ILocationProviderInventory locationProviderInventory,
     ILogger<SerialInventoryPipeServer> logger,
     string pipeName = "FieldOps.SerialInventory.v1",
     TimeSpan? clientTimeout = null,
@@ -37,7 +40,16 @@ internal sealed class SerialInventoryPipeServer(
                 var request = await NativeHealthMessageFraming.ReadAsync<SerialInventoryRequest>(pipe, clientTimeout.Token);
                 if (request.Command != "GetSerialPortInventory") throw new InvalidDataException("Unsupported serial inventory request.");
                 var inventory = enumerator.Enumerate(clientTimeout.Token);
-                await NativeHealthMessageFraming.WriteAsync(pipe, new SerialInventoryWireResponse(inventory.ObservedAtUtc, inventory.Status.ToString(), inventory.Ports, inventory.Error), clientTimeout.Token);
+                var locationProviders = locationProviderInventory.Enumerate(clientTimeout.Token);
+                var serialProviders = inventory.Ports
+                    .Where(port => string.Equals(port.InterfaceIdentity, WindowsLocationProviderInventory.SierraNmeaIdentity, StringComparison.OrdinalIgnoreCase))
+                    .Select(port => WindowsLocationProviderInventory.Sierra(port.PortName, 115200, port.DeviceInstanceId));
+                var providers = locationProviders.Providers
+                    .Concat(serialProviders)
+                    .GroupBy(provider => $"{provider.ProviderType}:{provider.StableIdentity}:{provider.PortName}", StringComparer.OrdinalIgnoreCase)
+                    .Select(group => group.First())
+                    .ToArray();
+                await NativeHealthMessageFraming.WriteAsync(pipe, new SerialInventoryWireResponse(inventory.ObservedAtUtc, inventory.Status.ToString(), inventory.Ports, providers, locationProviders.Error ?? inventory.Error), clientTimeout.Token);
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (OperationCanceledException) { logger.LogWarning("Serial inventory pipe client timed out."); if (!await DelayBeforeRetryAsync(cancellationToken)) break; }

@@ -107,7 +107,7 @@ describe('Field Tools coordinate workspace', () => {
     fireEvent.change(screen.getByRole('combobox'), { target: { value: 'COM7' } });
 
     expect(onSelectComPort).toHaveBeenCalledWith('COM7', 9600);
-    expect(onUpdateGPS).toHaveBeenCalledWith({ comPort: 'COM7', deviceName: 'GPS Receiver (COM7)' });
+    expect(onUpdateGPS).not.toHaveBeenCalled();
     view.unmount();
     vi.unstubAllGlobals();
   });

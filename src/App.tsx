@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { HeaderBar } from './components/HeaderBar';
 import { BatteryStatusWidget } from './components/BatteryStatusWidget';
 import { GPSGridWidget } from './components/GPSGridWidget';
+import { configureNmea } from './gnssRecoveryApi';
 import { WeatherNOAAWidget } from './components/WeatherNOAAWidget';
 import { VOACAPPropagationWidget } from './components/VOACAPPropagationWidget';
 import { AppLauncherGrid } from './components/AppLauncherGrid';
@@ -34,6 +35,7 @@ import { hasMeaningfulWeatherMovement, NOAA_ALERT_REFRESH_INTERVAL_MS, WEATHER_R
 import { CONFIG_STORAGE_KEY, loadDashboardConfig, saveDashboardConfig } from './configPersistence';
 import { getClockStatus, synchronizeClock } from './clockApi';
 import type { ClockSynchronizationEvidence } from '../server/locationTelemetryPipe';
+import type { LocationProviderDescriptor } from '../server/serialInventoryPipe';
 
 const GPS_STORAGE_KEY = 'fieldops_gps_status_v1';
 
@@ -105,13 +107,31 @@ export default function App() {
   const [configAttempt, setConfigAttempt] = useState(0);
   const [configPersistenceError, setConfigPersistenceError] = useState<string | null>(null);
   const configPersistenceGeneration = useRef(0);
+  const [locationProviders, setLocationProviders] = useState<LocationProviderDescriptor[]>([]);
+
+  useEffect(() => {
+    fetch('/api/location/providers').then(response => response.ok ? response.json() : null)
+      .then(body => { if (body?.providers) setLocationProviders(body.providers as LocationProviderDescriptor[]); })
+      .catch(() => setLocationProviders([]));
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setConfigBootstrapError(null);
-    loadDashboardConfig().then(result => {
+    loadDashboardConfig().then(async result => {
       if (cancelled) return;
-      setConfig(result.config);
+      let effectiveConfig = result.config;
+      try {
+        const response = await fetch('/api/location/diagnostics');
+        if (response.ok) {
+          const diagnostics = await response.json() as { portName?: string; baudRate?: number; transportStatus?: string };
+          if (diagnostics.transportStatus !== 'unavailable' && typeof diagnostics.portName === 'string' && typeof diagnostics.baudRate === 'number') {
+            effectiveConfig = { ...effectiveConfig, gpsComPort: diagnostics.portName, gpsBaudRate: diagnostics.baudRate };
+          }
+        }
+      } catch { /* native diagnostics are optional during dashboard startup */ }
+      if (cancelled) return;
+      setConfig(effectiveConfig);
       setConfigPersistenceError(result.persistenceError ?? null);
       setConfigReady(true);
     }).catch(error => {
@@ -519,8 +539,10 @@ export default function App() {
             onSynchronizeClock={handleSynchronizeClock}
             comPort={config.gpsComPort}
             baudRate={config.gpsBaudRate}
-            onSelectComPort={(port, baud) => {
-              updateConfig({ ...config, gpsComPort: port, gpsBaudRate: baud });
+            onSelectComPort={async (port, baud) => {
+              const diagnostics = await configureNmea(port, baud);
+              updateConfig({ ...config, gpsComPort: diagnostics.portName, gpsBaudRate: diagnostics.baudRate });
+              handleUpdateGPS({ comPort: diagnostics.portName, deviceName: `GPS Receiver (${diagnostics.portName})` });
             }}
           />
 
@@ -609,6 +631,12 @@ export default function App() {
 
       {/* 5. Modals & Touch Menu Drawer */}
       <ConfigModal
+          onConfigureNmea={async (port, baud) => { await configureNmea(port, baud); }}
+          onConfigureProvider={async (providerType, stableIdentity, port, baud) => {
+            const response = await fetch('/api/location/provider', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ providerType, stableIdentity, port, baud }) });
+            if (!response.ok) throw new Error((await response.json().catch(() => null))?.error || 'Location provider could not be confirmed.');
+          }}
+          locationProviders={locationProviders}
         config={config}
         theme={config.theme}
         audioEnabled={config.audioFeedback}

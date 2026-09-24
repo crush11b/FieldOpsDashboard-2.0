@@ -16,6 +16,18 @@ const renderModal = (editingApp = nativeRecord, config: DashboardConfig = { ...I
 };
 
 describe('catalog management modal', () => {
+  it('applies and persists COM7 at 115200 before closing General settings', async () => {
+    const onConfigureNmea = vi.fn(async () => undefined);
+    const onSaveConfig = vi.fn(async (updated: DashboardConfig) => updated);
+    render(<ConfigModal config={INITIAL_CONFIG} theme={INITIAL_CONFIG.theme} audioEnabled={false} isOpen onClose={vi.fn()} onSaveConfig={onSaveConfig} onConfigureNmea={onConfigureNmea} onResetToDefaults={vi.fn()} initialTab="general" locationProviders={[{ providerType: 'SerialNmea', displayName: 'Sierra Wireless X7 LTE-A NMEA - COM6', stableIdentity: 'VID_1199&PID_9071&MI_02', portName: 'COM6', present: true }]} />);
+    fireEvent.change(document.getElementById('select-location-provider')!, { target: { value: 'SerialNmea:VID_1199&PID_9071&MI_02' } });
+    fireEvent.change(document.getElementById('select-config-com-port')!, { target: { value: 'COM7' } });
+    fireEvent.change(document.getElementById('select-config-baud-rate')!, { target: { value: '115200' } });
+    fireEvent.click(screen.getByRole('button', { name: 'SAVE & CLOSE' }));
+    await waitFor(() => expect(onConfigureNmea).toHaveBeenCalledWith('COM7', 115200));
+    expect(onSaveConfig).toHaveBeenCalledWith(expect.objectContaining({ gpsComPort: 'COM7', gpsBaudRate: 115200 }));
+  });
+
   it.each(['dark_tactical', 'sunlight', 'night_vision'] as const)('owns semantic dialog and tabs in %s', theme => {
     render(<ConfigModal config={{ ...INITIAL_CONFIG, theme }} theme={theme} audioEnabled={false} isOpen onClose={vi.fn()} onSaveConfig={vi.fn(async updated => updated)} onResetToDefaults={vi.fn()} initialTab="general" />);
     expect(screen.getByRole('dialog', { name: /dashboard configuration/i })).toBeInTheDocument();

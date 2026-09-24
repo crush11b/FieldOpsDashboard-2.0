@@ -39,6 +39,14 @@ public sealed record GnssSerialDiagnostics(
     [property: JsonPropertyName("lastFailureCategory")] GnssSerialFailureCategory LastFailureCategory,
     [property: JsonPropertyName("lastFailureMessage")] string? LastFailureMessage)
 {
+    [JsonPropertyName("deviceName")] public string? DeviceName { get; init; }
+    [JsonPropertyName("interfaceIdentity")] public string? InterfaceIdentity { get; init; }
+    [JsonPropertyName("deviceInstanceId")] public string? DeviceInstanceId { get; init; }
+    [JsonPropertyName("providerType")] public LocationProviderType ProviderType { get; init; } = LocationProviderType.SerialNmea;
+    [JsonPropertyName("requestedProviderType")] public LocationProviderType RequestedProviderType { get; init; } = LocationProviderType.SerialNmea;
+    [JsonPropertyName("requestedStableIdentity")] public string? RequestedStableIdentity { get; init; }
+    [JsonPropertyName("activeStableIdentity")] public string? ActiveStableIdentity { get; init; }
+    [JsonPropertyName("providerError")] public string? ProviderError { get; init; }
     public static GnssSerialDiagnostics Stopped(string portName, int baudRate) => new(
         portName, baudRate, GnssSerialState.Stopped, 0, 0, null, null, null, null, null, null,
         GnssSerialFailureCategory.None, null);

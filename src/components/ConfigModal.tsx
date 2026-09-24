@@ -5,6 +5,13 @@ import { DashboardConfig, UIThemeMode } from '../types';
 import { addUserManagedRecord, AppCatalogRecord, deleteCatalogRecord, isAppCatalogConfig, isValidCatalogTarget, restoreBuiltInRecord, setCatalogRecordEnabled, updateCatalogRecord } from '../appCatalog/domain';
 import { INITIAL_CONFIG } from '../data/defaultConfig';
 import { playTacticalClick } from '../utils/audio';
+type LocationProviderDescriptor = {
+  providerType: 'Automatic' | 'SerialNmea' | 'WindowsSensor';
+  displayName: string;
+  stableIdentity: string | null;
+  portName: string | null;
+  present: boolean;
+};
 
 interface ConfigModalProps {
   config: DashboardConfig;
@@ -14,6 +21,9 @@ interface ConfigModalProps {
   onClose: () => void;
   onSaveConfig: (updated: DashboardConfig) => Promise<DashboardConfig | null>;
   onResetToDefaults: () => void;
+  onConfigureNmea?: (port: string, baud: number) => Promise<void>;
+  onConfigureProvider?: (providerType: LocationProviderDescriptor['providerType'], stableIdentity: string | null, port: string | null, baud: number | null) => Promise<void>;
+  locationProviders?: LocationProviderDescriptor[];
   editingApp?: AppCatalogRecord | null;
   initialTab?: 'general' | 'apps' | 'json_editor';
 }
@@ -63,6 +73,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   onClose,
   onSaveConfig,
   onResetToDefaults,
+  onConfigureNmea,
+  onConfigureProvider,
+  locationProviders = [],
   editingApp,
   initialTab = 'general',
 }) => {
@@ -72,6 +85,10 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
   const [comPort, setComPort] = useState<string>(config.gpsComPort || 'COM6 (GPS Receiver)');
   const [isCustomPort, setIsCustomPort] = useState<boolean>(false);
   const [baudRate, setBaudRate] = useState<number>(config.gpsBaudRate || 9600);
+  const [providerType, setProviderType] = useState<LocationProviderDescriptor['providerType']>(config.gpsProviderType || 'Automatic');
+  const [providerIdentity, setProviderIdentity] = useState<string | null>(config.gpsDeviceIdentity || null);
+  const [providerPending, setProviderPending] = useState(false);
+  const [confirmedProvider, setConfirmedProvider] = useState(config.gpsProviderType || 'Automatic');
   const [appsList, setAppsList] = useState<AppCatalogRecord[]>([...config.appCatalog.records]);
   const [catalogState, setCatalogState] = useState(config.appCatalog);
   const [jsonText, setJsonText] = useState(JSON.stringify(config.appCatalog, null, 2));
@@ -92,6 +109,9 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
     setColumns(config.appGridColumns);
     setComPort(config.gpsComPort || 'COM6 (GPS Receiver)');
     setBaudRate(config.gpsBaudRate || 9600);
+    setProviderType(config.gpsProviderType || 'Automatic');
+    setProviderIdentity(config.gpsDeviceIdentity || null);
+    setConfirmedProvider(config.gpsProviderType || 'Automatic');
   }, [isOpen, editingApp, initialTab]);
 
   if (!isOpen) return null;
@@ -110,12 +130,25 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
 
   const handleSaveGeneral = async () => {
     playTacticalClick(audioEnabled);
+    try {
+      setProviderPending(true);
+      if (onConfigureProvider) await onConfigureProvider(providerType, providerIdentity, providerType === 'SerialNmea' ? comPort : null, providerType === 'SerialNmea' ? baudRate : null);
+      else if (onConfigureNmea && providerType === 'SerialNmea') await onConfigureNmea(comPort, baudRate);
+      setConfirmedProvider(providerType);
+      setProviderPending(false);
+    } catch (error) {
+      setProviderPending(false);
+      setJsonError(error instanceof Error ? error.message : 'GNSS configuration could not be applied.');
+      return;
+    }
     const saved = await onSaveConfig({
       ...config,
       callsign,
       appGridColumns: columns,
       gpsComPort: comPort,
       gpsBaudRate: baudRate,
+      gpsProviderType: providerType,
+      gpsDeviceIdentity: providerIdentity,
       appCatalog: config.appCatalog,
     });
     if (saved) onClose();
@@ -340,7 +373,30 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                   </span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">LOCATION SOURCE</label>
+                  <select
+                    id="select-location-provider"
+                    value={`${providerType}:${providerIdentity ?? ''}`}
+                    onChange={(e) => {
+                      const [type, identity = ''] = e.target.value.split(':');
+                      setProviderType(type as LocationProviderDescriptor['providerType']);
+                      setProviderIdentity(identity || null);
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-slate-950 border border-slate-700 rounded font-bold text-xs text-cyan-300 font-mono"
+                  >
+                    <option value="Automatic:">Automatic</option>
+                    {locationProviders.filter(provider => provider.providerType !== 'Automatic').map(provider => (
+                      <option key={`${provider.providerType}:${provider.stableIdentity ?? provider.portName}`} value={`${provider.providerType}:${provider.stableIdentity ?? ''}`}>
+                        {provider.displayName}{provider.present ? '' : ' - UNPLUGGED'}
+                      </option>
+                    ))}
+                  </select>
+                  {providerPending && <p className="text-[10px] text-amber-300 mt-1">Requested source pending Agent confirmation: {providerType}</p>}
+                  {!providerPending && confirmedProvider !== providerType && <p className="text-[10px] text-amber-300 mt-1">Requested: {providerType}. Confirmed: {confirmedProvider}.</p>}
+                </div>
+
+                {providerType === 'SerialNmea' && <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
                     <label className="block text-[10px] font-bold uppercase text-slate-400 mb-1">
                       DEFAULT COM PORT / SERIAL DEVICE
@@ -420,7 +476,7 @@ export const ConfigModal: React.FC<ConfigModalProps> = ({
                       <option value={115200}>115200 BAUD (UBX Binary / Multi-GNSS)</option>
                     </select>
                   </div>
-                </div>
+                </div>}
                 <p className="text-[10px] text-slate-400">
                   Selects the hardware COM Port and NMEA Baud Rate used on startup. Replaces prompt popups for location permissions in field operations.
                 </p>

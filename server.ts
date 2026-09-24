@@ -30,7 +30,7 @@ import { parseCoordinates, parseGpsRequestCoordinates } from './src/location/coo
 import { toFiniteNumber } from './src/utils/numbers';
 import { getProductUserAgent, getVersionedDownloadFilename, PRODUCT_METADATA } from './src/productMetadata';
 import { readSerialInventoryPipe } from './server/serialInventoryPipe';
-import { readClockStatusPipe, readGnssSerialDiagnosticsPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
+import { configureNmeaPipe, configureProviderPipe, readClockStatusPipe, readGnssSerialDiagnosticsPipe, readGnssTimePipe, readLocationTelemetryPipe } from './server/locationTelemetryPipe';
 import { readSystemTelemetry } from './server/systemTelemetryPipe';
 import { createLauncherRouter, NamedPipeTrayLauncherClient } from './server/launcher';
 import { createAppDiscoveryRouter } from './server/appDiscovery';
@@ -84,8 +84,9 @@ async function startServer() {
   const app = express();
   const PORT = Number(process.env.PORT) || 3000;
   const distPath = path.join(process.cwd(), 'dist');
-  const runtimeBundleSha256 = crypto.createHash('sha256').update(fs.readFileSync(__filename)).digest('hex');
-  const runtimeDeploymentIdentity = loadDeploymentIdentity(process.env.FIELDOPS_DEPLOYMENT_MANIFEST_PATH, __filename);
+  const runtimeSourcePath = typeof __filename !== 'undefined' ? __filename : path.join(process.cwd(), 'server.ts');
+  const runtimeBundleSha256 = crypto.createHash('sha256').update(fs.readFileSync(runtimeSourcePath)).digest('hex');
+  const runtimeDeploymentIdentity = loadDeploymentIdentity(process.env.FIELDOPS_DEPLOYMENT_MANIFEST_PATH, runtimeSourcePath);
   if (!runtimeDeploymentIdentity.sourceRevision && !runtimeDeploymentIdentity.nativeRevision && !runtimeDeploymentIdentity.informationalVersion) {
     console.warn('Deployment identity is unavailable at Dashboard startup.');
   }
@@ -216,8 +217,29 @@ async function startServer() {
   app.get('/api/serial-ports', (_req, res) => {
     readSerialInventoryPipe().then(body => res.json(body));
   });
+  app.get('/api/location/providers', async (_req, res) => {
+    const inventory = await readSerialInventoryPipe();
+    res.status(inventory.status === 'Error' ? 503 : 200).json({ observedAtUtc: inventory.observedAtUtc, providers: inventory.locationProviders, error: inventory.error });
+  });
   app.get('/api/location', async (_req, res) => res.json(await readLocationTelemetryPipe()));
   app.get('/api/location/diagnostics', async (_req, res) => res.json(await readGnssSerialDiagnosticsPipe()));
+  app.post('/api/location/configure', async (req, res) => {
+    const port = typeof req.body?.port === 'string' ? req.body.port : '';
+    const baud = typeof req.body?.baud === 'number' ? req.body.baud : 0;
+    if (!port || !Number.isInteger(baud)) { res.status(400).json({ error: 'A serial port and integer baud rate are required.' }); return; }
+    const diagnostics = await configureNmeaPipe(port, baud);
+    res.status(diagnostics.transportStatus === 'unavailable' ? 503 : 200).json(diagnostics);
+  });
+  app.post('/api/location/provider', async (req, res) => {
+    const providerType = req.body?.providerType;
+    if (!['Automatic', 'SerialNmea', 'WindowsSensor'].includes(providerType)) { res.status(400).json({ error: 'Unsupported location provider.' }); return; }
+    const identity = typeof req.body?.stableIdentity === 'string' ? req.body.stableIdentity : null;
+    const port = providerType === 'SerialNmea' && typeof req.body?.port === 'string' ? req.body.port : null;
+    const baud = providerType === 'SerialNmea' && typeof req.body?.baud === 'number' ? req.body.baud : null;
+    if (providerType === 'SerialNmea' && (!port || !Number.isInteger(baud))) { res.status(400).json({ error: 'Serial NMEA selection requires a port and integer baud rate.' }); return; }
+    const diagnostics = await configureProviderPipe(providerType, identity, port, baud);
+    res.status(diagnostics.transportStatus === 'unavailable' ? 503 : 200).json(diagnostics);
+  });
   app.get('/api/system', async (_req, res) => res.json(await readSystemTelemetry()));
   app.get('/api/observed-rf', async (_req, res) => {
     const location = await readLocationTelemetryPipe();

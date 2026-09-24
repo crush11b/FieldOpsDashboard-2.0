@@ -1,12 +1,14 @@
 using System.Diagnostics;
 using System.IO.Ports;
 using System.Text.Json;
+using FieldOps.Agent.Serial;
 using Microsoft.Extensions.Logging;
 
 namespace FieldOps.Agent.Location;
 
 public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedService, IDisposable
 {
+    private static readonly JsonSerializerOptions SettingsJsonOptions = new() { PropertyNamingPolicy = JsonNamingPolicy.CamelCase, PropertyNameCaseInsensitive = true };
     private const int DefaultNoDataTimeoutSeconds = 10;
     private readonly ILogger<SerialNmeaLocationProvider> logger;
     private string portName;
@@ -15,6 +17,8 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     private readonly TimeSpan noDataTimeout;
     private readonly Func<string, int, INmeaSerialReader> readerFactory;
     private readonly Func<IReadOnlyList<string>> portEnumerator;
+    private readonly Func<IReadOnlyList<SerialPortInfo>> inventoryReader;
+    private GnssDeviceIdentity? deviceIdentity;
     private readonly object stateLock = new();
     private LocationObservation latest = LocationObservation.WithoutTelemetry(LocationStatus.Initializing) with { Source = "SerialNmea" };
     private GnssSerialDiagnostics diagnostics;
@@ -28,11 +32,24 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     private CancellationToken lifetimeCancellationToken;
     private readonly string settingsPath;
 
-    public SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, IConfiguration configuration)
-        : this(logger, ReadSettings(configuration, out var configuredPort, out var configuredBaud), configuredBaud, TimeSpan.FromSeconds(2), noDataTimeout: TimeSpan.FromSeconds(ParseNoDataTimeoutSeconds(configuration["Agent:Location:NmeaNoDataTimeoutSeconds"]))) { }
+    public SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, IConfiguration configuration, ISerialPortEnumerator serialPortEnumerator)
+        : this(logger, ReadSettings(configuration, serialPortEnumerator, out var configuredPort, out var configuredBaud, out var configuredIdentity), configuredBaud, TimeSpan.FromSeconds(2), noDataTimeout: TimeSpan.FromSeconds(ParseNoDataTimeoutSeconds(configuration["Agent:Location:NmeaNoDataTimeoutSeconds"])), settingsPathOverride: GetSettingsPath(configuration), inventoryReader: () => serialPortEnumerator.Enumerate(CancellationToken.None).Ports, initialIdentity: configuredIdentity) { }
 
-    internal SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, string portName, int baudRate, TimeSpan retryDelay, Func<INmeaSerialReader>? readerFactory = null, TimeSpan? noDataTimeout = null, Func<IReadOnlyList<string>>? portEnumerator = null, Func<string, int, INmeaSerialReader>? candidateReaderFactory = null)
-    { this.logger = logger; this.portName = portName; this.baudRate = baudRate; this.retryDelay = retryDelay; this.noDataTimeout = noDataTimeout ?? TimeSpan.FromSeconds(DefaultNoDataTimeoutSeconds); this.readerFactory = candidateReaderFactory ?? ((port, baud) => readerFactory?.Invoke() ?? new SerialPortNmeaReader(port, baud)); this.portEnumerator = portEnumerator ?? (() => SerialPort.GetPortNames()); settingsPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FieldOpsDashboard", "agent-location.json"); diagnostics = GnssSerialDiagnostics.Stopped(portName, baudRate); }
+    internal SerialNmeaLocationProvider(ILogger<SerialNmeaLocationProvider> logger, string portName, int baudRate, TimeSpan retryDelay, Func<INmeaSerialReader>? readerFactory = null, TimeSpan? noDataTimeout = null, Func<IReadOnlyList<string>>? portEnumerator = null, Func<string, int, INmeaSerialReader>? candidateReaderFactory = null, string? settingsPathOverride = null, Func<IReadOnlyList<SerialPortInfo>>? inventoryReader = null, GnssDeviceIdentity? initialIdentity = null)
+    {
+        this.logger = logger;
+        this.portName = portName;
+        this.baudRate = baudRate;
+        this.retryDelay = retryDelay;
+        this.noDataTimeout = noDataTimeout ?? TimeSpan.FromSeconds(DefaultNoDataTimeoutSeconds);
+        this.readerFactory = candidateReaderFactory ?? ((port, baud) => readerFactory?.Invoke() ?? new SerialPortNmeaReader(port, baud));
+        this.portEnumerator = portEnumerator ?? (() => SerialPort.GetPortNames());
+        this.inventoryReader = inventoryReader ?? (() => this.portEnumerator().Select(name => new SerialPortInfo(name, null, null, null, null, null, null, null, null, null, null, true)).ToArray());
+        settingsPath = settingsPathOverride ?? GetDefaultSettingsPath();
+        deviceIdentity = initialIdentity;
+        if (settingsPathOverride is not null) LoadPersistedSettings(settingsPath);
+        diagnostics = GnssSerialDiagnostics.Stopped(this.portName, this.baudRate);
+    }
 
     public Task StartAsync(CancellationToken cancellationToken)
     {
@@ -92,11 +109,12 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
     public async Task<GnssSerialDiagnostics> ConfigureAsync(string requestedPort, int requestedBaud, CancellationToken cancellationToken)
     {
         var port = requestedPort.Trim().ToUpperInvariant();
-        if (port != "AUTO_DETECT" && (!System.Text.RegularExpressions.Regex.IsMatch(port, "^COM[1-9][0-9]*$") || !SerialPort.GetPortNames().Contains(port, StringComparer.OrdinalIgnoreCase))) throw new ArgumentException("The selected serial port is not currently detected.", nameof(requestedPort));
+        var selected = port == "AUTO_DETECT" ? null : inventoryReader().FirstOrDefault(candidate => candidate.PortName.Equals(port, StringComparison.OrdinalIgnoreCase));
+        if (port != "AUTO_DETECT" && (!System.Text.RegularExpressions.Regex.IsMatch(port, "^COM[1-9][0-9]*$") || selected is null)) throw new ArgumentException("The selected serial port is not currently detected.", nameof(requestedPort));
         if (requestedBaud is not (4800 or 9600 or 19200 or 38400 or 57600 or 115200)) throw new ArgumentException("The selected baud rate is unsupported.", nameof(requestedBaud));
         await StopAsync(cancellationToken);
-        lock (stateLock) { portName = port; baudRate = requestedBaud; diagnostics = GnssSerialDiagnostics.Stopped(portName, baudRate); }
-        PersistSettings(port, requestedBaud);
+        lock (stateLock) { portName = port; baudRate = requestedBaud; deviceIdentity = selected is null ? null : GnssDeviceIdentity.From(selected); diagnostics = GnssSerialDiagnostics.Stopped(portName, baudRate) with { DeviceName = selected?.FriendlyName, InterfaceIdentity = deviceIdentity?.InterfaceIdentity, DeviceInstanceId = deviceIdentity?.DeviceInstanceId }; }
+        PersistSettings(port, requestedBaud, deviceIdentity);
         await StartAsync(lifetimeCancellationToken);
         return GetDiagnostics();
     }
@@ -125,8 +143,8 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                     diagnostics = diagnostics with { State = GnssSerialState.Opening, SessionGeneration = diagnostics.SessionGeneration + 1, LastOpenAttemptUtc = attemptUtc };
                 }
                 var selectedPort = await ResolvePortAsync(cancellationToken);
-                lock (stateLock) { portName = selectedPort; diagnostics = diagnostics with { PortName = selectedPort }; }
-                using var port = readerFactory(selectedPort, baudRate);
+                lock (stateLock) { portName = selectedPort.PortName; deviceIdentity = selectedPort.Identity; diagnostics = diagnostics with { PortName = selectedPort.PortName, DeviceName = selectedPort.Info.FriendlyName, InterfaceIdentity = selectedPort.Identity?.InterfaceIdentity, DeviceInstanceId = selectedPort.Identity?.DeviceInstanceId }; }
+                using var port = readerFactory(selectedPort.PortName, baudRate);
                 lock (stateLock) activeReader = port;
                 port.Open();
                 sessionOpened = true;
@@ -164,6 +182,7 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { break; }
             catch (NmeaSilenceException ex) { SetUnavailable(); SetFailure(GnssSerialState.Silent, GnssSerialFailureCategory.SerialSilence, ex); logger.LogWarning("NMEA port {PortName} received no serial data for {TimeoutSeconds} seconds; reconnecting.", portName, noDataTimeout.TotalSeconds); logger.LogDebug(ex, "NMEA silent-session watchdog expired"); }
+            catch (AutoDetectFailureException ex) { SetUnavailable(); SetFailure(GnssSerialState.OpenFailed, GnssSerialFailureCategory.SerialSilence, ex); logger.LogWarning("AUTO_DETECT found no valid NMEA serial port; awaiting explicit configuration."); }
             catch (UnauthorizedAccessException ex) { SetUnavailable(); SetFailure(GnssSerialState.OpenFailed, GnssSerialFailureCategory.AccessDenied, ex); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
             catch (IOException ex) { SetUnavailable(); SetFailure(GnssSerialState.OpenFailed, GnssSerialFailureCategory.IoError, ex); logger.LogInformation(ex, "NMEA port unavailable or in use"); }
             catch (Exception ex) { SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Error)); SetFailure(sessionOpened ? GnssSerialState.Reconnecting : GnssSerialState.OpenFailed, GnssSerialFailureCategory.UnexpectedError, ex); logger.LogInformation(ex, "Unexpected NMEA reader failure"); }
@@ -187,28 +206,90 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
 
     private sealed class NmeaSilenceException(TimeSpan timeout) : IOException($"No NMEA serial data received for {timeout.TotalSeconds} seconds.");
 
-    private static string ReadSettings(IConfiguration configuration, out string port, out int baud)
+    private sealed record ResolvedPort(string PortName, SerialPortInfo Info, GnssDeviceIdentity? Identity);
+    private sealed record PersistedSettings(GnssDeviceIdentity? DeviceIdentity, string? Port, int Baud);
+    internal sealed record GnssDeviceIdentity(string? DeviceInstanceId, string? InterfaceIdentity, string? FriendlyName)
+    {
+        public static GnssDeviceIdentity? From(SerialPortInfo info) => string.IsNullOrWhiteSpace(info.DeviceInstanceId) && string.IsNullOrWhiteSpace(info.InterfaceIdentity) ? null : new(info.DeviceInstanceId, info.InterfaceIdentity, info.FriendlyName);
+    }
+
+    private static string ReadSettings(IConfiguration configuration, ISerialPortEnumerator serialPortEnumerator, out string port, out int baud, out GnssDeviceIdentity? identity)
     {
         port = configuration["Agent:Location:NmeaPort"] ?? "AUTO_DETECT";
         baud = int.TryParse(configuration["Agent:Location:NmeaBaud"], out var configuredBaud) ? configuredBaud : 9600;
-        var file = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FieldOpsDashboard", "agent-location.json");
-        try { if (File.Exists(file)) { var persisted = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(File.ReadAllText(file)); if (persisted?.TryGetValue("port", out var persistedPort) == true) port = persistedPort.GetString() ?? port; if (persisted?.TryGetValue("baud", out var persistedBaud) == true && persistedBaud.TryGetInt32(out var value)) baud = value; } } catch { }
+        identity = null;
+        var file = GetSettingsPath(configuration);
+        try
+        {
+            if (File.Exists(file))
+            {
+                var persisted = JsonSerializer.Deserialize<PersistedSettings>(File.ReadAllText(file), SettingsJsonOptions);
+                if (persisted?.Baud > 0) baud = persisted.Baud;
+                var persistedIdentity = persisted?.DeviceIdentity;
+                identity = persistedIdentity;
+                if (persistedIdentity is not null)
+                {
+                    var ports = serialPortEnumerator.Enumerate(CancellationToken.None).Ports;
+                    var match = ports.FirstOrDefault(candidate => candidate.DeviceInstanceId?.Equals(persistedIdentity.DeviceInstanceId, StringComparison.OrdinalIgnoreCase) == true)
+                        ?? ports.FirstOrDefault(candidate => candidate.InterfaceIdentity?.Equals(persistedIdentity.InterfaceIdentity, StringComparison.OrdinalIgnoreCase) == true && (string.IsNullOrWhiteSpace(persistedIdentity.FriendlyName) || candidate.FriendlyName?.Equals(persistedIdentity.FriendlyName, StringComparison.OrdinalIgnoreCase) == true));
+                    if (match is not null) port = match.PortName;
+                }
+                else if (!string.IsNullOrWhiteSpace(persisted?.Port)) port = persisted.Port!;
+            }
+        }
+        catch { }
         return port;
     }
 
-    private void PersistSettings(string port, int baud)
+    private static string GetDefaultSettingsPath() => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FieldOpsDashboard", "agent-location.json");
+    private static string GetSettingsPath(IConfiguration configuration) => configuration["Agent:Location:SettingsPath"] is { Length: > 0 } configuredPath ? configuredPath : GetDefaultSettingsPath();
+    private void LoadPersistedSettings(string file)
+    {
+        try
+        {
+            if (!File.Exists(file)) return;
+            var persisted = JsonSerializer.Deserialize<PersistedSettings>(File.ReadAllText(file), SettingsJsonOptions);
+            if (persisted?.Baud > 0) this.baudRate = persisted.Baud;
+            this.deviceIdentity = persisted?.DeviceIdentity;
+            if (!string.IsNullOrWhiteSpace(persisted?.Port)) this.portName = persisted.Port!;
+            if (this.deviceIdentity is not null)
+            {
+                var match = inventoryReader().FirstOrDefault(candidate => candidate.DeviceInstanceId?.Equals(this.deviceIdentity.DeviceInstanceId, StringComparison.OrdinalIgnoreCase) == true)
+                    ?? inventoryReader().FirstOrDefault(candidate => candidate.InterfaceIdentity?.Equals(this.deviceIdentity.InterfaceIdentity, StringComparison.OrdinalIgnoreCase) == true && (string.IsNullOrWhiteSpace(this.deviceIdentity.FriendlyName) || candidate.FriendlyName?.Equals(this.deviceIdentity.FriendlyName, StringComparison.OrdinalIgnoreCase) == true));
+                if (match is not null) this.portName = match.PortName;
+            }
+        }
+        catch { }
+    }
+
+    private void PersistSettings(string port, int baud, GnssDeviceIdentity? identity)
     {
         Directory.CreateDirectory(Path.GetDirectoryName(settingsPath)!);
         var temporary = $"{settingsPath}.{Environment.ProcessId}.{DateTime.UtcNow.Ticks}.tmp";
-        try { File.WriteAllText(temporary, JsonSerializer.Serialize(new { port, baud })); File.Move(temporary, settingsPath, true); } finally { try { File.Delete(temporary); } catch { } }
+        try { File.WriteAllText(temporary, JsonSerializer.Serialize(identity is null ? new PersistedSettings(null, port, baud) : new PersistedSettings(identity, null, baud), SettingsJsonOptions)); File.Move(temporary, settingsPath, true); } finally { try { File.Delete(temporary); } catch { } }
     }
 
     private void SetUnavailable() => SetLatest(LocationObservation.WithoutTelemetry(LocationStatus.Unavailable));
 
-    private async Task<string> ResolvePortAsync(CancellationToken cancellationToken)
+    private async Task<ResolvedPort> ResolvePortAsync(CancellationToken cancellationToken)
     {
-        lock (stateLock) { if (!portName.Equals("AUTO_DETECT", StringComparison.OrdinalIgnoreCase)) return portName; }
-        foreach (var candidate in portEnumerator().Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
+        var inventory = inventoryReader();
+        lock (stateLock)
+        {
+            if (deviceIdentity is not null)
+            {
+                var exact = inventory.FirstOrDefault(candidate => candidate.DeviceInstanceId?.Equals(deviceIdentity.DeviceInstanceId, StringComparison.OrdinalIgnoreCase) == true)
+                    ?? inventory.FirstOrDefault(candidate => candidate.InterfaceIdentity?.Equals(deviceIdentity.InterfaceIdentity, StringComparison.OrdinalIgnoreCase) == true && (string.IsNullOrWhiteSpace(deviceIdentity.FriendlyName) || candidate.FriendlyName?.Equals(deviceIdentity.FriendlyName, StringComparison.OrdinalIgnoreCase) == true));
+                if (exact is not null) return new(exact.PortName, exact, GnssDeviceIdentity.From(exact));
+            }
+            if (!portName.Equals("AUTO_DETECT", StringComparison.OrdinalIgnoreCase))
+            {
+                var manual = inventory.FirstOrDefault(candidate => candidate.PortName.Equals(portName, StringComparison.OrdinalIgnoreCase));
+                if (manual is not null) return new(manual.PortName, manual, manual.InterfaceIdentity is null ? null : GnssDeviceIdentity.From(manual));
+            }
+        }
+        var knownPorts = inventory.Select(item => item.PortName).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        foreach (var candidate in inventory.Where(SerialPortIdentityRules.IsAutomaticGnssCandidate).Select(item => item.PortName).Concat(portEnumerator().Where(name => !knownPorts.Contains(name))).Distinct(StringComparer.OrdinalIgnoreCase).OrderBy(value => value, StringComparer.OrdinalIgnoreCase))
         {
             cancellationToken.ThrowIfCancellationRequested();
             using var probe = readerFactory(candidate, baudRate);
@@ -220,14 +301,19 @@ public sealed class SerialNmeaLocationProvider : ILocationProvider, IHostedServi
                 while (!timeout.IsCancellationRequested)
                 {
                     var line = await probe.ReadLineAsync(timeout.Token);
-                    if (line is not null && NmeaParser.TryParse(line.Trim(), out _)) return candidate;
+                    if (line is not null && NmeaParser.TryParse(line.Trim(), out _))
+                    {
+                        var info = inventory.FirstOrDefault(item => item.PortName.Equals(candidate, StringComparison.OrdinalIgnoreCase)) ?? new SerialPortInfo(candidate, null, null, null, null, null, null, null, null, null, null, true);
+                        return new(candidate, info, info.InterfaceIdentity is null ? null : GnssDeviceIdentity.From(info));
+                    }
                 }
             }
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested) { throw; }
             catch (Exception exception) { logger.LogDebug(exception, "AUTO_DETECT probe failed for {PortName}.", candidate); }
         }
-        throw new InvalidOperationException("AUTO_DETECT found no serial port producing valid NMEA data.");
+        throw new AutoDetectFailureException("AUTO_DETECT found no serial port producing valid NMEA data.");
     }
+    private sealed class AutoDetectFailureException(string message) : Exception(message);
     private void SetFailure(GnssSerialState state, GnssSerialFailureCategory category, Exception exception)
     {
         lock (stateLock)
