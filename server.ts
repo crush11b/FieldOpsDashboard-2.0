@@ -176,6 +176,7 @@ async function startServer() {
       sotaDatasetReader: () => sotaDataStore.dataset,
       checklistStore: fieldReadinessChecklistStore,
       activationNotesStore,
+      readMissionForecast: briefId => missionForecastStore.getByBriefId(briefId),
       readLocation: readLocationTelemetryPipe,
       readClockStatus: readClockStatusPipe,
       readSystem: readSystemTelemetry,

@@ -38,10 +38,26 @@ function dependencies(overrides: Partial<OperationsReadinessAssemblyDependencies
     sotaDatasetReader: () => LocalSotaSummitDataset.unavailable(),
     checklistStore: { getByBriefId: vi.fn(() => ({ status: 'missing', checklists: [], diagnostics: [{ code: 'missing', message: 'none' }] })) } as never,
     activationNotesStore: { getByBriefId: vi.fn(() => ({ status: 'missing', collections: [], diagnostics: [{ code: 'missing', message: 'none' }] })) } as never,
+    readMissionForecast: vi.fn(() => ({ status: 'notFound', diagnostics: [{ code: 'missing', message: 'none' }] })) as never,
     readLocation: vi.fn(async () => ({ status: 'Available', latitude: 42, longitude: -71, timestampUtc: evaluatedAtUtc, source: 'SerialNmea' })) as never,
     readSystem: vi.fn(async () => ({ status: 'Available', observedAtUtc: evaluatedAtUtc, source: 'WindowsPowerStatus', chargePercent: 80, charging: false, powerSource: 'Battery', remainingRuntimeSeconds: 3600 })) as never,
     now: () => new Date(evaluatedAtUtc),
     ...overrides,
+  };
+}
+
+function forecast(briefId = 'brief-1'): any {
+  return {
+    schemaVersion: 2,
+    briefId,
+    activation: { program: 'POTA', reference: 'US-1234' },
+    plannedSite: { latitude: 42, longitude: -71, gridSquare: null, provenance: 'operator' },
+    missionWindow: { start: evaluatedAtUtc, end: '2026-08-19T14:00:00.000Z' },
+    provider: { id: 'open-meteo-mission-forecast', name: 'Open-Meteo', timezone: 'UTC' },
+    retrievedAtUtc: '2026-08-19T11:00:00.000Z',
+    hourly: [], periods: [], operatingPeriods: [],
+    presentation: { mode: 'hourly', hourlyThresholdHours: 12, boundaryStrategy: 'utc_fixed_six_hour_periods' },
+    status: 'live', freshness: 'retained', coverageStatus: 'complete', sourceUrl: 'https://example.test', limitations: [], diagnostics: [], updatedAtUtc: '2026-08-19T11:00:00.000Z',
   };
 }
 
@@ -62,6 +78,70 @@ describe('Operations Readiness assembly', () => {
       alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, limitation: expect.stringContaining('No live provider request was performed') },
     });
     expect(deps.briefStore.get).toHaveBeenCalledWith('brief-1');
+  });
+
+  it('surfaces a same-brief retained forecast without turning it into current weather or alerts', async () => {
+    const readMissionForecast = vi.fn(() => ({ status: 'found' as const, record: forecast(), diagnostics: [] }));
+    const enrichWeather = vi.fn();
+    const result = await assembleOperationsReadiness('brief-1', dependencies({ readMissionForecast, enrichWeather }));
+    expect(result.status).toBe('ok');
+    expect(readMissionForecast).toHaveBeenCalledWith('brief-1');
+    expect(enrichWeather).not.toHaveBeenCalled();
+    if (result.status !== 'ok') return;
+    expect(result.displayEvidence.retainedMissionForecast).toMatchObject({
+      record: { briefId: 'brief-1', missionWindow: { start: evaluatedAtUtc } },
+      retrievedAtUtc: '2026-08-19T11:00:00.000Z',
+      source: { id: 'retained-mission-forecast', type: 'retained_mission_forecast' },
+    });
+    expect(result.displayEvidence.weather.status).toBe('not_requested');
+    expect(result.displayEvidence.alerts.status).toBe('not_requested');
+    expect(result.summary.findings.find(finding => finding.id === 'weather')).toMatchObject({ status: 'unavailable' });
+    expect(result.summary.findings.find(finding => finding.id === 'weather-alerts')).toMatchObject({ status: 'unavailable' });
+  });
+
+  it('keeps retained forecast and explicit live weather provenance distinct', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readMissionForecast: () => ({ status: 'found', record: forecast(), diagnostics: [] }),
+      enrichWeather: vi.fn(async () => ({
+        weather: { status: 'live' as const, source: { id: 'weather-provider', type: 'weather_provider' } },
+        alerts: { status: 'live' as const, active: [], source: { id: 'alerts-provider', type: 'weather_alert_provider' } },
+        displayEvidence: {
+          weather: { status: 'live' as const, data: { tempF: 41 } as never, retrievedAtUtc: evaluatedAtUtc, source: { id: 'weather-provider', type: 'weather_provider' } },
+          alerts: { status: 'live' as const, active: [], retrievedAtUtc: evaluatedAtUtc, source: { id: 'alerts-provider', type: 'weather_alert_provider' } },
+        },
+        diagnostics: [],
+      })),
+    }), { includeLiveWeather: true });
+    expect(result.status).toBe('ok');
+    if (result.status !== 'ok') return;
+    expect(result.displayEvidence.retainedMissionForecast?.source.type).toBe('retained_mission_forecast');
+    expect(result.displayEvidence.weather.source.type).toBe('weather_provider');
+    expect(result.displayEvidence.alerts.source.type).toBe('weather_alert_provider');
+    expect(result.displayEvidence.retainedMissionForecast?.retrievedAtUtc).toBe('2026-08-19T11:00:00.000Z');
+  });
+
+  it('does not cross retained forecasts between brief IDs', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readMissionForecast: () => ({ status: 'found', record: forecast('other-brief'), diagnostics: [] }),
+    }));
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.displayEvidence.retainedMissionForecast).toBeUndefined();
+      expect(result.diagnostics).toContainEqual({ code: 'mission_forecast_unavailable', message: 'Retained Mission Forecast evidence is unavailable.' });
+    }
+  });
+
+  it('degrades safely when the retained forecast store fails', async () => {
+    const result = await assembleOperationsReadiness('brief-1', dependencies({
+      readMissionForecast: () => { throw new Error('private store detail'); },
+    }));
+    expect(result.status).toBe('ok');
+    if (result.status === 'ok') {
+      expect(result.displayEvidence.retainedMissionForecast).toBeUndefined();
+      expect(result.summary.findings.find(finding => finding.id === 'weather')?.status).toBe('unavailable');
+      expect(result.diagnostics).toContainEqual({ code: 'mission_forecast_unavailable', message: 'Retained Mission Forecast evidence is unavailable.' });
+      expect(JSON.stringify(result)).not.toContain('private store detail');
+    }
   });
 
   it('preserves the passive calculated clock offset for readiness evidence', async () => {

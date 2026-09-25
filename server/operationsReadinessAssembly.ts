@@ -6,6 +6,8 @@ import type { FieldReadinessChecklistStore } from './fieldReadinessChecklistStor
 import type { ClockSynchronizationEvidence, LocationTelemetry } from './locationTelemetryPipe';
 import type { SmartDeployBrief, SmartDeployBriefV2 } from './smartDeployBrief';
 import type { SmartDeployBriefStore } from './smartDeployBriefStore';
+import type { MissionForecastStoreGetResult } from './missionForecastStore';
+import type { MissionForecastRecord } from './missionForecast';
 import { SOTA_SUMMIT_SOURCE_NAME, SOTA_SUMMIT_SOURCE_TYPE, type LocalSotaSummitDataset } from './sotaSummitDataset';
 import type { SystemTelemetry } from '../src/types';
 import type { TelemetrySource } from '../src/telemetry';
@@ -27,7 +29,8 @@ export type OperationsReadinessDiagnosticCode =
   | 'weather_enrichment_unavailable'
   | 'planned_site_coordinates_unavailable'
   | 'planned_site_weather_unavailable'
-  | 'planned_site_alerts_unavailable';
+  | 'planned_site_alerts_unavailable'
+  | 'mission_forecast_unavailable';
 
 export interface OperationsReadinessDiagnostic {
   readonly code: OperationsReadinessDiagnosticCode;
@@ -39,6 +42,7 @@ export interface OperationsReadinessAssemblyDependencies {
   readonly sotaDatasetReader: () => LocalSotaSummitDataset;
   readonly checklistStore: Pick<FieldReadinessChecklistStore, 'getByBriefId'>;
   readonly activationNotesStore: Pick<ActivationNotesStore, 'getByBriefId'>;
+  readonly readMissionForecast: (briefId: string) => MissionForecastStoreGetResult;
   readonly readLocation: () => Promise<LocationTelemetry>;
   readonly readClockStatus?: () => Promise<ClockSynchronizationEvidence>;
   readonly readSystem: () => Promise<SystemTelemetry>;
@@ -61,6 +65,7 @@ const SOURCE = {
   localLocation: { id: 'local-location-telemetry', type: 'local_telemetry_pipe', name: 'Local location telemetry' },
   localSystem: { id: 'local-system-telemetry', type: 'local_telemetry_pipe', name: 'Local system telemetry' },
   retainedPropagation: { id: 'retained-smartdeploy-propagation', type: 'retained_smartdeploy_evidence', name: 'Retained SmartDeploy propagation evidence' },
+  retainedMissionForecast: { id: 'retained-mission-forecast', type: 'retained_mission_forecast', name: 'Retained Mission Forecast' },
   sotaDataset: { id: 'sota-summit-database', type: 'sota_official_summit_csv', name: 'Official Summits on the Air summit database' },
 } as const satisfies Record<string, TelemetrySource>;
 
@@ -98,23 +103,24 @@ export async function assembleOperationsReadiness(
   const checklistResult = readChecklist(dependencies.checklistStore, briefId, diagnostics);
   const checklist = checklistResult.value;
   const activationNotes = readActivationNotes(dependencies.activationNotesStore, briefId, diagnostics);
+  const retainedForecast = readMissionForecast(dependencies.readMissionForecast, briefId, diagnostics);
   let weather: OperationsReadinessInput['weather'] = { status: 'unavailable', source: SOURCE.evaluator };
   let alerts: OperationsReadinessInput['alerts'] = { status: 'unavailable', active: [], source: SOURCE.evaluator };
-  let displayEvidence = notRequestedDisplayEvidence();
+  let displayEvidence = notRequestedDisplayEvidence(retainedForecast);
   if (options.includeLiveWeather) {
-    displayEvidence = unavailableDisplayEvidence();
+    displayEvidence = unavailableDisplayEvidence(undefined, retainedForecast);
     if (!dependencies.enrichWeather) {
-      displayEvidence = unavailableDisplayEvidence(LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION);
+      displayEvidence = unavailableDisplayEvidence(LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION, retainedForecast);
       diagnostics.push({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
     } else {
       try {
         const enrichment = await dependencies.enrichWeather(briefResult.brief);
         weather = enrichment.weather;
         alerts = enrichment.alerts;
-        displayEvidence = enrichment.displayEvidence;
+        displayEvidence = withRetainedForecast(enrichment.displayEvidence, retainedForecast);
         for (const diagnostic of enrichment.diagnostics) diagnostics.push(diagnostic);
       } catch {
-        displayEvidence = unavailableDisplayEvidence(LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION);
+        displayEvidence = unavailableDisplayEvidence(LIVE_ENRICHMENT_UNAVAILABLE_LIMITATION, retainedForecast);
         diagnostics.push({ code: 'weather_enrichment_unavailable', message: 'Live weather and alerts enrichment is unavailable.' });
       }
     }
@@ -137,18 +143,39 @@ export async function assembleOperationsReadiness(
   return { status: 'ok', summary, displayEvidence, diagnostics };
 }
 
-function notRequestedDisplayEvidence(): OperationsReadinessDisplayEvidence {
+function notRequestedDisplayEvidence(retainedForecast: MissionForecastRecord | undefined): OperationsReadinessDisplayEvidence {
   return {
+    ...(retainedForecast ? { retainedMissionForecast: retainedForecastEvidence(retainedForecast) } : {}),
     weather: { status: 'not_requested', data: null, retrievedAtUtc: null, source: SOURCE.evaluator, limitation: LOCAL_ONLY_LIMITATION },
     alerts: { status: 'not_requested', active: [], retrievedAtUtc: null, source: SOURCE.evaluator, limitation: LOCAL_ONLY_LIMITATION },
   };
 }
 
-function unavailableDisplayEvidence(limitation?: string): OperationsReadinessDisplayEvidence {
+function unavailableDisplayEvidence(limitation?: string, retainedForecast?: MissionForecastRecord): OperationsReadinessDisplayEvidence {
   return {
+    ...(retainedForecast ? { retainedMissionForecast: retainedForecastEvidence(retainedForecast) } : {}),
     weather: { status: 'unavailable', data: null, retrievedAtUtc: null, source: SOURCE.evaluator, ...(limitation ? { limitation } : {}) },
     alerts: { status: 'unavailable', active: [], retrievedAtUtc: null, source: SOURCE.evaluator, ...(limitation ? { limitation } : {}) },
   };
+}
+
+function withRetainedForecast(displayEvidence: OperationsReadinessDisplayEvidence, retainedForecast: MissionForecastRecord | undefined): OperationsReadinessDisplayEvidence {
+  return retainedForecast ? { ...displayEvidence, retainedMissionForecast: retainedForecastEvidence(retainedForecast) } : displayEvidence;
+}
+
+function retainedForecastEvidence(record: MissionForecastRecord): NonNullable<OperationsReadinessDisplayEvidence['retainedMissionForecast']> {
+  return { record, retrievedAtUtc: record.retrievedAtUtc, source: SOURCE.retainedMissionForecast, limitation: 'Mission-window forecast evidence is retained separately from live/current weather observations and NOAA alerts.' };
+}
+
+function readMissionForecast(reader: OperationsReadinessAssemblyDependencies['readMissionForecast'], briefId: string, diagnostics: OperationsReadinessDiagnostic[]): MissionForecastRecord | undefined {
+  try {
+    const result = reader(briefId);
+    if (result.status === 'found' && result.record.briefId === briefId) return result.record;
+    if (result.status === 'found' || hasStoreFailure(result.diagnostics)) diagnostics.push({ code: 'mission_forecast_unavailable', message: 'Retained Mission Forecast evidence is unavailable.' });
+  } catch {
+    diagnostics.push({ code: 'mission_forecast_unavailable', message: 'Retained Mission Forecast evidence is unavailable.' });
+  }
+  return undefined;
 }
 
 function readDataset(reader: () => LocalSotaSummitDataset, diagnostics: OperationsReadinessDiagnostic[]): OperationsReadinessInput['plan']['sotaDataset'] {

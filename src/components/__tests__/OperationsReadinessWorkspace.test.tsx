@@ -79,6 +79,18 @@ describe('OperationsReadinessWorkspace', () => {
     await waitFor(() => expect(screen.getByText(/Rain, gust max 32 mph/)).toBeInTheDocument());
   });
 
+  it('shows retained forecast provenance without loading NOAA Alerts', async () => {
+    const retained = { briefId: brief.briefId, activation: { program: 'POTA', reference: 'US-1234' }, missionWindow: brief.missionWindow, retrievedAtUtc: '2026-08-21T04:01:00.000Z', coverageStatus: 'complete', operatingPeriods: [{ periodId: 'period-1', label: 'Morning (UTC)', significantCondition: 'Clear Sky', windGustMaxMph: 12 }] } as any;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => String(input).includes('/api/mission-forecast/brief/')
+      ? { ok: true, json: async () => ({ record: retained }) }
+      : { ok: true, json: async () => response('not_requested', summary, { retainedMissionForecast: { record: retained, retrievedAtUtc: retained.retrievedAtUtc, source: { id: 'retained-mission-forecast', type: 'retained_mission_forecast', name: 'Retained Mission Forecast' }, limitation: 'Mission-window forecast evidence is retained separately from live/current weather observations and NOAA alerts.' } }) }));
+    render(<OperationsReadinessWorkspace brief={brief} />);
+    await waitFor(() => expect(screen.getByText('Retained Mission Forecast available; current weather remains separate.')).toBeInTheDocument());
+    expect(screen.getByText('Provenance: RETAINED MISSION FORECAST')).toBeInTheDocument();
+    expect(screen.getByText('Alerts not loaded')).toBeInTheDocument();
+    expect(screen.queryByText('Weather not loaded')).toBeNull();
+  });
+
   it('keeps retained forecast visible and reports a failed refresh separately', async () => {
     const persisted = { briefId: brief.briefId, activation: { program: 'POTA', reference: 'US-1234' }, missionWindow: brief.missionWindow, retrievedAtUtc: '2026-08-21T04:01:00.000Z', coverageStatus: 'complete', operatingPeriods: [{ periodId: 'period-1', label: 'Morning (UTC)', significantCondition: 'Wind', windGustMaxMph: 35 }] } as any;
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
