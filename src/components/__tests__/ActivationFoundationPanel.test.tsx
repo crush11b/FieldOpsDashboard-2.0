@@ -48,7 +48,9 @@ describe('ActivationFoundationPanel', () => {
 
     expect(screen.getByRole('button', { name: 'START ACTIVATION' })).toBeTruthy();
     expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveTextContent('PLANNED ACTIVATION');
+    expect(screen.getByRole('banner', { name: 'Operational header' })).toHaveClass('fo-operational-header-sticky');
     expect(screen.getByRole('banner', { name: 'Operational header' })).not.toHaveTextContent('ACTIVE ACTIVATION');
+    expect(screen.getByLabelText('Operation Context')).not.toHaveClass('fo-operational-header-sticky');
     expect(screen.getByText('Technical Details').closest('details')).not.toHaveAttribute('open');
     fireEvent.click(screen.getByRole('button', { name: 'START ACTIVATION' }));
     await waitFor(() => expect(screen.getByText('ACTIVE · Started 2026-08-26 12:00:00 UTC')).toBeTruthy());

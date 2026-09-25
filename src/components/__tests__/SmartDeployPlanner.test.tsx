@@ -680,6 +680,45 @@ describe('SmartDeploy brief rendering', () => {
     expect(screen.getByLabelText('QSO logging').compareDocumentPosition(screen.getByRole('region', { name: 'Layered propagation picture' })) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it('keeps phase navigation sticky while moving operational stickiness to Active Activation', async () => {
+    const observers: { readonly disconnect: ReturnType<typeof vi.fn> }[] = [];
+    class FakeResizeObserver {
+      readonly disconnect = vi.fn();
+      observe = vi.fn();
+      constructor(_callback: ResizeObserverCallback) { observers.push(this); }
+    }
+    vi.stubGlobal('ResizeObserver', FakeResizeObserver);
+    const activeActivation = { activationId: 'activation-sticky', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'active', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const path = String(input);
+      if (path === '/api/activations') return { ok: true, json: async () => ({ activations: [activeActivation] }) };
+      if (path.includes('/qsos')) return { ok: true, json: async () => ({ qsos: [] }) };
+      if (path.includes('/wsjtx/')) return { ok: true, json: async () => ({ status: 'unavailable', state: null }) };
+      return { ok: true, json: async () => ({ record: null }) };
+    }));
+    const view = render(<SmartDeployBriefView brief={v2Brief} />);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'QSO LOG' })).toBeTruthy());
+
+    const layout = document.getElementById('smartdeploy-brief');
+    const context = screen.getByRole('region', { name: 'Mission and operation context' });
+    const navigation = screen.getByRole('navigation', { name: 'Activation workspace' });
+    const operationalHeader = screen.getByRole('banner', { name: 'Operational header' });
+    const operationContext = screen.getByLabelText('Operation Context');
+    expect(context.closest('header')).toBeNull();
+    expect(navigation.closest('header')).toHaveClass('fo-workspace-navigation-sticky');
+    expect(navigation.closest('header')).not.toHaveClass('sticky', 'top-0');
+    expect(operationalHeader).toHaveClass('fo-operational-header-sticky');
+    expect(operationContext).not.toHaveClass('fo-operational-header-sticky');
+    expect(operationalHeader).toHaveTextContent('ACTIVE ACTIVATION');
+    expect(operationalHeader).toHaveTextContent('CURRENT STATION');
+    expect(operationalHeader).toHaveTextContent('QSOS');
+    expect(layout?.style.getPropertyValue('--fo-global-header-height')).toBe('0px');
+    expect(layout?.style.getPropertyValue('--fo-workspace-navigation-height')).toBe('0px');
+    expect(observers).toHaveLength(1);
+    view.unmount();
+    expect(observers[0]?.disconnect).toHaveBeenCalledTimes(1);
+  });
+
   it('updates an existing active objective-less Activation through the persisted objective path', async () => {
     const plannedActivation = { activationId: 'activation-new', briefId: v2Brief.briefId, type: 'POTA', reference: 'US-1234', title: 'Test Park', status: 'planned', plannedLocation: { gridSquare: 'FM18' }, missionWindow: v2Brief.missionWindow } as any;
     const oldActiveActivations = [

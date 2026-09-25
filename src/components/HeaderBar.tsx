@@ -63,7 +63,7 @@ export const HeaderBar: React.FC<HeaderBarProps> = ({
   }, []);
 
   return (
-    <header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
+    <header data-fieldops-global-header className="sticky top-0 z-30 p-2 sm:p-4 transition-colors">
       <div className="fo-header max-w-7xl mx-auto flex items-center justify-between gap-3 px-4 py-3 rounded-2xl border">
         
         {/* Left: Brand, operator callsign, and release version. */}
