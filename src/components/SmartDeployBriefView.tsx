@@ -159,8 +159,8 @@ const V2BriefView: React.FC<{ brief: SmartDeployBriefV2 }> = ({ brief }) => {
     if (!layout || !navigation || typeof ResizeObserver === 'undefined') return;
     const globalHeader = document.querySelector<HTMLElement>('[data-fieldops-global-header]');
     const updateOffsets = () => {
-      layout.style.setProperty('--fo-global-header-height', `${globalHeader?.getBoundingClientRect().height ?? 0}px`);
-      layout.style.setProperty('--fo-workspace-navigation-height', `${navigation.getBoundingClientRect().height}px`);
+      layout.style.setProperty('--fo-global-header-height', `${globalHeader?.offsetHeight ?? 0}px`);
+      layout.style.setProperty('--fo-workspace-navigation-height', `${navigation.offsetHeight}px`);
     };
     updateOffsets();
     const observer = new ResizeObserver(updateOffsets);
