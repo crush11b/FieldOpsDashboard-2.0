@@ -34,7 +34,7 @@ public sealed class GnssRecoveryTests : SerialNmeaTestBase
     public async Task NewSerialDataAfterAcceptedCommandProvesNmeaRecovery()
     {
         var reader = new TestReader();
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => reader, TimeSpan.FromMilliseconds(10), portEnumerator: TestPortEnumerator("COM6")));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => reader, TimeSpan.FromMilliseconds(10), portEnumerator: TestPortEnumerator("COM6"), inventoryReader: TestPortInventory("COM6")));
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.SerialSilence);
         var at = new FakeAtPort("OK", () => reader.Enqueue(Gga));
@@ -52,7 +52,7 @@ public sealed class GnssRecoveryTests : SerialNmeaTestBase
     public async Task SuccessfulRecoveryLogsCorrelatedStagesAndResult()
     {
         var reader = new TestReader();
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => reader, TimeSpan.FromMilliseconds(10), portEnumerator: TestPortEnumerator("COM6")));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(5), () => reader, TimeSpan.FromMilliseconds(10), portEnumerator: TestPortEnumerator("COM6"), inventoryReader: TestPortInventory("COM6")));
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => provider.GetDiagnostics().LastFailureCategory == GnssSerialFailureCategory.SerialSilence);
         using var loggerProvider = new CapturingLoggerProvider();

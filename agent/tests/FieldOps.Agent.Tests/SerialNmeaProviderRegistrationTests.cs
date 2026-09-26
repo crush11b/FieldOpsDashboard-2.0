@@ -22,7 +22,8 @@ public sealed class SerialNmeaProviderRegistrationTests : SerialNmeaTestBase
                 9600,
                 TimeSpan.FromMilliseconds(1),
                 () => reader,
-                portEnumerator: TestPortEnumerator("COM6")))
+                portEnumerator: TestPortEnumerator("COM6"),
+                inventoryReader: TestPortInventory("COM6")))
             .AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>()
             .AddSingleton<IHostedService>(sp => sp.GetRequiredService<SerialNmeaLocationProvider>())
             .BuildServiceProvider();

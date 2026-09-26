@@ -1,4 +1,5 @@
 using FieldOps.Agent.Location;
+using FieldOps.Agent.Serial;
 
 namespace FieldOps.Agent.Tests;
 
@@ -16,6 +17,9 @@ public abstract class SerialNmeaTestBase : IAsyncLifetime
     }
 
     protected static Func<IReadOnlyList<string>> TestPortEnumerator(string portName) => () => new[] { portName };
+
+    protected static Func<IReadOnlyList<SerialPortInfo>> TestPortInventory(params string[] portNames) =>
+        () => portNames.Select(portName => new SerialPortInfo(portName, null, null, null, null, null, null, null, null, null, null, true)).ToArray();
 
     public Task InitializeAsync() => Task.CompletedTask;
 

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using FieldOps.Agent.Location;
+using FieldOps.Agent.Serial;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -67,7 +68,7 @@ public sealed class LocationEndpointTests : IClassFixture<AgentWebApplicationFac
             services.RemoveAll<SerialNmeaLocationProvider>();
             services.AddSingleton(new SerialNmeaLocationProvider(
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<SerialNmeaLocationProvider>.Instance,
-                "COM6", 9600, TimeSpan.FromMilliseconds(1), () => new EndpointReader(), portEnumerator: () => new[] { "COM6" }));
+                "COM6", 9600, TimeSpan.FromMilliseconds(1), () => new EndpointReader(), portEnumerator: () => new[] { "COM6" }, inventoryReader: () => new[] { new SerialPortInfo("COM6", null, null, null, null, null, null, null, null, null, null, true) }));
         }));
         using var client = testFactory.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/location/nmea")).StatusCode);
