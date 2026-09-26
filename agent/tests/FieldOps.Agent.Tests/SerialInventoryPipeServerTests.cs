@@ -20,7 +20,7 @@ public sealed class SerialInventoryPipeServerTests
         var pipe = "FieldOps.SerialInventory.Test." + Guid.NewGuid().ToString("N");
         using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(5));
         var expected = new SerialPortInventory(DateTimeOffset.UtcNow, SerialInventoryStatus.Ok, Array.Empty<SerialPortInfo>(), null);
-        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), new FakeLocationProviderInventory(), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromSeconds(1), TimeSpan.FromMilliseconds(10), TestSecurity);
+        var server = new SerialInventoryPipeServer(new NativeHealthAuthorizationPolicy(null), new FakeEnumerator(expected), new FakeLocationProviderInventory(), NullLogger<SerialInventoryPipeServer>.Instance, pipe, TimeSpan.FromSeconds(5), TimeSpan.FromMilliseconds(10), TestSecurity);
         var run = server.RunAsync(stop.Token);
         using var client = new NamedPipeClientStream(".", pipe, PipeDirection.InOut, PipeOptions.Asynchronous);
         await client.ConnectAsync(1000);

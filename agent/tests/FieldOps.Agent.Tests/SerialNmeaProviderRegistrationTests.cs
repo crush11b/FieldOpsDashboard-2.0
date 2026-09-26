@@ -5,7 +5,8 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldOps.Agent.Tests;
 
-public sealed class SerialNmeaProviderRegistrationTests
+[Collection("Serial NMEA")]
+public sealed class SerialNmeaProviderRegistrationTests : SerialNmeaTestBase
 {
     private const string Gga = "$GPGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,";
     private const string Rmc = "$GPRMC,123519.00,A,4807.038,N,01131.000,E,000.0,000.0,230394,,,A";
@@ -26,6 +27,7 @@ public sealed class SerialNmeaProviderRegistrationTests
             .BuildServiceProvider();
 
         var provider = services.GetRequiredService<SerialNmeaLocationProvider>();
+        Track(provider);
         var hosted = services.GetServices<IHostedService>().Single(service => service is SerialNmeaLocationProvider);
         var locationService = services.GetRequiredService<ISerialNmeaLocationService>();
 

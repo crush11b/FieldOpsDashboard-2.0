@@ -39,6 +39,7 @@ jobs:
           npm run p533:provision
           npm run p533:verify
       - name: Restore, build, and test
+        timeout-minutes: 15
         run: dotnet test agent/FieldOps.Agent.sln --configuration Release
       - name: Publish native artifacts
         shell: pwsh
