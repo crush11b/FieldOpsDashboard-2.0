@@ -67,7 +67,7 @@ public sealed class LocationEndpointTests : IClassFixture<AgentWebApplicationFac
             services.RemoveAll<SerialNmeaLocationProvider>();
             services.AddSingleton(new SerialNmeaLocationProvider(
                 Microsoft.Extensions.Logging.Abstractions.NullLogger<SerialNmeaLocationProvider>.Instance,
-                "COM6", 9600, TimeSpan.FromMilliseconds(1), () => new EndpointReader()));
+                "COM6", 9600, TimeSpan.FromMilliseconds(1), () => new EndpointReader(), portEnumerator: () => new[] { "COM6" }));
         }));
         using var client = testFactory.CreateClient();
         Assert.Equal(HttpStatusCode.Unauthorized, (await client.GetAsync("/api/v1/location/nmea")).StatusCode);

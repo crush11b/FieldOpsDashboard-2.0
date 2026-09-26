@@ -2,8 +2,8 @@ using FieldOps.Agent.Location;
 
 namespace FieldOps.Agent.Tests;
 
-[CollectionDefinition("Serial NMEA", DisableParallelization = true)]
-public sealed class SerialNmeaTestCollection;
+[CollectionDefinition("GNSS/Serial", DisableParallelization = true)]
+public sealed class GnssSerialTestCollection;
 
 public abstract class SerialNmeaTestBase : IAsyncLifetime
 {
@@ -14,6 +14,8 @@ public abstract class SerialNmeaTestBase : IAsyncLifetime
         providers.Add(provider);
         return provider;
     }
+
+    protected static Func<IReadOnlyList<string>> TestPortEnumerator(string portName) => () => new[] { portName };
 
     public Task InitializeAsync() => Task.CompletedTask;
 

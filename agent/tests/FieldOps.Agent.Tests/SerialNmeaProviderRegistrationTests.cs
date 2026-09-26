@@ -5,7 +5,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldOps.Agent.Tests;
 
-[Collection("Serial NMEA")]
+[Collection("GNSS/Serial")]
 public sealed class SerialNmeaProviderRegistrationTests : SerialNmeaTestBase
 {
     private const string Gga = "$GPGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,";
@@ -21,7 +21,8 @@ public sealed class SerialNmeaProviderRegistrationTests : SerialNmeaTestBase
                 "COM6",
                 9600,
                 TimeSpan.FromMilliseconds(1),
-                () => reader))
+                () => reader,
+                portEnumerator: TestPortEnumerator("COM6")))
             .AddSingleton<ISerialNmeaLocationService, SerialNmeaLocationService>()
             .AddSingleton<IHostedService>(sp => sp.GetRequiredService<SerialNmeaLocationProvider>())
             .BuildServiceProvider();

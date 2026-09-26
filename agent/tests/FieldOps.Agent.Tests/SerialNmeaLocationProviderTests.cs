@@ -4,7 +4,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 
 namespace FieldOps.Agent.Tests;
 
-[Collection("Serial NMEA")]
+[Collection("GNSS/Serial")]
 public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
 {
     private const string Gga = "$GPGGA,123519.00,4807.038,N,01131.000,E,1,08,0.9,545.4,M,46.9,M,,";
@@ -95,7 +95,6 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
 
         await provider.StopAsync(CancellationToken.None);
     }
-
     [Fact] public async Task GgaOnlyReturnsFixWithoutFabricatedTimestamp() { var result = await Run(new FakeReader(Gga)); Assert.Equal(LocationStatus.Available, result.Status); Assert.Null(result.TimestampUtc); }
     [Fact] public async Task GnsOnlyReturnsFixWithoutRequiringTrustedTime() { var result = await Run(new FakeReader(Gns)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); Assert.InRange(result.Longitude!.Value, 11.5165, 11.5168); Assert.Null(result.TimestampUtc); }
     [Fact] public async Task IncoherentRmcDoesNotInvalidateValidGgaFix() { var result = await Run(new FakeReader(Gga, Rmc)); Assert.Equal(LocationStatus.Available, result.Status); Assert.InRange(result.Latitude!.Value, 48.1172, 48.1174); }
@@ -115,7 +114,7 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
     {
         var recovered = new FakeReader(Gga);
         var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { new FaultingReader(), recovered });
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue()));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), portEnumerator: TestPortEnumerator("COM6")));
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => recovered.OpenCount == 1);
         await Eventually(async () => (await provider.GetLocationAsync(CancellationToken.None)).Status == LocationStatus.Available);
@@ -128,7 +127,7 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
         var first = new FakeReader(Gga);
         var second = new FakeReader(Rmc);
         var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { first, second });
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue()));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), portEnumerator: TestPortEnumerator("COM6")));
 
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => first.OpenCount == 1);
@@ -202,7 +201,7 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
         var silent = new TimedReader(5);
         var recovered = new FakeReader(Gga);
         var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { silent, recovered });
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30)));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30), portEnumerator: TestPortEnumerator("COM6")));
 
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => recovered.OpenCount == 1, 500);
@@ -219,7 +218,7 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
         var first = new TimedReader(5, null, Gga);
         var second = new FakeReader(Gga);
         var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { first, second });
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30)));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30), portEnumerator: TestPortEnumerator("COM6")));
 
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => first.OpenCount == 1);
@@ -235,7 +234,7 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
     {
         var silent = new TimedReader(5);
         var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { silent });
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30)));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30), portEnumerator: TestPortEnumerator("COM6")));
 
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => silent.OpenCount == 1);
@@ -251,7 +250,7 @@ public sealed class SerialNmeaLocationProviderTests : SerialNmeaTestBase
         var silent = new TimedReader(5);
         var recovered = new FakeReader(Gga);
         var readers = new Queue<INmeaSerialReader>(new INmeaSerialReader[] { silent, recovered });
-        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30)));
+        var provider = Track(new SerialNmeaLocationProvider(NullLogger<SerialNmeaLocationProvider>.Instance, "COM6", 9600, TimeSpan.FromMilliseconds(1), () => readers.Dequeue(), TimeSpan.FromMilliseconds(30), portEnumerator: TestPortEnumerator("COM6")));
 
         await provider.StartAsync(CancellationToken.None);
         await Eventually(() => recovered.OpenCount == 1, 500);
